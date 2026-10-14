@@ -11,6 +11,7 @@ from threading import Event
 
 from .models import AnalysisResult, Diagnostic, FileCoverage, is_relative_file
 from .syntax import LANGUAGES, extract, make_parser
+from ._version import __version__
 
 
 def analyze_repository(
@@ -183,7 +184,7 @@ def analyze_repository(
         "files": [vars(item) for item in coverage],
         "languages": languages,
         "versions": sorted(versions.items()),
-        "analyzer_version": "0.1.0a3",
+        "analyzer_version": __version__,
         "max_file_bytes": max_file_bytes,
         "max_files": max_files,
         "max_total_bytes": max_total_bytes,

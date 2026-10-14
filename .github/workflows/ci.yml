@@ -1,4 +1,4 @@
-name: Phase 1 acceptance
+name: Standalone acceptance
 
 on:
   push:

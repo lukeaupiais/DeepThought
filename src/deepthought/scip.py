@@ -16,9 +16,11 @@ from .models import (
     Definition,
     Diagnostic,
     FileCoverage,
+    Reference,
     is_relative_file,
 )
 from .syntax import identifier
+from ._version import __version__
 
 
 def ingest_scip(
@@ -36,6 +38,7 @@ def ingest_scip(
     ):
         raise ValueError("path_prefix must be canonical and relative")
     definitions, coverage, diagnostics, versions = [], [], [], {}
+    references = []
     try:
         from google.protobuf.message import DecodeError
         from ._scip import scip_pb2 as wire
@@ -97,10 +100,16 @@ def ingest_scip(
                     )
                 ordinals = {}
                 for occurrence in sorted(
-                    doc.occurrences, key=lambda item: (tuple(item.range), item.symbol)
+                    doc.occurrences,
+                    key=lambda item: (
+                        tuple(item.range),
+                        item.symbol,
+                        item.symbol_roles,
+                    ),
                 ):
-                    if not occurrence.symbol_roles & wire.Definition:
+                    if not occurrence.symbol and not occurrence.symbol_roles:
                         continue
+                    is_definition = bool(occurrence.symbol_roles & wire.Definition)
                     location = list(occurrence.range)
                     if len(location) == 3:
                         location.insert(2, location[0])
@@ -108,23 +117,65 @@ def ingest_scip(
                         len(location) != 4
                         or min(location) < 0
                         or tuple(location[:2]) > tuple(location[2:])
-                        or not occurrence.symbol
+                        or not occurrence.symbol.strip()
+                        or occurrence.symbol_roles < 0
                     ):
                         diagnostics.append(
                             Diagnostic(
-                                "invalid_definition_range",
-                                "Invalid SCIP definition occurrence",
+                                "invalid_definition_range"
+                                if is_definition
+                                else "invalid_reference_range",
+                                "Invalid SCIP occurrence",
                                 file,
                             )
                         )
                         continue
                     native = occurrence.symbol
+                    if not is_definition:
+                        occurrence_key = (
+                            file,
+                            native,
+                            "Reference",
+                            tuple(location),
+                            occurrence.symbol_roles,
+                        )
+                        if occurrence_key in seen_definitions:
+                            continue
+                        seen_definitions.add(occurrence_key)
+                        ordinal = ordinals.get((native, "Reference"), 0)
+                        ordinals[(native, "Reference")] = ordinal + 1
+                        references.append(
+                            Reference(
+                                identifier(
+                                    repository_id, file, native, "Reference", ordinal
+                                ),
+                                file,
+                                native,
+                                location[0] + 1,
+                                location[1],
+                                location[2] + 1,
+                                location[3],
+                                occurrence.symbol_roles,
+                                encoding,
+                            )
+                        )
+                        continue
                     info = infos.get(native)
-                    kind = (
-                        wire.SymbolInformation.Kind.Name(info.kind)
-                        if info is not None
-                        else "UnspecifiedKind"
-                    )
+                    try:
+                        kind = (
+                            wire.SymbolInformation.Kind.Name(info.kind)
+                            if info is not None
+                            else "UnspecifiedKind"
+                        )
+                    except ValueError:
+                        kind = "UnspecifiedKind"
+                        diagnostics.append(
+                            Diagnostic(
+                                "unsupported_symbol_kind",
+                                "Indexer used an unknown symbol kind",
+                                file,
+                            )
+                        )
                     if kind == "UnspecifiedKind":
                         kind = "Symbol"
                     symbol = (
@@ -165,17 +216,21 @@ def ingest_scip(
         except (OSError, ValueError, DecodeError) as exc:
             diagnostics.append(Diagnostic("invalid_index", str(exc)))
     status = (
-        "succeeded" if not diagnostics else ("partial" if definitions else "failed")
+        "succeeded"
+        if not diagnostics
+        else ("partial" if definitions or references else "failed")
     )
     definitions.sort(key=lambda item: (item.file, item.line, item.column, item.id))
+    references.sort(key=lambda item: (item.file, item.line, item.column, item.id))
     manifest = {
         "repository_id": repository_id,
         "status": status,
         "diagnostics": [vars(item) for item in diagnostics],
         "definitions": [vars(d) for d in definitions],
+        "references": [vars(r) for r in references],
         "coverage": [vars(c) for c in coverage],
         "versions": sorted(versions.items()),
-        "analyzer_version": "0.1.0a3",
+        "analyzer_version": __version__,
     }
     snapshot = sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
     return AnalysisResult(
@@ -187,5 +242,7 @@ def ingest_scip(
         tuple(diagnostics),
         "scip",
         tuple(sorted(versions.items())),
-        coordinate_encoding="per-definition",
+        coordinate_encoding="per-occurrence",
+        references=tuple(references),
+        capabilities=("definitions", "references"),
     )

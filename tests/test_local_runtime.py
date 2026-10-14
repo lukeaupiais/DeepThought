@@ -18,10 +18,18 @@ def deny(event, args):
     if event in {'socket.connect', 'socket.getaddrinfo', 'subprocess.Popen', 'os.system', 'os.posix_spawn'}:
         raise RuntimeError('Forbidden runtime operation: '+event)
 sys.addaudithook(deny)
-from deepthought import analyze_repository
+from deepthought import GraphSnapshot, analyze_repository, compose_graph, ingest_scip
 r=analyze_repository(sys.argv[1], repository_id='fixture', languages=('python', 'typescript'))
 assert r.status == 'succeeded', r.diagnostics
 assert r.definitions
+from pathlib import Path
+sources=[ingest_scip(Path(sys.argv[1])/'scip'/f'{language}.scip', repository_id=language) for language in ('python', 'typescript')]
+graph=compose_graph(sources)
+assert graph.references
+assert GraphSnapshot.from_json(graph.to_json()) == graph
+for node in graph.lookup_definitions('helper'):
+    graph.references_to(node.id)
+    graph.dependencies(node.repository_id, node.definition.file)
 for name in ['core', 'storage', 'deepthought_analysis', 'torch', 'sentence_transformers', 'bertopic', 'neo4j', 'deepthought_ai']:
     assert name not in sys.modules, name
 """

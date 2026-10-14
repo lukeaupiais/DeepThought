@@ -205,7 +205,8 @@ class ScipTests(unittest.TestCase):
             path.write_bytes(index.SerializeToString())
             result = ingest_scip(path, repository_id="fixture")
         self.assertFalse(result.definitions)
-        self.assertEqual(result.capabilities, ("definitions",))
+        self.assertEqual(result.capabilities, ("definitions", "references"))
+        self.assertEqual(len(result.references), 1)
 
     def test_malformed_artifact_is_failed(self):
         with tempfile.TemporaryDirectory() as folder:

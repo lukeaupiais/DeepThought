@@ -1,0 +1,34 @@
+{
+  "artifact_type": "graph",
+  "schema_version": "1",
+  "composer_version": "1",
+  "snapshot_id": "dec3a87e7a8b780757d165457659b221ca5f5dba5caaa994ccd001d862d1ca90",
+  "status": "succeeded",
+  "sources": [
+    {
+      "repository_id": "owned-fixture",
+      "snapshot_id": "owned-empty-index",
+      "status": "succeeded",
+      "definitions": [],
+      "references": [],
+      "coverage": [],
+      "diagnostics": [],
+      "analyzer": "fixture-indexer",
+      "analyzer_versions": [
+        [
+          "fixture-indexer",
+          "1"
+        ]
+      ],
+      "capabilities": [
+        "definitions",
+        "references"
+      ],
+      "schema_version": "2",
+      "coordinate_encoding": "per-occurrence"
+    }
+  ],
+  "definitions": [],
+  "references": [],
+  "edges": []
+}

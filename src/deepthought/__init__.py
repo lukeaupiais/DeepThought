@@ -2,7 +2,14 @@
 
 from .engine import analyze_repository
 from .models import AnalysisResult
+from .graph import GraphSnapshot, compose_graph
+from ._version import __version__ as __version__
 from .scip import ingest_scip
 
-__all__ = ["AnalysisResult", "analyze_repository", "ingest_scip"]
-__version__ = "0.1.0a3"
+__all__ = [
+    "AnalysisResult",
+    "GraphSnapshot",
+    "analyze_repository",
+    "ingest_scip",
+    "compose_graph",
+]

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deepthought-analysis-engine"
-version = "0.1.0a3"
-description = "Local, model-free source analysis and portable graph extraction"
+version = "0.2.0a1"
+description = "Local, model-free source analysis and portable reference graphs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

@@ -1,12 +1,37 @@
 """Machine-readable local analysis; 0 success, 1 incomplete, 2 invalid input."""
 
 import argparse
+import os
 import signal
+import stat
 import sys
 from threading import Event
 
 from .engine import analyze_repository
 from .scip import ingest_scip
+from .graph import compose_graph
+from .models import AnalysisResult
+
+
+def load_artifacts(args):
+    if min(args.max_artifacts, args.max_artifact_bytes, args.max_total_bytes) < 1:
+        raise ValueError("Artifact limits must be positive")
+    if len(args.artifacts) > args.max_artifacts:
+        raise ValueError("Too many analysis artifacts")
+    results, total_bytes = [], 0
+    for path in args.artifacts:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("Analysis artifact must be a regular file")
+            content = source.read(
+                min(args.max_artifact_bytes + 1, args.max_total_bytes - total_bytes + 1)
+            )
+        total_bytes += len(content)
+        if len(content) > args.max_artifact_bytes or total_bytes > args.max_total_bytes:
+            raise ValueError("Analysis artifact byte budget exceeded")
+        results.append(AnalysisResult.from_json(content.decode("utf-8")))
+    return results
 
 
 def main(argv=None) -> int:
@@ -36,6 +61,14 @@ def main(argv=None) -> int:
         default="",
         help="Map index-relative paths under this workspace-relative directory",
     )
+    compose = subcommands.add_parser(
+        "compose",
+        help="Compose supplied analysis JSON artifacts into a local reference graph",
+    )
+    compose.add_argument("artifacts", nargs="+")
+    compose.add_argument("--max-artifact-bytes", type=int, default=50_000_000)
+    compose.add_argument("--max-total-bytes", type=int, default=100_000_000)
+    compose.add_argument("--max-artifacts", type=int, default=100)
     args = parser.parse_args(argv)
     cancel = Event()
     previous = {}
@@ -55,13 +88,15 @@ def main(argv=None) -> int:
                 max_total_bytes=args.max_total_bytes,
                 cancel_event=cancel,
             )
-        else:
+        elif args.command == "ingest-scip":
             result = ingest_scip(
                 args.index,
                 repository_id=args.repository_id,
                 max_index_bytes=args.max_index_bytes,
                 path_prefix=args.path_prefix,
             )
+        else:
+            result = compose_graph(load_artifacts(args))
     except (ValueError, OSError) as exc:
         print(f"deepthought: {exc}", file=sys.stderr)
         return 2

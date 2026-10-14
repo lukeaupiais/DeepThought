@@ -17,6 +17,20 @@ def is_relative_file(file: str) -> bool:
     )
 
 
+def validate_location(file, line, column, end_line, end_column, encoding):
+    if not is_relative_file(file):
+        raise ValueError("Source file must be canonical and relative")
+    if (
+        any(type(v) is not int for v in (line, column, end_line, end_column))
+        or line < 1
+        or min(column, end_column) < 0
+        or (end_line, end_column) < (line, column)
+    ):
+        raise ValueError("Invalid source range")
+    if encoding not in {"utf-8", "utf-16", "utf-32", "unspecified"}:
+        raise ValueError("Unsupported source coordinate encoding")
+
+
 @dataclass(frozen=True)
 class Definition:
     id: str
@@ -31,8 +45,14 @@ class Definition:
     coordinate_encoding: str = "utf-8"
 
     def __post_init__(self):
-        if not is_relative_file(self.file):
-            raise ValueError("Definition file must be canonical and relative")
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
         if not all(
             isinstance(value, str) and value
             for value in (self.id, self.symbol, self.kind)
@@ -40,18 +60,43 @@ class Definition:
             raise ValueError(
                 "Definition identity, symbol and kind must be nonempty strings"
             )
-        if (
-            any(
-                type(value) is not int
-                for value in (self.line, self.column, self.end_line, self.end_column)
-            )
-            or self.line < 1
-            or min(self.column, self.end_column) < 0
-            or (self.end_line, self.end_column) < (self.line, self.column)
+        if self.native_id is not None and (
+            not isinstance(self.native_id, str) or not self.native_id.strip()
         ):
-            raise ValueError("Invalid definition source range")
-        if self.coordinate_encoding not in {"utf-8", "utf-16", "utf-32", "unspecified"}:
-            raise ValueError("Unsupported source coordinate encoding")
+            raise ValueError("Invalid native symbol")
+
+
+@dataclass(frozen=True)
+class Reference:
+    id: str
+    file: str
+    native_id: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    symbol_roles: int = 0
+    coordinate_encoding: str = "utf-8"
+
+    def __post_init__(self):
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
+        if not all(isinstance(v, str) and v.strip() for v in (self.id, self.native_id)):
+            raise ValueError("Reference identity and native symbol required")
+        if (
+            type(self.symbol_roles) is not int
+            or self.symbol_roles < 0
+            or self.symbol_roles & 1
+        ):
+            raise ValueError(
+                "Reference roles must be nonnegative and exclude Definition"
+            )
 
 
 @dataclass(frozen=True)
@@ -91,14 +136,15 @@ class AnalysisResult:
     analyzer: str
     analyzer_versions: tuple[tuple[str, str], ...]
     capabilities: tuple[str, ...] = ("definitions",)
-    schema_version: str = "1"
+    schema_version: str = "2"
     coordinate_encoding: str = "utf-8"
+    references: tuple[Reference, ...] = ()
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
             raise ValueError("Invalid analysis status")
         if (
-            self.schema_version != "1"
+            self.schema_version != "2"
             or not isinstance(self.repository_id, str)
             or not self.repository_id.strip()
         ):
@@ -107,6 +153,21 @@ class AnalysisResult:
             raise ValueError("Duplicate definition identities")
         if len({c.file for c in self.coverage}) != len(self.coverage):
             raise ValueError("Duplicate coverage files")
+        if len({r.id for r in self.references}) != len(self.references):
+            raise ValueError("Duplicate reference identities")
+        if self.references and "references" not in self.capabilities:
+            raise ValueError("Reference facts require the references capability")
+        covered = {item.file for item in self.coverage}
+        if any(
+            item.file not in covered for item in (*self.definitions, *self.references)
+        ):
+            raise ValueError("Every fact requires source file coverage")
+        if self.status == "succeeded" and (
+            self.diagnostics or any(item.status != "analyzed" for item in self.coverage)
+        ):
+            raise ValueError(
+                "Successful analysis cannot contain incomplete coverage or diagnostics"
+            )
 
     def to_dict(self) -> dict:
         return json.loads(json.dumps(asdict(self)))
@@ -119,9 +180,17 @@ class AnalysisResult:
     @classmethod
     def from_json(cls, value: str) -> "AnalysisResult":
         data = json.loads(value)
-        if not isinstance(data, dict) or data.get("schema_version") != "1":
+        if not isinstance(data, dict) or data.get("schema_version") not in ("1", "2"):
             raise ValueError("Unsupported artifact schema version")
         try:
+            if data["schema_version"] == "1":
+                if data.get("references") or "references" in data.get(
+                    "capabilities", []
+                ):
+                    raise ValueError("Schema 1 cannot contain references")
+                data["schema_version"] = "2"
+                data["references"] = []
+            data["references"] = tuple(Reference(**item) for item in data["references"])
             data["definitions"] = tuple(
                 Definition(**item) for item in data["definitions"]
             )
