@@ -76,15 +76,7 @@ def main():
         scratch.mkdir()
         command = ["bwrap"]
         if args.privileged:
-            command = [
-                "sudo",
-                "--",
-                "bwrap",
-                "--uid",
-                str(os.getuid()),
-                "--gid",
-                str(os.getgid()),
-            ]
+            command = ["sudo", "-n", "--", "bwrap"]
         command += [
             "--unshare-net",
             "--ro-bind",
@@ -117,8 +109,21 @@ def main():
             "--chdir",
             str(tests),
             "--",
-            str(interpreter),
         ]
+        if args.privileged:
+            # Set up namespaces as root, then drop host credentials/capabilities.
+            # bwrap --uid/--gid requires a user namespace on Ubuntu's version.
+            command += [
+                "/usr/bin/setpriv",
+                "--reuid",
+                str(os.getuid()),
+                "--regid",
+                str(os.getgid()),
+                "--clear-groups",
+                "--no-new-privs",
+                "--bounding-set=-all",
+            ]
+        command += [str(interpreter)]
         subprocess.run(
             command + ["-c", PROBE, str(root), str(tests / "fixtures/expected.json")],
             check=True,
