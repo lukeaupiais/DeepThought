@@ -1,0 +1,14 @@
+DeepThought
+
+Structural declaration mappings and name-field extraction were adapted from
+the original DeepThought Tree-sitter analyzer, Copyright (c) 2025 DeepThought,
+under the MIT license retained in licenses/deepthought-original-MIT.txt.
+Database, hosted configuration, model providers and graph inference are omitted
+from this selected extraction path.
+
+The vendored SCIP protocol schema originates from Sourcegraph SCIP:
+https://github.com/sourcegraph/scip
+It is distributed under Apache-2.0; see LICENSE.
+The schema was carried forward from the original DeepThought copy. Python
+bindings were regenerated using protoc 35.1, with a private descriptor pool
+to avoid host binding collisions. Regeneration: python tools/generate_scip.py.

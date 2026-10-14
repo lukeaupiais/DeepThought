@@ -1,0 +1,53 @@
+name: Phase 1 acceptance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Provision build and acceptance tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          python -m pip install 'build==1.4.3' 'hatchling==1.30.1' 'ruff==0.15.18'
+      - name: Check source and build reproducibility
+        run: |
+          ruff check src tests tools
+          ruff format --check src tests tools
+          python -m build --no-isolation
+          python -m build --no-isolation --wheel --outdir direct-dist
+          cmp dist/*.whl direct-dist/*.whl
+      - name: Provision installed artifacts outside the checkout
+        run: |
+          wheel=$(realpath dist/*.whl)
+          python -m venv "$RUNNER_TEMP/deepthought-full"
+          python -m venv "$RUNNER_TEMP/deepthought-core"
+          "$RUNNER_TEMP/deepthought-full/bin/python" -m pip install "$wheel[python,typescript,scip]"
+          "$RUNNER_TEMP/deepthought-core/bin/python" -m pip install --no-index --no-deps "$wheel"
+      - name: Accept full installation offline
+        run: python tools/verify_offline.py --privileged --python "$RUNNER_TEMP/deepthought-full/bin/python"
+      - name: Accept core-only installation offline
+        run: python tools/verify_offline.py --privileged --core-only --python "$RUNNER_TEMP/deepthought-core/bin/python"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deepthought-python-${{ matrix.python }}
+          path: dist/*
+          if-no-files-found: error

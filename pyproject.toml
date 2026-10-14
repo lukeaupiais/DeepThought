@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling==1.30.1"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepthought-analysis-engine"
+version = "0.1.0a3"
+description = "Local, model-free source analysis and portable graph extraction"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "licenses/*"]
+dependencies = []
+
+[project.optional-dependencies]
+python = ["tree-sitter==0.25.2", "tree-sitter-python==0.25.0"]
+typescript = ["tree-sitter==0.25.2", "tree-sitter-typescript==0.23.2"]
+scip = ["protobuf==7.35.1"]
+
+[project.scripts]
+deepthought = "deepthought.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deepthought"]
+
+[tool.hatch.build.targets.wheel.force-include]
+NOTICE = "deepthought/NOTICE"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "tools", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
+
+[tool.ruff]
+extend-exclude = ["src/deepthought/_scip/scip_pb2.py", "tests/fixtures"]

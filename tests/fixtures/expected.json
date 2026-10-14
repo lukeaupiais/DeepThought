@@ -1,0 +1,250 @@
+{
+  "languages": {
+    "python": {
+      "definitions": [
+        {
+          "file": "main.py",
+          "symbol": "annotated",
+          "kind": "Function",
+          "line": 6
+        },
+        {
+          "file": "main.py",
+          "symbol": "constructed",
+          "kind": "Function",
+          "line": 10
+        },
+        {
+          "file": "main.py",
+          "symbol": "run",
+          "kind": "Function",
+          "line": 14
+        },
+        {
+          "file": "main.py",
+          "symbol": "unresolved",
+          "kind": "Function",
+          "line": 18
+        },
+        {
+          "file": "models.py",
+          "symbol": "Widget",
+          "kind": "Class",
+          "line": 1
+        },
+        {
+          "file": "lib/helpers.py",
+          "symbol": "helper",
+          "kind": "Function",
+          "line": 1
+        },
+        {
+          "file": "other/helpers.py",
+          "symbol": "helper",
+          "kind": "Function",
+          "line": 1
+        }
+      ],
+      "required_relationships": [
+        {
+          "kind": "CALLS",
+          "source": {
+            "file": "main.py",
+            "symbol": "run"
+          },
+          "target": {
+            "file": "lib/helpers.py",
+            "symbol": "helper"
+          }
+        },
+        {
+          "kind": "CALLS",
+          "source": {
+            "file": "main.py",
+            "symbol": "run"
+          },
+          "target": {
+            "file": "other/helpers.py",
+            "symbol": "helper"
+          }
+        },
+        {
+          "kind": "REFERENCES",
+          "source": {
+            "file": "main.py",
+            "symbol": "annotated"
+          },
+          "target": {
+            "file": "models.py",
+            "symbol": "Widget"
+          }
+        },
+        {
+          "kind": "INSTANTIATES",
+          "source": {
+            "file": "main.py",
+            "symbol": "constructed"
+          },
+          "target": {
+            "file": "models.py",
+            "symbol": "Widget"
+          }
+        }
+      ],
+      "forbidden_relationships": [
+        {
+          "kind": "INSTANTIATES",
+          "source": {
+            "file": "main.py",
+            "symbol": "annotated"
+          },
+          "target": {
+            "file": "models.py",
+            "symbol": "Widget"
+          }
+        },
+        {
+          "kind": "CALLS",
+          "source": {
+            "file": "main.py",
+            "symbol": "run"
+          },
+          "target": {
+            "file": "models.py",
+            "symbol": "Widget"
+          }
+        }
+      ],
+      "unresolved": [
+        {
+          "file": "main.py",
+          "symbol": "missing_function",
+          "line": 19
+        }
+      ]
+    },
+    "typescript": {
+      "definitions": [
+        {
+          "file": "main.ts",
+          "symbol": "annotated",
+          "kind": "Function",
+          "line": 5
+        },
+        {
+          "file": "main.ts",
+          "symbol": "constructed",
+          "kind": "Function",
+          "line": 9
+        },
+        {
+          "file": "main.ts",
+          "symbol": "run",
+          "kind": "Function",
+          "line": 13
+        },
+        {
+          "file": "main.ts",
+          "symbol": "unresolved",
+          "kind": "Function",
+          "line": 17
+        },
+        {
+          "file": "models.ts",
+          "symbol": "Widget",
+          "kind": "Class",
+          "line": 1
+        },
+        {
+          "file": "lib/helpers.ts",
+          "symbol": "helper",
+          "kind": "Function",
+          "line": 1
+        },
+        {
+          "file": "other/helpers.ts",
+          "symbol": "helper",
+          "kind": "Function",
+          "line": 1
+        }
+      ],
+      "required_relationships": [
+        {
+          "kind": "CALLS",
+          "source": {
+            "file": "main.ts",
+            "symbol": "run"
+          },
+          "target": {
+            "file": "lib/helpers.ts",
+            "symbol": "helper"
+          }
+        },
+        {
+          "kind": "CALLS",
+          "source": {
+            "file": "main.ts",
+            "symbol": "run"
+          },
+          "target": {
+            "file": "other/helpers.ts",
+            "symbol": "helper"
+          }
+        },
+        {
+          "kind": "REFERENCES",
+          "source": {
+            "file": "main.ts",
+            "symbol": "annotated"
+          },
+          "target": {
+            "file": "models.ts",
+            "symbol": "Widget"
+          }
+        },
+        {
+          "kind": "INSTANTIATES",
+          "source": {
+            "file": "main.ts",
+            "symbol": "constructed"
+          },
+          "target": {
+            "file": "models.ts",
+            "symbol": "Widget"
+          }
+        }
+      ],
+      "forbidden_relationships": [
+        {
+          "kind": "INSTANTIATES",
+          "source": {
+            "file": "main.ts",
+            "symbol": "annotated"
+          },
+          "target": {
+            "file": "models.ts",
+            "symbol": "Widget"
+          }
+        },
+        {
+          "kind": "CALLS",
+          "source": {
+            "file": "main.ts",
+            "symbol": "run"
+          },
+          "target": {
+            "file": "models.ts",
+            "symbol": "Widget"
+          }
+        }
+      ],
+      "unresolved": [
+        {
+          "file": "main.ts",
+          "symbol": "missingFunction",
+          "line": 18
+        }
+      ]
+    }
+  }
+}
