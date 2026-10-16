@@ -47,6 +47,47 @@ ambiguous references, incomplete source results, or missing reference capability
 prevent a graph from reporting complete success. Queries currently scan the
 in-memory graph; composition and serialization retain supplied facts locally.
 
+For bounded machine results, use the query interface on a composed graph:
+
+```python
+from deepthought import QueryRequest, query_graph
+
+result = query_graph(graph, QueryRequest("references", "my-project", symbol="helper", limit=20))
+print(result.to_json())
+```
+
+The installed CLI accepts a graph artifact:
+
+```sh
+deepthought compose ./analysis.json > graph.json
+deepthought query graph.json --repository-id my-project --operation references --symbol helper --limit 20
+```
+
+Query schema 1 returns source and graph snapshot IDs, analysis/graph/query status,
+coverage counts, diagnostics and exact match totals. `repository_id` scopes the
+origin of returned facts; reference targets may belong to other repositories in
+the supplied graph. Display-name lookup selects candidates, while only native
+identities resolve references. Definitions retain their graph identity and a
+nested `definition` with the source location. References retain resolution and
+target IDs; dependencies retain their reference witness IDs.
+
+The default result limit is 20, with a maximum of 100. Results follow canonical
+graph order and report `truncated` when only a prefix fits. Each match includes
+at most 20 target/witness IDs with its full count and a separate truncation flag.
+At most 10 diagnostics are returned, with their full count and truncation flag.
+`--max-output-bytes` (SDK: `max_output_bytes`) accepts 1024–32768 bytes, defaulting
+to 32768, and includes the CLI newline. Metadata and at least the first match must
+fit; otherwise the SDK raises `ValueError` and the CLI exits 2 without stdout.
+No evidence strings are silently shortened. These bounds cover the response;
+queries still scan the in-memory graph to count matches. Hosts retain execution
+deadlines, input budgets and workspace authorization.
+
+Definition queries can succeed on complete syntax-only input even though the
+graph reports partial reference coverage. Reference/dependency queries without
+the source reference capability return `unavailable` (CLI exit 1). Partial,
+failed and cancelled source states remain visible. Existing graph lookup methods
+continue returning their full tuples; query results do not change graph artifacts.
+
 Results support `to_json()` and their respective `from_json()` methods. Analysis
 schema 2 adds references; schema 1 imports as definitions-only. Graph schema 1
 includes source artifacts and validates projections against those facts on import.
