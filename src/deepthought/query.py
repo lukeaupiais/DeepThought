@@ -68,10 +68,19 @@ class QueryResult:
     truncated: bool
     max_output_bytes: int
 
+    @property
+    def workspace_freshness(self) -> str:
+        """Query facts describe a supplied snapshot, not a checked workspace."""
+        return "unverified"
+
     def to_json(self) -> str:
         data = asdict(self)
         data.pop("max_output_bytes")
-        data.update(artifact_type="query", schema_version="1")
+        data.update(
+            artifact_type="query",
+            schema_version="1",
+            workspace_freshness=self.workspace_freshness,
+        )
         content = json.dumps(data, sort_keys=True, ensure_ascii=False, allow_nan=False)
         if len(content.encode("utf-8")) + 1 > self.max_output_bytes:
             raise ValueError("Query response exceeds max_output_bytes")
@@ -88,6 +97,7 @@ def query_graph(graph: GraphSnapshot, request: QueryRequest) -> QueryResult:
     across the supplied graph, using native identities rather than display names.
     Results follow canonical graph order. Counts require scanning matching facts;
     only the bounded response prefix is projected into dictionaries.
+    Queries never verify the current workspace; freshness remains unverified.
     """
     if not isinstance(graph, GraphSnapshot) or not isinstance(request, QueryRequest):
         raise ValueError("A graph snapshot and QueryRequest are required")
