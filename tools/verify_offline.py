@@ -55,7 +55,24 @@ assert query.status in {'failed', 'unavailable'} and not query.matches
 assert query.to_dict()['analysis_status'] == 'failed'
 for name in ('tree_sitter', 'google.protobuf', 'neo4j', 'torch', 'sentence_transformers'):
     assert name not in sys.modules, name
-print('Verified core-only installation and explicit missing-extra diagnostics')
+from hashlib import sha256
+import subprocess, tempfile
+from deepthought import AnalysisResult, check_source_consistency
+from deepthought.models import FileCoverage
+content = (root / 'python/main.py').read_bytes()
+source = AnalysisResult('core', 'core-snapshot', 'succeeded', (),
+    (FileCoverage('python/main.py', 'python', 'analyzed', sha256(content).hexdigest()),),
+    (), 'tree-sitter', ())
+with tempfile.TemporaryDirectory() as directory:
+    artifact = pathlib.Path(directory) / 'analysis.json'
+    artifact.write_text(source.to_json())
+    expected = check_source_consistency(root, source)
+    result = subprocess.run([str(pathlib.Path(sys.executable).parent / 'deepthought'),
+        'check-source', str(root), str(artifact), '--repository-id', 'core'],
+        capture_output=True, check=True, timeout=10)
+    assert expected.status == 'unchanged'
+    assert result.stdout == (expected.to_json() + '\n').encode(), result
+print('Verified core-only installation, consistency CLI and explicit missing-extra diagnostics')
 """
 
 
