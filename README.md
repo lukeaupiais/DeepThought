@@ -148,3 +148,45 @@ the checkout hidden and fixtures read-only. It retains build artifacts without
 publishing a package release.
 
 Apache-2.0. Retained source attribution and licences are in `NOTICE` and `licenses/`.
+
+### Recorded source consistency (SDK)
+
+```python
+from deepthought import AnalysisResult, check_source_consistency
+
+source = AnalysisResult.from_json(saved_analysis_json)
+check = check_source_consistency(workspace, source, max_files=1000,
+                                 max_total_bytes=10_000_000)
+print(check.to_json())
+```
+
+This separate, read-only operation compares recorded Tree-sitter SHA-256 source
+hashes with files under a host-selected workspace. Its result identifies the
+repository, source snapshot, and `scope: "recorded_files"`. Each file reports
+`unchanged`, `changed` (digest mismatch or missing), or `unverified` with a reason.
+The aggregate is `changed` if any comparison establishes a difference; otherwise
+it is `unchanged` only when nonempty recorded coverage was fully compared and all
+files match. Empty coverage, missing source hashes, unsupported analyzers, limits,
+read errors, detected concurrent mutation, and cancellation cannot establish an
+unchanged result. An aggregate difference may coexist with unverified files;
+inspect individual checks, `recorded_files`, and `cancelled` for completeness.
+SCIP document hashes are never treated as source hashes, even with embedded text.
+
+This is **not a workspace freshness certificate**: new files are not discovered,
+analysis coverage/status is not upgraded, and comparisons are sequential rather
+than an atomic workspace view. Source can change again after each comparison.
+Historical queries continue to return `workspace_freshness: "unverified"`.
+Hosts retain responsibility for trusted artifact provenance, repository-to-root
+assignment, complete capture, source navigation authorization, isolation and hard
+deadlines. The checker neither executes an indexer nor reads repository config.
+
+The first implementation supports Linux descriptor-relative reads. Every source
+path component is opened without following symlinks; only regular files are read.
+The workspace root is pinned for the check and must be a directory, not a symlink;
+its parent path and authorization are the host's responsibility. Invalid limits
+or an inaccessible eligible workspace root raise `ValueError`/`OSError`.
+`max_files` bounds returned checks (compare their count with `recorded_files`),
+`max_file_bytes` bounds each read and `max_total_bytes` bounds total content reads,
+with at most one additional sentinel byte to detect growth past a byte limit.
+Cancellation is cooperative between reads. This SDK operation introduces no new
+mandatory dependency or changes to analysis/graph artifact schemas.
