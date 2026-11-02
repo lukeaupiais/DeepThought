@@ -56,7 +56,8 @@ assert tool is not None
 assert not asyncio.run(tool.check_availability())
 output = asyncio.run(tool.analyze('core', languages={'python'}))
 assert output.metadata.custom_metrics['analysis_status'] == 'failed'
-assert output.nodes == []
+assert not any('Symbol' in node.labels for node in output.nodes)
+assert not any(edge.type == 'DEFINES' for edge in output.relationships)
 import deepthought.evaluation
 for name in ('tree_sitter', 'google.protobuf', 'neo4j', 'torch', 'sentence_transformers'):
     assert name not in sys.modules, name

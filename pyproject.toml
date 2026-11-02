@@ -13,6 +13,8 @@ license-files = ["LICENSE", "licenses/*"]
 dependencies = []
 
 [project.optional-dependencies]
+neo4j = ["neo4j==5.28.8"]
+mcp = ["mcp>=1.6,<2", "neo4j==5.28.8"]
 python = ["tree-sitter==0.25.2", "tree-sitter-python==0.25.0"]
 typescript = ["tree-sitter==0.25.2", "tree-sitter-typescript==0.23.2"]
 scip = ["protobuf==7.35.1"]
@@ -20,6 +22,8 @@ scip = ["protobuf==7.35.1"]
 [project.scripts]
 deepthought = "deepthought.cli:main"
 deepthought-eval = "deepthought.evaluation.__main__:main"
+deepthought-graph = "deepthought.graph_cli:main"
+deepthought-mcp = "deepthought.graph_mcp:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/deepthought"]
@@ -28,7 +32,7 @@ packages = ["src/deepthought"]
 NOTICE = "deepthought/NOTICE"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "evals", "docs/evaluation.md", "docs/evaluation-validation.md", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
+include = ["src", "tests", "tools", "evals", "docs/evaluation.md", "docs/evaluation-validation.md", "docs/graph-port.md", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
 
 [tool.ruff]
 extend-exclude = ["src/deepthought/_scip/scip_pb2.py", "tests/fixtures"]

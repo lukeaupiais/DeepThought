@@ -116,3 +116,10 @@ the checkout hidden and fixtures read-only. It retains build artifacts without
 publishing a package release.
 
 Apache-2.0. Retained source attribution and licences are in `NOTICE` and `licenses/`.
+
+## Optional core graph storage and agent queries
+
+The [core graph port](docs/graph-port.md) restores the original Neo4j writer,
+shared tool-output coordinator, Cypher/context query service and MCP tools.
+Provision the `neo4j` or `mcp` extra, then use `deepthought-graph` or
+`deepthought-mcp` for on-demand access. The existing local SDK stays database-free.

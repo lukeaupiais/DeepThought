@@ -11,7 +11,12 @@ from copy import deepcopy
 from .._version import __version__
 from ..engine import analyze_repository
 from .base import AnalysisTool, ToolCapability, ToolMetadata
-from .contracts import NodeData, StandardizedOutput, ToolExecutionMetadata
+from .contracts import (
+    NodeData,
+    RelationshipData,
+    StandardizedOutput,
+    ToolExecutionMetadata,
+)
 from .registry import register_tool
 
 
@@ -59,7 +64,48 @@ class TreeSitterTool(AnalysisTool):
             include=("*",) if file_patterns is None else tuple(file_patterns),
             exclude=() if skip_patterns is None else tuple(skip_patterns),
         )
-        nodes = []
+        # Preserve the original engine's Repository -> File -> declaration
+        # projection. Extraction still belongs to the unchanged SDK parser.
+        repository_name = f"{repo_url}::repository"
+        nodes = [
+            NodeData(
+                ["Repository"],
+                {
+                    "qualified_name": repository_name,
+                    "repo_url": repo_url,
+                    "name": repo_url,
+                    "url": repo_url,
+                },
+            )
+        ]
+        relationships = []
+        files = {}
+        for coverage in result.coverage:
+            file_name = f"{repo_url}::{coverage.file}::file"
+            files[coverage.file] = file_name
+            nodes.append(
+                NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": file_name,
+                        "repo_url": repo_url,
+                        "path": coverage.file,
+                        "file_path": coverage.file,
+                        "name": coverage.file,
+                        "language": coverage.language,
+                        "coverage_status": coverage.status,
+                    },
+                )
+            )
+            relationships.append(
+                RelationshipData(
+                    "CONTAINS",
+                    ["Repository"],
+                    {"qualified_name": repository_name, "repo_url": repo_url},
+                    ["File"],
+                    {"qualified_name": file_name, "repo_url": repo_url},
+                )
+            )
         for definition in result.definitions:
             qualified_name = (
                 f"{repo_url}::{definition.file}::{definition.symbol}::{definition.id}"
@@ -80,6 +126,15 @@ class TreeSitterTool(AnalysisTool):
             }
             nodes.append(
                 NodeData(labels=[definition.kind, "Symbol"], properties=properties)
+            )
+            relationships.append(
+                RelationshipData(
+                    "DEFINES",
+                    ["File"],
+                    {"qualified_name": files[definition.file], "repo_url": repo_url},
+                    [definition.kind, "Symbol"],
+                    {"qualified_name": qualified_name, "repo_url": repo_url},
+                )
             )
         artifact = result.to_dict()
         diagnostics = artifact["diagnostics"]
@@ -108,9 +163,13 @@ class TreeSitterTool(AnalysisTool):
                 "scope": "named declarations only; no call, control or data-flow inference",
             },
         )
-        output = StandardizedOutput(nodes=nodes, relationships=[], metadata=metadata)
+        output = StandardizedOutput(
+            nodes=nodes, relationships=relationships, metadata=metadata
+        )
         self._definitions = {
-            n.properties["qualified_name"]: deepcopy(n.properties) for n in nodes
+            n.properties["qualified_name"]: deepcopy(n.properties)
+            for n in nodes
+            if "Symbol" in n.labels
         }
         return output
 

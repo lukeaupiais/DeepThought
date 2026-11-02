@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "scope": "Core graph port end-to-end integration validation; known declaration calibration, not enterprise architectural or statistical validation",
+  "source": {
+    "kind": "public_repository",
+    "repository": "https://github.com/langchain-ai/deepagents",
+    "revision": "6a5d93f9ba7391189f65e6b999b724253577085d",
+    "files": {
+      "libs/deepagents/deepagents/backends/protocol.py": "fc064c966a9f22d12645f420cbe2e263a48758fcf3da0fc30382c113caa12dd1",
+      "libs/deepagents/deepagents/backends/composite.py": "c705e50069af1eafc570eb5f0f4058eccde6b08b0b6851eac61dcb93f8599af0"
+    }
+  },
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "order": [
+    "pair1-treatment",
+    "pair1-baseline",
+    "pair2-baseline",
+    "pair2-treatment"
+  ],
+  "automatic_retries": 0,
+  "inner_sandbox": "danger-full-access inside external read-only source bwrap namespace for BOTH arms; permits local graph query sockets",
+  "outer_isolation": "Selected public source read-only; oracle, other answers, database credentials and implementation outside namespace",
+  "treatment_profile": "query access, no raw graph context, at least one successful graph query required",
+  "facts_verified": {
+    "nodes": 81,
+    "relationships": 80,
+    "declarations": 78,
+    "readback_identical": true
+  },
+  "database_enforcement": {
+    "readback_symbols": 78,
+    "write_rejected": true,
+    "native_error_code": "Neo.ClientError.General.WriteOnReadOnlyAccessDatabase",
+    "database_enforcement": "server.databases.default_to_read_only=true",
+    "image_digest": "sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177"
+  },
+  "runs": [
+    {
+      "run": "pair1-treatment",
+      "input_tokens": 106540,
+      "cached_input_tokens": 82048,
+      "output_tokens": 3250,
+      "reasoning_output_tokens": 43,
+      "total_tokens": 109790,
+      "uncached_input_plus_output": 27742,
+      "wall_seconds": 39.80212124499849,
+      "correct": 78,
+      "expected": 78,
+      "successful_query_calls": 1,
+      "failed_query_calls": 1,
+      "query_response_bytes": 10308,
+      "query_wall_seconds": 0.4069193819996144
+    },
+    {
+      "run": "pair1-baseline",
+      "input_tokens": 68881,
+      "cached_input_tokens": 38784,
+      "output_tokens": 2961,
+      "reasoning_output_tokens": 31,
+      "total_tokens": 71842,
+      "uncached_input_plus_output": 33058,
+      "wall_seconds": 34.12958555899968,
+      "correct": 78,
+      "expected": 78,
+      "successful_query_calls": 0,
+      "failed_query_calls": 0,
+      "query_response_bytes": 0,
+      "query_wall_seconds": 0
+    },
+    {
+      "run": "pair2-baseline",
+      "input_tokens": 68931,
+      "cached_input_tokens": 48640,
+      "output_tokens": 2953,
+      "reasoning_output_tokens": 44,
+      "total_tokens": 71884,
+      "uncached_input_plus_output": 23244,
+      "wall_seconds": 34.990689510001175,
+      "correct": 78,
+      "expected": 78,
+      "successful_query_calls": 0,
+      "failed_query_calls": 0,
+      "query_response_bytes": 0,
+      "query_wall_seconds": 0
+    },
+    {
+      "run": "pair2-treatment",
+      "input_tokens": 58588,
+      "cached_input_tokens": 45312,
+      "output_tokens": 3206,
+      "reasoning_output_tokens": 55,
+      "total_tokens": 61794,
+      "uncached_input_plus_output": 16482,
+      "wall_seconds": 38.22593649800001,
+      "correct": 78,
+      "expected": 78,
+      "successful_query_calls": 2,
+      "failed_query_calls": 0,
+      "query_response_bytes": 821,
+      "query_wall_seconds": 0.13225020999925619
+    }
+  ],
+  "aggregates": {
+    "baseline": {
+      "total_tokens": 143726,
+      "uncached_input_plus_output": 56302,
+      "wall_seconds": 69.12027506900085,
+      "successful_query_calls": 0,
+      "failed_query_calls": 0,
+      "query_response_bytes": 0,
+      "query_wall_seconds": 0
+    },
+    "treatment": {
+      "total_tokens": 171584,
+      "uncached_input_plus_output": 44224,
+      "wall_seconds": 78.0280577429985,
+      "successful_query_calls": 3,
+      "failed_query_calls": 1,
+      "query_response_bytes": 11129,
+      "query_wall_seconds": 0.5391695919988706
+    }
+  },
+  "treatment_change_percent": {
+    "total_tokens": 19.382714331436212,
+    "uncached_input_plus_output": -21.45216866185926,
+    "wall_seconds": 12.887365776691784
+  },
+  "all_integration_gates_pass": true,
+  "quality_pass_all_runs": true,
+  "general_performance_gain_demonstrated": false,
+  "preparation": {
+    "framework": {
+      "wall_seconds": 0.11593157800052722,
+      "model_tokens": 0
+    },
+    "extractor_wall_seconds": 0.11415196400048444,
+    "writer_wall_seconds": 4.1003781170002185,
+    "upstream_model_tokens": 0,
+    "limit": "Schema/driver startup and database provisioning not timed; these are component timings, not complete cold-start costs. Query wall time is already within actor wall; do not add it twice."
+  },
+  "failed_pilot": {
+    "runs": [
+      {
+        "run": "pair1-baseline",
+        "total_tokens": 62956,
+        "input_tokens": 59953,
+        "cached_input_tokens": 45952,
+        "output_tokens": 3003,
+        "correct": 78,
+        "agent_completed": true,
+        "integration_accepted": false,
+        "reason": "Inner read-only sandbox blocked local graph sockets; treatment fell back to AST. All pilot runs excluded from corrected matched comparison."
+      },
+      {
+        "run": "pair1-treatment",
+        "total_tokens": 73868,
+        "input_tokens": 70734,
+        "cached_input_tokens": 50560,
+        "output_tokens": 3134,
+        "correct": 78,
+        "agent_completed": true,
+        "integration_accepted": false,
+        "reason": "Inner read-only sandbox blocked local graph sockets; treatment fell back to AST. All pilot runs excluded from corrected matched comparison."
+      },
+      {
+        "run": "pair2-treatment",
+        "total_tokens": 72870,
+        "input_tokens": 69675,
+        "cached_input_tokens": 36864,
+        "output_tokens": 3195,
+        "correct": 78,
+        "agent_completed": true,
+        "integration_accepted": false,
+        "reason": "Inner read-only sandbox blocked local graph sockets; treatment fell back to AST. All pilot runs excluded from corrected matched comparison."
+      },
+      {
+        "run": "pair2-baseline",
+        "total_tokens": 69362,
+        "input_tokens": 66398,
+        "cached_input_tokens": 48512,
+        "output_tokens": 2964,
+        "correct": 78,
+        "agent_completed": true,
+        "integration_accepted": false,
+        "reason": "Inner read-only sandbox blocked local graph sockets; treatment fell back to AST. All pilot runs excluded from corrected matched comparison."
+      }
+    ],
+    "total_tokens": 279056,
+    "correction": "Same external namespace and database read-only enforcement; both arms now allow local sockets through inner native sandbox. Fresh prospective TBBT order; no cross-profile comparisons."
+  },
+  "completed_comparison_tokens": 315310,
+  "all_eight_native_evaluation_runs_tokens": 594366,
+  "cost_limits": "Cached input is within input; reasoning is within output. Cache warmth uncontrolled; uncached input plus output is not billed dollars. Native evaluation agents only; coordinator/subagent engineering usage not included. Setup HTTP probes use no model tokens and are excluded from agent query counts.",
+  "driver_sha256": "3dc150aa7241e38e2af1dd5110e79ce41b228323d967d882b1157ea135c41443",
+  "namespace_helper_sha256": "01bd37b63d2059ca46942594bd9405263224a8fda79e29b0fca91c98201833d9",
+  "proxy_sha256": "2045971a29f145947a5be9dc639376d1c703b00b069f915e163134052f0b40a6",
+  "input_id": "db9a058452f91245327937e491714d016134be02e83ec126a93b80bb089ecafd"
+}
