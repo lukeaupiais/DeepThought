@@ -73,8 +73,12 @@ class RegistryTests(unittest.TestCase):
         code = """
 import sys
 import deepthought.analysis_tools as tools
+import deepthought.storage.graph
+import deepthought.graph_queries
+import deepthought.graph_cli
+import deepthought.graph_mcp
 assert [m.name for m in tools.tool_registry.list_tools()] == ['tree-sitter']
-for module in ('tree_sitter', 'tree_sitter_python', 'tree_sitter_typescript', 'neo4j', 'torch'):
+for module in ('tree_sitter', 'tree_sitter_python', 'tree_sitter_typescript', 'neo4j', 'mcp', 'torch'):
     assert module not in sys.modules, module
 """
         result = subprocess.run(
@@ -144,7 +148,7 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(
                 result.metadata.custom_metrics["analysis_status"], "failed"
             )
-            self.assertEqual(result.nodes, [])
+            self.assertFalse([n for n in result.nodes if "Symbol" in n.labels])
             self.assertEqual(
                 result.metadata.custom_metrics["coverage"][0]["status"], "unavailable"
             )
@@ -168,8 +172,17 @@ class TreeSitterTests(unittest.TestCase):
             )
             tool = TreeSitterTool(Path(root))
             result = asyncio.run(tool.analyze("fixture", {"python"}))
-            properties = [n.properties for n in result.nodes]
-            self.assertEqual(result.relationships, [])
+            properties = [n.properties for n in result.nodes if "Symbol" in n.labels]
+            self.assertEqual(
+                [r.type for r in result.relationships],
+                ["CONTAINS", "DEFINES", "DEFINES"],
+            )
+            by_name = {n.properties["qualified_name"]: n for n in result.nodes}
+            for edge in result.relationships:
+                self.assertIn(edge.source_match["qualified_name"], by_name)
+                self.assertIn(edge.target_match["qualified_name"], by_name)
+            file = next(n for n in result.nodes if "File" in n.labels)
+            self.assertEqual(file.properties["path"], "sample.py")
             self.assertEqual(result.metadata.custom_metrics["model_tokens"], 0)
             self.assertEqual(
                 [p["definition_id"] for p in properties],
@@ -204,7 +217,10 @@ class TreeSitterTests(unittest.TestCase):
             filtered = asyncio.run(
                 tool.analyze("fixture", {"typescript"}, ["*.tsx", "*.ts"], ["skip.ts"])
             )
-            self.assertEqual([n.properties["name"] for n in filtered.nodes], ["View"])
+            self.assertEqual(
+                [n.properties["name"] for n in filtered.nodes if "Symbol" in n.labels],
+                ["View"],
+            )
             self.assertEqual(filtered.metadata.files_processed, 1)
             partial = asyncio.run(tool.analyze("fixture", {"python"}))
             self.assertEqual(
@@ -228,7 +244,7 @@ class TreeSitterTests(unittest.TestCase):
             asyncio.run(tool.analyze("fixture", {"python"}))
             (path / "a.py").unlink()
             empty = asyncio.run(tool.analyze("fixture", {"python"}))
-            self.assertEqual(empty.nodes, [])
+            self.assertFalse([n for n in empty.nodes if "Symbol" in n.labels])
             self.assertEqual(asyncio.run(tool.get_symbol_definitions()), {})
             asyncio.run(tool.cleanup())
             self.assertEqual(asyncio.run(tool.get_symbol_definitions()), {})
@@ -245,7 +261,7 @@ class TreeSitterTests(unittest.TestCase):
             self.assertEqual(
                 failed.metadata.custom_metrics["analysis_status"], "failed"
             )
-            self.assertEqual(failed.nodes, [])
+            self.assertFalse([n for n in failed.nodes if "Symbol" in n.labels])
             self.assertEqual(asyncio.run(tool.get_symbol_definitions()), {})
             self.assertEqual(
                 failed.metadata.custom_metrics["diagnostics"][0]["code"],
@@ -257,7 +273,10 @@ class TreeSitterTests(unittest.TestCase):
             self.assertEqual(
                 partial.metadata.custom_metrics["analysis_status"], "partial"
             )
-            self.assertEqual([n.properties["name"] for n in partial.nodes], ["Current"])
+            self.assertEqual(
+                [n.properties["name"] for n in partial.nodes if "Symbol" in n.labels],
+                ["Current"],
+            )
             self.assertTrue(partial.metadata.warnings)
             self.assertIn(
                 "failed",

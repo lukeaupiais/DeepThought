@@ -17,3 +17,8 @@ It is distributed under Apache-2.0; see LICENSE.
 The schema was carried forward from the original DeepThought copy. Python
 bindings were regenerated using protoc 35.1, with a private descriptor pool
 to avoid host binding collisions. Regeneration: python tools/generate_scip.py.
+
+The optional Neo4j GraphWriter, WriteCoordinator, schema, GraphQueryService,
+context queries and FastMCP tool adapters are ported/adapted from the original
+DeepThought MIT implementation. Their upstream module mapping and deliberate
+compatibility changes are documented in docs/graph-port.md.
