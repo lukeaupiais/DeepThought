@@ -166,3 +166,17 @@ investigations, appropriate normal-tool baselines, counterbalanced repetitions,
 quality guardrails and measured preparation/refresh costs. A successful Tree-sitter
 lookup does not establish support for Go, framework effects, distributed control
 flow, runtime architecture, refactoring or formal proofs.
+
+## Completed native-agent calibration
+
+The first real-agent calibration completed four fresh matched sessions on the
+pinned public DeepAgents pack, in baseline/treatment/treatment/baseline order.
+Every run returned a final answer, exited successfully, supplied native token
+counts and scored 78/78 with no extras or unsupported relationships. The
+installed evaluation CLI reproduced all records and comparisons.
+
+This tested profile **regressed on token efficiency**: treatment used 147,921
+tokens against baseline's 102,188 (+44.8%) across two pairs, with equal accuracy.
+Both treatments read the raw graph and still used Python AST. These results
+validate the end-to-end evaluation, not a performance benefit or enterprise
+architecture capability. See the [protocol, exact answers, receipts and limits](../evals/results/tree_sitter_deepagents_20261102/README.md).

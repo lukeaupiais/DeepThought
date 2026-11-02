@@ -23,6 +23,8 @@ synthetic calibration case and a revision-pinned investigation on DeepAgents.
 See [evaluation usage and limits](docs/evaluation.md) and the
 [independent validation cases](docs/evaluation-validation.md). No model calls,
 repository downloads, source builds or database services run automatically.
+The [first completed real-agent calibration](evals/results/tree_sitter_deepagents_20261102/README.md)
+found equal declaration accuracy and increased token use with raw tool output.
 
 This local alpha extracts named declarations from Python and TypeScript/TSX,
 ingests definitions and references from supplied SCIP artifacts, and composes

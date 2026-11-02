@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "scope": "Known-case declaration calibration; four completed real agent runs, not enterprise or statistical validation",
+  "source": {
+    "kind": "public_repository",
+    "repository": "https://github.com/langchain-ai/deepagents",
+    "revision": "6a5d93f9ba7391189f65e6b999b724253577085d",
+    "files": {
+      "libs/deepagents/deepagents/backends/protocol.py": "fc064c966a9f22d12645f420cbe2e263a48758fcf3da0fc30382c113caa12dd1",
+      "libs/deepagents/deepagents/backends/composite.py": "c705e50069af1eafc570eb5f0f4058eccde6b08b0b6851eac61dcb93f8599af0"
+    }
+  },
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "order": [
+    "pair1-baseline",
+    "pair1-treatment",
+    "pair2-treatment",
+    "pair2-baseline"
+  ],
+  "automatic_retries": 0,
+  "timeout_seconds": 300,
+  "native_output_schema": false,
+  "analysis_status": "succeeded",
+  "preparation": {
+    "wall_seconds": 0.11974499500138336,
+    "model_tokens": 0
+  },
+  "runs": [
+    {
+      "run": "pair1-baseline",
+      "input_tokens": 48201,
+      "cached_input_tokens": 41216,
+      "uncached_input_tokens": 6985,
+      "output_tokens": 2933,
+      "reasoning_output_tokens": 50,
+      "total_tokens": 51134,
+      "uncached_input_plus_output": 9918,
+      "wall_seconds": 40.707956051999645,
+      "correct": 78,
+      "expected": 78
+    },
+    {
+      "run": "pair1-treatment",
+      "input_tokens": 70923,
+      "cached_input_tokens": 52480,
+      "uncached_input_tokens": 18443,
+      "output_tokens": 2915,
+      "reasoning_output_tokens": 44,
+      "total_tokens": 73838,
+      "uncached_input_plus_output": 21358,
+      "wall_seconds": 35.36980504999883,
+      "correct": 78,
+      "expected": 78
+    },
+    {
+      "run": "pair2-treatment",
+      "input_tokens": 71077,
+      "cached_input_tokens": 64128,
+      "uncached_input_tokens": 6949,
+      "output_tokens": 3006,
+      "reasoning_output_tokens": 40,
+      "total_tokens": 74083,
+      "uncached_input_plus_output": 9955,
+      "wall_seconds": 81.57899884899962,
+      "correct": 78,
+      "expected": 78
+    },
+    {
+      "run": "pair2-baseline",
+      "input_tokens": 48155,
+      "cached_input_tokens": 41216,
+      "uncached_input_tokens": 6939,
+      "output_tokens": 2899,
+      "reasoning_output_tokens": 54,
+      "total_tokens": 51054,
+      "uncached_input_plus_output": 9838,
+      "wall_seconds": 35.964621694000016,
+      "correct": 78,
+      "expected": 78
+    }
+  ],
+  "aggregates": {
+    "baseline": {
+      "total_tokens": 102188,
+      "uncached_input_plus_output": 19756,
+      "wall_seconds": 76.67257774599966
+    },
+    "treatment": {
+      "total_tokens": 147921,
+      "uncached_input_plus_output": 31313,
+      "wall_seconds": 116.94880389899845
+    }
+  },
+  "treatment_change_percent": {
+    "total_tokens": 44.753787137432965,
+    "uncached_input_plus_output": 58.498683944118234,
+    "wall_seconds": 52.530157896119746
+  },
+  "quality_pass_all_runs": true,
+  "token_efficiency_improvement_demonstrated": false,
+  "prior_failed_attempts": {
+    "first_pair": "TLS trust before task; unknown usage",
+    "second_pair": "nonzero exits without final answers/terminal receipts; returncodes not retained; unknown usage"
+  },
+  "setup_health_probe": {
+    "input_tokens": 28422,
+    "cached_input_tokens": 26368,
+    "output_tokens": 52,
+    "included_in_comparison": false
+  },
+  "cost_limit": "No dollar pricing supplied. Historical failed-attempt usage unknown; aggregate counts cover the four completed comparison runs only. Cached tokens remain part of input; reasoning remains part of output. Uncached input plus output is not a monetary cost estimate.",
+  "protocol_driver_sha256": "098020d6e8421ad0999312ebc22cd4aa86da714fdeb881bcbb5c1ee762d52323",
+  "namespace_helper_sha256": "01bd37b63d2059ca46942594bd9405263224a8fda79e29b0fca91c98201833d9",
+  "input_id": "3b97fb55f62a9019f416530339354a12199784abb324dda52d3562a85b3b0b11"
+}

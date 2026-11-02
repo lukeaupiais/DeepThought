@@ -378,7 +378,21 @@ register_grader(
     Grader(
         validate_expected=_validate_declarations,
         score=_grade_declarations,
-        instructions="Return JSON with claims [{file,symbol,kind,line}], relationships [] and optional limitations. Report declarations only; no inferred calls or execution claims.",
+        instructions=(
+            "Return JSON with claims [{file,symbol,kind,line}], relationships [] "
+            "and optional limitations. Use these exact case-sensitive kind labels: "
+            "Class, Function, Method, Interface, Enum, TypeAlias, Namespace. "
+            "For Python, a named function directly in a class's lexical scope is "
+            "Method; a function nested inside another function or method is "
+            "Function. Async declarations use the same Function or Method labels, "
+            "not separate async kinds. For TypeScript, method declarations and "
+            "signatures are Method; named functions and identifier-bound arrow "
+            "functions are Function. Join enclosing named declarations and the "
+            "declaration name with dots for symbol. Use the 1-based start line of "
+            "the declaration syntax, excluding decorators; for an identifier-bound "
+            "arrow function use its variable declarator's start line. Report "
+            "declarations only; no inferred calls or execution claims."
+        ),
     ),
 )
 

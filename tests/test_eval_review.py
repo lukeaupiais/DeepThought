@@ -30,6 +30,24 @@ class EvalIndependentReviewTests(unittest.TestCase):
     def answer(self):
         return {"claims": deepcopy(self.scenario["expected"]), "relationships": []}
 
+    def test_both_arms_receive_the_same_explicit_declaration_label_rules(self):
+        baseline = self.prepared["contexts"]["baseline"]
+        treatment = self.prepared["contexts"]["treatment"]
+        self.assertEqual(baseline["instructions"], treatment["instructions"])
+        instructions = baseline["instructions"]
+        for rule in (
+            "exact case-sensitive kind labels",
+            "Class, Function, Method, Interface, Enum, TypeAlias, Namespace",
+            "directly in a class's lexical scope is Method",
+            "nested inside another function or method is Function",
+            "Async declarations use the same Function or Method labels",
+            "excluding decorators",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, instructions)
+        self.assertNotIn("tool_output", baseline)
+        self.assertIn("tool_output", treatment)
+
     def record(self, arm, *, agent=None, answer=None, execution=None):
         return finalize_record(
             self.prepared,
