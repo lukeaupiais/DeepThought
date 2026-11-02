@@ -37,7 +37,7 @@ print('Verified installed CLI, hidden checkout, read-only fixtures and isolated 
 """
 
 CORE = r"""
-import pathlib, sys
+import asyncio, pathlib, sys
 import deepthought
 from deepthought import GraphSnapshot, analyze_repository, compose_graph, ingest_scip
 root = pathlib.Path(sys.argv[1])
@@ -50,6 +50,14 @@ assert {d.code for d in result.diagnostics} == {'protocol_unavailable'}, result.
 graph = compose_graph([result])
 assert graph.status == 'failed'
 assert GraphSnapshot.from_json(graph.to_json()) == graph
+from deepthought.analysis_tools import tool_registry
+tool = tool_registry.get_tool('tree-sitter', root / 'python')
+assert tool is not None
+assert not asyncio.run(tool.check_availability())
+output = asyncio.run(tool.analyze('core', languages={'python'}))
+assert output.metadata.custom_metrics['analysis_status'] == 'failed'
+assert output.nodes == []
+import deepthought.evaluation
 for name in ('tree_sitter', 'google.protobuf', 'neo4j', 'torch', 'sentence_transformers'):
     assert name not in sys.modules, name
 print('Verified core-only installation and explicit missing-extra diagnostics')
@@ -76,6 +84,7 @@ def main():
         shutil.copytree(
             root / "tests", tests, ignore=shutil.ignore_patterns("__pycache__")
         )
+        shutil.copytree(root / "evals", base / "evals")
         scratch.mkdir()
         command = ["bwrap"]
         if args.privileged:
