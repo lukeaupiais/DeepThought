@@ -190,3 +190,34 @@ or an inaccessible eligible workspace root raise `ValueError`/`OSError`.
 with at most one additional sentinel byte to detect growth past a byte limit.
 Cancellation is cooperative between reads. This SDK operation introduces no new
 mandatory dependency or changes to analysis/graph artifact schemas.
+
+
+### Recorded source consistency (CLI)
+
+```sh
+deepthought check-source ./workspace ./analysis.json --repository-id my-project
+```
+
+The CLI loads one saved **analysis** artifact (not a composed graph), verifies
+that its repository ID matches the required `--repository-id`, and invokes the
+SDK checker. This ID check does not authorize a workspace or authenticate an
+artifact; hosts still assign the trusted root and artifact. The result is exactly
+the SDK's source-consistency JSON plus a newline, retaining its recorded-files
+scope and snapshot identity. Historical query freshness remains unverified.
+
+Exit codes for `check-source`: **0** means all nonempty recorded coverage matched;
+**1** means changed or unverified (including cooperative cancellation); **2** means
+invalid input, unreadable artifact/root, repository mismatch, or an output-budget
+failure. SIGINT and SIGTERM request cooperative cancellation, with `cancelled`
+retained in the result; cancellation does not erase differences already found.
+Previous signal handlers are restored before returning from the command.
+
+Defaults are `--max-artifact-bytes 50000000`, `--max-files 10000`,
+`--max-file-bytes 2000000`, `--max-total-bytes 100000000`, and
+`--max-output-bytes 32768`. All input/read limits must be positive; the output cap
+accepts 1024–32768 bytes and counts UTF-8 bytes plus the final newline. File and
+source-byte limits retain the SDK's incomplete-check semantics and one-byte growth
+sentinel. If the complete JSON cannot fit, the command exits 2 with stderr and no
+stdout; it does not truncate evidence. The input/read/output limits do not provide
+a hard memory or execution-time bound. The command works without optional grammar
+or SCIP dependencies and performs no indexer, model, or network calls.
