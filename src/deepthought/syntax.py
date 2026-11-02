@@ -28,6 +28,7 @@ KINDS = {
     "enum_declaration": "Enum",
     "type_alias_declaration": "TypeAlias",
     "internal_module": "Namespace",
+    "module": "Namespace",
 }
 
 

@@ -2,6 +2,7 @@
 Standalone code intelligence and analysis engine for IDEs, development tools, and AI agents.
 
 This local alpha extracts named declarations from Python and TypeScript/TSX,
+preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. It retains ranges, native symbol identities, role
 flags, coverage, diagnostics and source snapshots. It does not infer calls,

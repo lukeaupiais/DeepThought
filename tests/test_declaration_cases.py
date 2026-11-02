@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from deepthought import analyze_repository
+from deepthought import QueryRequest, analyze_repository, compose_graph, query_graph
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -130,3 +130,65 @@ class DeclarationTests(unittest.TestCase):
                 (result.definitions[0].symbol, result.definitions[0].end_column),
                 ("café", 17),
             )
+
+
+class ModuleScopeTests(unittest.TestCase):
+    def test_ambient_modules_preserve_owners_in_definitions_and_queries(self):
+        result = analyze_repository(
+            FIXTURES / "declarations",
+            repository_id="fixture",
+            languages=("typescript",),
+            include=("modules.ts",),
+        )
+        self.assertEqual(result.status, "succeeded")
+        self.assertEqual(
+            {(d.symbol, d.kind) for d in result.definitions},
+            {
+                (f'"@example/{module}"{suffix}', kind)
+                for module in ("first", "second")
+                for suffix, kind in (
+                    ("", "Namespace"),
+                    (".Item", "Interface"),
+                    (".Item.run", "Method"),
+                    (".create", "Function"),
+                )
+            },
+        )
+        graph = compose_graph([result])
+        for module in ("first", "second"):
+            symbol = f'"@example/{module}".Item'
+            query = query_graph(
+                graph, QueryRequest("definitions", "fixture", symbol=symbol)
+            )
+            self.assertEqual(query.total_matches, 1)
+            self.assertEqual(query.matches[0]["definition"]["symbol"], symbol)
+        self.assertEqual(
+            query_graph(
+                graph, QueryRequest("definitions", "fixture", symbol="Item")
+            ).total_matches,
+            0,
+        )
+
+    def test_adding_another_module_does_not_rename_existing_declarations(self):
+        source = (FIXTURES / "declarations/modules.ts").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "modules.ts"
+            path.write_text(source)
+            before = analyze_repository(
+                directory, repository_id="fixture", languages=("typescript",)
+            )
+            path.write_text(
+                'declare module "@example/earlier" { export interface Item {} }\n'
+                + source
+            )
+            after = analyze_repository(
+                directory, repository_id="fixture", languages=("typescript",)
+            )
+        self.assertEqual(
+            {d.symbol: d.id for d in before.definitions},
+            {
+                d.symbol: d.id
+                for d in after.definitions
+                if not d.symbol.startswith('"@example/earlier"')
+            },
+        )
