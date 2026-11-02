@@ -9,8 +9,20 @@ from threading import Event
 
 from .engine import analyze_repository
 from .scip import ingest_scip
-from .graph import compose_graph
+from .graph import GraphSnapshot, compose_graph
+from .query import QueryRequest, query_graph
 from .models import AnalysisResult
+
+
+def _read_artifact(path, max_bytes):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise ValueError("Artifact must be a regular file")
+        content = source.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValueError("Artifact byte budget exceeded")
+    return content
 
 
 def load_artifacts(args):
@@ -20,16 +32,10 @@ def load_artifacts(args):
         raise ValueError("Too many analysis artifacts")
     results, total_bytes = [], 0
     for path in args.artifacts:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, "rb") as source:
-            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
-                raise ValueError("Analysis artifact must be a regular file")
-            content = source.read(
-                min(args.max_artifact_bytes + 1, args.max_total_bytes - total_bytes + 1)
-            )
+        content = _read_artifact(
+            path, min(args.max_artifact_bytes, args.max_total_bytes - total_bytes)
+        )
         total_bytes += len(content)
-        if len(content) > args.max_artifact_bytes or total_bytes > args.max_total_bytes:
-            raise ValueError("Analysis artifact byte budget exceeded")
         results.append(AnalysisResult.from_json(content.decode("utf-8")))
     return results
 
@@ -69,6 +75,19 @@ def main(argv=None) -> int:
     compose.add_argument("--max-artifact-bytes", type=int, default=50_000_000)
     compose.add_argument("--max-total-bytes", type=int, default=100_000_000)
     compose.add_argument("--max-artifacts", type=int, default=100)
+    query = subcommands.add_parser("query", help="Query a supplied graph JSON artifact")
+    query.add_argument("graph")
+    query.add_argument("--repository-id", required=True)
+    query.add_argument(
+        "--operation",
+        required=True,
+        choices=("definitions", "references", "dependencies"),
+    )
+    query.add_argument("--symbol")
+    query.add_argument("--file")
+    query.add_argument("--limit", type=int, default=20)
+    query.add_argument("--max-output-bytes", type=int, default=32_768)
+    query.add_argument("--max-artifact-bytes", type=int, default=50_000_000)
     args = parser.parse_args(argv)
     cancel = Event()
     previous = {}
@@ -95,8 +114,23 @@ def main(argv=None) -> int:
                 max_index_bytes=args.max_index_bytes,
                 path_prefix=args.path_prefix,
             )
-        else:
+        elif args.command == "compose":
             result = compose_graph(load_artifacts(args))
+        else:
+            request = QueryRequest(
+                args.operation,
+                args.repository_id,
+                symbol=args.symbol,
+                file=args.file,
+                limit=args.limit,
+                max_output_bytes=args.max_output_bytes,
+            )
+            if args.max_artifact_bytes < 1:
+                raise ValueError("Artifact byte limit must be positive")
+            content = _read_artifact(args.graph, args.max_artifact_bytes)
+            result = query_graph(
+                GraphSnapshot.from_json(content.decode("utf-8")), request
+            )
     except (ValueError, OSError) as exc:
         print(f"deepthought: {exc}", file=sys.stderr)
         return 2

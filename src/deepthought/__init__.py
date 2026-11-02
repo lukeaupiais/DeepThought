@@ -5,6 +5,7 @@ from .models import AnalysisResult
 from .graph import GraphSnapshot, compose_graph
 from ._version import __version__ as __version__
 from .scip import ingest_scip
+from .query import QueryRequest, QueryResult, query_graph
 
 __all__ = [
     "AnalysisResult",
@@ -12,4 +13,7 @@ __all__ = [
     "analyze_repository",
     "ingest_scip",
     "compose_graph",
+    "QueryRequest",
+    "QueryResult",
+    "query_graph",
 ]

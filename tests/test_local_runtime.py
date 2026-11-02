@@ -18,7 +18,7 @@ def deny(event, args):
     if event in {'socket.connect', 'socket.getaddrinfo', 'subprocess.Popen', 'os.system', 'os.posix_spawn'}:
         raise RuntimeError('Forbidden runtime operation: '+event)
 sys.addaudithook(deny)
-from deepthought import GraphSnapshot, analyze_repository, compose_graph, ingest_scip
+from deepthought import GraphSnapshot, QueryRequest, analyze_repository, compose_graph, ingest_scip, query_graph
 r=analyze_repository(sys.argv[1], repository_id='fixture', languages=('python', 'typescript'))
 assert r.status == 'succeeded', r.diagnostics
 assert r.definitions
@@ -27,6 +27,8 @@ sources=[ingest_scip(Path(sys.argv[1])/'scip'/f'{language}.scip', repository_id=
 graph=compose_graph(sources)
 assert graph.references
 assert GraphSnapshot.from_json(graph.to_json()) == graph
+query=query_graph(graph, QueryRequest('definitions', 'python', limit=1))
+assert query.matches and len(query.to_json().encode('utf-8')) + 1 <= 32768
 for node in graph.lookup_definitions('helper'):
     graph.references_to(node.id)
     graph.dependencies(node.repository_id, node.definition.file)

@@ -39,7 +39,7 @@ print('Verified installed CLI, hidden checkout, read-only fixtures and isolated 
 CORE = r"""
 import pathlib, sys
 import deepthought
-from deepthought import GraphSnapshot, analyze_repository, compose_graph, ingest_scip
+from deepthought import GraphSnapshot, QueryRequest, analyze_repository, compose_graph, ingest_scip, query_graph
 root = pathlib.Path(sys.argv[1])
 result = analyze_repository(root / 'python', repository_id='core', languages=('python',))
 assert result.status == 'failed', result
@@ -50,6 +50,9 @@ assert {d.code for d in result.diagnostics} == {'protocol_unavailable'}, result.
 graph = compose_graph([result])
 assert graph.status == 'failed'
 assert GraphSnapshot.from_json(graph.to_json()) == graph
+query = query_graph(graph, QueryRequest('definitions', 'core'))
+assert query.status in {'failed', 'unavailable'} and not query.matches
+assert query.to_dict()['analysis_status'] == 'failed'
 for name in ('tree_sitter', 'google.protobuf', 'neo4j', 'torch', 'sentence_transformers'):
     assert name not in sys.modules, name
 print('Verified core-only installation and explicit missing-extra diagnostics')
