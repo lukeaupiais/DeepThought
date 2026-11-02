@@ -9,6 +9,8 @@ Neo4j is imported only at the database feature boundary.
 import json
 import math
 import re
+import time
+from hashlib import sha256
 
 
 def _json(value):
@@ -81,9 +83,10 @@ class GraphQueryService:
     additionally enforce read-only access; routing mode alone is not security.
     """
 
-    def __init__(self, driver, database="neo4j"):
+    def __init__(self, driver, database="neo4j", *, observer=None):
         self.driver = driver
         self.database = _text(database, "database")
+        self.observer = observer
 
     async def _read(
         self,
@@ -100,6 +103,7 @@ class GraphQueryService:
         _text(repo_url, "repo_url")
         _text(snapshot_id, "snapshot_id")
         _bounds(limit, max_output_bytes, timeout)
+        started = time.monotonic()
         parameters = dict(parameters)
         parameters.update(
             repo_url=repo_url, snapshot_id=snapshot_id, fetch_limit=limit + 1
@@ -110,9 +114,10 @@ class GraphQueryService:
             fetch_size=min(limit + 1, 101),
         ) as session:
             tx = await session.begin_transaction(timeout=timeout)
+            event = None
             try:
                 marker_result = await tx.run(
-                    "MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,status:'complete'}) RETURN s.metadata_json AS metadata",
+                    "MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,status:'complete'}) RETURN s.metadata_json AS metadata,s.content_hash AS content_hash",
                     repo_url=repo_url,
                     snapshot_id=snapshot_id,
                 )
@@ -166,9 +171,30 @@ class GraphQueryService:
                         break
                 if len(_json(response).encode()) > max_output_bytes:
                     raise ValueError("Query metadata exceeds the output byte budget")
+                # Optional evidence hook shared by CLI, MCP and embedded callers.
+                # Emit only after a real Neo4j read; no raw query or parameters.
+                if self.observer is not None:
+                    encoded = _json(response).encode()
+                    event = {
+                        "backend": "neo4j",
+                        "interface": "deepthought.graph_queries.GraphQueryService",
+                        "database": self.database,
+                        "repo_url": repo_url,
+                        "snapshot_id": snapshot_id,
+                        "content_hash": marker["content_hash"],
+                        "query_sha256": sha256(query.encode()).hexdigest(),
+                        "response_sha256": sha256(encoded).hexdigest(),
+                        "response_bytes": len(encoded),
+                        "returned": response["returned"],
+                        "truncated": response["truncated"],
+                        "status": "succeeded",
+                    }
                 return response
             finally:
                 await tx.rollback()
+                if event is not None:
+                    event["wall_seconds"] = time.monotonic() - started
+                    self.observer(event)
 
     async def search_elements(
         self,

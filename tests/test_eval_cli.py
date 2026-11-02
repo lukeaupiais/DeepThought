@@ -28,7 +28,9 @@ class EvalCLIIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             prepared = root / "prepared"
-            self.command("prepare", PACK, SOURCE, prepared)
+            self.command(
+                "prepare", PACK, SOURCE, prepared, "--interface", "raw-context"
+            )
             oracle = json.loads((prepared / "prepared.private.json").read_text())
             for arm in ("baseline", "treatment"):
                 actor = json.loads((prepared / (arm + ".actor.json")).read_text())

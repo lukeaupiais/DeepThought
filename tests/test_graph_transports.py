@@ -191,6 +191,9 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             expected.add("queryGraph")
                         self.assertEqual({tool.name for tool in tools}, expected)
                         for tool in tools:
+                            bounds = tool.inputSchema["properties"]["max_elements"]
+                            self.assertEqual(bounds["minimum"], 1)
+                            self.assertEqual(bounds["maximum"], 100)
                             self.assertNotIn(
                                 "ctx", tool.inputSchema.get("properties", {})
                             )

@@ -110,6 +110,8 @@ class QueryAccessEvaluationTests(unittest.TestCase):
                         str(PACK),
                         str(SOURCE),
                         str(prepared_dir),
+                        "--interface",
+                        "tool-access",
                         "--tool-access",
                         str(descriptor),
                     ]

@@ -29,6 +29,20 @@ def connection_settings():
     )
 
 
+def query_observer():
+    """Load optional evaluation instrumentation only when explicitly configured."""
+    keys = (
+        "DEEPTHOUGHT_EVAL_INPUT_ID",
+        "DEEPTHOUGHT_EVAL_RUN_ID",
+        "DEEPTHOUGHT_EVAL_QUERY_LOG",
+    )
+    if not any(os.environ.get(key) for key in keys):
+        return None
+    from .evaluation.neo4j import query_recorder_from_environment
+
+    return query_recorder_from_environment()
+
+
 def parser():
     p = argparse.ArgumentParser(
         description="DeepThought Neo4j graph import and queries"
@@ -128,7 +142,11 @@ async def execute(args):
             return asdict(result)
         from .graph_queries import GraphQueryService
 
-        service = GraphQueryService(driver, database=config["database"])
+        service = GraphQueryService(
+            driver,
+            database=config["database"],
+            observer=query_observer(),
+        )
         kwargs = dict(
             snapshot_id=args.snapshot,
             limit=args.limit,

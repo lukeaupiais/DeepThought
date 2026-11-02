@@ -1,0 +1,111 @@
+{
+  "scope": "Actual AnalysisTool -> verified Neo4j -> production MCP -> native agent -> receipt gate validation, not performance confirmation",
+  "tool": "tree-sitter",
+  "source": {
+    "kind": "public_repository",
+    "repository": "https://github.com/langchain-ai/deepagents",
+    "revision": "6a5d93f9ba7391189f65e6b999b724253577085d",
+    "files": {
+      "libs/deepagents/deepagents/backends/protocol.py": "fc064c966a9f22d12645f420cbe2e263a48758fcf3da0fc30382c113caa12dd1",
+      "libs/deepagents/deepagents/backends/composite.py": "c705e50069af1eafc570eb5f0f4058eccde6b08b0b6851eac61dcb93f8599af0"
+    }
+  },
+  "model": {
+    "model": "gpt-6.1-sol",
+    "settings": {
+      "effort": "high",
+      "sandbox": "read-only",
+      "timeout_seconds": 300
+    }
+  },
+  "graph": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/langchain-ai/deepagents",
+    "snapshot_id": "3bcf3a0a3a6e263459ff5eeb6ce7286df96fd17c245497e812098d5f3a1cfb1d",
+    "content_hash": "1f124e30bb4c625788afba5be14d351d4a0266a3814b41392f897dc5c9a1123b",
+    "nodes": 81,
+    "relationships": 80,
+    "verified": true,
+    "wall_seconds": 0.37702912500026287
+  },
+  "input_id": "7950efbee10c5379a6ec5ff9095bc9981b7f3929563990562a83e4cfe66e33ee",
+  "read_only_database": {
+    "write_rejected": true,
+    "code": "Neo.ClientError.General.WriteOnReadOnlyAccessDatabase",
+    "symbols": 78
+  },
+  "runs": [
+    {
+      "arm": "baseline",
+      "input_tokens": 67681,
+      "cached_input_tokens": 50944,
+      "output_tokens": 3047,
+      "reasoning_output_tokens": 98,
+      "total_tokens": 70728,
+      "uncached_input_plus_output": 19784,
+      "correct": 78,
+      "expected": 78,
+      "wall_seconds": 43.45071815299889,
+      "successful_mcp_calls": 0,
+      "failed_mcp_calls": 0
+    },
+    {
+      "arm": "treatment",
+      "input_tokens": 100024,
+      "cached_input_tokens": 79488,
+      "output_tokens": 3261,
+      "reasoning_output_tokens": 42,
+      "total_tokens": 103285,
+      "uncached_input_plus_output": 23797,
+      "correct": 78,
+      "expected": 78,
+      "wall_seconds": 42.59620334500141,
+      "successful_mcp_calls": 1,
+      "failed_mcp_calls": 1
+    }
+  ],
+  "comparison": {
+    "status": "observed_caller_reported_no_reduction",
+    "analysis_tool_evaluation_accepted": true,
+    "benefit_demonstrated": false,
+    "graph_interface": {
+      "status": "verified_neo4j_access",
+      "successful_calls": 1,
+      "response_bytes": 10245,
+      "query_wall_seconds": 1.0461821659991983,
+      "receipt_provenance": "observed_server_events_not_signed_attestations"
+    },
+    "token_reduction": -0.46031274742676165
+  },
+  "baseline_reused": true,
+  "limits": "Baseline is unchanged and reused after correcting only the treatment client tool approval configuration/schema; no fresh matched/statistical/enterprise or efficiency conclusion. Cache state uncontrolled. Query bytes/time describe the internal DB read, not all MCP framing. Receipts are not authenticated by a provider.",
+  "failed_treatment": {
+    "reason": "Native MCP tool invocation required approval under never policy; no actual database call; new gate rejected it despite a correct final answer.",
+    "usage": {
+      "input_tokens": 97951,
+      "cached_input_tokens": 78592,
+      "output_tokens": 3332,
+      "reasoning_output_tokens": 56
+    },
+    "total_tokens": 101283,
+    "quality": 78,
+    "expected": 78,
+    "comparison_status": "graph_not_used_or_unverified",
+    "execution_status": "completed"
+  },
+  "native_total_tokens_including_failed_attempt": 275296,
+  "preparation": {
+    "wall_seconds": 0.1041742699999304,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 0.37702912500026287
+  },
+  "cost_limits": "Native evaluation-agent counts only; engineering/coordinator usage, database provisioning/resource costs and dollars are not inferred. Failed attempt retained; cached input and reasoning remain subsets.",
+  "execution_hashes": {
+    "baseline_driver_sha256": "374126a4e55e811ea18b247e1a0ef0bd87d18bfa0372aabf8f53f8936cd998f5",
+    "treatment_driver_sha256": "02265fe23388565e1eeecff02f7e91714f02e5f8f54aeca9bb15b37aa90a767e",
+    "namespace_sha256": "01bd37b63d2059ca46942594bd9405263224a8fda79e29b0fca91c98201833d9",
+    "mcp_server_sha256": "06d38db52f0fcd8d8fe87d35dd65d80e75f183468305b1801e7e48a8e0d812b5"
+  }
+}

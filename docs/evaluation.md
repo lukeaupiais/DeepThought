@@ -12,67 +12,121 @@ The registry selects a tool by name, language or capability; registering or
 discovering it does not run analysis. Grammar dependencies remain optional.
 Missing grammars and partial source results remain visible in tool metadata.
 
-## Minimal workflow
+## AnalysisTool evaluation through Neo4j
 
-Install the selected extras separately. From this checkout:
+The default CLI evaluation interface is **Neo4j**. Provision a dedicated test
+instance and the normal `DEEPTHOUGHT_NEO4J_URI`, `DEEPTHOUGHT_NEO4J_USER`,
+`DEEPTHOUGHT_NEO4J_PASSWORD` and `DEEPTHOUGHT_NEO4J_DATABASE` configuration. Keep
+writer credentials, grading material and query logs outside the actor namespace.
+Use database-enforced read-only access for the agent's query service after import.
+See [graph setup and scope](graph-port.md).
 
 ```sh
-pip install '.[python,typescript]'
+pip install '.[python,typescript,neo4j,mcp]'
 deepthought-eval prepare \
-  evals/scenarios/tree_sitter/declarations.json \
-  evals/fixtures/tree_sitter_declarations eval-results/calibration
+  evals/scenarios/tree_sitter/deepagents_backends.json \
+  /path/to/existing/public/deepagents eval-results/tree-sitter
 ```
 
-Preparation runs the actual registered tool and writes:
+This runs the selected registered AnalysisTool once, imports its exact output
+through the existing WriteCoordinator/GraphWriter, and reads back every stored
+node and relationship. Counts, labels, identities, endpoints and properties must
+match. A foreign graph in the database is rejected before import. A missing
+connection never silently selects raw JSON. No target clone, build or execution
+occurs; public Git revision and source hashes remain required.
 
-- `baseline.actor.json`: task, selected source paths and response instructions.
-- `treatment.actor.json`: the same inputs plus the actual tool output.
-- `prepared.private.json`: source/tool identities and the independent oracle.
+Preparation writes:
 
-Give each fresh agent only its own actor context and identical read-only access
-to the selected source. Keep the oracle, the other answer, grading tests and
-previous runs outside the agent's accessible filesystem. The harness separates
-handoff files but **does not provide an operating-system sandbox**. The operator
-is responsible for isolation, budgets and normal-tool parity.
+- `baseline.actor.json`: task, selected source and shared answer instructions.
+- `treatment.actor.json`: the same inputs plus the actual query-interface
+  descriptor and selected repository/snapshot; **no graph dump or oracle**.
+- `prepared.private.json`: grading material, extraction output and verified Neo4j
+  readback identity. Give this file to neither agent.
 
-Record each answer independently:
+Configure the actual `deepthought-mcp` server or `deepthought-graph` adapter for the
+selected database, repository and snapshot. An optional `--tool-access` JSON file
+can describe your configured transport; its text is never executed by the
+harness. Fresh agents retain the same ordinary source/AST/search tools.
+
+## Require actual query evidence
+
+Enable the existing query service's audit hook for the treatment session. Set
+these three variables on the evaluator-controlled MCP/CLI service process:
+
+```text
+DEEPTHOUGHT_EVAL_INPUT_ID=<prepared.private.json input_id>
+DEEPTHOUGHT_EVAL_RUN_ID=<fresh treatment session identity>
+DEEPTHOUGHT_EVAL_QUERY_LOG=<evaluator-owned existing empty JSONL file>
+```
+
+Use a new session identity and empty log for every actor. Run a separate MCP
+service/recorder per actor; do not mix concurrent agents under one fixed run ID.
+Keep the log outside
+actor read/write access. These settings do not launch a server or grant access;
+the caller still configures the real transport and source/oracle isolation.
+Embedded callers can pass `QueryRecorder(input_id, run_id, path)` as the optional
+`observer` to the same production `GraphQueryService`.
+
+After a real database read and transaction rollback, the service records its
+backend, database, repository, snapshot, stored-content hash, query/response hashes,
+returned bytes/count and elapsed time. It does not log query parameters or
+credentials. These are database-read measurements; one MCP context call may
+perform multiple database reads. Native agent traces retain client failures and
+transport overhead separately. Query time is already inside agent wall time.
+
+Record native token counts, model/settings and completion state through the
+existing `--telemetry` JSON handoff, then attach the actual query journal:
 
 ```sh
-deepthought-eval record eval-results/calibration/prepared.private.json \
-  baseline baseline-answer.json eval-results/calibration/baseline.json
-deepthought-eval record eval-results/calibration/prepared.private.json \
-  treatment treatment-answer.json eval-results/calibration/treatment.json
-deepthought-eval compare eval-results/calibration/baseline.json \
-  eval-results/calibration/treatment.json eval-results/calibration/comparison.json
+deepthought-eval record eval-results/tree-sitter/prepared.private.json \
+  baseline baseline-answer.json baseline.record.json \
+  --telemetry baseline.telemetry.json --run-id fresh-baseline
+
+deepthought-eval record eval-results/tree-sitter/prepared.private.json \
+  treatment treatment-answer.json treatment.record.json \
+  --telemetry treatment.telemetry.json --run-id fresh-treatment \
+  --graph-queries treatment.queries.jsonl
+
+deepthought-eval compare baseline.record.json treatment.record.json comparison.json
 ```
 
-Answers for the declaration grader use `claims`, each containing `file`,
-`symbol`, `kind` and a one-based `line`, plus an empty `relationships` list.
-There is no inference from symbol references to execution or calls.
+A treatment must have at least one successful server-observed read bound to this
+preparation, session and exact stored graph. Missing calls, failed connections,
+wrong backends/databases/snapshots, reused session evidence or graph use in the
+baseline cannot yield an accepted matched AnalysisTool comparison. Correct final
+answers alone do not certify the interface. Costs and grades remain visible when
+interface acceptance fails; do not discard failures from aggregate reporting.
 
-For a real agent run, `record --telemetry receipt.json` accepts:
+`analysis_tool_evaluation_accepted` requires the verified interface plus the
+existing completion, source, quality and usage guardrails. Inspect
+`graph_interface` independently when a real graph-assisted answer is wrong or
+usage is incomplete. An accepted integration is not proof of a performance gain:
+`benefit_demonstrated` remains false for these caller-reported measurements.
+Native/server receipts require independent review; hashes detect content changes,
+not fabrication by a privileged evaluator or signed provider billing.
 
-```json
-{
-  "kind": "agent",
-  "agent": {"model": "actual-model-id", "settings": {"effort": "actual-setting"}},
-  "execution": {"status": "completed", "wall_seconds": 12.3},
-  "usage": {
-    "input_tokens": 1000,
-    "cached_input_tokens": 800,
-    "output_tokens": 100,
-    "reasoning_output_tokens": 20
-  }
-}
+## Explicit controls
+
+Raw graph injection is retained only as an explicitly selected control:
+
+```sh
+deepthought-eval prepare evals/scenarios/tree_sitter/declarations.json \
+  evals/fixtures/tree_sitter_declarations eval-results/raw-control \
+  --interface raw-context
 ```
 
-These example numbers are not measured results. Usage is caller-reported, not
-authenticated by the framework. Missing usage stays unknown; cached input and
-reasoning output are subsets, never additional tokens. The default record kind
-is `scripted_control`. Scripted answers can validate the grader but cannot
-demonstrate an agent improvement. Comparisons retain failed outcomes and reject
-incompatible inputs, settings or handoffs. A descriptive actor-token reduction
-is separate from an independently demonstrated performance benefit.
+The backwards-compatible Python `prepare()` function also remains a raw-context
+control unless supplied a generic descriptor. Use
+`deepthought.evaluation.neo4j.prepare_neo4j()` for actual AnalysisTool evaluations.
+An unverified descriptor alone (`--interface tool-access --tool-access file.json`)
+cannot certify a Neo4j interface. Comparisons label raw controls and generic
+interfaces explicitly; neither is accepted as a Neo4j AnalysisTool evaluation.
+Raw-control token ratios describe only raw injection.
+
+Source-fact conformance and grader falsification remain valid offline checks;
+they do not require Neo4j or an agent. Missing usage remains unknown. Cached input
+is part of input, and reasoning output is part of output. Retain preparation,
+server and native execution costs rather than claiming token counts are dollars.
 
 ## Public scenarios and extension
 

@@ -8,12 +8,14 @@ requires a dedicated snapshot database and database-enforced read-only access.
 
 from contextlib import asynccontextmanager
 import os
+from typing import Annotated
 
-from .graph_cli import connection_settings
+from .graph_cli import connection_settings, query_observer
 
 
 def create_server():
     from mcp.server.fastmcp import Context, FastMCP
+    from pydantic import Field
     from .graph_queries import GraphQueryService
     from .storage.graph.connection import Neo4jConnectionManager
 
@@ -23,7 +25,11 @@ def create_server():
         manager = Neo4jConnectionManager(**settings)
         driver = await manager.connect()
         try:
-            yield GraphQueryService(driver, database=settings["database"])
+            yield GraphQueryService(
+                driver,
+                database=settings["database"],
+                observer=query_observer(),
+            )
         finally:
             await manager.close()
 
@@ -36,7 +42,7 @@ def create_server():
         snapshot_id: str,
         ctx: Context,
         line_number: int | None = None,
-        max_elements: int = 20,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
         """Get bounded stored declarations and relationships at a file/line."""
         return await ctx.request_context.lifespan_context.get_code_context(
@@ -53,7 +59,7 @@ def create_server():
         repository_id: str,
         snapshot_id: str,
         ctx: Context,
-        max_elements: int = 20,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
         """Get indexed files/declaration counts for a path prefix."""
         return await ctx.request_context.lifespan_context.get_file_structure(
@@ -69,7 +75,7 @@ def create_server():
         repository_id: str,
         snapshot_id: str,
         ctx: Context,
-        max_elements: int = 20,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
         """Search the original code_search fulltext index; empty selects declarations."""
         return await ctx.request_context.lifespan_context.search_elements(
@@ -88,7 +94,7 @@ def create_server():
             repository_id: str,
             snapshot_id: str,
             ctx: Context,
-            max_elements: int = 20,
+            max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
         ) -> dict:
             """Run bounded read-only Cypher in an explicitly dedicated snapshot database."""
             return await ctx.request_context.lifespan_context.query_cypher(
