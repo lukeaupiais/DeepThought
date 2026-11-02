@@ -180,3 +180,13 @@ tokens against baseline's 102,188 (+44.8%) across two pairs, with equal accuracy
 Both treatments read the raw graph and still used Python AST. These results
 validate the end-to-end evaluation, not a performance benefit or enterprise
 architecture capability. See the [protocol, exact answers, receipts and limits](../evals/results/tree_sitter_deepagents_20261102/README.md).
+
+## On-demand graph access
+
+Query-access mode supplies a trusted JSON command/help descriptor instead of raw
+graph output; extracted facts remain in the private preparation. The caller must
+verify actual service contents and successful agent query invocations separately.
+A correct final answer with a disconnected or unused graph endpoint does not
+validate integration. The [core graph port validation](../evals/results/neo4j_query_deepagents_20261102/README.md)
+includes real Neo4j/Cypher access, readback, native token receipts and a failed
+network-blocked pilot retained alongside the corrected runs.

@@ -247,3 +247,10 @@ sentinel. If the complete JSON cannot fit, the command exits 2 with stderr and n
 stdout; it does not truncate evidence. The input/read/output limits do not provide
 a hard memory or execution-time bound. The command works without optional grammar
 or SCIP dependencies and performs no indexer, model, or network calls.
+
+## Optional core graph storage and agent queries
+
+The [core graph port](docs/graph-port.md) restores the original Neo4j writer,
+shared tool-output coordinator, Cypher/context query service and MCP tools.
+Provision the `neo4j` or `mcp` extra, then use `deepthought-graph` or
+`deepthought-mcp` for on-demand access. The existing local SDK stays database-free.

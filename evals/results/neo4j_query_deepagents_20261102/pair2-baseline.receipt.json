@@ -1,0 +1,50 @@
+{
+  "run": "pair2-baseline",
+  "native_terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 68931,
+      "cached_input_tokens": 48640,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 2953,
+      "reasoning_output_tokens": 44
+    }
+  },
+  "execution": {
+    "status": "completed",
+    "returncode": 0,
+    "signal": null,
+    "wall_seconds": 34.990689510001175,
+    "terminal_count": 1,
+    "parse_error": null
+  },
+  "quality": {
+    "quality_pass": true,
+    "missing": [],
+    "extra": [],
+    "invalid": [],
+    "duplicates": [],
+    "unsupported_relationships": [],
+    "expected_count": 78,
+    "correct_count": 78,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "actor_context_sha256": "ea6bb974bd26ea5002f97ab7a374fab4f5dd6b75a08d07711c43f3e595408544",
+  "answer_sha256": "f32d1929c21f56f735712f19374eadc50381823f5685e7cefcff25d053213ef4",
+  "raw_stdout_sha256": "f8017a1e14381649820d5a614d8667da0d4ffbbfd1db23519eee575dd242a998",
+  "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "raw_logs_included": false,
+  "integration": {
+    "run": "pair2-baseline",
+    "actual_query_calls": 0,
+    "successful_query_calls": 0,
+    "failed_query_calls": 0,
+    "query_response_bytes": 0,
+    "query_wall_seconds": 0,
+    "accepted": true
+  },
+  "native_command_count": 3,
+  "query_events": [],
+  "receipt_limit": "Native events independently checked against local raw logs, not provider-signed."
+}

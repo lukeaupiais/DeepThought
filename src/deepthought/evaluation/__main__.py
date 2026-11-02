@@ -24,6 +24,10 @@ def main(argv=None):
     p.add_argument("scenario")
     p.add_argument("workspace")
     p.add_argument("output", type=Path)
+    p.add_argument(
+        "--tool-access",
+        help="Trusted JSON descriptor with command/help; supplied, not executed",
+    )
     p = commands.add_parser("record")
     p.add_argument("prepared")
     p.add_argument("arm", choices=("baseline", "treatment"))
@@ -40,7 +44,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "prepare":
-            result = prepare(args.scenario, args.workspace)
+            result = prepare(
+                args.scenario,
+                args.workspace,
+                tool_access=read(args.tool_access) if args.tool_access else None,
+            )
             args.output.mkdir(exist_ok=False)
             write(args.output / "prepared.private.json", result)
             for arm, context in result["contexts"].items():

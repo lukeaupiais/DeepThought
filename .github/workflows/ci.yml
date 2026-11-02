@@ -51,3 +51,51 @@ jobs:
           name: deepthought-python-${{ matrix.python }}
           path: dist/*
           if-no-files-found: error
+
+  graph-port:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      neo4j:
+        image: neo4j@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177
+        env:
+          NEO4J_AUTH: neo4j/deepthought-test-only
+          NEO4J_server_memory_heap_initial__size: 256m
+          NEO4J_server_memory_heap_max__size: 512m
+          NEO4J_server_memory_pagecache_size: 128m
+        ports:
+          - 7687:7687
+    env:
+      DEEPTHOUGHT_NEO4J_URI: bolt://localhost:7687
+      DEEPTHOUGHT_NEO4J_USER: neo4j
+      DEEPTHOUGHT_NEO4J_PASSWORD: deepthought-test-only
+      DEEPTHOUGHT_NEO4J_DATABASE: neo4j
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install the core graph port
+        run: |
+          python -m pip install 'build==1.4.3' 'hatchling==1.30.1'
+          python -m build --no-isolation --wheel
+          python -m pip install "$(realpath dist/*.whl)[python,typescript,scip,neo4j,mcp]"
+      - name: Wait for the dedicated test database
+        run: |
+          python - <<'PY'
+          import os, time
+          from neo4j import GraphDatabase
+          with GraphDatabase.driver(os.environ['DEEPTHOUGHT_NEO4J_URI'], auth=('neo4j', os.environ['DEEPTHOUGHT_NEO4J_PASSWORD'])) as driver:
+              for attempt in range(60):
+                  try:
+                      driver.verify_connectivity()
+                      break
+                  except Exception:
+                      if attempt == 59:
+                          raise
+                      time.sleep(1)
+          PY
+      - name: Verify real imports, queries, CLI and MCP
+        run: python -m unittest discover -s tests -v

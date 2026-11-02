@@ -262,6 +262,7 @@ class IndependentEvalValidationTests(unittest.TestCase):
                 "line": row["properties"]["start_line"],
             }
             for row in nodes
+            if "Symbol" in row["labels"]
         ]
         self.assertTrue(grade(self.scenario, {"claims": claims})["quality_pass"])
 
@@ -282,6 +283,7 @@ class IndependentEvalValidationTests(unittest.TestCase):
                 "line": row["properties"]["start_line"],
             }
             for row in nodes
+            if "Symbol" in row["labels"]
         ]
         self.assertEqual(len(claims), 78)
         self.assertTrue(grade(scenario, {"claims": claims})["quality_pass"])

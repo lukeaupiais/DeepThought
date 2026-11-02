@@ -1,0 +1,113 @@
+{
+  "run": "pair2-treatment",
+  "native_terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 58588,
+      "cached_input_tokens": 45312,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 3206,
+      "reasoning_output_tokens": 55
+    }
+  },
+  "execution": {
+    "status": "completed",
+    "returncode": 0,
+    "signal": null,
+    "wall_seconds": 38.22593649800001,
+    "terminal_count": 1,
+    "parse_error": null
+  },
+  "quality": {
+    "quality_pass": true,
+    "missing": [],
+    "extra": [],
+    "invalid": [],
+    "duplicates": [],
+    "unsupported_relationships": [],
+    "expected_count": 78,
+    "correct_count": 78,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "actor_context_sha256": "da122720984236069d5bb388823b8de1eb4e498a5ca4a500489cb4b8b556785c",
+  "answer_sha256": "f02c8e9ed09a01b9cfe7b6bb3bfc4d31ff23f7c8cf11ab2b26e65df397c38c59",
+  "raw_stdout_sha256": "452650513022b9c6cd7244a8ad3cc8c0f2ffba5ea4f78ea3a7d4344226af1c52",
+  "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "raw_logs_included": false,
+  "integration": {
+    "run": "pair2-treatment",
+    "actual_query_calls": 2,
+    "successful_query_calls": 2,
+    "failed_query_calls": 0,
+    "query_response_bytes": 821,
+    "query_wall_seconds": 0.13225020999925619,
+    "accepted": true
+  },
+  "native_command_count": 5,
+  "query_events": [
+    {
+      "run": "pair2-treatment",
+      "operation": "structure",
+      "request": {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "operation": "structure",
+        "run": "pair2-treatment"
+      },
+      "wall_seconds": 0.06685527199988428,
+      "response_bytes": 410,
+      "response": {
+        "repo_url": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "76c4e5e1d21ef4fd29a58f40d59e40099e75c7c7f1acd159c08523069bef5b15",
+        "status": "succeeded",
+        "scope": "repository_snapshot",
+        "capabilities": [
+          "definitions"
+        ],
+        "analysis_status": "succeeded",
+        "items": [
+          {
+            "path": "libs/deepagents/deepagents/backends/protocol.py",
+            "language": "python",
+            "declarations": 44
+          }
+        ],
+        "returned": 1,
+        "truncated": false
+      },
+      "error": null
+    },
+    {
+      "run": "pair2-treatment",
+      "operation": "structure",
+      "request": {
+        "file": "libs/deepagents/deepagents/backends/composite.py",
+        "operation": "structure",
+        "run": "pair2-treatment"
+      },
+      "wall_seconds": 0.0653949379993719,
+      "response_bytes": 411,
+      "response": {
+        "repo_url": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "76c4e5e1d21ef4fd29a58f40d59e40099e75c7c7f1acd159c08523069bef5b15",
+        "status": "succeeded",
+        "scope": "repository_snapshot",
+        "capabilities": [
+          "definitions"
+        ],
+        "analysis_status": "succeeded",
+        "items": [
+          {
+            "path": "libs/deepagents/deepagents/backends/composite.py",
+            "language": "python",
+            "declarations": 34
+          }
+        ],
+        "returned": 1,
+        "truncated": false
+      },
+      "error": null
+    }
+  ],
+  "receipt_limit": "Native events independently checked against local raw logs, not provider-signed."
+}

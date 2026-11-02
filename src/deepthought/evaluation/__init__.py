@@ -6,16 +6,15 @@ when reporting model performance. Scripted controls validate the harness only.
 """
 
 import asyncio
-from copy import deepcopy
-from dataclasses import dataclass
-from hashlib import sha256
 import json
 import math
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import time
-
+from copy import deepcopy
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path, PurePosixPath
 
 FACT_KEYS = ("file", "symbol", "kind", "line")
 USAGE_KEYS = (
@@ -238,17 +237,36 @@ def _verify_source(scenario, workspace):
     }
 
 
-def prepare(scenario, workspace, *, registry=None):
+def _tool_access(value):
+    """Validate descriptive JSON only; never launch its command or import code."""
+    if (
+        not isinstance(value, dict)
+        or not isinstance(value.get("command"), str)
+        or not value["command"].strip()
+        or not isinstance(value.get("help"), str)
+        or not value["help"].strip()
+    ):
+        raise ValueError("Tool access requires nonempty command and help strings")
+    if len(_json(value).encode("utf-8")) > 32_768:
+        raise ValueError("Tool access descriptor exceeds 32768 bytes")
+    return deepcopy(value)
+
+
+def prepare(scenario, workspace, *, registry=None, tool_access=None):
     """Run a registered tool and prepare separate actor contexts plus private oracle.
 
     The returned preparation contains private grading material. Give actors ONLY
     one member of contexts. This separation is not an OS security boundary.
+    An optional trusted tool_access descriptor replaces raw graph injection with
+    command/help information. The caller provisions and isolates that service;
+    this harness neither executes the descriptor nor verifies service contents.
     """
     scenario = (
         load_scenario(scenario)
         if isinstance(scenario, (str, Path))
         else validate_scenario(scenario)
     )
+    access = None if tool_access is None else _tool_access(tool_access)
     before = _verify_source(scenario, workspace)
     if registry is None:
         from deepthought.analysis_tools import tool_registry
@@ -297,6 +315,9 @@ def prepare(scenario, workspace, *, registry=None):
         "baseline": {**common, "condition": "baseline"},
         "treatment": {**common, "condition": "treatment", "tool_output": data},
     }
+    if access is not None:
+        contexts["treatment"].pop("tool_output")
+        contexts["treatment"]["tool_access"] = access
     provenance = {
         "source": before,
         "scenario_sha256": _digest(scenario),
@@ -307,7 +328,10 @@ def prepare(scenario, workspace, *, registry=None):
             arm: _digest(context) for arm, context in contexts.items()
         },
     }
-    return {
+    if access is not None:
+        provenance["delivery_mode"] = "tool_access"
+        provenance["tool_access_sha256"] = _digest(access)
+    result = {
         "schema_version": 1,
         "scenario": scenario,
         "provenance": provenance,
@@ -318,6 +342,9 @@ def prepare(scenario, workspace, *, registry=None):
             "model_tokens": model_tokens,
         },
     }
+    if access is not None:
+        result["private_tool_output"] = data
+    return result
 
 
 def _grade_declarations(scenario, answer):
@@ -460,10 +487,17 @@ def finalize_record(
     for name, context in contexts.items():
         if _digest(context) != prepared["provenance"]["actor_context_sha256"].get(name):
             raise ValueError("Actor context changed after preparation")
-    if (
-        _digest(contexts["treatment"].get("tool_output"))
-        != prepared["provenance"]["tool_output_sha256"]
-    ):
+    if prepared["provenance"].get("delivery_mode") == "tool_access":
+        treatment = contexts["treatment"]
+        access = _tool_access(treatment.get("tool_access"))
+        if "tool_output" in treatment or _digest(access) != prepared["provenance"].get(
+            "tool_access_sha256"
+        ):
+            raise ValueError("Tool access differs from prepared identity")
+        data = prepared.get("private_tool_output")
+    else:
+        data = contexts["treatment"].get("tool_output")
+    if _digest(data) != prepared["provenance"]["tool_output_sha256"]:
         raise ValueError("Tool output differs from prepared identity")
     quality = grade(scenario, answer)
     source_ok, source_error = True, None
