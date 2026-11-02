@@ -1,0 +1,40 @@
+{
+  "run": "pair2-treatment",
+  "native_terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 71077,
+      "cached_input_tokens": 64128,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 3006,
+      "reasoning_output_tokens": 40
+    }
+  },
+  "execution": {
+    "status": "completed",
+    "returncode": 0,
+    "signal": null,
+    "wall_seconds": 81.57899884899962,
+    "terminal_count": 1,
+    "parse_error": null
+  },
+  "actor_context_sha256": "05b825b3e71137db5c0674c0585250c5d2426f005531dc469e9870014f7016ea",
+  "answer_sha256": "f32d1929c21f56f735712f19374eadc50381823f5685e7cefcff25d053213ef4",
+  "raw_stdout_sha256": "cec13ed341afb71f7bbb7624564720e2e5ab6d83abb1a82de90721a62393a668",
+  "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "raw_logs_included": false,
+  "command_count": 3,
+  "quality": {
+    "quality_pass": true,
+    "missing": [],
+    "extra": [],
+    "invalid": [],
+    "duplicates": [],
+    "unsupported_relationships": [],
+    "expected_count": 78,
+    "correct_count": 78,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "usage_provenance": "Native CLI terminal event independently checked against retained raw logs; not a provider-signed receipt."
+}

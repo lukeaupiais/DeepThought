@@ -6,6 +6,11 @@ under the MIT license retained in licenses/deepthought-original-MIT.txt.
 Database, hosted configuration, model providers and graph inference are omitted
 from this selected extraction path.
 
+The portable AnalysisTool interface, registry and standardized tool records
+are adapted from that project's MIT-licensed tool interfaces and contracts.
+The standalone TreeSitterTool uses this SDK's declaration extractor; its initial
+Python/TypeScript profile does not port the legacy call/control/data-flow models.
+
 The vendored SCIP protocol schema originates from Sourcegraph SCIP:
 https://github.com/sourcegraph/scip
 It is distributed under Apache-2.0; see LICENSE.

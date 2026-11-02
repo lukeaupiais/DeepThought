@@ -9,3 +9,5 @@ dist/
 build/
 *.egg-info/
 .ruff_cache/
+eval-results/
+.eval-results/

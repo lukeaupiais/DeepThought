@@ -19,6 +19,7 @@ scip = ["protobuf==7.35.1"]
 
 [project.scripts]
 deepthought = "deepthought.cli:main"
+deepthought-eval = "deepthought.evaluation.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/deepthought"]
@@ -27,7 +28,7 @@ packages = ["src/deepthought"]
 NOTICE = "deepthought/NOTICE"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
+include = ["src", "tests", "tools", "evals", "docs/evaluation.md", "docs/evaluation-validation.md", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
 
 [tool.ruff]
 extend-exclude = ["src/deepthought/_scip/scip_pb2.py", "tests/fixtures"]

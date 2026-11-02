@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "id": "tree-sitter-owned-declarations-v1",
+  "tool": "tree-sitter",
+  "task": "Inventory every named function, class, method, interface, namespace and type-alias declaration in the selected Python/TypeScript files. Preserve lexical qualification and report its file, kind and 1-based declaration start line. Include nested declarations and distinct same-named methods. Comment/string lookalikes are not declarations. Do not infer calls, execution, dependencies or runtime behaviour. Return JSON with claims and an empty relationships list.",
+  "languages": [
+    "python",
+    "typescript"
+  ],
+  "source": {
+    "kind": "synthetic",
+    "files": {
+      "cases.py": "523b229f1fbd10f1a06dd8171763ca7080d7bc97795afab4c353a55d7ba90fdf",
+      "cases.ts": "3710ebf82ff9db1ade39d219d0e95e910d9e612f1bedba868a0153986e024117"
+    }
+  },
+  "expected": [
+    {
+      "file": "cases.py",
+      "symbol": "build",
+      "kind": "Function",
+      "line": 4
+    },
+    {
+      "file": "cases.py",
+      "symbol": "build.parse",
+      "kind": "Function",
+      "line": 5
+    },
+    {
+      "file": "cases.py",
+      "symbol": "Reader",
+      "kind": "Class",
+      "line": 10
+    },
+    {
+      "file": "cases.py",
+      "symbol": "Reader.parse",
+      "kind": "Method",
+      "line": 11
+    },
+    {
+      "file": "cases.py",
+      "symbol": "Writer",
+      "kind": "Class",
+      "line": 15
+    },
+    {
+      "file": "cases.py",
+      "symbol": "Writer.parse",
+      "kind": "Method",
+      "line": 16
+    },
+    {
+      "file": "cases.py",
+      "symbol": "consume",
+      "kind": "Function",
+      "line": 20
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Port",
+      "kind": "Interface",
+      "line": 3
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Port.read",
+      "kind": "Method",
+      "line": 4
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Reader",
+      "kind": "Class",
+      "line": 7
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Reader.read",
+      "kind": "Method",
+      "line": 8
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "read",
+      "kind": "Function",
+      "line": 13
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Nested",
+      "kind": "Namespace",
+      "line": 15
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Nested.read",
+      "kind": "Function",
+      "line": 16
+    },
+    {
+      "file": "cases.ts",
+      "symbol": "Token",
+      "kind": "TypeAlias",
+      "line": 21
+    }
+  ],
+  "metadata": {
+    "classification": "synthetic_conformance",
+    "description": "Owned small declaration and grader calibration; not an enterprise benchmark or agent-benefit result."
+  }
+}

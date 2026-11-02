@@ -1,6 +1,31 @@
 # DeepThought
 Standalone code intelligence and analysis engine for IDEs, development tools, and AI agents.
 
+The existing SDK is also available through a portable `AnalysisTool` interface
+and registry. The first registered plugin is `TreeSitterTool`, scoped to the
+same Python/TypeScript/TSX declarations as the SDK. It does not infer calls or
+advertise the legacy analyzer's broader language and flow capabilities.
+
+```python
+import asyncio
+from pathlib import Path
+from deepthought.analysis_tools import tool_registry
+
+tool = tool_registry.get_tool("tree-sitter", Path("./workspace"))
+output = asyncio.run(tool.analyze("my-project", languages={"python"}))
+print(output.get_statistics())
+```
+
+An offline, provider-neutral evaluation scaffold prepares separate baseline and
+tool-assisted inputs, grades structured answers against reviewed scenario packs,
+and compares caller-reported measurements. Public Tree-sitter packs include a
+synthetic calibration case and a revision-pinned investigation on DeepAgents.
+See [evaluation usage and limits](docs/evaluation.md) and the
+[independent validation cases](docs/evaluation-validation.md). No model calls,
+repository downloads, source builds or database services run automatically.
+The [first completed real-agent calibration](evals/results/tree_sitter_deepagents_20261102/README.md)
+found equal declaration accuracy and increased token use with raw tool output.
+
 This local alpha extracts named declarations from Python and TypeScript/TSX,
 preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
