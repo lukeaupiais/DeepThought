@@ -71,6 +71,22 @@ identities resolve references. Definitions retain their graph identity and a
 nested `definition` with the source location. References retain resolution and
 target IDs; dependencies retain their reference witness IDs.
 
+Every query exposes `workspace_freshness: "unverified"` in the SDK and JSON.
+`status` describes the supplied facts and their coverage; it does not establish
+that source files still match the snapshot. Queries perform no workspace I/O.
+A source edit changes the snapshot on reanalysis; a file rename changes its file
+identity, and a deletion removes its definitions. Saved graphs continue describing
+their original facts. Source capture is not an atomic whole-workspace transaction.
+
+SCIP ingestion reads only the supplied index, including when document text is
+embedded. Its coverage digests identify serialized SCIP documents, not source-file
+bytes. An unchanged index yields the same facts after source edits, renames or
+deletions. Neither snapshot IDs, modification times, successful resolution nor
+embedded text alone are a workspace-freshness check. Hosts must obtain separate
+source-consistency evidence before presenting results as verified against a
+current workspace or using locations for navigation. This field is an additive
+query-schema-1 qualification; analysis and graph schemas are unchanged.
+
 The default result limit is 20, with a maximum of 100. Results follow canonical
 graph order and report `truncated` when only a prefix fits. Each match includes
 at most 20 target/witness IDs with its full count and a separate truncation flag.
