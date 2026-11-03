@@ -1,0 +1,8 @@
+{
+  "perfect_passed": true,
+  "missing_rejected": true,
+  "wrong_line_rejected": true,
+  "fabricated_rejected": true,
+  "unsupported_relationship_rejected": true,
+  "oracle_source": "Independent source reviewers, before analysis output or agent answers"
+}

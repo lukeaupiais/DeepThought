@@ -1,0 +1,17 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "order": [
+    "baseline",
+    "treatment",
+    "treatment",
+    "baseline"
+  ],
+  "timeout_seconds": 420,
+  "prompt": "Read /work/context.json and perform its investigation. You have the full selected production source tree read-only. Use ordinary source search, Python ast, and optionally the TypeScript compiler parser via require('/opt/typescript/lib/typescript.js') when present. If DeepThought MCP is configured, consult its declaration graph while investigating, then verify behavioral assertions from source. Do not install, build, execute repository modules, modify source, read authentication or unrelated files, or seek answers on the network. Return only the complete JSON answer.\n",
+  "driver_sha256": "bd29331f3d786bb447cb404e65daf5e4c4f431463f19abd53e4eae2cd74f983a",
+  "baseline": "Same source/search/Python AST/optional TypeScript compiler, no graph",
+  "treatment": "Same tools and production MCP -> GraphQueryService -> read-only Neo4j",
+  "automatic_retries": 0,
+  "semantic_grading": "Locked source rubric, independent blinded reviewer"
+}

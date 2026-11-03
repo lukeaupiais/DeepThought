@@ -1,0 +1,13 @@
+case,run,arm,correct_declarations,expected_declarations,semantic_score,semantic_possible,input_tokens,cached_input_tokens,output_tokens,reasoning_output_tokens,total_tokens,estimated_codex_credits,actor_wall_seconds,time_is_approximate,graph_reads,failed_graph_calls,ambient_resource_discovery_calls
+deepagents,1-baseline,baseline,11,11,8,8,364307,314112,4845,386,369152,4.50628,115.077384,True,0,0,0
+deepagents,2-treatment,treatment,11,11,8,8,455911,376832,5997,903,461908,6.39528,135.99485336900034,False,5,1,0
+deepagents,3-treatment,treatment,11,11,8,8,394788,338432,5329,592,400117,4.99613,104.15534655999727,False,4,1,0
+deepagents,4-baseline,baseline,11,11,8,8,389300,317568,5070,735,394370,5.64802,108.70471573100076,False,0,0,2
+google,1-baseline,baseline,6,6,8,8,226718,149760,5833,1184,232551,5.68055,150.27794850099963,False,0,0,0
+google,2-treatment,treatment,6,6,8,8,263895,214272,6794,1687,270689,4.71533,171.33494197300024,False,1,1,0
+google,3-treatment,treatment,6,6,8,8,333805,280448,6269,1145,340074,4.93622,167.3177258700016,False,1,0,0
+google,4-baseline,baseline,6,6,8,8,306142,256128,5579,678,311721,4.53577,136.45054819600045,False,0,0,0
+graphql,1-baseline,baseline,9,9,8.0,8,249642,196992,4128,730,253770,4.15698,108.4275607089985,False,0,0,2
+graphql,2-treatment,treatment,9,9,8.0,8,243535,194304,4636,1051,248171,4.10631,121.96413747300176,False,1,0,0
+graphql,3-treatment,treatment,9,9,8.0,8,233966,190464,3920,749,237886,3.63126,101.9680430260014,False,1,0,0
+graphql,4-baseline,baseline,9,9,7.5,8,240918,179584,3740,627,244658,4.45066,101.1719142840011,False,0,0,2

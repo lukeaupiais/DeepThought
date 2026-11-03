@@ -1,0 +1,28 @@
+{
+  "purpose": "Public TreeSitterTool usefulness pilot through actual Neo4j, independent of interface-only gate",
+  "locked_at_utc": "2026-11-03T00:25:14.220366+00:00",
+  "cases": [
+    "deepagents",
+    "google",
+    "graphql"
+  ],
+  "runs_per_case": [
+    "baseline",
+    "treatment",
+    "treatment",
+    "baseline"
+  ],
+  "fresh_sessions": true,
+  "baseline": "Source search + Python AST + TypeScript compiler, same selected production corpus and model as treatment",
+  "treatment": "Same baseline resources + actual production MCP to Neo4j declaration graph; no graph facts injected",
+  "quality": "Exact requested declaration precision/recall plus independent blinded manual source-backed rubric, 8 semantic points/case; false claims and omissions retained",
+  "cost": "Native observed tokens, cached subset, standard Codex credit-equivalent usage estimate. Actual invoice/plan charge unavailable. Research/coordinator agent usage unavailable. No API dollars substituted for subscription billing.",
+  "time": "Native actor wall time, source/extraction/import preparation separately. DB provisioning and MCP startup not included in actor wall. Record exclusion clearly.",
+  "stopping": "All12attempts complete. Incomplete attempt retained and diagnosed, no silent retry. Never change tasks/labels to favor treatment. No positive-result stopping.",
+  "interpretation": "Three public known tasks and2sessions/arm/case are a pilot, not statistical or enterprise/general language proof. Framework acceptance != semantic quality or usefulness. Findings may be negative.",
+  "rubric_sha256": {
+    "deepagents": "e22c41cb0387eec17d80916971e481404d2618ea427b7741de2aba0fedbf5747",
+    "google": "72d8b3f1f6228b961a460fde37e4d4f127008cae31c122ce6bc9a6392c1557b9",
+    "graphql": "9c5c72c3669f14dc908ca186ebe4b68d0904b1b9016be750715c9c61b1f7cd90"
+  }
+}

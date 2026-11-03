@@ -1,0 +1,1074 @@
+{
+  "status": "succeeded",
+  "coverage": [
+    {
+      "file": "src/devMode.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ade0dc83516f07245503eed88f4e4ad616df62a7724b377892567e6bf7a07bd4"
+    },
+    {
+      "file": "src/diagnostics.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f8279c87d8fbb669c33dae1753966875ec061e01532fe0bf81180c647ae6e379"
+    },
+    {
+      "file": "src/graphql.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6f7b59a274ee74788b1cc9ec6fb43316cfaf56428c6851239d6462175e834c29"
+    },
+    {
+      "file": "src/harness.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "cb0a4263aab969053b71c9a4630b5849a84c62a3a1197ba0cda1050db571e830"
+    },
+    {
+      "file": "src/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "5b9869eb33c781a46fd690ade96e425df96bf90f48014e75e20e61312e936c27"
+    },
+    {
+      "file": "src/version.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "015d222c99d63921f317a76a0aa3ad7cd5af4744edf34129da48c89cdb902c5c"
+    },
+    {
+      "file": "src/error/GraphQLError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "974223f5a64c1dd9d44f815721d99b126b383a8f40fb7a4c244392c8dd838b27"
+    },
+    {
+      "file": "src/error/ensureGraphQLError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0cab0a85263d1d1301653db9f17435ddc7b8b4f9e660924250e094b133c6d83f"
+    },
+    {
+      "file": "src/error/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "79f92e5db8815ed1c5213f725e079097e361bd4c8b4a353c4ff6d2047447383e"
+    },
+    {
+      "file": "src/error/locatedError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1399e189912ac21dc19381516af307721f1585e4987972564e45c5776662840d"
+    },
+    {
+      "file": "src/error/syntaxError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "44c7bec17c17453be5deb312ab360bbba22da9a124bee668e026dd20382939bc"
+    },
+    {
+      "file": "src/execution/AbortedGraphQLExecutionError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4dcf665c66e59fb7a73674cc7cc1e2ce62e04004a00ff4d5fb404267365a31be"
+    },
+    {
+      "file": "src/execution/AsyncWorkTracker.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0d81dd3c3af53f4e7bdb09acb4717e5944d7fe08e051d4f3bf8b7d302fe77d15"
+    },
+    {
+      "file": "src/execution/ExecutionArgs.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "2c37accc6058c7bdf68313ff9095c4ff3134fdff9530ba8198820ba84388875c"
+    },
+    {
+      "file": "src/execution/Executor.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "063b34d54cdc87a58bdce26ddff591a323be4badaaf4dd85f42a3fefee4598f3"
+    },
+    {
+      "file": "src/execution/ExecutorThrowingOnIncremental.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0f0d9d47d24bcad8581a56f9f09cc0bef96132f2efc47173afa25130001df83e"
+    },
+    {
+      "file": "src/execution/buildResolveInfo.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f021555405a62bd6c9df714c8add1a3e7ff125c19960243e8fd9ec689074536e"
+    },
+    {
+      "file": "src/execution/cancellablePromise.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ff3d702ace753efd08b83e76abc27012d9b2632e46fadb3d4354804aad04ad8f"
+    },
+    {
+      "file": "src/execution/collectFields.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "3082f314ff4cd0b267917c01817e2d1b295cb3fced8da1b5744c4aaa7edecc7f"
+    },
+    {
+      "file": "src/execution/collectIteratorPromises.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "96c124bc7cda7f59dc9c5f67ce59f19a5b0fcffe449f8b51de5e0c0d909c7fa0"
+    },
+    {
+      "file": "src/execution/createSharedExecutionContext.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1e872edd56185edaac101c7f68e0240346a2d2f011e9ced61745ccd5ffbbf715"
+    },
+    {
+      "file": "src/execution/execute.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "b0e077667a2f57d44453d2485152f2880b983261e4b0082a12c2c96dc5abf0ac"
+    },
+    {
+      "file": "src/execution/getStreamUsage.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0440f2c9016ea743ec28ab881554e48933cc4a722a30f24e05f223e04bdd6688"
+    },
+    {
+      "file": "src/execution/getVariableSignature.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "28d47bfb176548a2d2b5cc0d39663f4cec8c9f488473d8a8ba078ac548efab21"
+    },
+    {
+      "file": "src/execution/hooks.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "c1134cc8580e10a874cb0906fe02581d9ce71df836a6eea54d0ac867809fbda8"
+    },
+    {
+      "file": "src/execution/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "378a0a5cc7274be1caed7982055ef96485adfec912d908ea011d510e93261342"
+    },
+    {
+      "file": "src/execution/mapAsyncIterable.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "9a5313341a89f2856859d8c4c4cb1c45986e7e1fe2b95e3b6e6b89ef2fd3f383"
+    },
+    {
+      "file": "src/execution/returnIteratorCatchingErrors.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "12317b2b81c6471faab12c85afb95fb7afbbe97e69fe27fa523242e48d3bb419"
+    },
+    {
+      "file": "src/execution/values.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4267c60d147aa97114f180eaa528e48d8672345ce38462d8570c27941aec3bf2"
+    },
+    {
+      "file": "src/execution/withConcurrentAbruptClose.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "abb423723fbbd4bb860f0c2affb09aeaa759da31847bdbc86549261ecd9d3d9b"
+    },
+    {
+      "file": "src/execution/incremental/Computation.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "80f90f6696c35a4d0d919f56476ce815370aca67267c383b60d4b11eaa7736fd"
+    },
+    {
+      "file": "src/execution/incremental/IncrementalExecutor.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "a44f5cb1a87e96c7f5d088b7de644339438329bcb35636fc08785149dd3000a1"
+    },
+    {
+      "file": "src/execution/incremental/IncrementalPublisher.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "83771a2d14e58d5778c6984354603ba64e3cb90ff2cc05a12e614640a66f9a73"
+    },
+    {
+      "file": "src/execution/incremental/Queue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "3d178c11e60debab6a2677d6d02fc6e3a9e0b32c6165c82c6505d616c8a14acf"
+    },
+    {
+      "file": "src/execution/incremental/WorkQueue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "77da586e2f5ac00857424f9dd47a93ad987da3f3955bfce63d8a294117818fca"
+    },
+    {
+      "file": "src/execution/incremental/buildExecutionPlan.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "bb4deeebd232e47df8d9ada56d55419b3d31b0cbe6a26dbf4144738e0a9e61f2"
+    },
+    {
+      "file": "src/execution/legacyIncremental/BranchingIncrementalExecutor.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4fee7dd787390c16b244d18d8ed304ab7a0756d8f0f51546e2f3a5ce8d52c5d0"
+    },
+    {
+      "file": "src/execution/legacyIncremental/BranchingIncrementalPublisher.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6f2b120d09cc8f496c6ad0ef26432e7846a8a9dc2c4bd12bba3cd874accc0dc0"
+    },
+    {
+      "file": "src/execution/legacyIncremental/legacyExecuteIncrementally.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "20ef86d43aa5e491c00de2ee8aa07419dc0c038a5126d9e36f5c6d383dae002b"
+    },
+    {
+      "file": "src/jsutils/AccumulatorMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f5be31f7eed8243d7636238445987581dbd543a3a3c2645634465a34f2a58591"
+    },
+    {
+      "file": "src/jsutils/Maybe.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "65c9f369a2058c1de7a2b8ef887c2c925ec272fc9eadfc36245b756f8fe88c85"
+    },
+    {
+      "file": "src/jsutils/ObjMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ba4fa3a77c8b2f4c337935d0787612438cf24dcc44165fcc76c35d15da098ffc"
+    },
+    {
+      "file": "src/jsutils/Path.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e70793fa1d2e5a59608bb1240e3e39843acca0a605ba1e71a577d52720f7bb7c"
+    },
+    {
+      "file": "src/jsutils/PromiseOrValue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "dfdf1738a54970f9e87652a2b862f9e72724895cadf82ba0a7f5e6a12744e9a0"
+    },
+    {
+      "file": "src/jsutils/SetMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ebd455470fa28fabb3d62c72dec48148a576e57d6dc270f61a59a650a6182a87"
+    },
+    {
+      "file": "src/jsutils/capitalize.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "bb60be1bb00fd54f2234ee9735572b9d8c8727159c88d9a51334bfc32166e13a"
+    },
+    {
+      "file": "src/jsutils/devAssert.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0d160517f3ae946fda811913e79ea8e6b9e4e03478d766be3cec2989f6f6adc6"
+    },
+    {
+      "file": "src/jsutils/didYouMean.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4217e822a3e3e44ceab859749af081f754e620258f0194728f8ecb5e9aca4eae"
+    },
+    {
+      "file": "src/jsutils/formatList.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e7e8b21e4b89df4d007c7749c4420a7359947542105162ab50396da2131183ab"
+    },
+    {
+      "file": "src/jsutils/groupBy.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "96964cfde60bfdc4d51fb664467c95560017c033965acf168134959970585aa7"
+    },
+    {
+      "file": "src/jsutils/identityFunc.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "3a167614c4fbe78118a967bae0b91365d5044db605b4f98a11deb61de693b221"
+    },
+    {
+      "file": "src/jsutils/inspect.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "c8be75ae182a5b99cde95084b70ec634d37f73a1d67968af1b587a50ec23e1c2"
+    },
+    {
+      "file": "src/jsutils/instanceOf.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "417857c0f8d19116028e903e36bf5858f02979cddabb72e38a14e8b31b6a2cc5"
+    },
+    {
+      "file": "src/jsutils/invariant.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "94a485093941bfe7873c3430073101ab367424a38b6d92288d724ecc9792956b"
+    },
+    {
+      "file": "src/jsutils/isAsyncIterable.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "84ea8194336d9498e2338fe005ba7340ed67b329cb9c11b32a5dffd935507123"
+    },
+    {
+      "file": "src/jsutils/isIterableObject.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "16fa695ff417371ee1509f026cc9f2d6805b22594add71b3aa0410543d069804"
+    },
+    {
+      "file": "src/jsutils/isObjectLike.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "738c0d80e9ba28030c22f71c562ab57605a282485ad2b1e2031557fdd6d911cf"
+    },
+    {
+      "file": "src/jsutils/isPromise.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1c23e449d38223bb11eb6332ef61bb07d2c7969d322eaf922c45c5ebbc46e29a"
+    },
+    {
+      "file": "src/jsutils/isSameSet.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "a1435fe34bea2d667bcf80286f1d2096b1d0f613180e8ba58d67f12accdbadca"
+    },
+    {
+      "file": "src/jsutils/keyMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f5eabe12cff84da694031cdd7ff56c93e2c7eb4a9164c60f8d7a91e059961e0f"
+    },
+    {
+      "file": "src/jsutils/keyValMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "d8225ccd733013662d844bc556c5abf93030399d83a6d90a3f1bec7efa424c5e"
+    },
+    {
+      "file": "src/jsutils/mapValue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "97dfbf81832780299a930782f7ed5862bf60a210074a88df8ef5333b07bd8bd4"
+    },
+    {
+      "file": "src/jsutils/memoize1.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "78628832b560ffaa58b53dfa94de9376cd820b6fe3ec56f9375bbef452522038"
+    },
+    {
+      "file": "src/jsutils/memoize2.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "208df1c806b4516590bd45502a877f624f94e958de443640f153dc23a7b95f54"
+    },
+    {
+      "file": "src/jsutils/memoize3.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "fde552a59bd74e24b2327aa451acb977525ab2c09ea6fb3273283879cf9439f1"
+    },
+    {
+      "file": "src/jsutils/naturalCompare.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "7dcb4481f152e7e92ec1ab5e54e92081163e144bd20cb035381127a07765a37d"
+    },
+    {
+      "file": "src/jsutils/printPathArray.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "7e2fd2ee91dcf47b3f5e1f39c4daffc74f6cd4327fc0aa32cf6941fdfff976eb"
+    },
+    {
+      "file": "src/jsutils/promiseForObject.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e49590bb7065e8190f18c7c37eda277b88238dc1b16c9b9a705dd9d5729dca90"
+    },
+    {
+      "file": "src/jsutils/promiseReduce.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "d5941c536aeed26778c570a3fe956a9a37f775e78230fe2e25a20080bb6da1c2"
+    },
+    {
+      "file": "src/jsutils/promiseWithResolvers.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1fa00ca97fef65a641d8670df281b974aa170f9b020be0468f16c38bf217dd9a"
+    },
+    {
+      "file": "src/jsutils/suggestionList.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4d0febb0fa77d90bde8ad8122f42bafc6073f758a097cf8dadd942fa9695467d"
+    },
+    {
+      "file": "src/jsutils/toError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "618b8c06fcfdb7eb28178cd525cb1294a81960fd204c16311da5b467b694795e"
+    },
+    {
+      "file": "src/jsutils/toObjMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0a454427f617504c2dbb36e0ea2b82983f6da083e2fc659b554309956d2f89be"
+    },
+    {
+      "file": "src/language/KindTypeMap.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0490466e01815f44bf1409ab7eb9f6faaefcd644af2caab8de84afb8d8cdbc5f"
+    },
+    {
+      "file": "src/language/ast.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "46bd5878b692a5a890e03eaca7bf54f0e763c98c336b634147f5e977664eec1d"
+    },
+    {
+      "file": "src/language/blockString.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ff61a318946f58d754f4da37b05b9c49df591c635f6c7d9f8225a5cd869e393f"
+    },
+    {
+      "file": "src/language/characterClasses.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "c148d70a2ebb3446300a5645c01ea892bf06a8b31060ae931fb4a9c73887b462"
+    },
+    {
+      "file": "src/language/directiveLocation.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "403bd204daa34f0c100ff68b42aacdaca9d8ca46252e06e7f07aa8276941e81a"
+    },
+    {
+      "file": "src/language/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "2216d929e146e32a3869351b8d677328e91f8ffea83f755222bd48a5ca65775f"
+    },
+    {
+      "file": "src/language/kinds.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "132361c6713d20e20fb587cd2a1478eb0cfe07c1c0e5fd685961663e54b20d53"
+    },
+    {
+      "file": "src/language/kinds_.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "3c37acc99398b6ceb09af64110b8ff0d6d07ab0c9acf0433f21edaa58d160333"
+    },
+    {
+      "file": "src/language/lexer.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6c3073f576d0019df32de7499a7612ced3d783f22bc739a9cc972348babf452f"
+    },
+    {
+      "file": "src/language/location.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "77907f15b80afdc4e2fe099e967e2d10432f38786c3d2b55b38d3b187f880558"
+    },
+    {
+      "file": "src/language/parser.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e7300e78147f243d68e45e58499691b4cdd6543895c6539a55ada755deba79d7"
+    },
+    {
+      "file": "src/language/predicates.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1d08bf0cbc0fd05730a85b98a651f1aa47404e3675ba7af57436a0b3f4685c3a"
+    },
+    {
+      "file": "src/language/printLocation.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6f4fa952f168f2a2bf80ac5e46993d48ef5a090d83bafb1c42663b4e86de825d"
+    },
+    {
+      "file": "src/language/printString.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1a4252d609c6107543aefed8734a6fd3f9f21e5a728b49cecd310c9e27fd84d8"
+    },
+    {
+      "file": "src/language/printer.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "61e87300d6abd83ef4fcf6949c260419f9333259eb739544993cae047f3c2838"
+    },
+    {
+      "file": "src/language/reducer.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "fc5ea88dd545f50fe029da0affb8af933e3d2ef75113abfbe26599a82b2f92a9"
+    },
+    {
+      "file": "src/language/schemaCoordinateLexer.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "abc8d0c93db3fbea6c1aceed52ced8a0393a98204f0f51f80f3e03727df4c13c"
+    },
+    {
+      "file": "src/language/source.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "00ac7ed504b45685ee4eea6935837112c7e0061bb69cf2d66c86d25ff8783b2b"
+    },
+    {
+      "file": "src/language/tokenKind.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "aff48949fe64ef7b2f01c82608eed8cdc0c35655ce89a1a98d33ede444faba2a"
+    },
+    {
+      "file": "src/language/visitor.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "9f0a984261eb967560a2f16ff671de6a80bcd7f7a3aa1c9e09a9d2597fe3e6bf"
+    },
+    {
+      "file": "src/type/assertName.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "05831b4d9fa55537d1ccf2d1f16ada31ee0565c3d6b7b7cc3733425aee8ba415"
+    },
+    {
+      "file": "src/type/definition.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152"
+    },
+    {
+      "file": "src/type/directives.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "36d796734ebc370c4dce7f06f984e247bd6ae1e41317adad2583902a3ee16528"
+    },
+    {
+      "file": "src/type/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e8f2bfd0921300972537d8582be8b19a97ace64f35773f00aa641b537f27ac9a"
+    },
+    {
+      "file": "src/type/introspection.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "8d87748f3eb7451a96ccb7440be87e924106675878eab3b833a8e58931fcc107"
+    },
+    {
+      "file": "src/type/scalars.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "c66e557387427087699b7f1c69142f3b2ddf874415704fecd77cdfb20f0e2b28"
+    },
+    {
+      "file": "src/type/schema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "5a8e968d5c3c228b1f505ab042521ebc7a7eeb8dc9dfea6aa035b1de010ef8ab"
+    },
+    {
+      "file": "src/type/validate.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "70371b9a00f6394b9a037eb268503b881bafec7c506bebae95a93418ddf903a6"
+    },
+    {
+      "file": "src/utilities/TypeInfo.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f7898205b6e3c9b1f73b67ff70e058ced011bd49082e7f705759ba20cce7bd03"
+    },
+    {
+      "file": "src/utilities/astFromValue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "5a20c7916b5578251b1433dcb76bd5aca292b18422db25888592713e340e44ec"
+    },
+    {
+      "file": "src/utilities/buildASTSchema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6e9cb6c7258bdc3f98a68862e386e719588a674c101f9f2fc45b8c9fbecbaf65"
+    },
+    {
+      "file": "src/utilities/buildClientSchema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "a32d71778a628be1305af3852b189b6dd02996efba0799ac629e0a75d59b76bd"
+    },
+    {
+      "file": "src/utilities/coerceInputValue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6f728d71b2b9ec045e70797f6d904be2b38a59e4d8b571f0ce32b293d2ef3d78"
+    },
+    {
+      "file": "src/utilities/concatAST.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "b72e38202cb57db6260b6ef2cbd4332bde6e1bf2d7eb89c9423028fd0e203c2e"
+    },
+    {
+      "file": "src/utilities/extendSchema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "768908a27a0462d20701c41eb577307445b7f4c8c062d84deda4b5facc659a13"
+    },
+    {
+      "file": "src/utilities/findSchemaChanges.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "afd19ac7441f355fa23831e1c7bae333974df9e2eb0f001e4ee1ee3db7ca0d3d"
+    },
+    {
+      "file": "src/utilities/getDefaultValueAST.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4a58828071d0f775a4df35e3c310f623fd860bcdbb4b3da96194410db6713c25"
+    },
+    {
+      "file": "src/utilities/getIntrospectionQuery.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "78892d1e4f14230ed409e92250e187ce0afac892375623635c9e3831b1412dcd"
+    },
+    {
+      "file": "src/utilities/getOperationAST.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e8d5291e277371fdbab6eed9a84113fc8c29250027fc90e6c2e73dbd2cfd0827"
+    },
+    {
+      "file": "src/utilities/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6bce6de9f645773b3a810787f0de63cbfc5b431d4b2aa059dd5a042ee08ff78d"
+    },
+    {
+      "file": "src/utilities/introspectionFromSchema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "dffffb1d2db05247110840fec8f0f18b06065e54d412a92900d191425c61f670"
+    },
+    {
+      "file": "src/utilities/lexicographicSortSchema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "578a6e914d7752d54dfd3760a058b52bb2b899335c9075e7e93f81426887fc88"
+    },
+    {
+      "file": "src/utilities/mapSchemaConfig.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "a6ebbc57f93a2d8875300e52aca9e4a1b23deb1ae03ce84e05ac76aebab02bbf"
+    },
+    {
+      "file": "src/utilities/printSchema.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "aaeed0e877803741c01a4b990d2ca5bc868f9a4a4919c272a697e43abe361bae"
+    },
+    {
+      "file": "src/utilities/replaceVariables.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "149f8b865903b0900979341d4a361454b80d1861f5224222309f56c38a9c93cd"
+    },
+    {
+      "file": "src/utilities/resolveSchemaCoordinate.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4478cd81e06e37190896bdc3c42d90be80f5d0273038f0c6884d951183e6cd76"
+    },
+    {
+      "file": "src/utilities/separateOperations.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0db024a1daf1cc15e8bbf675bee8f74ff8ec9e0dced7e737fc62f381d0f5b497"
+    },
+    {
+      "file": "src/utilities/sortValueNode.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "b4d9b26ae2b2f58ad2a7b50d817dd067ba7bbfd4ce5df5c8635ebfac17c1b08c"
+    },
+    {
+      "file": "src/utilities/stripIgnoredCharacters.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "7157ea9df8d7ac8830d920a67374c98d2318a0a29bf9eb292f8db921533712d9"
+    },
+    {
+      "file": "src/utilities/typeComparators.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "8f4de20bb84b4b2fc0a51ba5c9bb8b19a383fe3574af830075f1c3145229e6a3"
+    },
+    {
+      "file": "src/utilities/typeFromAST.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0"
+    },
+    {
+      "file": "src/utilities/typedQueryDocumentNode.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "905fdf12b103f7bb7bf24754e442e34a64ef44b91b881205b62ce81b47564595"
+    },
+    {
+      "file": "src/utilities/validateInputValue.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "cf282d43bcf8dbf51eb75fd6bea68ee0f6a787295cbc0531dbb5fc6154182ce3"
+    },
+    {
+      "file": "src/utilities/valueFromAST.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "3e2a6b961df9f3ff712b63350e355a2bd02366db65a3a580a3ccf54eefa821c1"
+    },
+    {
+      "file": "src/utilities/valueFromASTUntyped.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "654a5ffb05ca5a482dc61823e8212cd31c4bbf67db87a54d3429e0cf520f60cd"
+    },
+    {
+      "file": "src/utilities/valueToLiteral.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "a360686a199e89f4df0638064159d0c82cd93a1b88955dfa2393060b5d20a9a5"
+    },
+    {
+      "file": "src/validation/ValidationContext.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "715f140c5f7590cc5f66cb8fced82cff95ee9258cb3af8d5f0fd7f40fb981868"
+    },
+    {
+      "file": "src/validation/index.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "05075e43585161aa28e78fbaef0d05a08e2ec6d3704ab9428cc518bfd4f1bb51"
+    },
+    {
+      "file": "src/validation/specifiedRules.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1592bdedcbce55bd9b83ff8c34da018c517c6297c132e29d23faf671ed963d73"
+    },
+    {
+      "file": "src/validation/validate.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "05dd07489a59cb34408cc546d1623c646bf408d17ac24879df8de605970381c2"
+    },
+    {
+      "file": "src/validation/validationAbortedError.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "8f949f9fc08628a4b7c2f3cede6adc409e3d92bf512212b9936ecf908c070296"
+    },
+    {
+      "file": "src/validation/rules/DeferStreamDirectiveLabelRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "fa98309f49aaca3ce51b0e794722fa276b1220038166be82dbcec8aedc8a33af"
+    },
+    {
+      "file": "src/validation/rules/DeferStreamDirectiveOnRootFieldRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f83714c548651c30228cb8ae955ff43c6eb099bc0decf21105161227db9ec911"
+    },
+    {
+      "file": "src/validation/rules/DeferStreamDirectiveOnValidOperationsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ef9552d11e9feb47f517d263cede24e3ecec8cf3b6c114991e7ab4c34418fc1f"
+    },
+    {
+      "file": "src/validation/rules/ExecutableDefinitionsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "dbf6835bfee0639e3ede698499355369ef181b181fca8c9f0581c7d2e1fc727d"
+    },
+    {
+      "file": "src/validation/rules/FieldsOnCorrectTypeRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ab63c18b8f277925d13fb6d383c2f7a98ccaf898a487fc9fadcbf7d46296e80a"
+    },
+    {
+      "file": "src/validation/rules/FragmentsOnCompositeTypesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "2655b559409d2def84c2eb9a41f84e5ada62db32c0b5a109710121b6c8adfffd"
+    },
+    {
+      "file": "src/validation/rules/KnownArgumentNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "52637b93de1cd07cfa13fc55a7b18890d78a17cbd07ab9cd2148169ceb551451"
+    },
+    {
+      "file": "src/validation/rules/KnownDirectivesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4a5f3ebc591cd57b711cd606672b564f6ea7abe8ef49cb03c5438ff0338942e3"
+    },
+    {
+      "file": "src/validation/rules/KnownFragmentNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "d29bdd8c0d5734336618e25d8827f6e61bacfa9367aac669406d84778505a46b"
+    },
+    {
+      "file": "src/validation/rules/KnownOperationTypesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "334e92c8112f82dcab74fc5dfbb5809b12c554df4672940b12bd1512d132b081"
+    },
+    {
+      "file": "src/validation/rules/KnownTypeNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ff8e4cce04a02e80a18657ca8c23f161434f7b57cd2ea349a57865d9c528a857"
+    },
+    {
+      "file": "src/validation/rules/LoneAnonymousOperationRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "c4fb78971aa72acc4ad59d43228d6b7b9529d695b8f2ec01288be33a44bdbfa6"
+    },
+    {
+      "file": "src/validation/rules/LoneSchemaDefinitionRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "b113210075c0c0589a380db0351f156da2ca50677e4db0e0e9588570825b8e63"
+    },
+    {
+      "file": "src/validation/rules/MaxIntrospectionDepthRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1e8d8b96dfa093959a2ccde2663abf6187236aa14476ed4238fbe2fcf3c92054"
+    },
+    {
+      "file": "src/validation/rules/NoFragmentCyclesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "419978706423bbefe18ceee66c7978bda95ce3231282d94bc92c5d4f0fe1c016"
+    },
+    {
+      "file": "src/validation/rules/NoUndefinedVariablesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "a312df37dc7916dc4e3bfecfcb20363349ada8b5ba56177376b8eb9fb9f1f86a"
+    },
+    {
+      "file": "src/validation/rules/NoUnusedFragmentsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "db67373c8db33ea0f236ad05b7020647890d86d78651587ad689e57ff6754606"
+    },
+    {
+      "file": "src/validation/rules/NoUnusedVariablesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1d2e55bb605aeed844117a4aed5144ff441371b324c80c2a6a476e56f9beb785"
+    },
+    {
+      "file": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "ebf27a320a60c2b5d2da04fa2cdb6155c3fa9f16f7fdf066035a8b0748e4372b"
+    },
+    {
+      "file": "src/validation/rules/PossibleFragmentSpreadsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "05fba48a6c403bf35cafeb3130d067b255185103179a692d028b6edd526eddf1"
+    },
+    {
+      "file": "src/validation/rules/PossibleTypeExtensionsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "afe5a9d272fa3415320a6399c09b6370eb7b41c929784edfd90d47e79f685409"
+    },
+    {
+      "file": "src/validation/rules/ProvidedRequiredArgumentsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "b732437299173e2812c45785e9085056e133d5825d5700bc0052bdce3fd78a67"
+    },
+    {
+      "file": "src/validation/rules/ScalarLeafsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "6f35bb5c9c195aa4234bf88c88d063a3a58f35c41cf1bac3377f8314fe7d7f0e"
+    },
+    {
+      "file": "src/validation/rules/SingleFieldSubscriptionsRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "e1fc2743c604a75a69ab6737c91beae36aed357365c4a859f00383fdb79e6812"
+    },
+    {
+      "file": "src/validation/rules/StreamDirectiveOnListFieldRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "5f83015fcaebc6d66b3c930afa9554e3d65927c2e6546bcff7bf5edba4ad6644"
+    },
+    {
+      "file": "src/validation/rules/UniqueArgumentDefinitionNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "1718ee024497d8f76a3ca4ff2078c56366bb057d17d9e44b817dbc70ce589203"
+    },
+    {
+      "file": "src/validation/rules/UniqueArgumentNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "85f258aada0ed0d98314feac10ef60dfc0ad7a54e18d48bb2717a8c1173ae0a9"
+    },
+    {
+      "file": "src/validation/rules/UniqueDirectiveNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "338394301b62fbd15ee1434da57ea7f7320e7dd35b935e611c50844f99dc31d0"
+    },
+    {
+      "file": "src/validation/rules/UniqueDirectivesPerLocationRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "bfe2751c4eb2c0be9f48071494f5ba9ceda779f5af2f725955c79d1bcb158222"
+    },
+    {
+      "file": "src/validation/rules/UniqueEnumValueNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "4d1dcc3b7b4784a81200844953b25c97267c3d0ff625a7c2050a56419d05d3e5"
+    },
+    {
+      "file": "src/validation/rules/UniqueFieldDefinitionNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0098e9f0d59768b487f800fbac3580318bccbe4386b3fa31efed24f74fda72ab"
+    },
+    {
+      "file": "src/validation/rules/UniqueFragmentNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f591bc7ceedb37e4d70e42860cfd4ce24a08380bd4666ffc55037daf7fc59531"
+    },
+    {
+      "file": "src/validation/rules/UniqueInputFieldNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "95681a48687ab7447d645a8a00734da33ce77dcc72a4bad889208e1b5ad7193e"
+    },
+    {
+      "file": "src/validation/rules/UniqueOperationNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "f28ca8ec538b5eb5eb416a73724bbf5833f4786f4e322b6a20d997bbf13f2a55"
+    },
+    {
+      "file": "src/validation/rules/UniqueOperationTypesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "61ca39dc1efb8189e449b107e523b77bbd493e53ac2854b4dd64f362b4b49e38"
+    },
+    {
+      "file": "src/validation/rules/UniqueTypeNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "199f9ddac441a06342ede18f18c7d5143202f3e085ccd45d3d93e81cd8aebbb4"
+    },
+    {
+      "file": "src/validation/rules/UniqueVariableNamesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "07a9cb4d3d82ba5970febb7a0799b104b70fca284654d2bbdfe250d4328e883e"
+    },
+    {
+      "file": "src/validation/rules/ValuesOfCorrectTypeRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "fffc44e6734e1a0c29d934eb28a0fcd6630747fbc05d9f59d70726f54488276f"
+    },
+    {
+      "file": "src/validation/rules/VariablesAreInputTypesRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "9b3fa5d49646a99009bb268427923cc9a557c01645404b73fcad105fa028f36c"
+    },
+    {
+      "file": "src/validation/rules/VariablesInAllowedPositionRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "0a786132c9cc7b5b2d4a495e374ab4abc74584ba5e5eef462d69b62bd014d3c3"
+    },
+    {
+      "file": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "9825e941a8fddff9d0bdb313e825eed3400599b81c19c6eefb31214a3689a32c"
+    },
+    {
+      "file": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+      "language": "typescript",
+      "status": "analyzed",
+      "digest": "600082c64a03683440409cd255d610a77348e400663b22415a3c6478e328a0ef"
+    }
+  ],
+  "diagnostics": [],
+  "graph": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/graphql/graphql-js",
+    "snapshot_id": "1f87119eda0146c1c72ab4e02ffaf3a1d7d6e27f3403b081fe4d71660972e6f8",
+    "content_hash": "42f1085746a5745e50218670f4b626aeab9d8c240e2ca8b99e6fefe3b3370731",
+    "nodes": 1764,
+    "relationships": 1763,
+    "verified": true,
+    "wall_seconds": 13.247601448998466
+  }
+}

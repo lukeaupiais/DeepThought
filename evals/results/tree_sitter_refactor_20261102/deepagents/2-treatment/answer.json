@@ -1,0 +1,85 @@
+{
+  "claims": [
+    {
+      "file": "libs/deepagents/deepagents/backends/composite.py",
+      "symbol": "CompositeBackend.delete",
+      "kind": "Method",
+      "line": 713
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/composite.py",
+      "symbol": "CompositeBackend.adelete",
+      "kind": "Method",
+      "line": 738
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/context_hub.py",
+      "symbol": "ContextHubBackend.delete",
+      "kind": "Method",
+      "line": 202
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/filesystem.py",
+      "symbol": "FilesystemBackend.delete",
+      "kind": "Method",
+      "line": 583
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/protocol.py",
+      "symbol": "BackendProtocol.delete",
+      "kind": "Method",
+      "line": 666
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/protocol.py",
+      "symbol": "BackendProtocol.adelete",
+      "kind": "Method",
+      "line": 694
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/protocol.py",
+      "symbol": "_supports_delete",
+      "kind": "Function",
+      "line": 913
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/sandbox.py",
+      "symbol": "BaseSandbox.delete",
+      "kind": "Method",
+      "line": 1368
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/state.py",
+      "symbol": "StateBackend.delete",
+      "kind": "Method",
+      "line": 249
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/store.py",
+      "symbol": "StoreBackend.delete",
+      "kind": "Method",
+      "line": 547
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/store.py",
+      "symbol": "StoreBackend.adelete",
+      "kind": "Method",
+      "line": 575
+    }
+  ],
+  "relationships": [],
+  "limitations": [
+    "The proposal would not preserve compatibility and behavior as stated. Deletion is explicitly optional: BackendProtocol.delete is concrete and raises NotImplementedError, while BackendProtocol.adelete supplies an asyncio.to_thread(self.delete, file_path) fallback (libs/deepagents/deepagents/backends/protocol.py:666-696). Making delete abstract would prevent previously valid subclasses without deletion support from being instantiated; requiring it contractually would still narrow the supported backend contract. The selected concrete backends already obtain synchronous deletion through their own declarations or inheritance, so mandatory synchronous deletion alone would primarily affect other/custom subclasses.",
+    "Removing the generic async implementation breaks existing inherited behavior. ContextHubBackend, FilesystemBackend, StateBackend and BaseSandbox declare synchronous deletion but inherit BackendProtocol.adelete; LocalShellBackend inherits FilesystemBackend.delete, and LangSmithSandbox inherits BaseSandbox.delete, with both also using the generic async deletion fallback. These inherited methods are not additional explicit declarations. Only CompositeBackend and StoreBackend declare their own adelete. Deleting the base method without replacements causes missing-method failures; replacing it with an abstract or raising method also breaks these implementations. StoreBackend's native async search and batch operations should remain native (libs/deepagents/deepagents/backends/protocol.py:694-696,814; context_hub.py:46,202-228; filesystem.py:91,583-615; state.py:37,249-273; sandbox.py:952,1368-1408; local_shell.py:26; langsmith.py:56; composite.py:738-747; store.py:575-588).",
+    "Capability detection deliberately compares the resolved class method with BackendProtocol.delete: type(backend).delete is not BackendProtocol.delete. An inherited concrete override therefore counts as support; an async-only override does not. This is a declaration-based capability check, not proof that deletion will succeed for every path. FilesystemMiddleware uses it to remove unsupported delete tools from model requests in both synchronous and asynchronous model wrappers. Removing this filtering would advertise deletion for optional/custom backends whose inherited implementation raises, and the deletion tool wrappers do not catch that exception. Explicit tools= exclusions are separately enforced when constructing self.tools (libs/deepagents/deepagents/backends/protocol.py:913-928; libs/deepagents/deepagents/middleware/filesystem.py:1688-1718,2183-2263,2694-2718,2992-3011,3068,3104).",
+    "CompositeBackend always passes the deletion-support check because it overrides delete, even when a selected child does not support deletion. Routes are sorted longest-first; matching strips the route prefix, an exact route root becomes '/', and unmatched paths go to the default backend. Each deletion delegates to one selected backend, rather than recursively traversing all mounted routes; deleting '/' normally targets only the default backend. Both sync and async deletion translate child NotImplementedError into DeleteResult(error=\"Error: deletion is not supported for '<original path>'.\") and restore any non-None result path to the caller's original path. Other exceptions are not caught. Removing the async fallback from children can instead produce AttributeError, which this handler does not translate (libs/deepagents/deepagents/backends/composite.py:33,145-175,230-241,713-747).",
+    "StateBackend deletion removes the exact key and keys under the slash-delimited subtree after stripping trailing slashes; similarly named sibling prefixes are retained. No match returns a not-found DeleteResult. It queues None tombstones through CONFIG_KEY_SEND rather than directly mutating a returned state dictionary. Reads use CONFIG_KEY_READ with fresh=True. FilesystemState's actual DeltaChannel reducer removes tombstoned keys and preserves other entries; the ordinary file-data reducer also supports tombstones. A replacement must preserve these channel updates and read-your-writes behavior, not merely return success or substitute a tool-level state command (libs/deepagents/deepagents/backends/state.py:80-118,249-273; libs/deepagents/deepagents/middleware/filesystem.py:1009-1069).",
+    "StoreBackend searches the resolved namespace, selects the exact key plus slash-delimited descendants, and submits PutOp(namespace, key, None) through batch or native async abatch. Wildcards are literal because selection uses equality and startswith, not glob matching. Missing targets return not-found results; store/search/batch exceptions are not converted into DeleteResult by these methods. The source does not establish transactional guarantees for the underlying store, so atomicity should not be assumed (libs/deepagents/deepagents/backends/store.py:547-588).",
+    "ContextHubBackend strips leading slashes, selects matching cached file keys, and commits None deletion markers with the current parent commit. After a successful push, _commit updates the commit hash when available and rebuilds the cache without deleted paths. No matching cached key returns not found; LangSmithError invalidates the cache and returns 'Hub unavailable: ...'. Linked entries are stored separately and are not included in delete's cache-key selection. Replacing deletion with a generic operation must preserve these persistence and cache effects (libs/deepagents/deepagents/backends/context_hub.py:67-85,106-137,202-228).",
+    "FilesystemBackend resolves the path, returns not found when neither existence nor symlink checks succeed, unlinks resolved symlinks/files, and uses shutil.rmtree for resolved directories. OSError and RuntimeError become deletion-error results, and recursive removal can partially modify a tree before failing. ValueError from virtual-root traversal or confinement checks is not caught by delete. Although its deletion docstring promises symlink-only removal, virtual-mode _resolve_path calls Path.resolve before deletion, so that promise cannot be generalized to the original input symlink. These existing path-resolution and exception behaviors must be assessed from implementation, not inferred from the declaration or docstring (libs/deepagents/deepagents/backends/filesystem.py:182-220,583-615).",
+    "BaseSandbox deletion quotes the path, probes with 'test -e ... || test -L ...', then executes 'rm -rf ...'. A definite nonzero probe yields not found, including cases where shell tests cannot inspect the path; an unknown probe exit code proceeds to removal. Only a zero removal exit code succeeds; other statuses return the command output or 'unknown error'. Execute exceptions are not caught here, and recursive removal can partially succeed. Shell quoting treats the path literally but supplies neither root confinement nor traversal protection (libs/deepagents/deepagents/backends/sandbox.py:1368-1408).",
+    "Deletion permissions are enforced by the filesystem tool layer before backend deletion, using the write operation. With permissions configured, ls/als and sometimes the parent listing distinguish a confirmed leaf from a possible subtree; unsupported listing, ambiguous parent results and most listing errors trigger conservative subtree handling. Confirmed leaves use first-match rule precedence. Possible subtrees consider overlapping deny-write patterns regardless of earlier allow rules, including protected descendants and ancestors, while avoiding provably unrelated sibling globs. This logic must remain even if backend deletion becomes mandatory; capability filtering is separate from authorization (libs/deepagents/deepagents/middleware/filesystem.py:433-617,2199-2208,2239-2250).",
+    "Both deletion tool wrappers validate and normalize paths, return error ToolMessages for validation failures or denied writes, then translate a nonempty DeleteResult.error into an error ToolMessage; success produces 'Deleted <path>'. They do not broadly catch backend exceptions. validate_path rejects traversal components, leading '~' and Windows drive paths, and normalizes relative paths to leading-slash virtual paths. Interrupt permissions are handled separately through HITL: delete is mapped to a bulk write operation with subtree-overlap predicates. Direct backend calls do not pass through these tool-level checks. FilesystemMiddleware also rejects permissions with execution-capable backends unless its route-scoping exception applies (libs/deepagents/deepagents/backends/utils.py:648-711; libs/deepagents/deepagents/middleware/filesystem.py:1667-1674,2179-2271; libs/deepagents/deepagents/middleware/_fs_interrupt.py:38-45,94-137,156-183; libs/deepagents/deepagents/graph.py:808,872).",
+    "This is a static source review of the selected production tree. Python AST enumeration found ten explicit delete/adelete methods and one support helper; bounded DeepThought declaration-graph results agreed with their symbols and locations. Inheritance and behavioral conclusions were verified from source, not inferred from graph relationships. No repository modules, builds or tests were executed, no source was modified, and external backend implementations and service guarantees were not available for verification."
+  ]
+}

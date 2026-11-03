@@ -1,0 +1,110 @@
+{
+  "scope": "Compiler-checker harness controls only. Synthetic snippet is excluded from real corpus and native-agent pilot. All source was created in an automatically removed temporary directory.",
+  "checker_sha256": "7b6aadc17a5a6eaf4c87bd09a3c46dc5ec1e071388075587199f520098ee7f38",
+  "source_text": "export function \\u0066oo(): void;\nexport function \\u0066oo() {}\ninterface I { 'quoted'(): void; 'quoted'(): void; 0x10(): void; \\u0061(): void; }\nconst \\u0062 = () => 1;\nclass C { #private() {} get ['computed']() { return 1; } }\n",
+  "control_results": [
+    {
+      "control": "exact",
+      "passed": true,
+      "expected_compiler_facts": 11,
+      "graph_facts": 11,
+      "matched": 11,
+      "missing": 0,
+      "extra": 0,
+      "duplicate_tuple_counts": {
+        "compiler": [
+          {
+            "tuple": [
+              "source.ts",
+              "I.'quoted'",
+              "Method",
+              3
+            ],
+            "count": 2
+          }
+        ],
+        "graph": [
+          {
+            "tuple": [
+              "source.ts",
+              "I.'quoted'",
+              "Method",
+              3
+            ],
+            "count": 2
+          }
+        ]
+      }
+    },
+    {
+      "control": "missing-identical-tuple",
+      "passed": true,
+      "expected_compiler_facts": 11,
+      "graph_facts": 10,
+      "matched": 10,
+      "missing": 1,
+      "extra": 0,
+      "duplicate_tuple_counts": {
+        "compiler": [
+          {
+            "tuple": [
+              "source.ts",
+              "I.'quoted'",
+              "Method",
+              3
+            ],
+            "count": 2
+          }
+        ],
+        "graph": []
+      }
+    },
+    {
+      "control": "extra-identical-tuple",
+      "passed": true,
+      "expected_compiler_facts": 11,
+      "graph_facts": 12,
+      "matched": 11,
+      "missing": 0,
+      "extra": 1,
+      "duplicate_tuple_counts": {
+        "compiler": [
+          {
+            "tuple": [
+              "source.ts",
+              "I.'quoted'",
+              "Method",
+              3
+            ],
+            "count": 2
+          }
+        ],
+        "graph": [
+          {
+            "tuple": [
+              "source.ts",
+              "I.'quoted'",
+              "Method",
+              3
+            ],
+            "count": 3
+          }
+        ]
+      }
+    }
+  ],
+  "original_receipt_preserved_sha256": "03e64794b8b1a2a20546e879b3f240fad87f92cdb733fafc7a80bf6c98de9bfd",
+  "reviewed_receipt_preserved_sha256": "be777153c3dcb3b3ecf0a722602d7aa09f9f1199ab23c97ee1d7a640c0639d44",
+  "final_receipt_sha256": "44e0cd63ef17647ba81d00d27d7efd8e9a662bedac0688f54ee641b37902167e",
+  "final_counts": {
+    "source_files": 176,
+    "compiler_fact_count": 1592,
+    "graph_fact_count": 1587,
+    "exact_matched_count": 1587,
+    "duplicate_tuple_counts": {
+      "compiler": [],
+      "graph": []
+    }
+  },
+  "remaining_tool_coverage_omissions": 5
+}

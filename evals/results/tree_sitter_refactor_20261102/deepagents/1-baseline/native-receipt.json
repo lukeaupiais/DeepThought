@@ -1,0 +1,21 @@
+{
+  "terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 364307,
+      "cached_input_tokens": 314112,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 4845,
+      "reasoning_output_tokens": 386
+    }
+  },
+  "stdout_sha256": "92eb7f35aa949e6e9a66a8c3d0c6a7ea989c95da34aa30eb2e6923591be56b61",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "answer_sha256": "2bc41d06604fcabb6d8cc2abe9fa0eac1f4558c21bf54dc2eb5e65f17f5a1828",
+  "mcp_tool_calls": 0,
+  "recovery": "Native completed successfully. Usage parser rejected new cache_write_input_tokens field after completion. Preserved original answer and terminal usage; no model rerun. Native process return code and monotonic time were not persisted.",
+  "filesystem_elapsed_estimate_seconds": 115.077384,
+  "timing_provenance": "stdout file creation to last write, approximate and excludes process-exit overhead",
+  "birth_time": "2026-11-02 21:23:28.648580579 -0300",
+  "last_write_utc": "2026-11-03T00:25:23.725964+00:00"
+}

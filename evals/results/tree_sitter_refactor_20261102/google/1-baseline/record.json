@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "arm": "baseline",
+  "kind": "agent",
+  "input_id": "e922191486d23ad347588fdd3299feaaa9a4d0fd91311d20596970262e3bd619",
+  "provenance": {
+    "source": {
+      "workspace": "/home/luke/dev/oss/langchain-google",
+      "files_sha256": "69098d2465c0dab36302288adf4897797980f009dc68453b18c9fd130c08691c",
+      "revision": "c638727187482262f4c318ba1ff2ce572e725767"
+    },
+    "scenario_sha256": "d51b6bdf011ce3f636e1fea36a45320c9c8056cecb49d298a8b0bf3968e4e2b5",
+    "tool": {
+      "name": "tree-sitter",
+      "version": "0.2.5a1"
+    },
+    "tool_output_sha256": "c25e66b6fb6326010a02dae0a690142a60d4abf1e32ca30b02b1ea7701bfc7a2",
+    "tool_status": "succeeded",
+    "actor_context_sha256": {
+      "baseline": "06cd06ad2dbc6389b2dd2ef503473d4a5d033b983bf3f6c1c224763a63196aed",
+      "treatment": "5a0f52eda3734eccbdad8ff277e2eb636a3338c140628a4ad61691af592deec5"
+    },
+    "delivery_mode": "tool_access",
+    "tool_access_sha256": "35679b8a7201113b422df850d1d7eb0545a92f5a968cbb4fbec1c8fea5e17c10",
+    "evaluation_interface": "neo4j",
+    "neo4j_sha256": "86cdde4209fcbd35f52155f386039451f5c0fe9afd0bb33bb3887130e85101b3"
+  },
+  "scenario": {
+    "schema_version": 1,
+    "id": "tree-sitter-google-refactor-v1",
+    "tool": "tree-sitter",
+    "grader": "refactor-navigation-v1",
+    "task": "We want to consolidate duplicated schema/tool plumbing between the Google GenAI and Vertex chat integrations without changing public behavior. Locate exactly six declarations: each integration\u2019s structured-output wrapper and tool-binding method, plus each integration\u2019s low-level provider-tool collection converter. Return their declaration locations in claims. In limitations, give a source-cited compatibility review of what can be shared and what must stay provider-specific, focusing on actual executable branches, schema transformations, accepted input/options, tool conversion/packing, and returned results/error behavior. Resolve any documentation/implementation disagreement using code. Do not implement the refactor. Relationships must be empty. Do not enumerate additional declarations in claims.",
+    "languages": [
+      "python"
+    ],
+    "source": {
+      "kind": "public_repository",
+      "repository": "https://github.com/langchain-ai/langchain-google",
+      "revision": "c638727187482262f4c318ba1ff2ce572e725767",
+      "files": {
+        "libs/community/langchain_google_community/__init__.py": "7434eb36e69240c21aea459cd8c063e3eafec4c827a765606734505efb8c2fe9",
+        "libs/community/langchain_google_community/_utils.py": "52bfc26fef1313c8624b415728dfca338f2e0b990be0e1da9bda87b9b1de8ce0",
+        "libs/community/langchain_google_community/bigquery.py": "0f6a568df0d38fc7e8cd1b2d0afbeebe5d3f6b691c2b4c17f27f714064c1f3bb",
+        "libs/community/langchain_google_community/bq_storage_vectorstores/_base.py": "9065de653d5fa090b67f5044c9bf3764da90727c4f1672d73f1778dd57794a06",
+        "libs/community/langchain_google_community/bq_storage_vectorstores/bigquery.py": "75b6ce85898bc50e72edd210336c4eac111a73aae5601cc74e5b6b96455ae790",
+        "libs/community/langchain_google_community/bq_storage_vectorstores/featurestore.py": "a95520bb289b50be98c03ad5cdbcee645c318afb5c9c7dee77291328b81950ae",
+        "libs/community/langchain_google_community/bq_storage_vectorstores/utils.py": "a213cd12c2b41568ed77ef8318d203849a5542dd1f2d0a3b5f7623ca115e4f0e",
+        "libs/community/langchain_google_community/calendar/__init__.py": "d99237a3ae4b28aed4f86343274b97e1cb00564750f8f895a29a37c647068412",
+        "libs/community/langchain_google_community/calendar/base.py": "303d9b43199200fa644cf2dedeba6a24129c75593e19783dd466bd4b23f0eafb",
+        "libs/community/langchain_google_community/calendar/create_event.py": "6b33af7f4dde2ddc9f0a94a5714b9da0f32b571a2709a2a049d31f8ab1246c12",
+        "libs/community/langchain_google_community/calendar/current_datetime.py": "e7612065781777d5b0667ec271907699d9ba5f5bdb20f19ada23a922f29f8447",
+        "libs/community/langchain_google_community/calendar/delete_event.py": "f1f31993704d7f42bde2eba61bc9c9d74f82e235b4716171009dcb79679e99ec",
+        "libs/community/langchain_google_community/calendar/get_calendars_info.py": "f09de3e053b70aa82ffed0ac9541d9e53fcb73921024437222549e413f159e02",
+        "libs/community/langchain_google_community/calendar/move_event.py": "53f798ef000acc90f52f452ce07d201a1937ae226ce8c3b5b067a950e0d5a32f",
+        "libs/community/langchain_google_community/calendar/search_events.py": "b4dd0a1f87a53abd4293c83a227e4e86d68474d85fa4c2bc2ba5b9ce60058c9f",
+        "libs/community/langchain_google_community/calendar/toolkit.py": "56740a47044c2bbba8f8142fde63454c53dd00b3768030b3885626bc41d96d19",
+        "libs/community/langchain_google_community/calendar/update_event.py": "5bdae6c1dd9fefc67d0742fe62c8859001bd9dad9917eef40fd350c2be4f327b",
+        "libs/community/langchain_google_community/calendar/utils.py": "7d7cf10839a6d6cb0a0ee2a8201326c64cd03bf409d738bd283bb4d21f0c44d0",
+        "libs/community/langchain_google_community/callbacks/__init__.py": "3246309ac9f33797c90414e188ece67ac65e36c859af0d85a5cb87ae3b06cb9b",
+        "libs/community/langchain_google_community/callbacks/bigquery_callback.py": "f54c4505df999ff944c9a9d0ad778df0cebe9eb2a99d324834500ee1d05b996f",
+        "libs/community/langchain_google_community/docai.py": "66d4744925fc91a81b0e53855943f3d1bc2b15606dec55816f6c86a58037dfcf",
+        "libs/community/langchain_google_community/documentai_warehouse.py": "671d870d49bbf11acc9617da9909d14910166e026ac2951997c683f6e2be1d80",
+        "libs/community/langchain_google_community/drive.py": "d7a0ccf76e54ad04266c1120881351f668858cb199c2da55912cb24a33f9e6b6",
+        "libs/community/langchain_google_community/gcs_directory.py": "0aca365f09596d9d6d98b550ba66f530a82193ffaee78f32d80a96fd3df6a741",
+        "libs/community/langchain_google_community/gcs_file.py": "adde0073b143197199970cc4f6af95dde994206b0f2e3528aaa2a9336c89fba8",
+        "libs/community/langchain_google_community/geocoding.py": "f6eee35bb93af789d3cc070938aab714bca035131fef79b34f3dd2ab655718fe",
+        "libs/community/langchain_google_community/gmail/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "libs/community/langchain_google_community/gmail/base.py": "55521232e0285f0129f029254a5b3dc6def19750c40719cc67c9e6422349fd27",
+        "libs/community/langchain_google_community/gmail/create_draft.py": "1050f9becbb9b2dc91dbda5696f887a39ffd717a0b0f3778260fb27359f94293",
+        "libs/community/langchain_google_community/gmail/get_message.py": "fef934a3f0e0c243748bd300170f633b4d5a18d4d07e2575dfe65e04d8855c1a",
+        "libs/community/langchain_google_community/gmail/get_thread.py": "c43a4ab3adb5e18f13dbfb9f75d2186dfb33c44b30bad445d53655fc030ef688",
+        "libs/community/langchain_google_community/gmail/loader.py": "21425a0a1bcaef12b4dbc90f33cf22f0d6ab61e494864c798320bcfc947011da",
+        "libs/community/langchain_google_community/gmail/search.py": "6248ed8434a1cfb56b6b5eff48e6310eb080531531f85005fdbda82a7c795124",
+        "libs/community/langchain_google_community/gmail/send_message.py": "3a545574df35cc3dfa0dc4bd83a862d61f0685008c583dee014039677a118a28",
+        "libs/community/langchain_google_community/gmail/toolkit.py": "97043e2f61045fda0082007550c8db6a7311cfbff6835497cd3f7fd739fd6b8b",
+        "libs/community/langchain_google_community/gmail/utils.py": "d9f72d2091dc7db0421fa9449650b9816fba0f2114d0380c6182e06fe982911e",
+        "libs/community/langchain_google_community/google_speech_to_text.py": "469eb3f8bbfd0888b0103f5b9e474c7ee1a563818ebe65762b85a568f6f288e3",
+        "libs/community/langchain_google_community/model_armor/__init__.py": "6d6fb588ddea0706d535bb862473d71664157f7d9238113bf3a46c396ebe32a7",
+        "libs/community/langchain_google_community/model_armor/_client_utils.py": "7987fbb23d3030c1f615d4a121daf568c532c069b2c03d1d288b87cb63b7d2b6",
+        "libs/community/langchain_google_community/model_armor/base_runnable.py": "175625935aaaf3be750bc411574249645281b2980f18d8d20a370fa62f10b983",
+        "libs/community/langchain_google_community/model_armor/middleware.py": "320ccef866b854d8752d0923fd7e57d636635d63cd6b59a08c198f2bfed97b75",
+        "libs/community/langchain_google_community/model_armor/runnable.py": "5adcb782112513df9caa1d5575934835e70498f6ea035533b9855c0d0f98697b",
+        "libs/community/langchain_google_community/places_api.py": "b718453ab6fa07765330ae7db38d7ab4d25b4c1b52d2f79e0c6e4e54a88184a1",
+        "libs/community/langchain_google_community/search.py": "072e79fc6763d6adef5b6310b5350fd8cb2679026640c369fef0d840353d0313",
+        "libs/community/langchain_google_community/sheets/__init__.py": "2f1353bd4a296c486df1df17b8d92be059e2a627c3174b94b8be5cd2f6ac5b6b",
+        "libs/community/langchain_google_community/sheets/base.py": "f0b25633e4c081fd96f0dfaf56441476d1e96c6349c559bbc4033d1a62d07da1",
+        "libs/community/langchain_google_community/sheets/create_spreadsheet_tool.py": "7ae2fa64d7258b07707fa5632a025955add2527155876191c6e45fa9e776de95",
+        "libs/community/langchain_google_community/sheets/enums.py": "ebeb7a2ba556022520a3fed7692c47cc76630c6112c60df9e8b9184aaeb3b2ec",
+        "libs/community/langchain_google_community/sheets/get_spreadsheet_info.py": "91d304e76d49c476176dcfdd2435f7dce0e026064406b30c8e05b6de3850db87",
+        "libs/community/langchain_google_community/sheets/read_sheet_tools.py": "7123e0b87563733803d2f583b7ec92bdf0c991d4b633b9cc469ec027d0368439",
+        "libs/community/langchain_google_community/sheets/toolkit.py": "15e1ec2d3da4ef0dbf00dd8deb7e8078bb7a10771117cda9fdcd9106ea498140",
+        "libs/community/langchain_google_community/sheets/utils.py": "a12f9de5a08f16b0683182e04454b1482ccf7656e69d96237ebbf7a47b47056c",
+        "libs/community/langchain_google_community/sheets/write_sheet_tools.py": "acf7e53410c745a4eb07051e1fe48b0b4ffd6dfdf184b097e4b22a05154dc6fc",
+        "libs/community/langchain_google_community/tasks/__init__.py": "4cadc9fc61bfb8e915af969409b2a792ff875ed81883ca9af04abf9ddeca015a",
+        "libs/community/langchain_google_community/tasks/base.py": "5659d0f9a0d5d888a129b445d378a7aaab3d79b55f229700dce5acbba2ab35c7",
+        "libs/community/langchain_google_community/tasks/create_task.py": "315d9973621a5291ea1cecbabbfab601e125269a65ad2506f0fccd6726f0317b",
+        "libs/community/langchain_google_community/tasks/delete_task.py": "126d38c77817eecdac8f13479981c7026d7660b57d5ee45a4d1367a182511601",
+        "libs/community/langchain_google_community/tasks/get_task.py": "ce16b44d834e354268a6cc42679baa28fcf16ea9e366855a9ce65fdea370d4c2",
+        "libs/community/langchain_google_community/tasks/list_tasks.py": "b131a1dea934e0b105933e12c41b07de06fbe39113fa6c5b2778580dc37f9a96",
+        "libs/community/langchain_google_community/tasks/toolkit.py": "a301a7683a440d10656786fdca1f3b3500de8837b82f168e9d2d1dffcaba07f5",
+        "libs/community/langchain_google_community/tasks/update_task.py": "7a22f91f5719be574c17ee6f16eeb81fe0f1bcbafcd19864abc7390c9e5f5009",
+        "libs/community/langchain_google_community/tasks/utils.py": "b37e33c26a6532cb896f4f99593e87e83768979c81262e8dc93e91500d1d8b2c",
+        "libs/community/langchain_google_community/texttospeech.py": "5cc1540b9ff61f4ec6a152b762f10d45e6f6c251b7a1e864d7c9e716311e1d4f",
+        "libs/community/langchain_google_community/translate.py": "3a9d8e70f5d55145bd9f056863a12d663ba03b7697fc1b06c72e16a4c4f5e99c",
+        "libs/community/langchain_google_community/vertex_ai_search.py": "15dc0c6554b86d2e3bbd73ab5e8516333429ebd05c6aff6d9125fc0bd487e4c4",
+        "libs/community/langchain_google_community/vertex_check_grounding.py": "82e45bcef21de8904fee556ed1155cb91d9a3b0e21af62a77db6ba566e2d8542",
+        "libs/community/langchain_google_community/vertex_rank.py": "add87fe6aca976cbb0e396468f9ec11118950daf0b498bb2e2589503ff24d071",
+        "libs/community/langchain_google_community/vision.py": "88dae373c51986eb38dc4bb685779e99df03656cc78b6cf9c85f368aa342e7d7",
+        "libs/genai/langchain_google_genai/__init__.py": "c8ce957447c86f00f1aaad1869d053c2e0775a6b1d04f60e2cca8faf5cc05f6c",
+        "libs/genai/langchain_google_genai/_common.py": "5beb0b008519820cde4e0771ef461c53fee8129b6e28922a033e8e7ceeda40c5",
+        "libs/genai/langchain_google_genai/_compat.py": "124e9250cb7baba7be6d1778a13562829c98d0818922e92b08a238d508388d74",
+        "libs/genai/langchain_google_genai/_enums.py": "db85fc0e29241a23b07ee16a55de331096ba01fba66a897f5cf0cb61c9dee698",
+        "libs/genai/langchain_google_genai/_function_utils.py": "f6fd27231cb3b3eef6eb458663c68a2f9eba3c5a2d18cb779799993c1b7a7119",
+        "libs/genai/langchain_google_genai/_image_utils.py": "a6590e876488be5c1cc75bcd86a6c93c4f58cf26730e1e69d458c348f0411d49",
+        "libs/genai/langchain_google_genai/_version.py": "586fc7c9352cf7df76504758af66977dd72516fd1df115fa5a24b71cbeb7be35",
+        "libs/genai/langchain_google_genai/chat_models.py": "5983ea8a19f7abf196466ef5d6929ef63b3df5cdf029f8bcb9cc12dfae935250",
+        "libs/genai/langchain_google_genai/data/__init__.py": "6683386b5004a741dd2b2aaa3720e5e5f16c1a119a29bccfd5656d89821be1e7",
+        "libs/genai/langchain_google_genai/data/_profiles.py": "b45cee284beef99721c4b6e4906afd77a43944fb93d91bfd117d52fc10001343",
+        "libs/genai/langchain_google_genai/embeddings.py": "47666e6dfa0eabc65565cdcf64e113b851a16da6d77d81555524b107309965e4",
+        "libs/genai/langchain_google_genai/llms.py": "4cc550c333b051ba4410627d8e3aa14cb31c7fd4ae1e82049b72b88d543be51f",
+        "libs/genai/langchain_google_genai/utils.py": "45d5020af4624d86a53de31c7f74a6917a44f6b0dfbf05ff57df79e999cd18f6",
+        "libs/vertexai/langchain_google_vertexai/__init__.py": "48cc0ad9f5d5df1d40d06736ee1ab28e1d42d1d0eff5aa7e3aa590cebf3032b0",
+        "libs/vertexai/langchain_google_vertexai/_anthropic_parsers.py": "3df1efa8fe2d4f3b3d267ceb86d14d78c1c64254b6ae3d5471dd025ec088ded2",
+        "libs/vertexai/langchain_google_vertexai/_anthropic_utils.py": "273433c7067e959302fc0087b06e77cefc8d41c540c6e68456c3cfc88c08039b",
+        "libs/vertexai/langchain_google_vertexai/_base.py": "2337b7d95cb9920f9ec2cd5d349e123ce6cf299f57af8dd766829ddd197622d4",
+        "libs/vertexai/langchain_google_vertexai/_client_utils.py": "aa3bc40a32a7c227833e05d736a686671225bdc1d9f4235faba2a7448c489f95",
+        "libs/vertexai/langchain_google_vertexai/_compat.py": "4b4096226c3bc065692de648f46182b263277c7a5bc52058c467929b84b26806",
+        "libs/vertexai/langchain_google_vertexai/_enums.py": "0df79e3cba91a049b3ac2b9f638733ca2d30bd8d85bcc4438e16f4dff2105143",
+        "libs/vertexai/langchain_google_vertexai/_image_utils.py": "cad41504070991c491f4b96cf867742a2912120689f7ab927483c86dd381fed5",
+        "libs/vertexai/langchain_google_vertexai/_retry.py": "40267b18d13cc40853f2e99bb2d119605fdbdf39c715abdf54a2ed9e88872a39",
+        "libs/vertexai/langchain_google_vertexai/_utils.py": "c9993724e611384cbf74e948d56a92e7e0987ad8d51c378b535dcd5db9d9ed57",
+        "libs/vertexai/langchain_google_vertexai/_version.py": "36e148bc92450f00e1828cd57e253b528e2f8e89de7d99c3846d4062416ac5bb",
+        "libs/vertexai/langchain_google_vertexai/callbacks.py": "d55c977f1df65682e8c0e0a1921584907f6771933f70ae6dd3265e748b9a9e48",
+        "libs/vertexai/langchain_google_vertexai/chains.py": "00b0e607c78a9bc9c7774cebd283d5e6e81fde8b8a8a68a9be07bc99982d8e02",
+        "libs/vertexai/langchain_google_vertexai/chat_models.py": "8b7163795d467701fbdd624bd763d0763e45f629d2e879153f1a45219766b49e",
+        "libs/vertexai/langchain_google_vertexai/data/__init__.py": "6683386b5004a741dd2b2aaa3720e5e5f16c1a119a29bccfd5656d89821be1e7",
+        "libs/vertexai/langchain_google_vertexai/data/_profiles.py": "51f34a2a80c65d8d346137b697f311b184d9603a417e7667f409879f625de2d6",
+        "libs/vertexai/langchain_google_vertexai/embeddings.py": "99ed1ceb5e5cbde3ff8add8c37f0ed3b7141edc8ac1943ae770299aea2414e29",
+        "libs/vertexai/langchain_google_vertexai/evaluators/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "libs/vertexai/langchain_google_vertexai/evaluators/_core.py": "59897799fa26886945ceccfe98be6fb0a9f611c315db8c60278782b25bd7a9b4",
+        "libs/vertexai/langchain_google_vertexai/evaluators/evaluation.py": "037b79b89afc6b02c712ab3cdae848498f948643b5486b9c89db7f74cf8e31b2",
+        "libs/vertexai/langchain_google_vertexai/functions_utils.py": "e46868e6b3d4fca17bc113707448390666c698dc47a32d8194b3ac2a3642d892",
+        "libs/vertexai/langchain_google_vertexai/llms.py": "14978ef98ea3b34fbdbb9f958e07f6552e8083eb8a52f6da093e8c81e9d6fa19",
+        "libs/vertexai/langchain_google_vertexai/model_garden.py": "4a7b81f953565df524e97a28abc0e5c5f723b105a3333ce3b25a822787711c75",
+        "libs/vertexai/langchain_google_vertexai/model_garden_maas/__init__.py": "6583876fd20794a51b260f990ed5223921f0d21aa2164628c492581aacf175fd",
+        "libs/vertexai/langchain_google_vertexai/model_garden_maas/_base.py": "9674bcf38594bb34725d1768beeda0d245772f95563d8284b2716ae864084700",
+        "libs/vertexai/langchain_google_vertexai/model_garden_maas/llama.py": "384bc368faf6ac6e7e83933b692e02984ee8e2ac1ff744da949b84c5e5bcdffd",
+        "libs/vertexai/langchain_google_vertexai/model_garden_maas/mistral.py": "3aaf1735c31ecd7cdbba7fe195053c5f7a5e86316085b78b304ad972b3d2ef3e",
+        "libs/vertexai/langchain_google_vertexai/utils.py": "551938eb58ff0329b89b0629075e714ba356b9b459e74eca8ae188cddf22dc26",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/__init__.py": "10a4ded5b492235a276d78505d2964143076be2150bc7ba9130bf1d22ae2990b",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/_sdk_manager.py": "aba33ee745c5880cfa84cd3c3e47eb3335ce369d33b28ef8b1785370b41f0e33",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/_searcher.py": "e64c3e9658361a3d15713dd8780a7789dfb959cc0c6f413eb89aa39ee43f961d",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/_utils.py": "b5a2a07eb87bc4789ef72d980a1c780345f78b8676cbbe48b4eef6fff1bdee0a",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/_v2_operations.py": "caa586eaca4813af6bfbad0eb8f8b7edefc3550ab86f48278807dd3d3e7686cb",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/document_storage.py": "d8fc03bab5c3a2de91a4cf6245ff466a33877b3ff07661ee313efd500e364a4c",
+        "libs/vertexai/langchain_google_vertexai/vectorstores/vectorstores.py": "7876ea67386d0adfb71304b955892a128ba4562cce5d902c05a7abe907f17b96",
+        "libs/vertexai/langchain_google_vertexai/vision_models.py": "c970b407e9bb306ec985480f172438d05c30def3955ab7956a3f27e6bfc3a8b5"
+      }
+    },
+    "expected": [
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.with_structured_output",
+        "kind": "Method",
+        "line": 3606
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.bind_tools",
+        "kind": "Method",
+        "line": 3796
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.with_structured_output",
+        "kind": "Method",
+        "line": 2658
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.bind_tools",
+        "kind": "Method",
+        "line": 2905
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/_function_utils.py",
+        "symbol": "convert_to_genai_function_declarations",
+        "kind": "Function",
+        "line": 219
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/functions_utils.py",
+        "symbol": "_format_to_gapic_tool",
+        "kind": "Function",
+        "line": 306
+      }
+    ],
+    "metadata": {
+      "rubric_sha256": "72d8b3f1f6228b961a460fde37e4d4f127008cae31c122ce6bc9a6392c1557b9",
+      "purpose": "Known public pilot; exact declarations and separately blinded source-rubric review; two fresh sessions per arm"
+    }
+  },
+  "actor_context_sha256": "06cd06ad2dbc6389b2dd2ef503473d4a5d033b983bf3f6c1c224763a63196aed",
+  "answer": {
+    "claims": [
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.with_structured_output",
+        "kind": "Method",
+        "line": 3606
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.bind_tools",
+        "kind": "Method",
+        "line": 3796
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/_function_utils.py",
+        "symbol": "convert_to_genai_function_declarations",
+        "kind": "Function",
+        "line": 219
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.with_structured_output",
+        "kind": "Method",
+        "line": 2658
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.bind_tools",
+        "kind": "Method",
+        "line": 2905
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/functions_utils.py",
+        "symbol": "_format_to_gapic_tool",
+        "kind": "Function",
+        "line": 306
+      }
+    ],
+    "relationships": [],
+    "limitations": [
+      "Investigation used source search and Python AST without executing repository modules, installing dependencies, building, modifying files, or accessing the network. No DeepThought declaration-graph tool was exposed. SDK and langchain_core behavior beyond calls visible in the selected source was not independently verified.",
+      "Shared wrapper orchestration is feasible, but public signatures and method dispatch must remain distinct. GenAI permits positional method, defaults to 'json_schema', and selects native structured output for either 'json_mode' or 'json_schema'; all other values, including None and unrecognized strings, enter function calling. Vertex makes method keyword-only, defaults to None, and selects native output only for 'json_mode'; even 'json_schema' enters function calling. Neither implementation validates method against its annotation at runtime. Vertex's documentation claiming that 'json_schema' selects controlled generation disagrees with executable code. Both wrappers discard strict regardless of its value and raise ValueError for remaining kwargs. Sources: libs/genai/langchain_google_genai/chat_models.py:3606-3614,3717-3726,3765-3785; libs/vertexai/langchain_google_vertexai/chat_models.py:2658-2665,2699-2703,2830-2838,2871-2893.",
+      "Native-output parser selection can share a framework: both use PydanticOutputParser for recognized Pydantic classes and JsonOutputParser for TypedDict or dict schemas, rejecting other schema types with ValueError. Preserve schema generation differences: both use schema() for Pydantic v1, but GenAI uses model_json_schema() for newer models while Vertex requests mode='serialization'. TypedDict passes through convert_to_json_schema in both; dictionary schemas initially pass through directly. GenAI's annotation omits TypedDict even though an explicit executable branch supports it. Sources: libs/genai/langchain_google_genai/chat_models.py:3608,3730-3752; libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2852.",
+      "Native request schema handling must remain provider-specific. GenAI binds application/json plus response_json_schema without locally resolving references or stripping unions. Its tracing schema is separately converted for Pydantic, TypedDict, and dictionaries with title, while untitled dictionaries pass through. Vertex explicitly applies replace_defs_in_schema and _strip_nullable_anyof, then binds response_schema and uses that transformed schema for tracing. The GenAI comment about SDK reference handling is not executable evidence of that dependency's behavior. Downstream, GenAI places the schema under response_json_schema and requires application/json; Vertex delegates response_schema conversion to _convert_schema_dict_to_gapic and accepts application/json or text/x.enum. Sources: libs/genai/langchain_google_genai/chat_models.py:3730-3764,2975-3012; libs/vertexai/langchain_google_vertexai/chat_models.py:2854-2869,2020-2035.",
+      "Vertex's native transformations are narrower than general reference or union normalization. Reference replacement uses $defs, traverses dictionary values rather than list contents, accepts only '#/$defs/name' reference paths, asserts that referenced definitions are dictionaries, and has no cycle guard. Without a dictionary of definitions it returns a shallow copy. Nullable stripping collapses only property-level anyOf containing exactly two branches with a null branch, overlays the surviving branch, and removes the property from required; other unions remain. It recursively visits properties, items, and combiners and mutates traversed dictionaries/lists, so shallow copying can leave caller-owned nested data affected. A shared replacement that fully resolves references, rejects every union, or guarantees no mutation would change behavior. Sources: libs/vertexai/langchain_google_vertexai/_utils.py:292-388.",
+      "Function-calling wrappers can share parser/binding orchestration with provider hooks. Both choose first-tool-only PydanticToolsParser for recognized Pydantic schemas, otherwise use JsonOutputKeyToolsParser for supported non-Pydantic inputs, and first attempt binding with OpenAI-form tracing metadata. Any Exception from that construction attempt triggers a second bind_tools call without the metadata; this is not an inference-time retry. Vertex explicitly restricts non-Pydantic schemas to TypedDict or dict and always forces the extracted tool name. GenAI has no corresponding explicit type restriction in this branch and forces the name only when its profile supports tool_choice, defaulting that capability to true. Name extraction itself differs: GenAI converts and serializes its first provider tool, with a ValueError fallback for TypedDict; Vertex takes the first function name from its aggregate GAPIC tool. Sources: libs/genai/langchain_google_genai/chat_models.py:3765-3785,3874-3893; libs/vertexai/langchain_google_vertexai/chat_models.py:2871-2893,3067-3069.",
+      "Returned wrapper composition is directly shareable. With include_raw false, both return llm | parser, yielding the parsed Pydantic object or JSON/tool-argument result and propagating parser failures. With include_raw true, both return raw, parsed, and parsing_error: successful parsing sets parsing_error to None; parser fallback sets parsed to None and retains the exception under parsing_error. The fallback surrounds parsing after the raw model result, so it does not wrap model invocation failures or errors constructing the wrapper. Sources: libs/genai/langchain_google_genai/chat_models.py:3737-3745,3768-3773,3786-3794; libs/vertexai/langchain_google_vertexai/chat_models.py:2844-2852,2873-2878,2895-2903.",
+      "Both bind_tools methods first attempt convert_to_openai_tool for every input and, on any Exception, reconvert the entire collection through their provider converter. They return self.bind(tools=formatted_tools, **kwargs), not a generated response. This broad fallback pattern can be shared, but its output adapter cannot: GenAI serializes every returned google.genai Tool through tool_to_dict, whereas Vertex wraps its single aggregate gapic.Tool in a list. GenAI accepts a dictionary or SDK ToolConfig and forwards truthy tool_choice and tool_config independently; Vertex annotates a dictionary config and immediately rejects simultaneous truthy choice and config with ValueError. Both omit false or empty option values. Sources: libs/genai/langchain_google_genai/chat_models.py:3796-3805,3861-3871; libs/genai/langchain_google_genai/_function_utils.py:382-397; libs/vertexai/langchain_google_vertexai/chat_models.py:2905-2912,2929-2945.",
+      "Tool configuration compatibility also depends on request preparation. GenAI normalizes dictionary config with ToolConfig.model_validate, rejects a truthy choice combined with an existing function_calling_config, and otherwise merges the choice's function_calling_config with retrieval_config. A choice with no formatted tools raises ValueError; with only built-in tools and no function names, it returns the existing config or None without applying the choice. Vertex request preparation gives truthy tool_config precedence over tool_choice, while bind_tools rejects their simultaneous use earlier. Choice conversion differs: GenAI treats 'required' as the 'any' alias but rejects OpenAI-style {'type':'function','function':{'name':...}} choices; Vertex accepts that dictionary form but treats 'required' as an ordinary function name. Preserve these differences and validation timing. Sources: libs/genai/langchain_google_genai/chat_models.py:3187-3243; libs/genai/langchain_google_genai/_function_utils.py:728-768; libs/vertexai/langchain_google_vertexai/chat_models.py:2228-2239,2929-2934; libs/vertexai/langchain_google_vertexai/functions_utils.py:476-526.",
+      "The collection converters have different packing contracts. GenAI returns list[google.genai.types.Tool], preserves existing Tool objects directly, emits each recognized special-tool dictionary separately, and appends one aggregate function-declaration Tool after those objects. Thus converted functions can move behind special/native tools. Empty input returns []. Non-Sequence input is wrapped as a singleton with a warning. Vertex iterates its input directly and returns one gapic.Tool, including an empty one for empty input; native gapic.Tool and vertexai.Tool fields are copied into the aggregate, function declarations are extended, and repeated special fields can overwrite previous values. There is no equivalent singleton normalization. Request preparation continues using these distinct list-versus-aggregate contracts. Sources: libs/genai/langchain_google_genai/_function_utils.py:219-250,331-379; libs/genai/langchain_google_genai/chat_models.py:3137-3150; libs/vertexai/langchain_google_vertexai/functions_utils.py:306-379; libs/vertexai/langchain_google_vertexai/chat_models.py:2528-2542.",
+      "Special-tool dispatch and rejection rules must remain provider-specific. GenAI recognizes google_search_retrieval, google_search, google_maps, code_execution, url_context, and computer_use when their dictionary values are non-None; multiple such keys in one dictionary raise ValueError. A special-key branch takes precedence over function_declarations in that same dictionary. Computer-use environment values are normalized from serialized _value_ dictionaries or enum-like value attributes. GenAI rejects more than one resulting truthy google_search_retrieval tool, but has no blanket prohibition on combining retrieval and functions. Vertex recognizes retrieval, google_search_retrieval, google_search, code_execution, and function_declarations and processes multiple recognized fields in one dictionary. Its retrieval guard runs before each iteration and examines the already accumulated tool: once retrieval or google_search_retrieval is present, any subsequent element raises ValueError, making the restriction order-dependent rather than a symmetric prohibition on every mixture described by the error text. Sources: libs/genai/langchain_google_genai/_function_utils.py:237-379; libs/vertexai/langchain_google_vertexai/functions_utils.py:306-379.",
+      "Function collection validation and accepted declaration forms cannot be unified solely from annotations or comments. GenAI requires a non-None function_declarations value to be a Sequence, accepting tuples despite its 'should be a list' error; a None value falls through to ordinary function-dictionary handling. Vertex requires an actual list whenever that key exists, rejecting None and tuples. Both dispatch BaseTool, Pydantic-related inputs, callables, and dictionaries, but GenAI explicitly recognizes Pydantic subclasses through its compatibility helper, while Vertex's direct model branch tests the imported BaseModel and separately routes annotated classes through convert_to_openai_tool. Vertex explicitly accepts vertexai.FunctionDeclaration. GenAI annotates types.FunctionDeclaration as an input but has no explicit dispatcher branch for such instances; its final unsupported-type path raises ValueError unless an earlier executable predicate applies. Existing provider Tool containers bypass or alter this dispatch. The GenAI comment saying OpenAI-like dictionaries are not accepted is contradicted by the explicit type='function' dictionary branch. Sources: libs/genai/langchain_google_genai/_function_utils.py:65-92,332-360,400-428,771-778; libs/vertexai/langchain_google_vertexai/functions_utils.py:279-303,348-378.",
+      "Individual function formatting offers shared concepts, but preserves different normalization, mutations, and errors. Both give BaseTool without args_schema a required string '__arg1' object parameter and wrap ordinary callables as LangChain tools. GenAI supports dictionary/Pydantic v1/Pydantic v2 args_schema with explicit NotImplementedError for other forms; its model conversion removes definitions before parameter conversion and removes parameter-level title/description. It unwraps OpenAI function dictionaries, can mutate their parameters, replaces parameters lacking truthy properties with {}, and defaults missing function names to title or 'MISSING_NAME'. Vertex uses serialization-mode schemas where available, otherwise schema(), preserves schema metadata through its GAPIC conversion, and obtains dictionary/annotated-class function definitions through convert_to_openai_tool. A common normalizer that copies inputs, preserves all empty schemas, changes model serialization mode, or standardizes missing-name/error handling would change current behavior. Sources: libs/genai/langchain_google_genai/_function_utils.py:205-215,400-493; libs/vertexai/langchain_google_vertexai/functions_utils.py:184-303.",
+      "Low-level parameter-schema conversion should remain behind separate adapters. Both dereference through langchain_core, warn/drop unsupported keys, and keep only the first allOf alternative by returning its conversion, discarding sibling keywords. GenAI uses a fixed allowlist and constructs types.Schema from an explicit subset, so allowlisted constraints such as minimum, maximum, pattern, format, and default are not necessarily emitted. It preserves non-null property unions as any_of, but nullable property unions select the last non-null type and mark nullable; nested object required fields are inferred from missing defaults, and some empty or untyped nested schemas become STRING. Vertex derives allowed fields from GAPIC descriptors, uppercases types, and chooses separate v1/v2 formatters. Its v1 formatter retains an anyOf list after filtering null; its v2 formatter removes nullable properties from the parent required list, drops empty candidate sets, collapses singleton unions, and preserves multiple non-null alternatives. Dictionary conversion selects the v2 path through a specific nested-anyOf inspection, so it is not interchangeable with unconditional v2 formatting. Provider validation exceptions remain possible. Sources: libs/genai/langchain_google_genai/_function_utils.py:39-62,95-202,502-600,643-692; libs/vertexai/langchain_google_vertexai/functions_utils.py:62-181,238-269."
+    ]
+  },
+  "quality": {
+    "quality_pass": true,
+    "missing": [],
+    "extra": [],
+    "invalid": [],
+    "duplicates": [],
+    "unsupported_relationships": [],
+    "expected_count": 6,
+    "correct_count": 6,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "quality_sha256": "f1c5713ca8ae0740291ec2239cad600de28fb34cd7c0e400102d5607829c5575",
+  "agent": {
+    "model": "gpt-6.1-sol",
+    "settings": {
+      "effort": "high",
+      "sandbox": "read-only",
+      "timeout_seconds": 420
+    }
+  },
+  "execution": {
+    "status": "completed",
+    "wall_seconds": 150.27794850099963
+  },
+  "usage": {
+    "input_tokens": 226718,
+    "cached_input_tokens": 149760,
+    "output_tokens": 5833,
+    "reasoning_output_tokens": 1184
+  },
+  "usage_provenance": "caller_reported_not_authenticated",
+  "source_unchanged": true,
+  "source_error": null,
+  "preparation": {
+    "wall_seconds": 0.8870115259996965,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 9.904718435001996,
+    "cold_preparation_wall_seconds": 11.484977978001552
+  },
+  "neo4j": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/langchain-ai/langchain-google",
+    "snapshot_id": "b525878e98e869239596717254957fcdf5e1beaa635a8b3f79fe77ef9fe39411",
+    "content_hash": "5aeeb375a76fee36426f3d68733199013e1c11f388943e2ee2a35baa811e59d4",
+    "nodes": 1212,
+    "relationships": 1211,
+    "verified": true,
+    "wall_seconds": 9.904718435001996
+  },
+  "run_id": "runs-1-baseline",
+  "graph_queries": null,
+  "record_id": "1c538e10a32ff7f4d7c1c587dd5de4735c08aa26d9220fe5c98de828f03b92f3"
+}

@@ -1,0 +1,12 @@
+{
+  "original_driver_sha256": "bd29331f3d786bb447cb404e65daf5e4c4f431463f19abd53e4eae2cd74f983a",
+  "final_driver_sha256": "4a0c2093fc5958dc0e8e2d95df0ee9cf1cc2bfa168f272d7d2f0eaa4066eafca",
+  "changes": [
+    "Whitelist portable usage keys while retaining complete native terminal event.",
+    "Persist wall/terminal measurements before portable grading.",
+    "Resume unchanged actor inputs after accounting recovery, preserving the completed baseline.",
+    "Final preflight guards reject raw-context preparation and changed resumed model/settings."
+  ],
+  "frozen_agent_conditions_changed": false,
+  "production_extractor_storage_queries_changed": false
+}

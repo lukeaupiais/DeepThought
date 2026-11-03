@@ -164,6 +164,21 @@ arbitrary local checkout is publicly authorized.
 
 ## Validation and limits
 
+The [three-repository native pilot](../evals/results/tree_sitter_refactor_20261102/README.md)
+contains twelve fresh agent sessions on 346 public production files and 107,456
+lines. Treatments queried the actual MCP/Neo4j interface. Exact declaration
+grading, independent source-parser comparisons and source-backed behavioral
+reviews are reported separately, alongside native tokens, estimated credits,
+time, failed requests and limitations. The pilot found more total tokens and
+actor time with a near-tie credit estimate. It also exposed five omitted named
+TypeScript function expressions. These results do not establish a consistent
+efficiency advantage.
+
+The [scenario instructions](../evals/scenarios/tree_sitter/refactor/README.md)
+describe the trusted grader registration, native runner, isolated inputs and
+independent conformance checkers. Their small falsification controls validate
+the evaluator separately from the real-repository agent measurements.
+
 Run the independent controls described in
 [evaluation-validation.md](evaluation-validation.md). They test correct answers,
 plausible wrong answers, missing/invalid measurements, changed inputs and

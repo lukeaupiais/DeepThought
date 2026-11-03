@@ -1,0 +1,43 @@
+{
+  "input_id": "a0e3dcf7ecfdb25125bca2e9d5ddf9dd520bc5a24ab351eb66b92c9958414924",
+  "provenance": {
+    "source": {
+      "workspace": "/home/luke/dev/oss/deepagents",
+      "files_sha256": "51ed797ea017c8b73cba304d3e17471948a3ba1b071989a865e2452364987417",
+      "revision": "6a5d93f9ba7391189f65e6b999b724253577085d"
+    },
+    "scenario_sha256": "f1a544965ec47e2a6bad07c16033b5728200368b0515e4412b505069df4c566d",
+    "tool": {
+      "name": "tree-sitter",
+      "version": "0.2.5a1"
+    },
+    "tool_output_sha256": "59212bfa801397432db89046a33347a5fd034277fe6894bddc3bb443a1e48715",
+    "tool_status": "succeeded",
+    "actor_context_sha256": {
+      "baseline": "ed8d3d22ce40d2049ce316bc7c2a28d7713c94f563382eb860b0aafa8b75401e",
+      "treatment": "2734bd0de52dfe6b09b52e2e0b1c0a8bf7d2798f59bddb854848a4b6bca6e76e"
+    },
+    "delivery_mode": "tool_access",
+    "tool_access_sha256": "dc709f96b9835ed59bdc09f17eece9a2eecf63c32a709a02384e4f6779858dac",
+    "evaluation_interface": "neo4j",
+    "neo4j_sha256": "c730295188c9e1ba30c6500e975459b251d7cc3059065680b7ad929fc60a27f8"
+  },
+  "preparation": {
+    "wall_seconds": 1.2119921869998507,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 13.602586222001264,
+    "cold_preparation_wall_seconds": 15.475375257999985
+  },
+  "neo4j": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/langchain-ai/deepagents",
+    "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+    "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+    "nodes": 894,
+    "relationships": 893,
+    "verified": true,
+    "wall_seconds": 13.602586222001264
+  }
+}

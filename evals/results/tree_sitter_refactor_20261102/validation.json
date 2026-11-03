@@ -1,0 +1,19 @@
+{
+  "installed_live_tests": {
+    "run": 209,
+    "passed": 209,
+    "skipped": 0,
+    "log_sha256": "0d70095cea6d0549416e52e9ce64c7d2634ca63652454aee9dc20b0a92b1acad"
+  },
+  "offline_tests": {
+    "run": 209,
+    "skipped": 24,
+    "passed_with_expected_skips": true,
+    "log_sha256": "5ec42341967b1d8a75aa3a8a5ad3d4599805209206c0478a04fb4c3fd23ac525"
+  },
+  "ruff_lint": "passed",
+  "ruff_format": "59 files passed",
+  "javascript_syntax": "passed",
+  "review": "Independent public-export audit passed",
+  "native_cli": "0.166.0"
+}

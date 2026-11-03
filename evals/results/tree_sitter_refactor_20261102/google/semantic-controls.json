@@ -1,0 +1,112 @@
+{
+  "purpose": "Scripted evaluator falsification, not native runs and excluded from token/performance aggregates",
+  "authored_before_google_native_answer": true,
+  "correct_source_control": {
+    "claims": [
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.with_structured_output",
+        "kind": "Method",
+        "line": 3606
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.bind_tools",
+        "kind": "Method",
+        "line": 3796
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.with_structured_output",
+        "kind": "Method",
+        "line": 2658
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.bind_tools",
+        "kind": "Method",
+        "line": 2905
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/_function_utils.py",
+        "symbol": "convert_to_genai_function_declarations",
+        "kind": "Function",
+        "line": 219
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/functions_utils.py",
+        "symbol": "_format_to_gapic_tool",
+        "kind": "Function",
+        "line": 306
+      }
+    ],
+    "relationships": [],
+    "limitations": [
+      "Identifies GenAI default json_schema, json_mode alias and both native-json branches. Vertex default None uses tool-calling and only exact json_mode selects controlled generation. Flags that Vertex docstring mentioning json_schema is inconsistent with executable branch, so consolidation must preserve implemented dispatch or explicitly migrate it. Sources libs/genai/langchain_google_genai/chat_models.py:3606-3613, libs/genai/langchain_google_genai/chat_models.py:3725-3726, libs/vertexai/langchain_google_vertexai/chat_models.py:2658-2665, libs/vertexai/langchain_google_vertexai/chat_models.py:2697-2700, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2871.",
+      "GenAI passes response_json_schema and relies on Google GenAI SDK reference processing. Vertex binds response_schema after replace_defs_in_schema and _strip_nullable_anyof. Vertex Pydantic v2 uses mode=serialization while GenAI model_json_schema has default mode. Must not share these transformations blindly. Sources libs/genai/langchain_google_genai/chat_models.py:3726-3763, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868.",
+      "Vertex bind_tools raises if truthy tool_choice and tool_config are supplied together and otherwise propagates one. GenAI bind_tools forwards both truthy values with independent ifs. A single unconditional mutual-exclusion guard changes GenAI behavior. Sources libs/genai/langchain_google_genai/chat_models.py:3866-3872, libs/vertexai/langchain_google_vertexai/chat_models.py:2929-2945.",
+      "Both bind_tools first attempt a list of convert_to_openai_tool conversions under a broad exception catch. On failure GenAI produces dicts via tool_to_dict over convert_to_genai_function_declarations output, Vertex produces a singleton list containing _format_to_gapic_tool output. A shared fast path can be separated from provider-specific fallback adapters. Sources libs/genai/langchain_google_genai/chat_models.py:3859-3872, libs/vertexai/langchain_google_vertexai/chat_models.py:2935-2945.",
+      "GenAI converter returns list[types.Tool], groups regular function declarations into a Tool, keeps special tools separate, rejects multiple non-null special kinds within one dict and duplicate google_search_retrieval tools. Vertex aggregates into one gapic.Tool and rejects a subsequent item when retrieval or google_search_retrieval already accumulated. Must preserve grouping and rejection semantics, including ordering sensitivity of Vertex guard. Sources libs/genai/langchain_google_genai/_function_utils.py:219-276, libs/genai/langchain_google_genai/_function_utils.py:356-379, libs/vertexai/langchain_google_vertexai/functions_utils.py:306-379.",
+      "Both include_raw=True return raw/parsed/parsing_error with parser-error fallback producing parsed=None. Otherwise parsing exceptions propagate from llm | parser. Native JSON selects PydanticOutputParser for Pydantic and JsonOutputParser for dict/TypedDict; function mode uses first-tool-only tools/key parsers. Shared code must retain these output/error shapes. Sources libs/genai/langchain_google_genai/chat_models.py:3730-3752, libs/genai/langchain_google_genai/chat_models.py:3767-3794, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2853, libs/vertexai/langchain_google_vertexai/chat_models.py:2871-2903.",
+      "GenAI chooses tool_name only when _supports_tool_choice is true, otherwise None. Vertex always uses tool_name. Both first bind with ls_structured_output_format metadata then retry on any Exception without that metadata. Must retain conditional forcing and metadata-fallback behavior. Sources libs/genai/langchain_google_genai/chat_models.py:3774-3785, libs/genai/langchain_google_genai/chat_models.py:3874-3880, libs/vertexai/langchain_google_vertexai/chat_models.py:2881-2893.",
+      "Both discard strict and reject remaining kwargs. Both accept Pydantic/dict/TypedDict for native JSON, with GenAI keeping a distinct ls_schema that converts titled dicts and leaves untitled dicts intact, whereas Vertex records transformed schema. Do not equate discarded strict with enforced strict validation or metadata with original schema. Sources libs/genai/langchain_google_genai/chat_models.py:3716-3720, libs/genai/langchain_google_genai/chat_models.py:3726-3763, libs/vertexai/langchain_google_vertexai/chat_models.py:2830-2833, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868."
+    ]
+  },
+  "plausible_docstring_alias_error": {
+    "claims": [
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.with_structured_output",
+        "kind": "Method",
+        "line": 3606
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/chat_models.py",
+        "symbol": "ChatGoogleGenerativeAI.bind_tools",
+        "kind": "Method",
+        "line": 3796
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.with_structured_output",
+        "kind": "Method",
+        "line": 2658
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/chat_models.py",
+        "symbol": "ChatVertexAI.bind_tools",
+        "kind": "Method",
+        "line": 2905
+      },
+      {
+        "file": "libs/genai/langchain_google_genai/_function_utils.py",
+        "symbol": "convert_to_genai_function_declarations",
+        "kind": "Function",
+        "line": 219
+      },
+      {
+        "file": "libs/vertexai/langchain_google_vertexai/functions_utils.py",
+        "symbol": "_format_to_gapic_tool",
+        "kind": "Function",
+        "line": 306
+      }
+    ],
+    "relationships": [],
+    "limitations": [
+      "GenAI defaults to json_schema and json_mode is an alias selecting native generation. Vertex defaults to tool calling, but explicitly passing json_schema selects the same native JSON generation branch as json_mode. This alias is supported in the implementation as the public docstring indicates. Sources libs/genai/langchain_google_genai/chat_models.py:3606-3613,3725-3726 and libs/vertexai/langchain_google_vertexai/chat_models.py:2658-2665,2838-2871.",
+      "GenAI passes response_json_schema and relies on Google GenAI SDK reference processing. Vertex binds response_schema after replace_defs_in_schema and _strip_nullable_anyof. Vertex Pydantic v2 uses mode=serialization while GenAI model_json_schema has default mode. Must not share these transformations blindly. Sources libs/genai/langchain_google_genai/chat_models.py:3726-3763, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868.",
+      "Vertex bind_tools raises if truthy tool_choice and tool_config are supplied together and otherwise propagates one. GenAI bind_tools forwards both truthy values with independent ifs. A single unconditional mutual-exclusion guard changes GenAI behavior. Sources libs/genai/langchain_google_genai/chat_models.py:3866-3872, libs/vertexai/langchain_google_vertexai/chat_models.py:2929-2945.",
+      "Both bind_tools first attempt a list of convert_to_openai_tool conversions under a broad exception catch. On failure GenAI produces dicts via tool_to_dict over convert_to_genai_function_declarations output, Vertex produces a singleton list containing _format_to_gapic_tool output. A shared fast path can be separated from provider-specific fallback adapters. Sources libs/genai/langchain_google_genai/chat_models.py:3859-3872, libs/vertexai/langchain_google_vertexai/chat_models.py:2935-2945.",
+      "GenAI converter returns list[types.Tool], groups regular function declarations into a Tool, keeps special tools separate, rejects multiple non-null special kinds within one dict and duplicate google_search_retrieval tools. Vertex aggregates into one gapic.Tool and rejects a subsequent item when retrieval or google_search_retrieval already accumulated. Must preserve grouping and rejection semantics, including ordering sensitivity of Vertex guard. Sources libs/genai/langchain_google_genai/_function_utils.py:219-276, libs/genai/langchain_google_genai/_function_utils.py:356-379, libs/vertexai/langchain_google_vertexai/functions_utils.py:306-379.",
+      "Both include_raw=True return raw/parsed/parsing_error with parser-error fallback producing parsed=None. Otherwise parsing exceptions propagate from llm | parser. Native JSON selects PydanticOutputParser for Pydantic and JsonOutputParser for dict/TypedDict; function mode uses first-tool-only tools/key parsers. Shared code must retain these output/error shapes. Sources libs/genai/langchain_google_genai/chat_models.py:3730-3752, libs/genai/langchain_google_genai/chat_models.py:3767-3794, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2853, libs/vertexai/langchain_google_vertexai/chat_models.py:2871-2903.",
+      "GenAI chooses tool_name only when _supports_tool_choice is true, otherwise None. Vertex always uses tool_name. Both first bind with ls_structured_output_format metadata then retry on any Exception without that metadata. Must retain conditional forcing and metadata-fallback behavior. Sources libs/genai/langchain_google_genai/chat_models.py:3774-3785, libs/genai/langchain_google_genai/chat_models.py:3874-3880, libs/vertexai/langchain_google_vertexai/chat_models.py:2881-2893.",
+      "Both discard strict and reject remaining kwargs. Both accept Pydantic/dict/TypedDict for native JSON, with GenAI keeping a distinct ls_schema that converts titled dicts and leaves untitled dicts intact, whereas Vertex records transformed schema. Do not equate discarded strict with enforced strict validation or metadata with original schema. Sources libs/genai/langchain_google_genai/chat_models.py:3716-3720, libs/genai/langchain_google_genai/chat_models.py:3726-3763, libs/vertexai/langchain_google_vertexai/chat_models.py:2830-2833, libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868."
+    ]
+  },
+  "expected_semantic_scores": {
+    "correct_source_control": 8,
+    "plausible_docstring_alias_error_maximum": 7
+  },
+  "changed_criterion": "method_dispatch",
+  "source_rubric_sha256": "72d8b3f1f6228b961a460fde37e4d4f127008cae31c122ce6bc9a6392c1557b9"
+}

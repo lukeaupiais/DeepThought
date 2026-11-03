@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "arm": "treatment",
+  "kind": "agent",
+  "input_id": "a0e3dcf7ecfdb25125bca2e9d5ddf9dd520bc5a24ab351eb66b92c9958414924",
+  "provenance": {
+    "source": {
+      "workspace": "/home/luke/dev/oss/deepagents",
+      "files_sha256": "51ed797ea017c8b73cba304d3e17471948a3ba1b071989a865e2452364987417",
+      "revision": "6a5d93f9ba7391189f65e6b999b724253577085d"
+    },
+    "scenario_sha256": "f1a544965ec47e2a6bad07c16033b5728200368b0515e4412b505069df4c566d",
+    "tool": {
+      "name": "tree-sitter",
+      "version": "0.2.5a1"
+    },
+    "tool_output_sha256": "59212bfa801397432db89046a33347a5fd034277fe6894bddc3bb443a1e48715",
+    "tool_status": "succeeded",
+    "actor_context_sha256": {
+      "baseline": "ed8d3d22ce40d2049ce316bc7c2a28d7713c94f563382eb860b0aafa8b75401e",
+      "treatment": "2734bd0de52dfe6b09b52e2e0b1c0a8bf7d2798f59bddb854848a4b6bca6e76e"
+    },
+    "delivery_mode": "tool_access",
+    "tool_access_sha256": "dc709f96b9835ed59bdc09f17eece9a2eecf63c32a709a02384e4f6779858dac",
+    "evaluation_interface": "neo4j",
+    "neo4j_sha256": "c730295188c9e1ba30c6500e975459b251d7cc3059065680b7ad929fc60a27f8"
+  },
+  "scenario": {
+    "schema_version": 1,
+    "id": "tree-sitter-deepagents-refactor-v1",
+    "tool": "tree-sitter",
+    "grader": "refactor-navigation-v1",
+    "task": "Review a cleanup proposal that makes backend file deletion mandatory, removes the generic asynchronous deletion implementation, and drops capability filtering. Would it preserve compatibility and behavior? Find every explicitly declared delete/adelete method in the production backend package, plus the helper that determines deletion support. Return those declarations as claims. In limitations, give a source-cited compatibility and impact review, covering inherited implementations, routed backends, state changes, permission checks and errors. An inherited method is not an additional explicit declaration. Keep relationships empty. Do not implement changes.",
+    "languages": [
+      "python"
+    ],
+    "source": {
+      "kind": "public_repository",
+      "repository": "https://github.com/langchain-ai/deepagents",
+      "revision": "6a5d93f9ba7391189f65e6b999b724253577085d",
+      "files": {
+        "libs/deepagents/deepagents/__init__.py": "b8473628ecfa213979f63abe8c4b6b82315368fd98f6e95180f6fe19dd86c7eb",
+        "libs/deepagents/deepagents/_api/__init__.py": "8290629e79551159806bad6107571bdc2876a4aafd704293d8957e9f54aa11f7",
+        "libs/deepagents/deepagents/_api/deprecation.py": "7d01cf75facb29265bb505ba0a30765b831052c143999eed8ccc747a5d01dcfd",
+        "libs/deepagents/deepagents/_excluded_middleware.py": "cc7064524e3e782928b4579f9ec1f635183333b7fae4682a7d40ce846918e68c",
+        "libs/deepagents/deepagents/_messages_reducer.py": "4539763f8d47a4894fac9998d68b3fe0aa7eb369425f8dab08fc7cf9650aa681",
+        "libs/deepagents/deepagents/_models.py": "aa09a4357ed8cdd12b1f1486cd6488424df1ca8c558b827a03b1724854f4ccc1",
+        "libs/deepagents/deepagents/_tools.py": "b6b7a599ab20c474915d067f0187543f5ba5a22524b45c0182787da0052546fe",
+        "libs/deepagents/deepagents/_version.py": "c31c32be3df59276accdcbceee358a90468f8a00d55d25d27b2dd5569661c19e",
+        "libs/deepagents/deepagents/backends/__init__.py": "ffca1ffcd566ac7bb782f7a84c2bf8e46242c66d727b9ba3a5ff6c88f33ff42a",
+        "libs/deepagents/deepagents/backends/composite.py": "c705e50069af1eafc570eb5f0f4058eccde6b08b0b6851eac61dcb93f8599af0",
+        "libs/deepagents/deepagents/backends/context_hub.py": "46b9482e504ec69dd5a72cb3a49a7de2f2656a2c646ec2ba306a4fb164d55f4b",
+        "libs/deepagents/deepagents/backends/filesystem.py": "3918bc72493ae28b5594943f49c68e718d7872c2da8310044d11347f9f3e63fe",
+        "libs/deepagents/deepagents/backends/langsmith.py": "35aa38d901824cf8fdcaa9ada6572034ff09cbe9fef164af571b9ddc19c1d169",
+        "libs/deepagents/deepagents/backends/local_shell.py": "c04a7570cd19364b9ece2ac8bf8d0f4813dd7dee88a69fbe5663775001ef2958",
+        "libs/deepagents/deepagents/backends/protocol.py": "fc064c966a9f22d12645f420cbe2e263a48758fcf3da0fc30382c113caa12dd1",
+        "libs/deepagents/deepagents/backends/sandbox.py": "13c228a22bfd1cf84e9cd1f2f8e4813e710a9fb405de19e189a2f42a3cfe60b6",
+        "libs/deepagents/deepagents/backends/state.py": "2f00a2b29c2275a6c30812a2ad15e808ad93b93f41041775e86f156498b3622d",
+        "libs/deepagents/deepagents/backends/store.py": "2e2114d8c8b8baa0366a7b3c25c2a18088b6447f7075cd9174b4663ee9ed2b28",
+        "libs/deepagents/deepagents/backends/utils.py": "c63150634801eef3c6fa43626269e3c8e9f1257570a02dc6c86ba359b2070755",
+        "libs/deepagents/deepagents/graph.py": "fb08f3cae27492c39febb4a41dd7b1ae9ee98a71872c12595bf20d893dc132ef",
+        "libs/deepagents/deepagents/middleware/__init__.py": "d9c98363cc9504e0304b8627aef123efd7873a4555b6045d5b63de97b16b4464",
+        "libs/deepagents/deepagents/middleware/_fs_interrupt.py": "5bd9c82e26412ece046497a17d6d89b1be888c117a4afaef426aaf97b45bf095",
+        "libs/deepagents/deepagents/middleware/_message_eviction.py": "ec529779bf748ae6fc50dd0c7860ce4d2d31e305faad998b4f3a123ff66b3db2",
+        "libs/deepagents/deepagents/middleware/_overflow_clip.py": "f02938ea6c7b738d2a92363e5e6c27494bae894fb65fa22c3c9a6008e2b76cc8",
+        "libs/deepagents/deepagents/middleware/_prompt_caching.py": "a94072281f2e8e563102273e50193af889130f9545afdf53eeaf616e0e117a17",
+        "libs/deepagents/deepagents/middleware/_state.py": "4109f4387cca9ed6b34be7a7caaa8c348bb33e5eb7bf8c56a8e05b062ffe4ae0",
+        "libs/deepagents/deepagents/middleware/_tool_exclusion.py": "e58a3fba931a0d390269e7e11de8a4151dcb4dc926a7fbca4ee98c757a4950ea",
+        "libs/deepagents/deepagents/middleware/_utils.py": "c882a7332a6d9e51ab35dabf9a75da10723d728e95b431a341d687a0cb39b965",
+        "libs/deepagents/deepagents/middleware/_video.py": "976b124f277b95241968d007198063a3fa3f83bf8a11eb201ca739a188a0d51c",
+        "libs/deepagents/deepagents/middleware/async_subagents.py": "6b2863728d5722fe04b68b3c7f65396fbba5fb2a255b6a8c1f8da61cd90de77a",
+        "libs/deepagents/deepagents/middleware/filesystem.py": "c719d3a4b76f2e41e88093f249b8d33534a5bd0bf6b075033a209b23c291d453",
+        "libs/deepagents/deepagents/middleware/memory.py": "21cdd92ea4aa8c09cd06d1c9e112c0a56af6b37e68b6dc8f69bf303bd6cf7a6e",
+        "libs/deepagents/deepagents/middleware/patch_tool_calls.py": "96fa01d39572f6236151ce9d7d5100e269a41c0bbaa9f6db2f30d3a9452188ed",
+        "libs/deepagents/deepagents/middleware/permissions.py": "dd44d44bcf08c382a9b63106dfb16bcff7298fbd54e49174ff65cecb09ff1ca9",
+        "libs/deepagents/deepagents/middleware/rubric.py": "dc928b98ac7917eda728df5c9779cd4802c756d3ab88931c5c6e1f0ae3bf947b",
+        "libs/deepagents/deepagents/middleware/skills.py": "ce342abfc5f2647cbf6cf2baf2b0afae581e17e834fc3c4bf16796a19b29c063",
+        "libs/deepagents/deepagents/middleware/subagents.py": "b95afaa0fb09f4e7e180e9b49864cca2b51bf032c3a6b1989cd526d081cd5714",
+        "libs/deepagents/deepagents/middleware/summarization.py": "f1d01347e1919108b3d29aa79e61712edbde7ff212904d32721525e231761275",
+        "libs/deepagents/deepagents/profiles/__init__.py": "8b32157d05bc14682bedae0102114894187d1e04f043ea8e6f20401ecccd57ec",
+        "libs/deepagents/deepagents/profiles/_builtin_profiles.py": "005a91e7fc4ca6b21220673dd9d02d6686bf63e1e4f1102d124b01f96886efcf",
+        "libs/deepagents/deepagents/profiles/_keys.py": "5a2f779be23a52e57a7fda4a5efdba5b4fc9aecf47f474c334950fdc7ed39a4e",
+        "libs/deepagents/deepagents/profiles/harness/__init__.py": "abac1b343f0df8166532e73d47daa73e8d20ec9ea4dd3b61dcb527f0726dc4ae",
+        "libs/deepagents/deepagents/profiles/harness/_anthropic_haiku_4_5.py": "06007fdaebf99f34f044ba59acc27a398a04983c0789d0d7405efb121218ac70",
+        "libs/deepagents/deepagents/profiles/harness/_anthropic_opus_4_7.py": "195e77a4c329a2e461766dc594c8324c21c9de825ca134fdae8e9b1b100356f7",
+        "libs/deepagents/deepagents/profiles/harness/_anthropic_sonnet_4_6.py": "027ab80097b7ddedb9bc55e2c261680d198a41025df389b03cdf637390efe883",
+        "libs/deepagents/deepagents/profiles/harness/_nvidia_nemotron_3_ultra.py": "3b95b118e90c4ae19890c611cc7e1e85261217f971496e9bb7508142133c7d9a",
+        "libs/deepagents/deepagents/profiles/harness/_openai_codex.py": "6b87246841718a97abaea09e8abe5df49c4c6c443ebf3d359bf168a07816870d",
+        "libs/deepagents/deepagents/profiles/harness/harness_profiles.py": "7748d433ce339d689ba8cf4e51fe21955d167dd89c0d6294255b1144b00c619f",
+        "libs/deepagents/deepagents/profiles/provider/__init__.py": "718b757d31d44c89df21ca881aef39afff7477b3177be07def143884c85c06a2",
+        "libs/deepagents/deepagents/profiles/provider/_nvidia.py": "19961430ff18ca781d89708cb67a04b6d642519a80456a6c6d70fcf2e0fbebdf",
+        "libs/deepagents/deepagents/profiles/provider/_openai.py": "2a6c0aa391be875462399e34e0e83ba8469f953aee8260f752ff9605409ff4f3",
+        "libs/deepagents/deepagents/profiles/provider/_openrouter.py": "ab20ff5f9195d2af7ae85c938e426bdf6ca956e532fd0e10262b6860c21130f9",
+        "libs/deepagents/deepagents/profiles/provider/provider_profiles.py": "d2b37c1984ce8c437ca20608fef978fbc6eac672cd51271d67be611bea552341"
+      }
+    },
+    "expected": [
+      {
+        "file": "libs/deepagents/deepagents/backends/composite.py",
+        "symbol": "CompositeBackend.delete",
+        "kind": "Method",
+        "line": 713
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/composite.py",
+        "symbol": "CompositeBackend.adelete",
+        "kind": "Method",
+        "line": 738
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/context_hub.py",
+        "symbol": "ContextHubBackend.delete",
+        "kind": "Method",
+        "line": 202
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/filesystem.py",
+        "symbol": "FilesystemBackend.delete",
+        "kind": "Method",
+        "line": 583
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "symbol": "BackendProtocol.delete",
+        "kind": "Method",
+        "line": 666
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "symbol": "BackendProtocol.adelete",
+        "kind": "Method",
+        "line": 694
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "symbol": "_supports_delete",
+        "kind": "Function",
+        "line": 913
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/sandbox.py",
+        "symbol": "BaseSandbox.delete",
+        "kind": "Method",
+        "line": 1368
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/state.py",
+        "symbol": "StateBackend.delete",
+        "kind": "Method",
+        "line": 249
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/store.py",
+        "symbol": "StoreBackend.delete",
+        "kind": "Method",
+        "line": 547
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/store.py",
+        "symbol": "StoreBackend.adelete",
+        "kind": "Method",
+        "line": 575
+      }
+    ],
+    "metadata": {
+      "rubric_sha256": "e22c41cb0387eec17d80916971e481404d2618ea427b7741de2aba0fedbf5747",
+      "purpose": "Known public pilot; exact declarations and separately blinded source-rubric review; two fresh sessions per arm"
+    }
+  },
+  "actor_context_sha256": "2734bd0de52dfe6b09b52e2e0b1c0a8bf7d2798f59bddb854848a4b6bca6e76e",
+  "answer": {
+    "claims": [
+      {
+        "file": "libs/deepagents/deepagents/backends/composite.py",
+        "symbol": "CompositeBackend.delete",
+        "kind": "Method",
+        "line": 713
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/composite.py",
+        "symbol": "CompositeBackend.adelete",
+        "kind": "Method",
+        "line": 738
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/context_hub.py",
+        "symbol": "ContextHubBackend.delete",
+        "kind": "Method",
+        "line": 202
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/filesystem.py",
+        "symbol": "FilesystemBackend.delete",
+        "kind": "Method",
+        "line": 583
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "symbol": "BackendProtocol.delete",
+        "kind": "Method",
+        "line": 666
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "symbol": "BackendProtocol.adelete",
+        "kind": "Method",
+        "line": 694
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/protocol.py",
+        "symbol": "_supports_delete",
+        "kind": "Function",
+        "line": 913
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/sandbox.py",
+        "symbol": "BaseSandbox.delete",
+        "kind": "Method",
+        "line": 1368
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/state.py",
+        "symbol": "StateBackend.delete",
+        "kind": "Method",
+        "line": 249
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/store.py",
+        "symbol": "StoreBackend.delete",
+        "kind": "Method",
+        "line": 547
+      },
+      {
+        "file": "libs/deepagents/deepagents/backends/store.py",
+        "symbol": "StoreBackend.adelete",
+        "kind": "Method",
+        "line": 575
+      }
+    ],
+    "relationships": [],
+    "limitations": [
+      "The proposal would not preserve compatibility or behavior as stated. BackendProtocol deliberately permits partial implementations, and delete currently has a concrete optional default that raises NotImplementedError. Making it abstract would prevent existing subclasses without an override from being instantiated; imposing a mandatory contract would likewise exclude previously supported partial backends. Sources: libs/deepagents/deepagents/backends/protocol.py:377-378,666-692.",
+      "Removing BackendProtocol.adelete removes working inherited functionality: it currently awaits asyncio.to_thread(self.delete, file_path). StateBackend, FilesystemBackend, ContextHubBackend and BaseSandbox declare delete but no adelete. LocalShellBackend inherits FilesystemBackend.delete, while LangSmithSandbox inherits BaseSandbox.delete; both also inherit the generic asynchronous wrapper through BackendProtocol. These inherited methods are not additional declarations. Deleting the wrapper without replacements would make their asynchronous deletion calls fail with AttributeError; replacing it with a raising stub or abstract method would introduce different compatibility failures. Sources: libs/deepagents/deepagents/backends/protocol.py:694-696,814; state.py:37,249-273; filesystem.py:91,583-615; context_hub.py:46,202-228; sandbox.py:952,1368-1408; local_shell.py:26; langsmith.py:56.",
+      "_supports_delete compares type(backend).delete with BackendProtocol.delete by identity. An implementation inherited from an intermediate class therefore counts as supported; mere inheritance of the base default does not. It does not invoke deletion, inspect adelete, test permissions, or prove that a particular path is deletable. An async-only override would not satisfy this check. Source: libs/deepagents/deepagents/backends/protocol.py:913-928.",
+      "Capability filtering changes model-visible behavior. FilesystemMiddleware marks delete unsupported when _supports_delete returns false and removes unsupported tools from model requests. Removing this gate advertises an operation that can raise NotImplementedError on existing backends. The delete wrappers handle path-validation ValueError and DeleteResult.error, but do not catch an unsupported backend's NotImplementedError. If the entire shared filtering mechanism is removed, execute capability handling and execution-dependent descriptions and routing prompts are affected too. Sources: libs/deepagents/deepagents/middleware/filesystem.py:2183-2263,2694-2718,2992-3038.",
+      "CompositeBackend itself always passes the deletion-support check because it overrides delete, even when a selected backend lacks support. Routes are ordered longest-first; matching respects path boundaries, strips the route prefix, and maps an exact route root to '/'. Unmatched paths use the default backend. Each deletion delegates to one selected backend; it does not recursively fan out across mounted backends. Successful result paths are rewritten to the original external path. Both deletion methods convert NotImplementedError into DeleteResult(error=\"Error: deletion is not supported for '<path>'.\"). Removing the generic asynchronous wrapper can instead produce AttributeError in routed backends, which CompositeBackend.adelete does not catch. Sources: libs/deepagents/deepagents/backends/composite.py:33,145-175,230-241,713-747.",
+      "StateBackend deletion is a state-channel operation, not an in-place dictionary removal or a tool-returned state update. It reads files with fresh=True, matches the trailing-slash-trimmed exact key and keys beginning with that key plus '/', then sends None markers through CONFIG_KEY_SEND. FilesystemState uses a DeltaChannel reducer that removes those keys while preserving unrelated entries. Missing targets return DeleteResult.error, and missing graph configuration can raise RuntimeError. These state semantics must survive any refactor, including asynchronous calls currently supplied by the inherited wrapper. Sources: libs/deepagents/deepagents/backends/state.py:56-118,249-273; libs/deepagents/deepagents/middleware/filesystem.py:1045-1070.",
+      "StoreBackend has its own native asynchronous deletion implementation and would retain it if only the generic wrapper were removed. Both variants resolve the store and validated namespace, paginate search results, select exact and slash-delimited descendant keys, and submit PutOp(namespace, key, None) through batch or awaited abatch. Wildcards in the requested key are literal. Empty selections return a not-found DeleteResult; store, namespace and batch exceptions are not caught by these methods. The source does not establish transactionality of external store batches. Sources: libs/deepagents/deepagents/backends/store.py:121-167,229-303,547-588.",
+      "ContextHubBackend strips leading slashes, selects cached exact and descendant keys, and commits None removal markers. _commit pushes changes with parent_commit, updates the commit hash when available, and rebuilds the cache after success. No matches produce a not-found result; LangSmithError clears the cache and becomes a 'Hub unavailable' DeleteResult. Selection uses the file cache, while linked entries are tracked separately, so deletion does not establish recursive removal of linked repositories. Sources: libs/deepagents/deepagents/backends/context_hub.py:67-94,106-137,202-228.",
+      "FilesystemBackend resolves the requested path, checks existence or symlink status, then uses unlink or recursive shutil.rmtree. Missing paths and caught OSError/RuntimeError become DeleteResult errors, and recursive removal can partially complete before failing. Virtual mode checks resolved paths remain within the configured root; nonvirtual absolute paths bypass that root. ValueError from path resolution is not caught by delete. Although the deletion docstring promises link-only removal, virtual and relative path resolution calls Path.resolve before the symlink branch, so source does not support a blanket guarantee that an input symlink's target is never followed. Sources: libs/deepagents/deepagents/backends/filesystem.py:182-223,583-615.",
+      "BaseSandbox deletion quotes the path, probes with 'test -e ... || test -L ...', and executes 'rm -rf ...'. A definite nonzero probe becomes not-found, including cases where the shell cannot inspect the path; an unknown probe status proceeds to rm. Only rm exit code zero yields success; nonzero or unknown status yields an error using command output or 'unknown error'. Quoting protects shell argument syntax but does not enforce root confinement or filesystem permission rules. Recursive removal may partially complete. LangSmithSandbox inherits this behavior. Sources: libs/deepagents/deepagents/backends/sandbox.py:1368-1408; libs/deepagents/deepagents/backends/langsmith.py:56.",
+      "Deletion permission enforcement lives in the middleware wrappers. They normalize and validate the path, determine whether descendants may exist using ls/als when permissions are configured, and check write-deny patterns before invoking the backend. Unsupported listings or ambiguous/error results conservatively assume descendants, except a not_a_directory result confirms a leaf. Confirmed leaves use first-matching-rule semantics; recursive targets check overlapping deny-write patterns regardless of earlier allow rules, including protected descendants or ancestors. Validation and permission failures return error ToolMessages without invoking deletion. Backend result errors also become error ToolMessages; success becomes 'Deleted <path>'. Direct backend calls bypass these middleware rules. Sources: libs/deepagents/deepagents/backends/utils.py:648-711; libs/deepagents/deepagents/middleware/filesystem.py:433-617,2183-2263.",
+      "Investigation was static and limited to the selected production source. Python AST traversal identified ten explicit delete/adelete methods and the support helper; a bounded DeepThought declaration-graph query confirmed all eleven names, kinds and declaration start lines. Behavioral conclusions were verified from source, not inferred from graph relationships. No repository modules were executed, no builds or installations were run, and no files were modified. External backend implementations and service behavior were not available for verification."
+    ]
+  },
+  "quality": {
+    "quality_pass": true,
+    "missing": [],
+    "extra": [],
+    "invalid": [],
+    "duplicates": [],
+    "unsupported_relationships": [],
+    "expected_count": 11,
+    "correct_count": 11,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "quality_sha256": "00dba1880d6b9593bb29422130b522f1241e43647fd50297c60ab77a34b2fa5f",
+  "agent": {
+    "model": "gpt-6.1-sol",
+    "settings": {
+      "effort": "high",
+      "sandbox": "read-only",
+      "timeout_seconds": 420
+    }
+  },
+  "execution": {
+    "status": "completed",
+    "wall_seconds": 104.15534655999727
+  },
+  "usage": {
+    "input_tokens": 394788,
+    "cached_input_tokens": 338432,
+    "output_tokens": 5329,
+    "reasoning_output_tokens": 592
+  },
+  "usage_provenance": "caller_reported_not_authenticated",
+  "source_unchanged": true,
+  "source_error": null,
+  "preparation": {
+    "wall_seconds": 1.2119921869998507,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 13.602586222001264,
+    "cold_preparation_wall_seconds": 15.475375257999985
+  },
+  "neo4j": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/langchain-ai/deepagents",
+    "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+    "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+    "nodes": 894,
+    "relationships": 893,
+    "verified": true,
+    "wall_seconds": 13.602586222001264
+  },
+  "run_id": "runs-3-treatment",
+  "graph_queries": [
+    {
+      "backend": "neo4j",
+      "call_id": "762e3fe94e29433db6513adc4487131d",
+      "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+      "database": "neo4j",
+      "event_id": "79ec7b10f78148b1f05cac16b759e2ee0a2c3cb7de021a108dda1514aec08443",
+      "input_id": "a0e3dcf7ecfdb25125bca2e9d5ddf9dd520bc5a24ab351eb66b92c9958414924",
+      "interface": "deepthought.graph_queries.GraphQueryService",
+      "query_sha256": "d95fb2d46770d0ad16d75364837550c85e8b539a6c3ed30ba3ca0e1a053947f7",
+      "repo_url": "https://github.com/langchain-ai/deepagents",
+      "response_bytes": 309,
+      "response_sha256": "a025dcaf6a4d190300eaf59f25d7b824934b6373800ff960db0efd31c20fd35a",
+      "returned": 0,
+      "run_id": "runs-3-treatment",
+      "schema_version": 1,
+      "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+      "status": "succeeded",
+      "truncated": false,
+      "wall_seconds": 0.008509685001627076
+    },
+    {
+      "backend": "neo4j",
+      "call_id": "a4f52cfc4899483c94bf651b0bd9e66e",
+      "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+      "database": "neo4j",
+      "event_id": "9ace21cf88c3916ef9cbe5172b7c649410be1e449abcbfee386183b1019b8fdf",
+      "input_id": "a0e3dcf7ecfdb25125bca2e9d5ddf9dd520bc5a24ab351eb66b92c9958414924",
+      "interface": "deepthought.graph_queries.GraphQueryService",
+      "query_sha256": "a2595a6fc88c51a0f66ca99eed3034c5dc3a1031881e97cb09c6467ee884e63d",
+      "repo_url": "https://github.com/langchain-ai/deepagents",
+      "response_bytes": 1341,
+      "response_sha256": "389760c25bec73474a2d3acefd57d641adebca00b6e9fb6dcedbcc48d07599eb",
+      "returned": 2,
+      "run_id": "runs-3-treatment",
+      "schema_version": 1,
+      "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+      "status": "succeeded",
+      "truncated": false,
+      "wall_seconds": 0.009300683002948062
+    },
+    {
+      "backend": "neo4j",
+      "call_id": "6e74fbacc6064d21b92f8946dfa19001",
+      "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+      "database": "neo4j",
+      "event_id": "0e454a5df3cdb15e38b85f4d091e908f3ebe08a0ad4f9e7de0a3c6d5a9c8ed6f",
+      "input_id": "a0e3dcf7ecfdb25125bca2e9d5ddf9dd520bc5a24ab351eb66b92c9958414924",
+      "interface": "deepthought.graph_queries.GraphQueryService",
+      "query_sha256": "2956da5e47891195cdb2c645d28459d484384d3ef808cdd81cf645560520dac1",
+      "repo_url": "https://github.com/langchain-ai/deepagents",
+      "response_bytes": 3606,
+      "response_sha256": "b8ed5aa5f48f720d04e6d8687e704e7eda1b4fa7834193fc1fc3d22f5a528d6f",
+      "returned": 2,
+      "run_id": "runs-3-treatment",
+      "schema_version": 1,
+      "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+      "status": "succeeded",
+      "truncated": false,
+      "wall_seconds": 0.01700415300001623
+    },
+    {
+      "backend": "neo4j",
+      "call_id": "cd545e3d41b8462f8dfa7549f8bdc0b8",
+      "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+      "database": "neo4j",
+      "event_id": "dee013e2b8b16fd03341b71088eede780c2d11935bd1b65219d49a8978bda118",
+      "input_id": "a0e3dcf7ecfdb25125bca2e9d5ddf9dd520bc5a24ab351eb66b92c9958414924",
+      "interface": "deepthought.graph_queries.GraphQueryService",
+      "query_sha256": "0c354fcadc9239aa84aa6c3c94011ec5993985a00bca139c95c58528d6e77939",
+      "repo_url": "https://github.com/langchain-ai/deepagents",
+      "response_bytes": 2092,
+      "response_sha256": "8e0336c83211563fe36c0f3bb1fe4f0b5962953a402ad5407f70147881176401",
+      "returned": 11,
+      "run_id": "runs-3-treatment",
+      "schema_version": 1,
+      "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+      "status": "succeeded",
+      "truncated": false,
+      "wall_seconds": 0.0911702810008137
+    }
+  ],
+  "record_id": "e062b2ec9f398ac9474392cfc818f8cfd52e14edb923a97af16587aff7194f3e"
+}

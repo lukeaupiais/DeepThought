@@ -1,0 +1,17 @@
+{
+  "returncode": 0,
+  "terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 389300,
+      "cached_input_tokens": 317568,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 5070,
+      "reasoning_output_tokens": 735
+    }
+  },
+  "stdout_sha256": "e76f6c32cf2d144cfa1877cf7d4fcf71ec6b24266985531f4a004d8f1ae6b31d",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "answer_sha256": "20cb9a30f3715b80592c66a810d9b0cc63feeb6ac3dbf8202662d2c018fd806a",
+  "mcp_tool_calls": 2
+}

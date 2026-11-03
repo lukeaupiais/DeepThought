@@ -1,0 +1,177 @@
+{
+  "task": "We want to consolidate independent document-validation passes into a single AST walk and permit each pass to stop or skip work independently. Assess whether a straightforward shared visitor loop would preserve current behavior, especially when a pass edits a node. Find the top-level function declarations implementing the walk, visitor composition and handler selection, the type-aware wrapper, and executable-document plus SDL validation entry/implementation functions. Include overload signatures for those functions, but no nested callbacks, assertion convenience wrappers, classes or unrelated validators. Put these declaration locations in claims. In limitations, provide a source-cited behavioral compatibility assessment, explain the control signals and ordering, and describe the integration points and necessary regression checks. Do not infer runtime edges from declarations alone.",
+  "expected": [
+    {
+      "file": "src/language/visitor.ts",
+      "symbol": "visit",
+      "kind": "Function",
+      "line": 202
+    },
+    {
+      "file": "src/language/visitor.ts",
+      "symbol": "visit",
+      "kind": "Function",
+      "line": 252
+    },
+    {
+      "file": "src/language/visitor.ts",
+      "symbol": "visit",
+      "kind": "Function",
+      "line": 261
+    },
+    {
+      "file": "src/language/visitor.ts",
+      "symbol": "visitInParallel",
+      "kind": "Function",
+      "line": 423
+    },
+    {
+      "file": "src/language/visitor.ts",
+      "symbol": "getEnterLeaveForKind",
+      "kind": "Function",
+      "line": 499
+    },
+    {
+      "file": "src/utilities/TypeInfo.ts",
+      "symbol": "visitWithTypeInfo",
+      "kind": "Function",
+      "line": 936
+    },
+    {
+      "file": "src/validation/validate.ts",
+      "symbol": "validate",
+      "kind": "Function",
+      "line": 129
+    },
+    {
+      "file": "src/validation/validate.ts",
+      "symbol": "validateImpl",
+      "kind": "Function",
+      "line": 143
+    },
+    {
+      "file": "src/validation/validate.ts",
+      "symbol": "validateSDL",
+      "kind": "Function",
+      "line": 193
+    }
+  ],
+  "rubric": [
+    {
+      "id": "G1",
+      "points": 1,
+      "criterion": "Distinguishes raw-walker BREAK terminating traversal from composed BREAK disabling only the individual visitor, on enter and leave. Other composed visitors continue.",
+      "evidence": [
+        "src/language/visitor.ts:340-342",
+        "src/language/visitor.ts:453-454",
+        "src/language/visitor.ts:466-467"
+      ],
+      "reject": [
+        "Composed BREAK stops all visitors",
+        "All visitors must return BREAK to continue"
+      ]
+    },
+    {
+      "id": "G2",
+      "points": 1,
+      "criterion": "Explains per-visitor false-on-enter skipping state and resetting at the matching node leave, while other visitors can traverse the same subtree. false-on-leave is ignored for editing purposes.",
+      "evidence": [
+        "src/language/visitor.ts:449-456",
+        "src/language/visitor.ts:464-473"
+      ],
+      "reject": [
+        "false removes a node",
+        "false skips all visitors"
+      ]
+    },
+    {
+      "id": "G3",
+      "points": 1,
+      "criterion": "First editing visitor returning null or a replacement short-circuits later visitors for that node in the corresponding phase. null removes, replacement may be traversed on enter. Does not claim every visitor sees the replacement.",
+      "evidence": [
+        "src/language/visitor.ts:301-305",
+        "src/language/visitor.ts:349-359",
+        "src/language/visitor.ts:394",
+        "src/language/visitor.ts:455-456",
+        "src/language/visitor.ts:468-469"
+      ],
+      "reject": [
+        "Every later visitor receives the replacement on the same enter",
+        "null means no change"
+      ]
+    },
+    {
+      "id": "G4",
+      "points": 1,
+      "criterion": "Describes ordered visitor dispatch, binding callback this to its own visitor, and node-kind-specific object/function handlers taking precedence over generic enter/leave handlers. A specific function supplies enter only.",
+      "evidence": [
+        "src/language/visitor.ts:434-438",
+        "src/language/visitor.ts:448-450",
+        "src/language/visitor.ts:503-517"
+      ],
+      "reject": [
+        "Generic handlers always also run",
+        "Specific function is both enter and leave"
+      ]
+    },
+    {
+      "id": "G5",
+      "points": 1,
+      "criterion": "Explains type-info wrapper enters original node before callback, balances leave for any defined enter result, enters replacement AST node when applicable, and leaves node after leave callback. Explicitly preserves type-stack correctness around skip/edit.",
+      "evidence": [
+        "src/utilities/TypeInfo.ts:941-964"
+      ],
+      "reject": [
+        "TypeInfo is irrelevant to edits",
+        "Every node always reaches ordinary leave callback"
+      ]
+    },
+    {
+      "id": "G6",
+      "points": 1,
+      "criterion": "Identifies executable validation chain validate -> validateImpl -> composed rule visitors -> visitWithTypeInfo -> visit using QueryDocumentKeysToValidate. Mentions public tracing wrapper or schema/context creation where explaining integration.",
+      "evidence": [
+        "src/validation/validate.ts:129-140",
+        "src/validation/validate.ts:153-181"
+      ],
+      "reject": [
+        "Executable validation uses only default traversal keys",
+        "validate directly loops over rules and invokes each full traversal"
+      ]
+    },
+    {
+      "id": "G7",
+      "points": 1,
+      "criterion": "Identifies SDL path as SDLValidationContext and composed visitors passed directly to visit, without executable validation type-info wrapper. Distinguishes global validation abort/error-limit exceptions from per-rule BREAK.",
+      "evidence": [
+        "src/validation/validate.ts:162-165",
+        "src/validation/validate.ts:182-187",
+        "src/validation/validate.ts:193-208"
+      ],
+      "reject": [
+        "Per-visitor BREAK implements global maxErrors abort",
+        "SDL uses same TypeInfo wrapper"
+      ]
+    },
+    {
+      "id": "G8",
+      "points": 1,
+      "criterion": "Calls for regression checks spanning independent subtree skips, enter/leave BREAK, null/replacement order and visitor visibility, kind-specific/generic precedence, balanced type-info under edits, executable/SDL integration and global abort behavior. Rejects claiming declaration graph proves those behaviors. At least four distinct categories including skip/BREAK, edit ordering and type-info required.",
+      "evidence": [
+        "src/language/visitor.ts:340-359",
+        "src/language/visitor.ts:445-475",
+        "src/utilities/TypeInfo.ts:941-964",
+        "src/validation/validate.ts:173-208"
+      ],
+      "reject": [
+        "Declarations alone prove semantic equivalence"
+      ]
+    }
+  ],
+  "source_prefix": "src/",
+  "corpus_selection": "All production src/**/*.ts excluding __tests__, __benchmarks__, and __fuzz__ directories. No source file duplication. All actors receive identical full selected production tree.",
+  "independence": "Authored from pinned TypeScript source by independent reviewer before reading analysis-tool output or evaluated-agent answers. Line numbers verified with nl and rg. No tool output used as oracle.",
+  "revision": "c719a39547635991e621518d056b5e91026bdcda",
+  "scoring": "Each semantic point is 1 only when the answer establishes the essential proposition without contradiction and cites supporting source locations. 0.5 for correct but materially incomplete or uncited account. 0 for absent or wrong. Record exact answer excerpts and reasons. Structural exactness is independently scored from expected declarations.",
+  "limits": "This tests change-impact reasoning assisted by declaration navigation. TreeSitterTool supplies declaration facts only. No call-graph or semantic-runtime inference should be attributed to it. Public known pilot, not hidden enterprise benchmark."
+}
