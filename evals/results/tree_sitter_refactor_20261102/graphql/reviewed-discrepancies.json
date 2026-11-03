@@ -1,0 +1,717 @@
+{
+  "scope": "Manual source review of every raw independent compiler/graph divergence in the locked176file GraphQL evaluation corpus",
+  "raw_receipt_sha256": "03e64794b8b1a2a20546e879b3f240fad87f92cdb733fafc7a80bf6c98de9bfd",
+  "source_revision": "c719a39547635991e621518d056b5e91026bdcda",
+  "raw_counts": {
+    "source_files": 176,
+    "compiler_fact_count": 1563,
+    "graph_fact_count": 1587,
+    "exact_matched_count": 1558
+  },
+  "classification_totals": {
+    "tool_syntax_coverage_gap_named_function_expression": 5,
+    "independent_checker_modeling_gap_computed_member_name": 29,
+    "wrong_graph_fact_or_scope_detected": 0,
+    "line_mismatches": 0,
+    "unclassified": 0
+  },
+  "task_facts": {
+    "expected": 9,
+    "all_exact_in_compiler": true,
+    "all_exact_in_graph": true,
+    "task_labels_changed": false
+  },
+  "interpretation": "1558 exact matches. The29 graph-only facts are legitimate computed member declarations omitted by the independent checker. The5 compiler-only facts are genuine named function-expression coverage omissions in TreeSitterTool. The review does not convert those omissions into a pass or alter task labels. All9 task-specific declarations are exact and unaffected. This corpus does not establish complete TypeScript language coverage.",
+  "reviewed_discrepancies": [
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/error/GraphQLError.ts",
+        "symbol": "GraphQLError.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 242
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/error/GraphQLError.ts:242",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/error/GraphQLError.ts",
+        "line": 242,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/execution/AbortedGraphQLExecutionError.ts",
+        "symbol": "AbortedGraphQLExecutionError.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 40
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/execution/AbortedGraphQLExecutionError.ts:40",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/execution/AbortedGraphQLExecutionError.ts",
+        "line": 40,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/execution/withConcurrentAbruptClose.ts",
+        "symbol": "withConcurrentAbruptClose.[Symbol.asyncIterator]",
+        "kind": "Method",
+        "line": 38
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/execution/withConcurrentAbruptClose.ts:38",
+      "source_text": "[Symbol.asyncIterator]() {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/execution/withConcurrentAbruptClose.ts",
+        "line": 38,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.asyncIterator]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/execution/withConcurrentAbruptClose.ts",
+        "symbol": "withConcurrentAbruptClose.[asyncDispose]",
+        "kind": "Method",
+        "line": 60
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/execution/withConcurrentAbruptClose.ts:60",
+      "source_text": "async [asyncDispose]() {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/execution/withConcurrentAbruptClose.ts",
+        "line": 60,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[asyncDispose]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/jsutils/AccumulatorMap.ts",
+        "symbol": "AccumulatorMap.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 8
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/jsutils/AccumulatorMap.ts:8",
+      "source_text": "override get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/jsutils/AccumulatorMap.ts",
+        "line": 8,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/jsutils/SetMap.ts",
+        "symbol": "SetMap.[Symbol.iterator]",
+        "kind": "Method",
+        "line": 100
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/jsutils/SetMap.ts:100",
+      "source_text": "[Symbol.iterator](): IterableIterator<[ReadonlySet<T>, V]> {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/jsutils/SetMap.ts",
+        "line": 100,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.iterator]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/language/ast.ts",
+        "symbol": "Location.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 58
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/language/ast.ts:58",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/language/ast.ts",
+        "line": 58,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/language/ast.ts",
+        "symbol": "Token.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 158
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/language/ast.ts:158",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/language/ast.ts",
+        "line": 158,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/language/lexer.ts",
+        "symbol": "Lexer.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 90
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/language/lexer.ts:90",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/language/lexer.ts",
+        "line": 90,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/language/schemaCoordinateLexer.ts",
+        "symbol": "SchemaCoordinateLexer.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 61
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/language/schemaCoordinateLexer.ts:61",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/language/schemaCoordinateLexer.ts",
+        "line": 61,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/language/source.ts",
+        "symbol": "Source.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 77
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/language/source.ts:77",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/language/source.ts",
+        "line": 77,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLList.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 1375
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:1375",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 1375,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLNonNull.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 1473
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:1473",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 1473,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLScalarType.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 2158
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:2158",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 2158,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLObjectType.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 2564
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:2564",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 2564,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLField.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 3107
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:3107",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 3107,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLArgument.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 3262
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:3262",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 3262,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLInterfaceType.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 3532
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:3532",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 3532,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLUnionType.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 3872
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:3872",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 3872,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLEnumType.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 4182
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:4182",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 4182,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLEnumValue.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 4740
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:4740",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 4740,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLInputObjectType.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 4955
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:4955",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 4955,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/definition.ts",
+        "symbol": "GraphQLInputField.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 5250
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/definition.ts:5250",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/definition.ts",
+        "line": 5250,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/directives.ts",
+        "symbol": "GraphQLDirective.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 202
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/directives.ts:202",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/directives.ts",
+        "line": 202,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/type/schema.ts",
+        "symbol": "GraphQLSchema.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 445
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/type/schema.ts:445",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/type/schema.ts",
+        "line": 445,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/utilities/TypeInfo.ts",
+        "symbol": "TypeInfo.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 182
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/utilities/TypeInfo.ts:182",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/utilities/TypeInfo.ts",
+        "line": 182,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/validation/ValidationContext.ts",
+        "symbol": "ASTValidationContext.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 73
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/validation/ValidationContext.ts:73",
+      "source_text": "get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/validation/ValidationContext.ts",
+        "line": 73,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/validation/ValidationContext.ts",
+        "symbol": "SDLValidationContext.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 190
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/validation/ValidationContext.ts:190",
+      "source_text": "override get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/validation/ValidationContext.ts",
+        "line": 190,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "graph_only",
+      "fact": {
+        "file": "src/validation/ValidationContext.ts",
+        "symbol": "ValidationContext.[Symbol.toStringTag]",
+        "kind": "Method",
+        "line": 329
+      },
+      "classification": "independent_checker_modeling_gap_computed_member_name",
+      "is_tool_defect": false,
+      "source_anchor": "src/validation/ValidationContext.ts:329",
+      "source_text": "override get [Symbol.toStringTag](): string {",
+      "reason": "This is a real computed-name member declaration. The compiler checker explicitly recorded its name as unsupported and omitted it from compiler_facts. TreeSitterTool preserves the syntactic computed member name, including brackets, with its correct named lexical owner and declaration start. It is not a fabricated graph fact. Accessors remain Method declarations under the locked independent policy.",
+      "independent_checker_note": {
+        "file": "src/validation/ValidationContext.ts",
+        "line": 329,
+        "reason": "Computed or non-simple declaration name",
+        "text": "[Symbol.toStringTag]"
+      }
+    },
+    {
+      "direction": "compiler_only",
+      "fact": {
+        "file": "src/execution/incremental/Queue.ts",
+        "symbol": "Queue.forEachBatch.wrapper",
+        "kind": "Function",
+        "line": 183
+      },
+      "classification": "tool_syntax_coverage_gap_named_function_expression",
+      "is_tool_defect": true,
+      "source_anchor": "src/execution/incremental/Queue.ts:183",
+      "source_text": "const wrappedBatch = (function* wrapper(): Generator<T> {",
+      "syntax_form": "parenthesized named generator function expression invoked immediately inside an anonymous async callback",
+      "reason": "The pinned source contains this genuine lexically named function. TreeSitterTool omits it from named-function indexing because the frozen SDK syntax mapping covers function_declaration/function_signature/generator_function_declaration but omits function_expression/generator_function. This is a syntax coverage gap in the broad named-function objective. It is not a failed TypeScript parse, a line-number discrepancy, a fabricated compiler fact, or a reference/call inference gap. The graph reports succeeded for its currently implemented profile, so profile-scoped success must not be generalized to all named functions.",
+      "tool_source_anchor": "src/deepthought/syntax.py:16-32",
+      "recommended_tracking": "Record the coverage defect explicitly and add named ordinary/generator function-expression conformance cases in a separate implementation iteration. Freeze parser throughout this pilot."
+    },
+    {
+      "direction": "compiler_only",
+      "fact": {
+        "file": "src/jsutils/memoize1.ts",
+        "symbol": "memoize1.memoized",
+        "kind": "Function",
+        "line": 11
+      },
+      "classification": "tool_syntax_coverage_gap_named_function_expression",
+      "is_tool_defect": true,
+      "source_anchor": "src/jsutils/memoize1.ts:11",
+      "source_text": "return function memoized(a1) {",
+      "syntax_form": "returned named function expression implementing memoized wrapper",
+      "reason": "The pinned source contains this genuine lexically named function. TreeSitterTool omits it from named-function indexing because the frozen SDK syntax mapping covers function_declaration/function_signature/generator_function_declaration but omits function_expression/generator_function. This is a syntax coverage gap in the broad named-function objective. It is not a failed TypeScript parse, a line-number discrepancy, a fabricated compiler fact, or a reference/call inference gap. The graph reports succeeded for its currently implemented profile, so profile-scoped success must not be generalized to all named functions.",
+      "tool_source_anchor": "src/deepthought/syntax.py:16-32",
+      "recommended_tracking": "Record the coverage defect explicitly and add named ordinary/generator function-expression conformance cases in a separate implementation iteration. Freeze parser throughout this pilot."
+    },
+    {
+      "direction": "compiler_only",
+      "fact": {
+        "file": "src/jsutils/memoize2.ts",
+        "symbol": "memoize2.memoized",
+        "kind": "Function",
+        "line": 11
+      },
+      "classification": "tool_syntax_coverage_gap_named_function_expression",
+      "is_tool_defect": true,
+      "source_anchor": "src/jsutils/memoize2.ts:11",
+      "source_text": "return function memoized(a1, a2) {",
+      "syntax_form": "returned named function expression implementing memoized wrapper",
+      "reason": "The pinned source contains this genuine lexically named function. TreeSitterTool omits it from named-function indexing because the frozen SDK syntax mapping covers function_declaration/function_signature/generator_function_declaration but omits function_expression/generator_function. This is a syntax coverage gap in the broad named-function objective. It is not a failed TypeScript parse, a line-number discrepancy, a fabricated compiler fact, or a reference/call inference gap. The graph reports succeeded for its currently implemented profile, so profile-scoped success must not be generalized to all named functions.",
+      "tool_source_anchor": "src/deepthought/syntax.py:16-32",
+      "recommended_tracking": "Record the coverage defect explicitly and add named ordinary/generator function-expression conformance cases in a separate implementation iteration. Freeze parser throughout this pilot."
+    },
+    {
+      "direction": "compiler_only",
+      "fact": {
+        "file": "src/jsutils/memoize3.ts",
+        "symbol": "memoize3.memoized",
+        "kind": "Function",
+        "line": 14
+      },
+      "classification": "tool_syntax_coverage_gap_named_function_expression",
+      "is_tool_defect": true,
+      "source_anchor": "src/jsutils/memoize3.ts:14",
+      "source_text": "return function memoized(a1, a2, a3) {",
+      "syntax_form": "returned named function expression implementing memoized wrapper",
+      "reason": "The pinned source contains this genuine lexically named function. TreeSitterTool omits it from named-function indexing because the frozen SDK syntax mapping covers function_declaration/function_signature/generator_function_declaration but omits function_expression/generator_function. This is a syntax coverage gap in the broad named-function objective. It is not a failed TypeScript parse, a line-number discrepancy, a fabricated compiler fact, or a reference/call inference gap. The graph reports succeeded for its currently implemented profile, so profile-scoped success must not be generalized to all named functions.",
+      "tool_source_anchor": "src/deepthought/syntax.py:16-32",
+      "recommended_tracking": "Record the coverage defect explicitly and add named ordinary/generator function-expression conformance cases in a separate implementation iteration. Freeze parser throughout this pilot."
+    },
+    {
+      "direction": "compiler_only",
+      "fact": {
+        "file": "src/type/validate.ts",
+        "symbol": "createInputObjectDefaultValueCircularRefsValidator.validateInputObjectDefaultValueCircularRefs",
+        "kind": "Function",
+        "line": 961
+      },
+      "classification": "tool_syntax_coverage_gap_named_function_expression",
+      "is_tool_defect": true,
+      "source_anchor": "src/type/validate.ts:961",
+      "source_text": "return function validateInputObjectDefaultValueCircularRefs(",
+      "syntax_form": "returned named function expression implementing recursive-default validation entry",
+      "reason": "The pinned source contains this genuine lexically named function. TreeSitterTool omits it from named-function indexing because the frozen SDK syntax mapping covers function_declaration/function_signature/generator_function_declaration but omits function_expression/generator_function. This is a syntax coverage gap in the broad named-function objective. It is not a failed TypeScript parse, a line-number discrepancy, a fabricated compiler fact, or a reference/call inference gap. The graph reports succeeded for its currently implemented profile, so profile-scoped success must not be generalized to all named functions.",
+      "tool_source_anchor": "src/deepthought/syntax.py:16-32",
+      "recommended_tracking": "Record the coverage defect explicitly and add named ordinary/generator function-expression conformance cases in a separate implementation iteration. Freeze parser throughout this pilot."
+    }
+  ],
+  "frozen_during_evaluation": true,
+  "independence": "Reviewer authored task/rubric and independent compiler traversal before graph inspection. Discrepancies then checked against pinned source. Agent answers, condition labels and performance were not inspected.",
+  "reviewed_reference": {
+    "path": "independent-conformance-reviewed.json",
+    "sha256": "be777153c3dcb3b3ecf0a722602d7aa09f9f1199ab23c97ee1d7a640c0639d44",
+    "compiler": {
+      "name": "typescript",
+      "version": "5.9.3",
+      "script_sha256": "111031771130c3f5c32604350d94b29ea1eafe0c8e4b0a23a7604213a8142706"
+    },
+    "compiler_fact_count": 1592,
+    "graph_fact_count": 1587,
+    "exact_matched_count": 1587,
+    "missing_count": 5,
+    "extra_count": 0,
+    "source_hashes_verified": true,
+    "change": "Generic TypeScript ComputedPropertyName AST support preserves bracketed source syntax. No graph-derived whitelist or location-specific cases. All5named function expressions remain in the broader reference. Original receipt remains unchanged."
+  },
+  "supported_profile_comparison": {
+    "implemented_profile_comparable_facts": 1587,
+    "exact_matches": 1587,
+    "missing_within_comparable_profile": 0,
+    "graph_only_after_computed_name_support": 0,
+    "condition": "Excludes the5explicitly retained named function-expression coverage gaps when describing the implemented declaration-node profile only. This conditional metric must not be reported as complete named-symbol coverage."
+  }
+}

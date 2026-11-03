@@ -1,0 +1,121 @@
+{
+  "arm": "treatment",
+  "native": {
+    "returncode": 0,
+    "terminal_event": {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 100024,
+        "cached_input_tokens": 79488,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3261,
+        "reasoning_output_tokens": 42
+      }
+    },
+    "stdout_sha256": "3a1ba6f9137bb0db48ea8b0dbb247bb5eb3e6317a059650d9a4bae98f3f5c3e7",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "answer_sha256": "f32d1929c21f56f735712f19374eadc50381823f5685e7cefcff25d053213ef4",
+    "mcp_tool_calls": 2
+  },
+  "execution": {
+    "status": "completed",
+    "wall_seconds": 42.59620334500141
+  },
+  "quality": {
+    "quality_pass": true,
+    "missing": [],
+    "extra": [],
+    "invalid": [],
+    "duplicates": [],
+    "unsupported_relationships": [],
+    "expected_count": 78,
+    "correct_count": 78,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "run_id": "native-treatment-corrected",
+  "graph_queries": [
+    {
+      "backend": "neo4j",
+      "call_id": "028b55f0dfc648fe8588a09b5799e74a",
+      "content_hash": "1f124e30bb4c625788afba5be14d351d4a0266a3814b41392f897dc5c9a1123b",
+      "database": "neo4j",
+      "event_id": "ada45890a5d85581973eb2bb12e4a6865673b6d32f913e2a1550eef98a5be7bc",
+      "input_id": "7950efbee10c5379a6ec5ff9095bc9981b7f3929563990562a83e4cfe66e33ee",
+      "interface": "deepthought.graph_queries.GraphQueryService",
+      "query_sha256": "aa3e4e4b6bfa05fbafda043d6644bcad64658cc00570642f3515dfa146e997b3",
+      "repo_url": "https://github.com/langchain-ai/deepagents",
+      "response_bytes": 10245,
+      "response_sha256": "fb5fb5837531a0db0be07a6334229cca4f9e12e6d61fb4083e08a46611ce1e4f",
+      "returned": 78,
+      "run_id": "native-treatment-corrected",
+      "schema_version": 1,
+      "snapshot_id": "3bcf3a0a3a6e263459ff5eeb6ce7286df96fd17c245497e812098d5f3a1cfb1d",
+      "status": "succeeded",
+      "truncated": false,
+      "wall_seconds": 1.0461821659991983
+    }
+  ],
+  "mcp_calls": [
+    {
+      "id": "item_3",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "queryGraph",
+      "arguments": {
+        "repository_id": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "3bcf3a0a3a6e263459ff5eeb6ce7286df96fd17c245497e812098d5f3a1cfb1d",
+        "query": "MATCH (s:Symbol) WHERE s.file_path IN $files RETURN s.file_path AS file, s.name AS symbol, s.kind AS kind, s.start_line AS line ORDER BY file, line",
+        "parameters": {
+          "files": [
+            "libs/deepagents/deepagents/backends/composite.py",
+            "libs/deepagents/deepagents/backends/protocol.py"
+          ]
+        },
+        "max_elements": 200
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Error executing tool queryGraph: 1 validation error for queryGraphArguments\nmax_elements\n  Input should be less than or equal to 100 [type=less_than_equal, input_value=200, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.14/v/less_than_equal"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "failed"
+    },
+    {
+      "id": "item_4",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "queryGraph",
+      "arguments": {
+        "repository_id": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "3bcf3a0a3a6e263459ff5eeb6ce7286df96fd17c245497e812098d5f3a1cfb1d",
+        "query": "MATCH (s:Symbol) WHERE s.file_path IN $files RETURN s.file_path AS file, s.name AS symbol, s.kind AS kind, s.start_line AS line ORDER BY file, line",
+        "parameters": {
+          "files": [
+            "libs/deepagents/deepagents/backends/composite.py",
+            "libs/deepagents/deepagents/backends/protocol.py"
+          ]
+        },
+        "max_elements": 100
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n  \"snapshot_id\": \"3bcf3a0a3a6e263459ff5eeb6ce7286df96fd17c245497e812098d5f3a1cfb1d\",\n  \"status\": \"succeeded\",\n  \"scope\": \"database\",\n  \"capabilities\": [\n    \"definitions\"\n  ],\n  \"analysis_status\": \"succeeded\",\n  \"items\": [\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_remap_grep_path\",\n      \"kind\": \"Function\",\n      \"line\": 36\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_remaining_grep_budget\",\n      \"kind\": \"Function\",\n      \"line\": 47\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_strip_route_from_pattern\",\n      \"kind\": \"Function\",\n      \"line\": 59\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_remap_file_info_path\",\n      \"kind\": \"Function\",\n      \"line\": 81\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_glob_truncated\",\n      \"kind\": \"Function\",\n      \"line\": 92\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_merge_glob_results\",\n      \"kind\": \"Function\",\n      \"line\": 105\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"_route_for_path\",\n      \"kind\": \"Function\",\n      \"line\": 145\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend\",\n      \"kind\": \"Class\",\n      \"line\": 178\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.__init__\",\n      \"kind\": \"Method\",\n      \"line\": 205\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend._get_backend_and_key\",\n      \"kind\": \"Method\",\n      \"line\": 235\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend._coerce_ls_result\",\n      \"kind\": \"Method\",\n      \"line\": 244\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.ls\",\n      \"kind\": \"Method\",\n      \"line\": 250\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.als\",\n      \"kind\": \"Method\",\n      \"line\": 304\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.read\",\n      \"kind\": \"Method\",\n      \"line\": 341\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.aread\",\n      \"kind\": \"Method\",\n      \"line\": 360\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend._coerce_grep_result\",\n      \"kind\": \"Method\",\n      \"line\": 371\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend._grep_backend\",\n      \"kind\": \"Method\",\n      \"line\": 379\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend._agrep_backend\",\n      \"kind\": \"Method\",\n      \"line\": 394\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.grep\",\n      \"kind\": \"Method\",\n      \"line\": 409\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.agrep\",\n      \"kind\": \"Method\",\n      \"line\": 501\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.glob\",\n      \"kind\": \"Method\",\n      \"line\": 563\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.aglob\",\n      \"kind\": \"Method\",\n      \"line\": 604\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.write\",\n      \"kind\": \"Method\",\n      \"line\": 643\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.awrite\",\n      \"kind\": \"Method\",\n      \"line\": 663\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.edit\",\n      \"kind\": \"Method\",\n      \"line\": 675\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.aedit\",\n      \"kind\": \"Method\",\n      \"line\": 699\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.delete\",\n      \"kind\": \"Method\",\n      \"line\": 713\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.adelete\",\n      \"kind\": \"Method\",\n      \"line\": 738\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.execute\",\n      \"kind\": \"Method\",\n      \"line\": 749\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.aexecute\",\n      \"kind\": \"Method\",\n      \"line\": 787\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.upload_files\",\n      \"kind\": \"Method\",\n      \"line\": 812\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.aupload_files\",\n      \"kind\": \"Method\",\n      \"line\": 855\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.download_files\",\n      \"kind\": \"Method\",\n      \"line\": 885\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"symbol\": \"CompositeBackend.adownload_files\",\n      \"kind\": \"Method\",\n      \"line\": 927\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"FileDownloadResponse\",\n      \"kind\": \"Class\",\n      \"line\": 57\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"FileUploadResponse\",\n      \"kind\": \"Class\",\n      \"line\": 89\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"FileInfo\",\n      \"kind\": \"Class\",\n      \"line\": 120\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"ContextLine\",\n      \"kind\": \"Class\",\n      \"line\": 140\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"GrepMatch\",\n      \"kind\": \"Class\",\n      \"line\": 150\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"FileData\",\n      \"kind\": \"Class\",\n      \"line\": 178\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"ReadResult\",\n      \"kind\": \"Class\",\n      \"line\": 195\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"ReadResult.__post_init__\",\n      \"kind\": \"Method\",\n      \"line\": 225\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"WriteResult\",\n      \"kind\": \"Class\",\n      \"line\": 269\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"EditResult\",\n      \"kind\": \"Class\",\n      \"line\": 286\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"DeleteResult\",\n      \"kind\": \"Class\",\n      \"line\": 305\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"LsResult\",\n      \"kind\": \"Class\",\n      \"line\": 322\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"GrepResult\",\n      \"kind\": \"Class\",\n      \"line\": 335\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"_apply_grep_max_count\",\n      \"kind\": \"Function\",\n      \"line\": 352\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"GlobResult\",\n      \"kind\": \"Class\",\n      \"line\": 360\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol\",\n      \"kind\": \"Class\",\n      \"line\": 378\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.ls\",\n      \"kind\": \"Method\",\n      \"line\": 410\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.als\",\n      \"kind\": \"Method\",\n      \"line\": 424\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.read\",\n      \"kind\": \"Method\",\n      \"line\": 428\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.aread\",\n      \"kind\": \"Method\",\n      \"line\": 464\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.grep\",\n      \"kind\": \"Method\",\n      \"line\": 473\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.agrep\",\n      \"kind\": \"Method\",\n      \"line\": 532\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.glob\",\n      \"kind\": \"Method\",\n      \"line\": 572\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.aglob\",\n      \"kind\": \"Method\",\n      \"line\": 599\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.write\",\n      \"kind\": \"Method\",\n      \"line\": 603\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.awrite\",\n      \"kind\": \"Method\",\n      \"line\": 621\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.edit\",\n      \"kind\": \"Method\",\n      \"line\": 629\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.aedit\",\n      \"kind\": \"Method\",\n      \"line\": 656\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.delete\",\n      \"kind\": \"Method\",\n      \"line\": 666\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.adelete\",\n      \"kind\": \"Method\",\n      \"line\": 694\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.upload_files\",\n      \"kind\": \"Method\",\n      \"line\": 698\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.aupload_files\",\n      \"kind\": \"Method\",\n      \"line\": 726\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.download_files\",\n      \"kind\": \"Method\",\n      \"line\": 730\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"BackendProtocol.adownload_files\",\n      \"kind\": \"Method\",\n      \"line\": 748\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"ExecuteResponse\",\n      \"kind\": \"Class\",\n      \"line\": 754\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"ExecuteArtifact\",\n      \"kind\": \"Class\",\n      \"line\": 774\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"ExecuteOffloadResult\",\n      \"kind\": \"Class\",\n      \"line\": 795\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"SandboxBackendProtocol\",\n      \"kind\": \"Class\",\n      \"line\": 814\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"SandboxBackendProtocol.id\",\n      \"kind\": \"Method\",\n      \"line\": 827\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"SandboxBackendProtocol.execute\",\n      \"kind\": \"Method\",\n      \"line\": 831\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"SandboxBackendProtocol.aexecute\",\n      \"kind\": \"Method\",\n      \"line\": 856\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"_method_accepts_max_count\",\n      \"kind\": \"Function\",\n      \"line\": 873\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"execute_accepts_timeout\",\n      \"kind\": \"Function\",\n      \"line\": 891\n    },\n    {\n      \"file\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"symbol\": \"_supports_delete\",\n      \"kind\": \"Function\",\n      \"line\": 913\n    }\n  ],\n  \"returned\": 78,\n  \"truncated\": false\n}"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "completed"
+    }
+  ],
+  "actor_context_sha256": "343e7fd81615761125430c971ff674af544df36e101cebc7ec4b22c6d549c5f6",
+  "receipt_limit": "Native MCP events and engine query logs checked against retained raw files; not signed provider attestations."
+}

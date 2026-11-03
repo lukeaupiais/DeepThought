@@ -1,0 +1,129 @@
+{
+  "deepthought_calls": [
+    {
+      "id": "item_4",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "queryGraph",
+      "arguments": {
+        "repository_id": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+        "query": "MATCH (s:Symbol) WHERE s.file_path STARTS WITH $prefix AND (s.name ENDS WITH '.delete' OR s.name ENDS WITH '.adelete' OR toLower(s.name) CONTAINS 'support') RETURN s.name, s.kind, s.file_path, s.start_line, s.end_line LIMIT 100",
+        "parameters": {
+          "prefix": "libs/deepagents/deepagents/backends/"
+        },
+        "max_elements": 100
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Error executing tool queryGraph: Procedures, updates, administration and multiple statements are disabled"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "failed"
+    },
+    {
+      "id": "item_7",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "searchCodeElements",
+      "arguments": {
+        "query": "delete",
+        "max_elements": 100,
+        "repository_id": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99"
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n  \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n  \"status\": \"succeeded\",\n  \"scope\": \"repository_snapshot\",\n  \"capabilities\": [\n    \"definitions\"\n  ],\n  \"analysis_status\": \"succeeded\",\n  \"items\": [],\n  \"returned\": 0,\n  \"truncated\": false\n}"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "completed"
+    },
+    {
+      "id": "item_10",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "getCodeContext",
+      "arguments": {
+        "file_path": "libs/deepagents/deepagents/backends/protocol.py",
+        "line_number": 666,
+        "max_elements": 100,
+        "repository_id": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99"
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n  \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n  \"status\": \"succeeded\",\n  \"scope\": \"repository_snapshot\",\n  \"capabilities\": [\n    \"definitions\"\n  ],\n  \"analysis_status\": \"succeeded\",\n  \"items\": [\n    {\n      \"element\": {\n        \"file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n        \"definition_id\": \"eaec88dfb2e211f680b324c6a1eb4c8db2a8811f59517f7e7044478382f9a053\",\n        \"qualified_name\": \"https://github.com/langchain-ai/deepagents::libs/deepagents/deepagents/backends/protocol.py::BackendProtocol.delete::eaec88dfb2e211f680b324c6a1eb4c8db2a8811f59517f7e7044478382f9a053\",\n        \"kind\": \"Method\",\n        \"name\": \"BackendProtocol.delete\",\n        \"column\": 4,\n        \"start_line\": 666,\n        \"display_name\": \"BackendProtocol.delete\",\n        \"end_line\": 692,\n        \"end_column\": 33\n      }\n    },\n    {\n      \"element\": {\n        \"file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n        \"definition_id\": \"22800bb7f0afdd11b4990fc0fd6be4ebea8a4bcbe436076ec282048c9d2f7759\",\n        \"qualified_name\": \"https://github.com/langchain-ai/deepagents::libs/deepagents/deepagents/backends/protocol.py::BackendProtocol::22800bb7f0afdd11b4990fc0fd6be4ebea8a4bcbe436076ec282048c9d2f7759\",\n        \"kind\": \"Class\",\n        \"name\": \"BackendProtocol\",\n        \"column\": 0,\n        \"start_line\": 378,\n        \"display_name\": \"BackendProtocol\",\n        \"end_line\": 750,\n        \"end_column\": 66\n      }\n    }\n  ],\n  \"returned\": 2,\n  \"truncated\": false,\n  \"relationships\": [\n    {\n      \"source\": {\n        \"element_id\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:15\",\n        \"labels\": [\n          \"File\",\n          \"GraphNode\"\n        ],\n        \"properties\": {\n          \"file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n          \"path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"coverage_status\": \"analyzed\",\n          \"qualified_name\": \"https://github.com/langchain-ai/deepagents::libs/deepagents/deepagents/backends/protocol.py::file\",\n          \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n          \"name\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"language\": \"python\"\n        }\n      },\n      \"relationship\": {\n        \"element_id\": \"5:c7fb3500-4fc7-4caa-8b12-028ead447551:37\",\n        \"type\": \"DEFINES\",\n        \"source\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:15\",\n        \"target\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:517\",\n        \"properties\": {}\n      },\n      \"target\": {\n        \"element_id\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:517\",\n        \"labels\": [\n          \"GraphNode\",\n          \"Method\",\n          \"Symbol\"\n        ],\n        \"properties\": {\n          \"file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n          \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n          \"kind\": \"Method\",\n          \"column\": 4,\n          \"start_line\": 666,\n          \"display_name\": \"BackendProtocol.delete\",\n          \"end_line\": 692,\n          \"definition_id\": \"eaec88dfb2e211f680b324c6a1eb4c8db2a8811f59517f7e7044478382f9a053\",\n          \"coordinate_encoding\": \"utf-8\",\n          \"qualified_name\": \"https://github.com/langchain-ai/deepagents::libs/deepagents/deepagents/backends/protocol.py::BackendProtocol.delete::eaec88dfb2e211f680b324c6a1eb4c8db2a8811f59517f7e7044478382f9a053\",\n          \"name\": \"BackendProtocol.delete\",\n          \"end_column\": 33\n        }\n      }\n    },\n    {\n      \"source\": {\n        \"element_id\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:15\",\n        \"labels\": [\n          \"File\",\n          \"GraphNode\"\n        ],\n        \"properties\": {\n          \"file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n          \"path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"coverage_status\": \"analyzed\",\n          \"qualified_name\": \"https://github.com/langchain-ai/deepagents::libs/deepagents/deepagents/backends/protocol.py::file\",\n          \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n          \"name\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"language\": \"python\"\n        }\n      },\n      \"relationship\": {\n        \"element_id\": \"5:c7fb3500-4fc7-4caa-8b12-028ead447551:81\",\n        \"type\": \"DEFINES\",\n        \"source\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:15\",\n        \"target\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:803\",\n        \"properties\": {}\n      },\n      \"target\": {\n        \"element_id\": \"4:c7fb3500-4fc7-4caa-8b12-028ead447551:803\",\n        \"labels\": [\n          \"Class\",\n          \"GraphNode\",\n          \"Symbol\"\n        ],\n        \"properties\": {\n          \"file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n          \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n          \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n          \"kind\": \"Class\",\n          \"column\": 0,\n          \"start_line\": 378,\n          \"display_name\": \"BackendProtocol\",\n          \"end_line\": 750,\n          \"definition_id\": \"22800bb7f0afdd11b4990fc0fd6be4ebea8a4bcbe436076ec282048c9d2f7759\",\n          \"coordinate_encoding\": \"utf-8\",\n          \"qualified_name\": \"https://github.com/langchain-ai/deepagents::libs/deepagents/deepagents/backends/protocol.py::BackendProtocol::22800bb7f0afdd11b4990fc0fd6be4ebea8a4bcbe436076ec282048c9d2f7759\",\n          \"name\": \"BackendProtocol\",\n          \"end_column\": 66\n        }\n      }\n    }\n  ]\n}"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "completed"
+    },
+    {
+      "id": "item_15",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "queryGraph",
+      "arguments": {
+        "repository_id": "https://github.com/langchain-ai/deepagents",
+        "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+        "query": "MATCH (s:Symbol) WHERE s.file_path STARTS WITH $prefix AND s.name IN $names RETURN s.name, s.kind, s.file_path, s.start_line, s.end_line LIMIT 100",
+        "parameters": {
+          "prefix": "libs/deepagents/deepagents/backends/",
+          "names": [
+            "CompositeBackend.delete",
+            "CompositeBackend.adelete",
+            "ContextHubBackend.delete",
+            "FilesystemBackend.delete",
+            "BackendProtocol.delete",
+            "BackendProtocol.adelete",
+            "_supports_delete",
+            "BaseSandbox.delete",
+            "StateBackend.delete",
+            "StoreBackend.delete",
+            "StoreBackend.adelete"
+          ]
+        },
+        "max_elements": 100
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"repo_url\": \"https://github.com/langchain-ai/deepagents\",\n  \"snapshot_id\": \"a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99\",\n  \"status\": \"succeeded\",\n  \"scope\": \"database\",\n  \"capabilities\": [\n    \"definitions\"\n  ],\n  \"analysis_status\": \"succeeded\",\n  \"items\": [\n    {\n      \"s.name\": \"_supports_delete\",\n      \"s.kind\": \"Function\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"s.start_line\": 913,\n      \"s.end_line\": 928\n    },\n    {\n      \"s.name\": \"CompositeBackend.adelete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"s.start_line\": 738,\n      \"s.end_line\": 747\n    },\n    {\n      \"s.name\": \"CompositeBackend.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/composite.py\",\n      \"s.start_line\": 713,\n      \"s.end_line\": 736\n    },\n    {\n      \"s.name\": \"ContextHubBackend.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/context_hub.py\",\n      \"s.start_line\": 202,\n      \"s.end_line\": 228\n    },\n    {\n      \"s.name\": \"FilesystemBackend.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/filesystem.py\",\n      \"s.start_line\": 583,\n      \"s.end_line\": 615\n    },\n    {\n      \"s.name\": \"BackendProtocol.adelete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"s.start_line\": 694,\n      \"s.end_line\": 696\n    },\n    {\n      \"s.name\": \"BackendProtocol.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/protocol.py\",\n      \"s.start_line\": 666,\n      \"s.end_line\": 692\n    },\n    {\n      \"s.name\": \"BaseSandbox.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/sandbox.py\",\n      \"s.start_line\": 1368,\n      \"s.end_line\": 1408\n    },\n    {\n      \"s.name\": \"StateBackend.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/state.py\",\n      \"s.start_line\": 249,\n      \"s.end_line\": 273\n    },\n    {\n      \"s.name\": \"StoreBackend.adelete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/store.py\",\n      \"s.start_line\": 575,\n      \"s.end_line\": 588\n    },\n    {\n      \"s.name\": \"StoreBackend.delete\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/deepagents/deepagents/backends/store.py\",\n      \"s.start_line\": 547,\n      \"s.end_line\": 573\n    }\n  ],\n  \"returned\": 11,\n  \"truncated\": false\n}"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "completed"
+    }
+  ],
+  "ambient_call_metadata": [],
+  "native_server_response_matches": [
+    {
+      "native_item_id": "item_15",
+      "query_sha256": "0c354fcadc9239aa84aa6c3c94011ec5993985a00bca139c95c58528d6e77939",
+      "response_sha256": "8e0336c83211563fe36c0f3bb1fe4f0b5962953a402ad5407f70147881176401",
+      "server_event_ids": [
+        "dee013e2b8b16fd03341b71088eede780c2d11935bd1b65219d49a8978bda118"
+      ],
+      "returned": 11
+    }
+  ],
+  "native_trace_publication": "Full native trace retained privately under its SHA256 receipt. Public export contains DeepThought calls and metadata-only ambient call summaries, excluding account connector inventory contents."
+}

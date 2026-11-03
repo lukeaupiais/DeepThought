@@ -1,0 +1,7 @@
+{
+  "raw_context_rejected_before_actor": true,
+  "changed_resume_model_rejected_before_actor": true,
+  "native_model_calls": 0,
+  "status": "passed",
+  "notes": "Final safeguards only; no frozen primary-run prompts or extraction/query implementations changed."
+}

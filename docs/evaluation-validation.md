@@ -64,7 +64,7 @@ mkdir -p eval-results
 python -m deepthought.evaluation prepare \
   evals/scenarios/tree_sitter/declarations.json \
   evals/fixtures/tree_sitter_declarations \
-  eval-results/declarations
+  eval-results/declarations --interface raw-context
 ```
 
 Preparation writes:
@@ -190,3 +190,25 @@ A correct final answer with a disconnected or unused graph endpoint does not
 validate integration. The [core graph port validation](../evals/results/neo4j_query_deepagents_20261102/README.md)
 includes real Neo4j/Cypher access, readback, native token receipts and a failed
 network-blocked pilot retained alongside the corrected runs.
+
+## Enforced Neo4j interface profile
+
+The default evaluation CLI now imports and verifies the selected tool's actual
+output in Neo4j. Its actor handoff contains query access, never raw graph JSON.
+The production query service/CLI/MCP can emit preparation/session-bound read
+receipts; comparisons independently recompute their eligibility. Missing calls,
+wrong graph/run identities, replayed or altered receipts, and baseline graph
+contamination fail the acceptance gate without erasing measured costs.
+
+`tests/test_neo4j_evaluation.py` exercises actual imports/readback, database
+corruption detection, default CLI behaviour, real CLI/MCP audit emission and
+negative controls against the isolated CI Neo4j service. These are conformance and
+falsification controls; separately retained native-agent runs validate actual
+agent use. Historical calibration artifacts remain reports of their original
+profiles and are not retroactively certified by the new receipt gate.
+
+The [native MCP interface-gate validation](../evals/results/neo4j_interface_gate_20261102/README.md)
+retains the actual production-MCP-to-Neo4j query response and matched server-read
+receipt, plus a blocked attempt that the new gate rejected despite 78/78 answer
+quality. The corrected run passed the interface gate; baseline reuse and all
+failed-attempt costs are explicit, with no performance-benefit claim.

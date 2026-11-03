@@ -468,6 +468,8 @@ def finalize_record(
     agent=None,
     execution=None,
     kind="scripted_control",
+    run_id=None,
+    graph_queries=None,
 ):
     """Grade first, then attach explicitly caller-reported telemetry; no billing inference."""
     if arm not in {"baseline", "treatment"} or kind not in {
@@ -499,6 +501,10 @@ def finalize_record(
         data = contexts["treatment"].get("tool_output")
     if _digest(data) != prepared["provenance"]["tool_output_sha256"]:
         raise ValueError("Tool output differs from prepared identity")
+    if prepared["provenance"].get("evaluation_interface") == "neo4j":
+        graph = prepared.get("neo4j")
+        if _digest(graph) != prepared["provenance"].get("neo4j_sha256"):
+            raise ValueError("Neo4j readback identity mismatch")
     quality = grade(scenario, answer)
     source_ok, source_error = True, None
     try:
@@ -558,6 +564,13 @@ def finalize_record(
         "source_error": source_error,
         "preparation": deepcopy(prepared["preparation"]),
     }
+    if prepared["provenance"].get("evaluation_interface") == "neo4j":
+        record["neo4j"] = deepcopy(prepared["neo4j"])
+    record["run_id"] = run_id
+    record["graph_queries"] = deepcopy(graph_queries)
+    from .neo4j import assess_graph_evidence
+
+    assess_graph_evidence(record)
     record["record_id"] = _digest(record)
     return record
 
@@ -586,6 +599,9 @@ def _check_record(value):
     if quality != record["quality"] or _digest(quality) != record["quality_sha256"]:
         raise ValueError("Caller cannot override quality grading")
     _usage(record["usage"])
+    from .neo4j import assess_graph_evidence
+
+    assess_graph_evidence(record)
     return record
 
 
@@ -611,6 +627,11 @@ def compare(baseline_record, treatment_record):
             "Preparation time is separate and must be counted for cold-use conclusions.",
         ],
     }
+    from .neo4j import assess_graph_evidence
+
+    graph_evidence = assess_graph_evidence(t)
+    result["graph_interface"] = graph_evidence
+    result["analysis_tool_evaluation_accepted"] = False
     totals = []
     for name, item in [("baseline", b), ("treatment", t)]:
         u = item["usage"]
@@ -682,4 +703,22 @@ def compare(baseline_record, treatment_record):
             if totals[1] < totals[0]
             else "observed_caller_reported_no_reduction"
         )
+    if result["status"].startswith("observed_caller_reported"):
+        if graph_evidence["status"] == "verified_neo4j_access":
+            baseline_run = b.get("run_id")
+            if not isinstance(baseline_run, str) or not baseline_run.strip():
+                result["status"] = "unverified_baseline_run"
+                result["token_reduction"] = None
+                result["absolute_tokens_saved"] = None
+            elif baseline_run == t.get("run_id") or b.get("graph_queries"):
+                result["status"] = "invalid_baseline_graph_access"
+                result["token_reduction"] = None
+                result["absolute_tokens_saved"] = None
+            else:
+                result["analysis_tool_evaluation_accepted"] = True
+        else:
+            result["status"] = graph_evidence["status"]
+            if graph_evidence["status"] != "raw_context_control":
+                result["token_reduction"] = None
+                result["absolute_tokens_saved"] = None
     return result

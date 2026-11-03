@@ -1,0 +1,43 @@
+{
+  "input_id": "cee99b88bf989d7bc79dcb748d532569096f641c8b0879544a9b74cabf1c536e",
+  "provenance": {
+    "source": {
+      "workspace": "/home/luke/.cache/deepthought-tool-eval/graphql-js",
+      "files_sha256": "15371556b4fb9627c2dcb29707ee36c41898673702254531c8b46632794049ad",
+      "revision": "c719a39547635991e621518d056b5e91026bdcda"
+    },
+    "scenario_sha256": "b9b85f9f57dc65f531285609da231f1a02f3127c672abf56bbc67a516f580016",
+    "tool": {
+      "name": "tree-sitter",
+      "version": "0.2.5a1"
+    },
+    "tool_output_sha256": "a61e973ec049bda3387edd3d922ed4dd673cc283d66cf773987065d12751ad0c",
+    "tool_status": "succeeded",
+    "actor_context_sha256": {
+      "baseline": "047b479dde013caf78f1a70f5ed4a4a9c830ceffa9dbd967952e9302344a1a1e",
+      "treatment": "f42166427b20454bcf36c35abf8780da625164853325268e1dcaed209fbc0420"
+    },
+    "delivery_mode": "tool_access",
+    "tool_access_sha256": "4a709a326f59fe58445a8ca335b7263d2362dbaa658469556d86059ec02122b9",
+    "evaluation_interface": "neo4j",
+    "neo4j_sha256": "14c2ae2a62318f0c9f7e4ad647ccc26c942dc2c6c6b8b581a8b4be2853c49140"
+  },
+  "preparation": {
+    "wall_seconds": 1.0585083660007513,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 13.247601448998466,
+    "cold_preparation_wall_seconds": 14.883964146996732
+  },
+  "neo4j": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/graphql/graphql-js",
+    "snapshot_id": "1f87119eda0146c1c72ab4e02ffaf3a1d7d6e27f3403b081fe4d71660972e6f8",
+    "content_hash": "42f1085746a5745e50218670f4b626aeab9d8c240e2ca8b99e6fefe3b3370731",
+    "nodes": 1764,
+    "relationships": 1763,
+    "verified": true,
+    "wall_seconds": 13.247601448998466
+  }
+}

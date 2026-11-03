@@ -1,0 +1,68 @@
+{
+  "deepthought_calls": [
+    {
+      "id": "item_3",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "queryGraph",
+      "arguments": {
+        "query": "MATCH (s:Symbol) WHERE s.repository_id = $repository_id AND s.snapshot_id = $snapshot_id AND (s.name ENDS WITH '.with_structured_output' OR s.name ENDS WITH '.bind_tools' OR s.name = 'convert_to_genai_function_declarations' OR s.name = '_format_to_gapic_tool') RETURN s.name, s.kind, s.file_path, s.start_line, s.end_line LIMIT 30",
+        "parameters": {
+          "repository_id": "https://github.com/langchain-ai/langchain-google",
+          "snapshot_id": "b525878e98e869239596717254957fcdf5e1beaa635a8b3f79fe77ef9fe39411"
+        },
+        "repository_id": "https://github.com/langchain-ai/langchain-google",
+        "snapshot_id": "b525878e98e869239596717254957fcdf5e1beaa635a8b3f79fe77ef9fe39411",
+        "max_elements": 30
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Error executing tool queryGraph: Scope and fetch_limit parameters are reserved"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "failed"
+    },
+    {
+      "id": "item_6",
+      "type": "mcp_tool_call",
+      "server": "deepthought",
+      "tool": "queryGraph",
+      "arguments": {
+        "query": "MATCH (s:Symbol) WHERE s.name ENDS WITH '.with_structured_output' OR s.name ENDS WITH '.bind_tools' OR s.name = 'convert_to_genai_function_declarations' OR s.name = '_format_to_gapic_tool' RETURN s.name, s.kind, s.file_path, s.start_line, s.end_line LIMIT 30",
+        "parameters": {},
+        "repository_id": "https://github.com/langchain-ai/langchain-google",
+        "snapshot_id": "b525878e98e869239596717254957fcdf5e1beaa635a8b3f79fe77ef9fe39411",
+        "max_elements": 30
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"repo_url\": \"https://github.com/langchain-ai/langchain-google\",\n  \"snapshot_id\": \"b525878e98e869239596717254957fcdf5e1beaa635a8b3f79fe77ef9fe39411\",\n  \"status\": \"succeeded\",\n  \"scope\": \"database\",\n  \"capabilities\": [\n    \"definitions\"\n  ],\n  \"analysis_status\": \"succeeded\",\n  \"items\": [\n    {\n      \"s.name\": \"convert_to_genai_function_declarations\",\n      \"s.kind\": \"Function\",\n      \"s.file_path\": \"libs/genai/langchain_google_genai/_function_utils.py\",\n      \"s.start_line\": 219,\n      \"s.end_line\": 379\n    },\n    {\n      \"s.name\": \"_format_to_gapic_tool\",\n      \"s.kind\": \"Function\",\n      \"s.file_path\": \"libs/vertexai/langchain_google_vertexai/functions_utils.py\",\n      \"s.start_line\": 306,\n      \"s.end_line\": 379\n    },\n    {\n      \"s.name\": \"ChatGoogleGenerativeAI.bind_tools\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/genai/langchain_google_genai/chat_models.py\",\n      \"s.start_line\": 3796,\n      \"s.end_line\": 3871\n    },\n    {\n      \"s.name\": \"ChatGoogleGenerativeAI.with_structured_output\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/genai/langchain_google_genai/chat_models.py\",\n      \"s.start_line\": 3606,\n      \"s.end_line\": 3794\n    },\n    {\n      \"s.name\": \"ChatVertexAI.bind_tools\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/vertexai/langchain_google_vertexai/chat_models.py\",\n      \"s.start_line\": 2905,\n      \"s.end_line\": 2945\n    },\n    {\n      \"s.name\": \"ChatVertexAI.with_structured_output\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/vertexai/langchain_google_vertexai/chat_models.py\",\n      \"s.start_line\": 2658,\n      \"s.end_line\": 2903\n    },\n    {\n      \"s.name\": \"ChatAnthropicVertex.bind_tools\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/vertexai/langchain_google_vertexai/model_garden.py\",\n      \"s.start_line\": 564,\n      \"s.end_line\": 587\n    },\n    {\n      \"s.name\": \"ChatAnthropicVertex.with_structured_output\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/vertexai/langchain_google_vertexai/model_garden.py\",\n      \"s.start_line\": 589,\n      \"s.end_line\": 615\n    },\n    {\n      \"s.name\": \"VertexModelGardenLlama.bind_tools\",\n      \"s.kind\": \"Method\",\n      \"s.file_path\": \"libs/vertexai/langchain_google_vertexai/model_garden_maas/llama.py\",\n      \"s.start_line\": 499,\n      \"s.end_line\": 506\n    }\n  ],\n  \"returned\": 9,\n  \"truncated\": false\n}"
+          }
+        ],
+        "structured_content": null
+      },
+      "error": null,
+      "status": "completed"
+    }
+  ],
+  "ambient_call_metadata": [],
+  "native_server_response_matches": [
+    {
+      "native_item_id": "item_6",
+      "query_sha256": "b3346937116b4141d910bd32b8be8192f269662258704057c7192dfb9b85d698",
+      "response_sha256": "b7b61f3fd9cddc63be7e645b0354fce0d7587c8b74acb7682b522f306521520c",
+      "server_event_ids": [
+        "86e9cbf02b4843ae15ac3e67e26443c1fafeb3be0e5b0a2ded71c5190f44345c"
+      ],
+      "returned": 9
+    }
+  ],
+  "native_trace_publication": "Full native trace retained privately under its SHA256 receipt. Public export contains DeepThought calls and metadata-only ambient call summaries, excluding account connector inventory contents."
+}

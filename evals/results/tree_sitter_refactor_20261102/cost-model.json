@@ -1,0 +1,23 @@
+{
+  "model": "gpt-6.1-sol",
+  "speed_assumption": "Standard native CLI default, no Fast or Ultrafast override",
+  "unit": "Codex credit-equivalent usage estimate",
+  "rates_per_million_tokens": {
+    "uncached_input": 50,
+    "cached_input": 2.5,
+    "output": 250
+  },
+  "formula": "((input_tokens-cached_input_tokens)*50 + cached_input_tokens*2.5 + output_tokens*250)/1000000",
+  "source": "https://learn.chatgpt.com/docs/pricing#token-rates",
+  "retrieved_utc_date": "2026-11-03",
+  "cache_writes": "No separate cache-write charge under documented Codex credit billing. Native terminal values preserved.",
+  "actual_invoice_usd": null,
+  "research_and_review_cost": null,
+  "infrastructure_cost": null,
+  "limits": [
+    "Credit estimate uses rate card and observed native receipts; actual subscription or contract billing was not available.",
+    "Cached input is a subset of input. Reasoning output is a subset of output.",
+    "Coordinator and independent reviewer consumption are outside the native actor receipts and remain unknown.",
+    "Provider cache state is uncontrolled, so observed cost differences are not a stable causal price advantage."
+  ]
+}

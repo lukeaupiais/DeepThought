@@ -1,0 +1,696 @@
+{
+  "task": "graphql visitor-composition refactor investigation",
+  "source_revision": "c719a39547635991e621518d056b5e91026bdcda",
+  "rubric_sha256": "9c5c72c3669f14dc908ca186ebe4b68d0904b1b9016be750715c9c61b1f7cd90",
+  "review_method": "Independent source-backed manual review against original eight locked criteria. Only answer-A/B/C/D.json and public source inspected. Mapping, run directories, native receipts and token/cost/time data were not opened. Exact excerpts are retained as original answer paragraphs with zero-based limitations indexes. All nine declaration targets and rubric remain unchanged.",
+  "blinding_limitation": "Alias-only packaging did not achieve full condition blinding because all four answers self-identify whether declaration graph tools were available. Reviewer could infer graph/source-only condition from prose. No run mapping was opened. This limitation must accompany any description of this review as blinded.",
+  "score_interpretation": "Three answers satisfy8/8, answerB7.5/8 due to one minor completeness omission under a bundled SDL criterion. No material source-behavior false claims detected. These are pilot completeness scores, not proof of semantic equivalence or a validated universal quality metric. Do not generalize the half-point difference into meaningful effectiveness improvement.",
+  "results": [
+    {
+      "alias": "A",
+      "answer_sha256": "82100565583253dc7d40580011c548d0030b11e24a9192dd2f546f41c81980f3",
+      "semantic_score": 8.0,
+      "semantic_possible": 8,
+      "criteria": [
+        {
+          "id": "G1",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 3,
+              "text": "For the raw walker, undefined continues without a direct replacement; false on enter skips that node's descendants and its leave callback; BREAK is an identity sentinel that exits the whole walk without unwinding ancestor leave callbacks. Other defined results record an edit. An AST-node replacement on enter supplies the children subsequently traversed, without another enter callback for the replacement itself; a non-node result, including null, prevents descent. False on leave is not recorded as a replacement (src/language/visitor.ts:100-101,329-380)."
+            },
+            {
+              "limitations_index": 5,
+              "text": "Composition preselects handlers by kind and invokes active visitors in input-array order on both enter and leave; leave order is not reversed. Each callback retains its original visitor as this. Enter false records the current node as that visitor's skip marker, suppressing its descendant callbacks and its own leave callback, then normally clearing the marker when that node is left. BREAK permanently disables only that visitor. Neither signal is forwarded as a global traversal instruction. Leave false is absorbed, so later visitors still run (src/language/visitor.ts:423-475). Separate full-document passes would instead have pass-major ordering; consolidating them can therefore change side-effect and error ordering even when they do not edit."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-342",
+            "src/language/visitor.ts:453-454",
+            "src/language/visitor.ts:466-467"
+          ],
+          "reason": "The answer distinguishes direct-walk termination from permanently disabling a single composed visitor. Its general composed BREAK statement covers enter and leave. Source branches at visitor.ts340-342,453-454,466-467 implement exactly that distinction."
+        },
+        {
+          "id": "G2",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 5,
+              "text": "Composition preselects handlers by kind and invokes active visitors in input-array order on both enter and leave; leave order is not reversed. Each callback retains its original visitor as this. Enter false records the current node as that visitor's skip marker, suppressing its descendant callbacks and its own leave callback, then normally clearing the marker when that node is left. BREAK permanently disables only that visitor. Neither signal is forwarded as a global traversal instruction. Leave false is absorbed, so later visitors still run (src/language/visitor.ts:423-475). Separate full-document passes would instead have pass-major ordering; consolidating them can therefore change side-effect and error ordering even when they do not edit."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:449-456",
+            "src/language/visitor.ts:464-473"
+          ],
+          "reason": "The answer explains node-identity skip state, suppression through the skipped subtree, reset at the boundary leave and other visitors continuing. It also correctly says leave false is ignored. The per-index state and reset are explicit at visitor.ts449-473."
+        },
+        {
+          "id": "G3",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 4,
+              "text": "Edits returned through visit use copied arrays and objects as changes propagate upward. Null removes array entries, with offsets accounting for earlier removals; object child properties receive null directly. Leave callbacks see nodes incorporating completed child edits. The walker returns its resulting root rather than mutating the original through this edit mechanism; direct mutation inside callbacks is not prevented (src/language/visitor.ts:287-319,349-365,382-387)."
+            },
+            {
+              "limitations_index": 6,
+              "text": "Editing is a shared control effect: the first defined result other than false or BREAK immediately returns from the composition callback, suppressing remaining visitors for that phase. An enter replacement therefore prevents later visitors from entering either the original node or its replacement, although active visitors can subsequently see replacement descendants and its leave event. Null removal suppresses later enter callbacks and all traversal of that subtree. A leave edit similarly suppresses remaining leave callbacks. This differs from independent passes over either the original document or successively transformed documents (src/language/visitor.ts:446-475,349-359,367-378)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:301-305",
+            "src/language/visitor.ts:349-359",
+            "src/language/visitor.ts:394",
+            "src/language/visitor.ts:455-456",
+            "src/language/visitor.ts:468-469"
+          ],
+          "reason": "The answer correctly identifies first-edit short circuiting on either phase, later visitors missing that event, and replacement children being traversed without redispatching enter. It distinguishes null removal in arrays from object property replacement. visitor.ts301-313,349-359,455-456,468-469 support this account."
+        },
+        {
+          "id": "G4",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 5,
+              "text": "Composition preselects handlers by kind and invokes active visitors in input-array order on both enter and leave; leave order is not reversed. Each callback retains its original visitor as this. Enter false records the current node as that visitor's skip marker, suppressing its descendant callbacks and its own leave callback, then normally clearing the marker when that node is left. BREAK permanently disables only that visitor. Neither signal is forwarded as a global traversal instruction. Leave false is absorbed, so later visitors still run (src/language/visitor.ts:423-475). Separate full-document passes would instead have pass-major ordering; consolidating them can therefore change side-effect and error ordering even when they do not edit."
+            },
+            {
+              "limitations_index": 8,
+              "text": "Handler selection gives a kind-specific object precedence over generic enter/leave handlers, including when that object omits one phase. A kind-specific function is enter-only and also suppresses generic leave fallback. Generic handlers apply when neither specific form matches. The walker and composer cache these selections during construction, so replacing this with dynamic lookup could change observable behavior (src/language/visitor.ts:266-269,429-438,499-518)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:434-438",
+            "src/language/visitor.ts:448-450",
+            "src/language/visitor.ts:503-517"
+          ],
+          "reason": "Ordered enter/leave dispatch, original-visitor this binding, kind-specific precedence and enter-only function shorthand are all explained. The two loops and apply calls at visitor.ts434-465 and selector branches503-517 establish those claims."
+        },
+        {
+          "id": "G5",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 9,
+              "text": "The TypeInfo wrapper enters type state before invoking the delegated enter handler. Any defined enter result causes it to leave the original node; an AST-node result is then entered as the replacement. Delegated leave runs before typeInfo.leave, keeping current-node type information available to leave callbacks. With the current wrapper outside the composition, a local false or BREAK is consumed by the composer, allowing shared type tracking to continue for other visitors. Preserve this wrapper ordering and verify type state after skips, replacements, removals and sibling transitions (src/utilities/TypeInfo.ts:936-967; src/validation/validate.ts:173-180)."
+            }
+          ],
+          "source_anchors": [
+            "src/utilities/TypeInfo.ts:941-964"
+          ],
+          "reason": "The answer explains original-node entry before delegated enter, removal of original type state for every defined result, conditional replacement entry and delegated leave before typeInfo.leave. TypeInfo.ts941-964 supports each transition, and the described wrapper order matches validate.ts173-180."
+        },
+        {
+          "id": "G6",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 1,
+              "text": "Compatibility assessment: both validation paths already compose rule visitors into one outer AST walk. Executable validation uses visitWithTypeInfo(typeInfo, visitInParallel(...)); SDL validation uses visitInParallel directly (src/validation/validate.ts:171-181,193-209). A simple loop forwarding each handler's result to visit would change behavior: skip and break must remain local to each constituent visitor. Even the existing composition does not provide isolated editing passes."
+            },
+            {
+              "limitations_index": 10,
+              "text": "Executable-validation integration must preserve validate's optional diagnostic tracing, default rule list, schema assertion, shared ValidationContext and TypeInfo, and options. Its traversal excludes description children. Errors are reported through context.reportError, which invokes the configured error callback; they are not collected from visitor return values. The default maximum is 100, and an additional report after reaching the limit throws a sentinel that is appended to the returned errors. The walk also catches validationAbortedError by identity and rethrows other exceptions; rule construction occurs before that try block (src/validation/validate.ts:48-57,129-189; src/validation/ValidationContext.ts:77-79)."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:129-140",
+            "src/validation/validate.ts:153-181"
+          ],
+          "reason": "The answer identifies the public tracing path, inner executable validation setup, composed visitors inside the type-aware wrapper, and description-excluding child keys. These are the relevant validate -> validateImpl -> visit integration points at validate.ts129-181. Describing the filtered map is sufficient even without spelling its local variable name."
+        },
+        {
+          "id": "G7",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 10,
+              "text": "Executable-validation integration must preserve validate's optional diagnostic tracing, default rule list, schema assertion, shared ValidationContext and TypeInfo, and options. Its traversal excludes description children. Errors are reported through context.reportError, which invokes the configured error callback; they are not collected from visitor return values. The default maximum is 100, and an additional report after reaching the limit throws a sentinel that is appended to the returned errors. The walk also catches validationAbortedError by identity and rethrows other exceptions; rule construction occurs before that try block (src/validation/validate.ts:48-57,129-189; src/validation/ValidationContext.ts:77-79)."
+            },
+            {
+              "limitations_index": 11,
+              "text": "SDL validation uses specifiedSDLRules, a shared SDLValidationContext containing the optional schema to extend, default traversal keys, and an uncapped error collector, without the executable path's TypeInfo wrapper or catch block (src/validation/validate.ts:193-209). Schema construction and extension reach it through assertValidSDL and assertValidSDLExtension unless assumeValid or assumeValidSDL is true; those wrappers combine error messages into a thrown Error (src/utilities/buildASTSchema.ts:63-68; src/utilities/extendSchema.ts:150-158; src/validation/validate.ts:218-239). The default GraphQL harness uses validate, and the GraphQL pipeline returns validation errors before execution (src/harness.ts:7,50-55; src/graphql.ts:261-295)."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:162-165",
+            "src/validation/validate.ts:182-187",
+            "src/validation/validate.ts:193-208"
+          ],
+          "reason": "The answer explicitly distinguishes direct SDL composition with SDLValidationContext from the executable TypeInfo wrapper, and separates per-rule BREAK from globally caught error-limit/abort exceptions. validate.ts162-165,173-187,193-208 supports the distinctions."
+        },
+        {
+          "id": "G8",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 0,
+              "text": "The DeepThought declaration graph was consulted for the three relevant files. Its declaration locations were verified against source and the TypeScript compiler parser; the visit declarations at lines 202 and 252 are overload signatures, and line 261 is their implementation. Behavioral conclusions below come from source, not declaration relationships. No repository modules, builds or tests were executed."
+            },
+            {
+              "limitations_index": 13,
+              "text": "Necessary regression checks include exact enter/leave ordering and callback arguments; generic versus kind-specific handler precedence and this binding; nested skips, resumption at siblings, root skips, enter/leave BREAK and leave false; competing edits, enter/leave replacement, removal, replacement-kind changes, copied ancestors and skip-marker cleanup; unchanged-input identity and edit immutability. Validation checks should compare ordered errors and locations, custom and default rules, description exclusion, TypeInfo-dependent fields/arguments/variables/fragments, error-limit boundaries, abort sentinels and unexpected exceptions, SDL construction/extension and bypass options. NoUnusedFragmentsRule supplies a concrete skip-plus-Document-leave case, and FieldsOnCorrectTypeRule depends on current type state (src/validation/rules/NoUnusedFragmentsRule.ts:54-81; src/validation/rules/FieldsOnCorrectTypeRule.ts:65-98). These checks are recommendations derived from the inspected source, not executed results."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-359",
+            "src/language/visitor.ts:445-475",
+            "src/utilities/TypeInfo.ts:941-964",
+            "src/validation/validate.ts:173-208"
+          ],
+          "reason": "The proposed checks include independent skip/BREAK behavior, edit ordering and callback visibility, type-info balance, plus handler/validation integration or global abort behavior. They exceed the locked four-category threshold. The answer attributes behavior to source inspection and identifies tests as proposed rather than executed, so it does not treat declarations as semantic proof."
+        }
+      ],
+      "material_false_claims": [],
+      "omissions": [],
+      "blinding_disclosure": "Graph-access condition is inferable from explicit declaration-graph consultation prose.",
+      "additional_source_supported_observations": "All answers independently describe the edit/skip node-identity reset hazard, wrapper ordering, discarded visit return values and original-document context caches. These are supported by visitor.ts292-313,451-473; TypeInfo.ts941-964; validate.ts177-189,207-209; ValidationContext.ts65-98,408-445. They are static deductions, not claimed executed tests."
+    },
+    {
+      "alias": "B",
+      "answer_sha256": "d00e8e6b0c095568ed17f9d488d120424dd8b0fe03fabe7cf6694ad146fd92ce",
+      "semantic_score": 7.5,
+      "semantic_possible": 8,
+      "criteria": [
+        {
+          "id": "G1",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 3,
+              "text": "Control signals differ between the walker and composer. BREAK is a frozen identity sentinel (src/language/visitor.ts:100-101). In visit, undefined continues without a callback edit; enter false skips children and the matching leave; leave false is not an edit; BREAK immediately exits the traversal loop. Other defined results are edits: null removes array elements or sets an object property to null, an enter AST replacement supplies the children subsequently traversed, and an enter non-node replacement prevents descent and leave. Leave replacements are not traversed (src/language/visitor.ts:292-313,340-380). In visitInParallel, enter false records only that visitor's current node, suppressing its descendants and matching leave until an identity-matching leave clears the state. BREAK disables only that visitor for the remaining lifetime of the composition, while other visitors continue. Leave false is ignored (src/language/visitor.ts:426,445-475)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-342",
+            "src/language/visitor.ts:453-454",
+            "src/language/visitor.ts:466-467"
+          ],
+          "reason": "The answer distinguishes direct-walk termination from permanently disabling a single composed visitor. Its general composed BREAK statement covers enter and leave. Source branches at visitor.ts340-342,453-454,466-467 implement exactly that distinction."
+        },
+        {
+          "id": "G2",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 3,
+              "text": "Control signals differ between the walker and composer. BREAK is a frozen identity sentinel (src/language/visitor.ts:100-101). In visit, undefined continues without a callback edit; enter false skips children and the matching leave; leave false is not an edit; BREAK immediately exits the traversal loop. Other defined results are edits: null removes array elements or sets an object property to null, an enter AST replacement supplies the children subsequently traversed, and an enter non-node replacement prevents descent and leave. Leave replacements are not traversed (src/language/visitor.ts:292-313,340-380). In visitInParallel, enter false records only that visitor's current node, suppressing its descendants and matching leave until an identity-matching leave clears the state. BREAK disables only that visitor for the remaining lifetime of the composition, while other visitors continue. Leave false is ignored (src/language/visitor.ts:426,445-475)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:449-456",
+            "src/language/visitor.ts:464-473"
+          ],
+          "reason": "The answer explains node-identity skip state, suppression through the skipped subtree, reset at the boundary leave and other visitors continuing. It also correctly says leave false is ignored. The per-index state and reset are explicit at visitor.ts449-473."
+        },
+        {
+          "id": "G3",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 3,
+              "text": "Control signals differ between the walker and composer. BREAK is a frozen identity sentinel (src/language/visitor.ts:100-101). In visit, undefined continues without a callback edit; enter false skips children and the matching leave; leave false is not an edit; BREAK immediately exits the traversal loop. Other defined results are edits: null removes array elements or sets an object property to null, an enter AST replacement supplies the children subsequently traversed, and an enter non-node replacement prevents descent and leave. Leave replacements are not traversed (src/language/visitor.ts:292-313,340-380). In visitInParallel, enter false records only that visitor's current node, suppressing its descendants and matching leave until an identity-matching leave clears the state. BREAK disables only that visitor for the remaining lifetime of the composition, while other visitors continue. Leave false is ignored (src/language/visitor.ts:426,445-475)."
+            },
+            {
+              "limitations_index": 4,
+              "text": "Edits are shared and order-sensitive, not independent transformations. The first active visitor returning a defined result other than the phase's control signals immediately returns it from the composition, so later visitors miss that node event (src/language/visitor.ts:445-475). The walker then applies the result: after an enter AST replacement, later visitors can still observe its descendants and its leave, even though they missed its enter. They do not receive a new enter for the replacement itself (src/language/visitor.ts:334-378). Dispatching all visitors against the original node, redispatching the replacement, or running later full passes over the completed edited tree would each change this behavior. Returned edits copy affected arrays and objects rather than mutating the input; validation discards the walker's returned AST (src/language/visitor.ts:292-313,382-387; src/validation/validate.ts:177-181,208-209)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:301-305",
+            "src/language/visitor.ts:349-359",
+            "src/language/visitor.ts:394",
+            "src/language/visitor.ts:455-456",
+            "src/language/visitor.ts:468-469"
+          ],
+          "reason": "The answer correctly identifies first-edit short circuiting on either phase, later visitors missing that event, and replacement children being traversed without redispatching enter. It distinguishes null removal in arrays from object property replacement. visitor.ts301-313,349-359,455-456,468-469 support this account."
+        },
+        {
+          "id": "G4",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 2,
+              "text": "Traversal and ordering: visit performs depth-first traversal, calls enter before children and leave afterward, processes arrays in index order, and selects child properties from visitorKeys, defaulting to QueryDocumentKeys. Arrays themselves receive no visitor callback. Callbacks receive node, key, parent, path, and ancestors with the visitor as this (src/language/visitor.ts:261-338,367-380; src/language/ast.ts:247-290). visitInParallel invokes active visitors in input order on both enter and leave; leave order is not reversed, and each callback's this is its original visitor (src/language/visitor.ts:434-475)."
+            },
+            {
+              "limitations_index": 6,
+              "text": "Handler selection must remain consistent. A kind-specific object supplies that kind's enter/leave handlers; a kind-specific function supplies enter only. Generic enter/leave handlers are used only when neither kind-specific form applies, so a missing phase in a kind-specific handler does not fall back to the generic phase (src/language/visitor.ts:499-517). visit resolves handlers before walking, and visitInParallel builds per-kind handler arrays when composing (src/language/visitor.ts:266-269,429-439). A replacement that resolves mutable visitor properties on every event could change behavior."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:434-438",
+            "src/language/visitor.ts:448-450",
+            "src/language/visitor.ts:503-517"
+          ],
+          "reason": "Ordered enter/leave dispatch, original-visitor this binding, kind-specific precedence and enter-only function shorthand are all explained. The two loops and apply calls at visitor.ts434-465 and selector branches503-517 establish those claims."
+        },
+        {
+          "id": "G5",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 7,
+              "text": "Type tracking must surround the combined visitor. visitWithTypeInfo enters the original node before dispatch. For any defined enter result, it leaves the original node and enters the replacement only if isNode accepts it. On normal leave, visitor callbacks run before typeInfo.leave (src/utilities/TypeInfo.ts:936-966). This gives all active rule callbacks the current node's type context while preserving parent context after skips or removal. Wrapping every rule independently around the same TypeInfo would apply multiple stack transitions per node. Regression checks must cover skips, removal, replacement across node kinds, and type information observed by remaining visitors."
+            }
+          ],
+          "source_anchors": [
+            "src/utilities/TypeInfo.ts:941-964"
+          ],
+          "reason": "The answer explains original-node entry before delegated enter, removal of original type state for every defined result, conditional replacement entry and delegated leave before typeInfo.leave. TypeInfo.ts941-964 supports each transition, and the described wrapper order matches validate.ts173-180."
+        },
+        {
+          "id": "G6",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 1,
+              "text": "Compatibility assessment: a straightforward loop that invokes every pass and forwards its control result to the walker would not preserve behavior. Executable-document validation already combines rule visitors through visitInParallel, then wraps the composition with visitWithTypeInfo; SDL validation also already composes rule visitors (src/validation/validate.ts:171-181,193-209). The existing composer requires independent per-visitor state and short-circuits dispatch on edits. Converting genuinely separate full-document passes to this interleaving also changes callback and error ordering, so equivalence requires checking their side effects and dependencies."
+            },
+            {
+              "limitations_index": 8,
+              "text": "Executable-validation integration must preserve validate's tracing branch, default rules, schema assertion, shared ValidationContext and TypeInfo, options, and the visitor key map that excludes descriptions (src/validation/validate.ts:48-53,129-181). Errors are collected through context.reportError, which invokes the supplied error callback, rather than by interpreting visitor returns as diagnostics (src/validation/ValidationContext.ts:77-79; src/validation/rules/FieldsOnCorrectTypeRule.ts:91-95). maxErrors defaults to 100; an additional report after the limit throws the shared limit error, which is appended to the result. The traversal catch also appends validationAbortedError and rethrows other exceptions; rule construction occurs before that try block (src/validation/validate.ts:149-189). SDL validation instead uses SDLValidationContext, optional schemaToExtend, specifiedSDLRules, default traversal keys, and no analogous error-limit catch (src/validation/validate.ts:193-209)."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:129-140",
+            "src/validation/validate.ts:153-181"
+          ],
+          "reason": "The answer identifies the public tracing path, inner executable validation setup, composed visitors inside the type-aware wrapper, and description-excluding child keys. These are the relevant validate -> validateImpl -> visit integration points at validate.ts129-181. Describing the filtered map is sufficient even without spelling its local variable name."
+        },
+        {
+          "id": "G7",
+          "score": 0.5,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 1,
+              "text": "Compatibility assessment: a straightforward loop that invokes every pass and forwards its control result to the walker would not preserve behavior. Executable-document validation already combines rule visitors through visitInParallel, then wraps the composition with visitWithTypeInfo; SDL validation also already composes rule visitors (src/validation/validate.ts:171-181,193-209). The existing composer requires independent per-visitor state and short-circuits dispatch on edits. Converting genuinely separate full-document passes to this interleaving also changes callback and error ordering, so equivalence requires checking their side effects and dependencies."
+            },
+            {
+              "limitations_index": 8,
+              "text": "Executable-validation integration must preserve validate's tracing branch, default rules, schema assertion, shared ValidationContext and TypeInfo, options, and the visitor key map that excludes descriptions (src/validation/validate.ts:48-53,129-181). Errors are collected through context.reportError, which invokes the supplied error callback, rather than by interpreting visitor returns as diagnostics (src/validation/ValidationContext.ts:77-79; src/validation/rules/FieldsOnCorrectTypeRule.ts:91-95). maxErrors defaults to 100; an additional report after the limit throws the shared limit error, which is appended to the result. The traversal catch also appends validationAbortedError and rethrows other exceptions; rule construction occurs before that try block (src/validation/validate.ts:149-189). SDL validation instead uses SDLValidationContext, optional schemaToExtend, specifiedSDLRules, default traversal keys, and no analogous error-limit catch (src/validation/validate.ts:193-209)."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:162-165",
+            "src/validation/validate.ts:182-187",
+            "src/validation/validate.ts:193-208"
+          ],
+          "reason": "Correctly identifies SDLValidationContext, schema-to-extend/default rules, default traversal keys and absent executable error-limit catch, and correctly explains global abort handling. However the complete answer never expressly establishes the locked criterion that SDL calls the composed visitor directly without the executable TypeInfo wrapper. The initial paragraph explicitly describes TypeInfo only for executable validation and merely says SDL also composes visitors. This is a small completeness omission under the bundled criterion, not a false behavioral claim. The missing contrast is established in pinned source at validate.ts177-180 versus207-208."
+        },
+        {
+          "id": "G8",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 0,
+              "text": "Investigation was static and read-only. Declaration locations, including both visit overload signatures and its implementation, were confirmed with the TypeScript compiler parser. No DeepThought declaration graph was exposed by the available tools or MCP resources. Behavioral conclusions below come from source bodies; no repository modules, builds, or tests were executed."
+            },
+            {
+              "limitations_index": 10,
+              "text": "Necessary regression checks, not run here: compare exact callback traces, visitor this values, traversal arguments, and error ordering; cover kind-specific versus generic handlers, array and custom-key order, executable description exclusion, and SDL traversal. Exercise per-pass enter false, sibling resumption, enter/leave BREAK, leave false, and unaffected companion visitors. Cover competing edits, deletion, root replacement, changed node kinds, replacement descendants and leave without enter, immutable output, and skip recovery when edits change identity or short-circuit leave. Check type-stack balance, original-document context caches, auxiliary variable/fragment analysis, default and custom rule lists, tracing, invalid schemas, option handling, maxErrors boundaries, validation-abort sentinels, unrelated exceptions, SDL extension context, schema-validation bypasses, and execution receiving the original document. These checks follow the implementation branches cited above and are required before claiming behavioral compatibility."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-359",
+            "src/language/visitor.ts:445-475",
+            "src/utilities/TypeInfo.ts:941-964",
+            "src/validation/validate.ts:173-208"
+          ],
+          "reason": "The proposed checks include independent skip/BREAK behavior, edit ordering and callback visibility, type-info balance, plus handler/validation integration or global abort behavior. They exceed the locked four-category threshold. The answer attributes behavior to source inspection and identifies tests as proposed rather than executed, so it does not treat declarations as semantic proof."
+        }
+      ],
+      "material_false_claims": [],
+      "omissions": [
+        {
+          "criterion": "G7",
+          "description": "SDL absence of executable TypeInfo wrapper is not expressly explained. Remaining SDL/global-abort distinctions are correct.",
+          "severity": "minor completeness omission"
+        }
+      ],
+      "blinding_disclosure": "Source-only condition is inferable from explicit absence-of-graph prose.",
+      "additional_source_supported_observations": "All answers independently describe the edit/skip node-identity reset hazard, wrapper ordering, discarded visit return values and original-document context caches. These are supported by visitor.ts292-313,451-473; TypeInfo.ts941-964; validate.ts177-189,207-209; ValidationContext.ts65-98,408-445. They are static deductions, not claimed executed tests."
+    },
+    {
+      "alias": "C",
+      "answer_sha256": "b39bfa9f44d8e6d3e695c8fdee5926544d7c7ce4b2af00ce0ff2a939af26ace5",
+      "semantic_score": 8.0,
+      "semantic_possible": 8,
+      "criteria": [
+        {
+          "id": "G1",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 2,
+              "text": "For an ordinary visit, undefined continues without replacement; false on enter skips descendants and that node's leave, while false on leave is not an edit. BREAK is an identity sentinel that immediately exits the entire walk. Other defined results are edits: AST-node replacements become the nodes whose children are traversed without another enter dispatch at that position; null and other non-node replacements bypass descendants and leave. Arrays are copied and null entries spliced out; object edits copy the object and assign the replacement, including null (src/language/visitor.ts:100-101,284-360,367-387). BREAK does not unwind pending ancestor leave callbacks, so preservation of pending edits must not be assumed."
+            },
+            {
+              "limitations_index": 3,
+              "text": "visitInParallel caches each visitor's handlers by node kind and invokes active visitors in input order on both enter and leave; leave order is not reversed. Handler calls retain each original visitor as this. Enter false records the current node as that visitor's skip boundary; descendants and its boundary leave are suppressed, and it resumes when leave receives the identical boundary node. BREAK disables only that visitor permanently. These signals are consumed so other visitors continue; leave false is ignored (src/language/visitor.ts:423-475). Real rules depend on independent skipping, including NoUnusedFragmentsRule and NoFragmentCyclesRule (src/validation/rules/NoUnusedFragmentsRule.ts:54-81; src/validation/rules/NoFragmentCyclesRule.ts:61-66)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-342",
+            "src/language/visitor.ts:453-454",
+            "src/language/visitor.ts:466-467"
+          ],
+          "reason": "The answer distinguishes direct-walk termination from permanently disabling a single composed visitor. Its general composed BREAK statement covers enter and leave. Source branches at visitor.ts340-342,453-454,466-467 implement exactly that distinction."
+        },
+        {
+          "id": "G2",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 3,
+              "text": "visitInParallel caches each visitor's handlers by node kind and invokes active visitors in input order on both enter and leave; leave order is not reversed. Handler calls retain each original visitor as this. Enter false records the current node as that visitor's skip boundary; descendants and its boundary leave are suppressed, and it resumes when leave receives the identical boundary node. BREAK disables only that visitor permanently. These signals are consumed so other visitors continue; leave false is ignored (src/language/visitor.ts:423-475). Real rules depend on independent skipping, including NoUnusedFragmentsRule and NoFragmentCyclesRule (src/validation/rules/NoUnusedFragmentsRule.ts:54-81; src/validation/rules/NoFragmentCyclesRule.ts:61-66)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:449-456",
+            "src/language/visitor.ts:464-473"
+          ],
+          "reason": "The answer explains node-identity skip state, suppression through the skipped subtree, reset at the boundary leave and other visitors continuing. It also correctly says leave false is ignored. The per-index state and reset are explicit at visitor.ts449-473."
+        },
+        {
+          "id": "G3",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 2,
+              "text": "For an ordinary visit, undefined continues without replacement; false on enter skips descendants and that node's leave, while false on leave is not an edit. BREAK is an identity sentinel that immediately exits the entire walk. Other defined results are edits: AST-node replacements become the nodes whose children are traversed without another enter dispatch at that position; null and other non-node replacements bypass descendants and leave. Arrays are copied and null entries spliced out; object edits copy the object and assign the replacement, including null (src/language/visitor.ts:100-101,284-360,367-387). BREAK does not unwind pending ancestor leave callbacks, so preservation of pending edits must not be assumed."
+            },
+            {
+              "limitations_index": 4,
+              "text": "Edits are order-sensitive: the first defined result other than the locally consumed control signals returns immediately from the merged callback, preventing later visitors from receiving that enter or leave event (src/language/visitor.ts:445-470). A later visitor does not receive a replacement's enter at the same position, but can receive its descendants and eventual leave because the walker traverses the replacement (src/language/visitor.ts:349-359,370-378). Calling every visitor after an edit, feeding replacements through remaining callbacks, or isolating edits per pass would change existing behavior."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:301-305",
+            "src/language/visitor.ts:349-359",
+            "src/language/visitor.ts:394",
+            "src/language/visitor.ts:455-456",
+            "src/language/visitor.ts:468-469"
+          ],
+          "reason": "The answer correctly identifies first-edit short circuiting on either phase, later visitors missing that event, and replacement children being traversed without redispatching enter. It distinguishes null removal in arrays from object property replacement. visitor.ts301-313,349-359,455-456,468-469 support this account."
+        },
+        {
+          "id": "G4",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 3,
+              "text": "visitInParallel caches each visitor's handlers by node kind and invokes active visitors in input order on both enter and leave; leave order is not reversed. Handler calls retain each original visitor as this. Enter false records the current node as that visitor's skip boundary; descendants and its boundary leave are suppressed, and it resumes when leave receives the identical boundary node. BREAK disables only that visitor permanently. These signals are consumed so other visitors continue; leave false is ignored (src/language/visitor.ts:423-475). Real rules depend on independent skipping, including NoUnusedFragmentsRule and NoFragmentCyclesRule (src/validation/rules/NoUnusedFragmentsRule.ts:54-81; src/validation/rules/NoFragmentCyclesRule.ts:61-66)."
+            },
+            {
+              "limitations_index": 6,
+              "text": "Handler selection gives a kind-specific object complete precedence over generic handlers. A kind-specific function supplies enter only; otherwise generic enter and leave are used. A missing phase in a kind-specific handler does not fall back to the generic phase. Both visit and visitInParallel select handlers before traversal, so dynamic handler mutation must not silently gain different behavior in a refactor (src/language/visitor.ts:266-269,429-438,499-517)."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:434-438",
+            "src/language/visitor.ts:448-450",
+            "src/language/visitor.ts:503-517"
+          ],
+          "reason": "Ordered enter/leave dispatch, original-visitor this binding, kind-specific precedence and enter-only function shorthand are all explained. The two loops and apply calls at visitor.ts434-465 and selector branches503-517 establish those claims."
+        },
+        {
+          "id": "G5",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 7,
+              "text": "The type-aware wrapper enters TypeInfo before invoking enter handlers and invokes leave handlers before removing their type state. Any defined enter result first removes the original node's state and enters the replacement state only if the result is an AST node (src/utilities/TypeInfo.ts:936-966). Preserve the existing wrapper outside visitInParallel: per-rule false and BREAK are consumed internally, allowing TypeInfo to continue tracking the shared traversal. Moving the wrapper or sharing its mutable state across independently wrapped visitors requires specific checks of field, parent, argument, input, and fragment type state."
+            }
+          ],
+          "source_anchors": [
+            "src/utilities/TypeInfo.ts:941-964"
+          ],
+          "reason": "The answer explains original-node entry before delegated enter, removal of original type state for every defined result, conditional replacement entry and delegated leave before typeInfo.leave. TypeInfo.ts941-964 supports each transition, and the described wrapper order matches validate.ts173-180."
+        },
+        {
+          "id": "G6",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 0,
+              "text": "Assessment: a straightforward callback loop does not preserve the existing contract unless it reproduces per-visitor control state, handler selection, ordering, and edit short-circuiting. Executable-document validation already composes rule visitors with visitInParallel and wraps the result with visitWithTypeInfo; SDL validation already uses visitInParallel directly (src/validation/validate.ts:171-181,193-209). Combining genuinely separate full-document passes also changes their callback interleaving from pass-by-pass to node-by-node, so equivalence requires assumptions about shared state and observable ordering."
+            },
+            {
+              "limitations_index": 8,
+              "text": "Executable validation must retain its tracing entry point, invalid-schema assertion, rule construction order, context options, and description-excluding child-key map (src/validation/validate.ts:48-53,129-173). Errors are delivered through context.reportError to the configured callback, rather than collected from visitor return values (src/validation/ValidationContext.ts:77-79; src/validation/validate.ts:158-168). The default maxErrors is 100; the next reporting attempt after the limit throws a shared sentinel, which is appended to the returned errors. The fragment-work abort sentinel is also appended, while unrelated exceptions propagate. Rule construction occurs outside the traversal try/catch (src/validation/validate.ts:149-189). Preserve error order and truncation: specifiedRules is deliberately ordered for error presentation (src/validation/specifiedRules.ts:92-131)."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:129-140",
+            "src/validation/validate.ts:153-181"
+          ],
+          "reason": "The answer identifies the public tracing path, inner executable validation setup, composed visitors inside the type-aware wrapper, and description-excluding child keys. These are the relevant validate -> validateImpl -> visit integration points at validate.ts129-181. Describing the filtered map is sufficient even without spelling its local variable name."
+        },
+        {
+          "id": "G7",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 8,
+              "text": "Executable validation must retain its tracing entry point, invalid-schema assertion, rule construction order, context options, and description-excluding child-key map (src/validation/validate.ts:48-53,129-173). Errors are delivered through context.reportError to the configured callback, rather than collected from visitor return values (src/validation/ValidationContext.ts:77-79; src/validation/validate.ts:158-168). The default maxErrors is 100; the next reporting attempt after the limit throws a shared sentinel, which is appended to the returned errors. The fragment-work abort sentinel is also appended, while unrelated exceptions propagate. Rule construction occurs outside the traversal try/catch (src/validation/validate.ts:149-189). Preserve error order and truncation: specifiedRules is deliberately ordered for error presentation (src/validation/specifiedRules.ts:92-131)."
+            },
+            {
+              "limitations_index": 9,
+              "text": "SDL validation uses SDLValidationContext, the optional schema being extended, specifiedSDLRules, and the default traversal keys. It has no TypeInfo wrapper, executable description filter, maxErrors option, or traversal exception catch (src/validation/validate.ts:193-209). Preserve the schema-building integration: assertion wrappers call validateSDL, and buildASTSchema and extendSchema invoke those wrappers unless assumeValid or assumeValidSDL bypasses validation (src/validation/validate.ts:218-238; src/utilities/buildASTSchema.ts:63-79; src/utilities/extendSchema.ts:150-165). Those convenience wrappers are intentionally excluded from claims."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:162-165",
+            "src/validation/validate.ts:182-187",
+            "src/validation/validate.ts:193-208"
+          ],
+          "reason": "The answer explicitly distinguishes direct SDL composition with SDLValidationContext from the executable TypeInfo wrapper, and separates per-rule BREAK from globally caught error-limit/abort exceptions. validate.ts162-165,173-187,193-208 supports the distinctions."
+        },
+        {
+          "id": "G8",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 11,
+              "text": "Necessary regression checks include callback traces for generic and kind-specific handlers, visitor this and traversal arguments, same-order enter/leave dispatch, independent nested and root skips, sibling resumption, per-visitor BREAK on both phases, and ignored leave false. Cover enter and leave replacement, kind changes, deletion, edits suppressing later callbacks, replacement descendants, immutable result construction, edit-plus-skip identity interactions, and edits before global BREAK (src/language/visitor.ts:284-387,423-517). Validation checks should cover TypeInfo state across edits and skips, exact error ordering and maxErrors boundaries, fragment-work aborts and unrelated exceptions, description exclusion, custom and empty rule lists, SDL extension context and validation bypasses, tracing, and preservation of the document passed to execution (src/utilities/TypeInfo.ts:936-966; src/validation/validate.ts:48-53,129-209; src/graphql.ts:261-295)."
+            },
+            {
+              "limitations_index": 12,
+              "text": "This was a static investigation. Declaration locations, including both visit overload signatures, were verified with the TypeScript compiler parser; behavioral conclusions were established from source bodies. No DeepThought declaration-graph tool or resource was available. No repository modules, builds, or tests were executed, no files were modified, and no network research was used."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-359",
+            "src/language/visitor.ts:445-475",
+            "src/utilities/TypeInfo.ts:941-964",
+            "src/validation/validate.ts:173-208"
+          ],
+          "reason": "The proposed checks include independent skip/BREAK behavior, edit ordering and callback visibility, type-info balance, plus handler/validation integration or global abort behavior. They exceed the locked four-category threshold. The answer attributes behavior to source inspection and identifies tests as proposed rather than executed, so it does not treat declarations as semantic proof."
+        }
+      ],
+      "material_false_claims": [],
+      "omissions": [],
+      "blinding_disclosure": "Source-only condition is inferable from explicit absence-of-graph prose.",
+      "additional_source_supported_observations": "All answers independently describe the edit/skip node-identity reset hazard, wrapper ordering, discarded visit return values and original-document context caches. These are supported by visitor.ts292-313,451-473; TypeInfo.ts941-964; validate.ts177-189,207-209; ValidationContext.ts65-98,408-445. They are static deductions, not claimed executed tests."
+    },
+    {
+      "alias": "D",
+      "answer_sha256": "36e29649d91a7e483e57467330694b61f8bfc1442434c8c5ed89e22ade1baacd",
+      "semantic_score": 8.0,
+      "semantic_possible": 8,
+      "criteria": [
+        {
+          "id": "G1",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 4,
+              "text": "Direct visit control signals differ from composed signals. undefined means no callback edit. false on enter skips the subtree and its leave callback; false on leave does not initiate skipping or record a replacement. Identity equality with BREAK stops the entire direct walk. Other defined values are edits, including null. In visitInParallel, enter false instead records that visitor's current node as a skip marker while other visitors continue. Its matching leave resets the marker without invoking that visitor's leave callback. BREAK from either phase permanently disables only that visitor for the composite's lifetime; it is consumed rather than forwarded to the walker. false on composed leave is also consumed. Sources: src/language/visitor.ts:100-101,340-360,423-426,446-475."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-342",
+            "src/language/visitor.ts:453-454",
+            "src/language/visitor.ts:466-467"
+          ],
+          "reason": "The answer distinguishes direct-walk termination from permanently disabling a single composed visitor. Its general composed BREAK statement covers enter and leave. Source branches at visitor.ts340-342,453-454,466-467 implement exactly that distinction."
+        },
+        {
+          "id": "G2",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 4,
+              "text": "Direct visit control signals differ from composed signals. undefined means no callback edit. false on enter skips the subtree and its leave callback; false on leave does not initiate skipping or record a replacement. Identity equality with BREAK stops the entire direct walk. Other defined values are edits, including null. In visitInParallel, enter false instead records that visitor's current node as a skip marker while other visitors continue. Its matching leave resets the marker without invoking that visitor's leave callback. BREAK from either phase permanently disables only that visitor for the composite's lifetime; it is consumed rather than forwarded to the walker. false on composed leave is also consumed. Sources: src/language/visitor.ts:100-101,340-360,423-426,446-475."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:449-456",
+            "src/language/visitor.ts:464-473"
+          ],
+          "reason": "The answer explains node-identity skip state, suppression through the skipped subtree, reset at the boundary leave and other visitors continuing. It also correctly says leave false is ignored. The per-index state and reset are explicit at visitor.ts449-473."
+        },
+        {
+          "id": "G3",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 5,
+              "text": "Edits are shared traversal effects, not isolated per-pass transformations. On either phase, the first composed callback returning a defined value other than false or BREAK immediately returns that value to visit, preventing later visitors from receiving that same node event. Even returning the original node object takes this branch. An AST replacement returned on enter is traversed through its children without another enter event for the replacement itself; its leave event can reach later visitors. A null or other non-node enter replacement skips children and leave entirely. A leave replacement is not subsequently traversed. Thus neither continuing dispatch on the original node nor piping the replacement through remaining callbacks preserves current behavior. Sources: src/language/visitor.ts:334-360,370-378,446-475."
+            },
+            {
+              "limitations_index": 6,
+              "text": "The walker applies edits by copying changed arrays and objects. null removes an array element, with offsets adjusted for subsequent removals; an object property edit assigns null rather than deleting the property. Child edits are assembled before the parent's leave callback. The walker returns the original root when no edits remain, or its recorded replacement otherwise. These copy operations do not protect against callbacks directly mutating input objects. Sources: src/language/visitor.ts:287-319,349-364,382-387."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:301-305",
+            "src/language/visitor.ts:349-359",
+            "src/language/visitor.ts:394",
+            "src/language/visitor.ts:455-456",
+            "src/language/visitor.ts:468-469"
+          ],
+          "reason": "The answer correctly identifies first-edit short circuiting on either phase, later visitors missing that event, and replacement children being traversed without redispatching enter. It distinguishes null removal in arrays from object property replacement. visitor.ts301-313,349-359,455-456,468-469 support this account."
+        },
+        {
+          "id": "G4",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 2,
+              "text": "Handler selection gives a kind-specific object precedence over generic enter/leave handlers. A kind-specific function supplies only enter, without falling back to a generic leave. Generic handlers apply when neither supported kind-specific form is present. visit and visitInParallel resolve handlers for all known kinds before traversal; dynamically changing visitor properties during traversal therefore does not update these cached selections. Callback this is the visitor object, including each original visitor inside composition. Sources: src/language/visitor.ts:266-269,334-338,429-438,450,465,499-518."
+            },
+            {
+              "limitations_index": 3,
+              "text": "The walker performs depth-first traversal: enter precedes children and leave follows them. Child property order follows the supplied visitor-key map, defaulting to QueryDocumentKeys, and arrays are traversed in index order without invoking callbacks on the arrays themselves. Callbacks receive node, key, parent, path and ancestors. Both composed enter and composed leave dispatch visitors in their original array order; leave order is not reversed. Sources: src/language/visitor.ts:261-265,284-338,367-380,446-475; src/language/ast.ts:247-305."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:434-438",
+            "src/language/visitor.ts:448-450",
+            "src/language/visitor.ts:503-517"
+          ],
+          "reason": "Ordered enter/leave dispatch, original-visitor this binding, kind-specific precedence and enter-only function shorthand are all explained. The two loops and apply calls at visitor.ts434-465 and selector branches503-517 establish those claims."
+        },
+        {
+          "id": "G5",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 8,
+              "text": "The type-aware wrapper must remain outside the composed visitor. It enters TypeInfo before dispatch, so callbacks see the current node's type state. When enter returns any defined result, it leaves the original node immediately and enters the result only if it is an AST node. On normal leave it dispatches callbacks before leaving TypeInfo. Because the composer consumes individual false and BREAK signals, those signals do not unwind the shared type state while other rules continue. Reordering these layers or independently updating the same TypeInfo for every rule would change behavior. Sources: src/utilities/TypeInfo.ts:936-967; src/validation/validate.ts:157-180."
+            }
+          ],
+          "source_anchors": [
+            "src/utilities/TypeInfo.ts:941-964"
+          ],
+          "reason": "The answer explains original-node entry before delegated enter, removal of original type state for every defined result, conditional replacement entry and delegated leave before typeInfo.leave. TypeInfo.ts941-964 supports each transition, and the described wrapper order matches validate.ts173-180."
+        },
+        {
+          "id": "G6",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 1,
+              "text": "Compatibility assessment: executable-document and SDL validation already compose rules into a shared walk. validateImpl uses visit(documentAST, visitWithTypeInfo(typeInfo, visitInParallel(ruleVisitors)), filteredKeys); validateSDL uses visit(documentAST, visitInParallel(ruleVisitors)). A straightforward loop that merely invokes every visitor would lose existing independent skip/stop handling and edit arbitration. Consolidating separate full-document passes would also change observable scheduling from pass-by-pass to node-by-node, so arbitrary stateful passes are not automatically equivalent. Sources: src/validation/validate.ts:156-181,193-209; src/language/visitor.ts:434-475."
+            },
+            {
+              "limitations_index": 9,
+              "text": "Executable validation integration must preserve validate's optional traceSync wrapper, rule-list order, schema assertion, shared ValidationContext and TypeInfo, and option defaults. The main walk excludes description properties. Errors are reported through context.reportError and its callback; returned callback values are visitor controls or edits, not an error-collection mechanism. maxErrors defaults to 100; the next report after the limit throws a sentinel, which is appended to the accumulated errors. The traversal catch recognizes that sentinel and validationAbortedError by identity and rethrows other exceptions. Rule construction occurs before the traversal try block. Sources: src/validation/validate.ts:48-57,129-189; src/validation/ValidationContext.ts:77-79; src/validation/specifiedRules.ts:92-131."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:129-140",
+            "src/validation/validate.ts:153-181"
+          ],
+          "reason": "The answer identifies the public tracing path, inner executable validation setup, composed visitors inside the type-aware wrapper, and description-excluding child keys. These are the relevant validate -> validateImpl -> visit integration points at validate.ts129-181. Describing the filtered map is sufficient even without spelling its local variable name."
+        },
+        {
+          "id": "G7",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 9,
+              "text": "Executable validation integration must preserve validate's optional traceSync wrapper, rule-list order, schema assertion, shared ValidationContext and TypeInfo, and option defaults. The main walk excludes description properties. Errors are reported through context.reportError and its callback; returned callback values are visitor controls or edits, not an error-collection mechanism. maxErrors defaults to 100; the next report after the limit throws a sentinel, which is appended to the accumulated errors. The traversal catch recognizes that sentinel and validationAbortedError by identity and rethrows other exceptions. Rule construction occurs before the traversal try block. Sources: src/validation/validate.ts:48-57,129-189; src/validation/ValidationContext.ts:77-79; src/validation/specifiedRules.ts:92-131."
+            },
+            {
+              "limitations_index": 10,
+              "text": "SDL validation uses SDLValidationContext, the optional schemaToExtend and specifiedSDLRules, with the ordinary visitor keys and no TypeInfo wrapper, executable maxErrors handling or local traversal catch. Its assertion callers convert collected errors into a thrown Error. buildASTSchema and extendSchema invoke those assertion paths unless assumeValid or assumeValidSDL is true. Preserve these differences when sharing implementation machinery. Sources: src/validation/validate.ts:193-239; src/validation/specifiedRules.ts:134-151; src/utilities/buildASTSchema.ts:63-69; src/utilities/extendSchema.ts:150-159."
+            }
+          ],
+          "source_anchors": [
+            "src/validation/validate.ts:162-165",
+            "src/validation/validate.ts:182-187",
+            "src/validation/validate.ts:193-208"
+          ],
+          "reason": "The answer explicitly distinguishes direct SDL composition with SDLValidationContext from the executable TypeInfo wrapper, and separates per-rule BREAK from globally caught error-limit/abort exceptions. validate.ts162-165,173-187,193-208 supports the distinctions."
+        },
+        {
+          "id": "G8",
+          "score": 1.0,
+          "possible": 1,
+          "exact_excerpts": [
+            {
+              "limitations_index": 0,
+              "text": "The DeepThought declaration graph was consulted for the three implementation files, and declaration starts and overloads were independently checked with the TypeScript compiler parser. The claims include both visit overload signatures and its implementation. Classes, nested handlers, assertion convenience wrappers and unrelated functions are excluded. Behavioral conclusions below come from source bodies, not declaration relationships."
+            },
+            {
+              "limitations_index": 12,
+              "text": "Necessary regression checks: compare exact enter/leave traces, callback this and positional arguments, generic versus kind-specific selection, key ordering and custom visitor keys; verify independent nested skips, sibling resumption, skipped-node leave suppression, BREAK from both phases, continued operation of other rules and fresh state across validation calls. Exercise competing edits, same-object returns, replacement kinds, replacement descendants and leave events, null removal, non-node replacements, child edits before leave, original-tree preservation, and every skip-marker interaction identified above. These expectations derive from src/language/visitor.ts:261-387,423-518."
+            },
+            {
+              "limitations_index": 13,
+              "text": "Validation regression checks should cover type information observed on enter and leave, replacement and removal balancing, errors and their ordering under default and custom rule lists, maxErrors boundaries and sentinel identity, fragment-work aborts versus unrelated exceptions, description exclusion, options, tracing, SDL extensions and validation-bypass options. Include rules that actually skip, such as ExecutableDefinitionsRule and NoUnusedFragmentsRule, alongside rules that still need their descendants. Sources: src/utilities/TypeInfo.ts:941-964; src/validation/validate.ts:129-239; src/validation/ValidationContext.ts:160-166; src/validation/rules/ExecutableDefinitionsRule.ts:51-67; src/validation/rules/NoUnusedFragmentsRule.ts:54-81; src/utilities/buildASTSchema.ts:67-68; src/utilities/extendSchema.ts:157-158. These are proposed checks; no repository modules, builds or tests were executed, no files were modified, and no network research was performed."
+            }
+          ],
+          "source_anchors": [
+            "src/language/visitor.ts:340-359",
+            "src/language/visitor.ts:445-475",
+            "src/utilities/TypeInfo.ts:941-964",
+            "src/validation/validate.ts:173-208"
+          ],
+          "reason": "The proposed checks include independent skip/BREAK behavior, edit ordering and callback visibility, type-info balance, plus handler/validation integration or global abort behavior. They exceed the locked four-category threshold. The answer attributes behavior to source inspection and identifies tests as proposed rather than executed, so it does not treat declarations as semantic proof."
+        }
+      ],
+      "material_false_claims": [],
+      "omissions": [],
+      "blinding_disclosure": "Graph-access condition is inferable from explicit declaration-graph consultation prose.",
+      "additional_source_supported_observations": "All answers independently describe the edit/skip node-identity reset hazard, wrapper ordering, discarded visit return values and original-document context caches. These are supported by visitor.ts292-313,451-473; TypeInfo.ts941-964; validate.ts177-189,207-209; ValidationContext.ts65-98,408-445. They are static deductions, not claimed executed tests."
+    }
+  ]
+}

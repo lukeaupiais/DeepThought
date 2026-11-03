@@ -1,0 +1,17 @@
+{
+  "deepthought_calls": [],
+  "ambient_call_metadata": [
+    {
+      "server": "codex",
+      "tool": "list_mcp_resource_templates",
+      "status": "completed"
+    },
+    {
+      "server": "codex",
+      "tool": "list_mcp_resources",
+      "status": "completed"
+    }
+  ],
+  "native_server_response_matches": [],
+  "native_trace_publication": "Full native trace retained privately under its SHA256 receipt. Public export contains DeepThought calls and metadata-only ambient call summaries, excluding account connector inventory contents."
+}

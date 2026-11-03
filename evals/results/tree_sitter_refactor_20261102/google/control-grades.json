@@ -1,0 +1,238 @@
+{
+  "rubric_sha256": "72d8b3f1f6228b961a460fde37e4d4f127008cae31c122ce6bc9a6392c1557b9",
+  "review_method": "Independent source-backed manual review against pre-run rubric. Only anonymized P/Q answer files and original rubric read. No mapping, controls.private, run directories or agent answers read.",
+  "answers": [
+    {
+      "answer": "P",
+      "answer_sha256": "2b265cf95aa5c0600bbc69c3eaf1705d2459aaa5206538dd5649d417fb447906",
+      "semantic_score": 7,
+      "semantic_max_score": 8,
+      "criteria": [
+        {
+          "id": "method_dispatch",
+          "score": 0,
+          "max_score": 1,
+          "answer_quote": "explicitly passing json_schema selects the same native JSON generation branch as json_mode",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3606-3613",
+            "libs/genai/langchain_google_genai/chat_models.py:3725-3726",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2658-2665",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2697-2700",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2871"
+          ],
+          "justification": "Contradicts executable Vertex dispatch. chat_models.py line2838 tests only method == \"json_mode\". Any other value, including json_schema, goes through else at2870 into tool-calling. The docstring cannot establish the claimed alias.",
+          "contradictions": [
+            {
+              "proposition": "explicitly passing json_schema selects the same native JSON generation branch as json_mode",
+              "source": "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2871",
+              "source_behavior": "Only exact json_mode selects the native-json branch. json_schema selects the else tool-calling branch."
+            }
+          ]
+        },
+        {
+          "id": "schema_pipeline",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "Vertex binds response_schema after replace_defs_in_schema and _strip_nullable_anyof",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3726-3763",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "tool_config",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "GenAI bind_tools forwards both truthy values with independent ifs",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3866-3872",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2929-2945"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "conversion_fallback",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "Vertex produces a singleton list containing _format_to_gapic_tool output",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3859-3872",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2935-2945"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "special_tools",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "including ordering sensitivity of Vertex guard",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/_function_utils.py:219-276",
+            "libs/genai/langchain_google_genai/_function_utils.py:356-379",
+            "libs/vertexai/langchain_google_vertexai/functions_utils.py:306-379"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "parsing_contract",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "parser-error fallback producing parsed=None",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3730-3752",
+            "libs/genai/langchain_google_genai/chat_models.py:3767-3794",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2853",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2871-2903"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "tool_choice_policy",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "GenAI chooses tool_name only when _supports_tool_choice is true, otherwise None",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3774-3785",
+            "libs/genai/langchain_google_genai/chat_models.py:3874-3880",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2881-2893"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "kwargs_and_schema",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "Both discard strict and reject remaining kwargs",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3716-3720",
+            "libs/genai/langchain_google_genai/chat_models.py:3726-3763",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2830-2833",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        }
+      ]
+    },
+    {
+      "answer": "Q",
+      "answer_sha256": "5586a95994a808faa48f32dae439d63114244d92909da05f827b7a17903a5e1f",
+      "semantic_score": 8,
+      "semantic_max_score": 8,
+      "criteria": [
+        {
+          "id": "method_dispatch",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "only exact json_mode selects controlled generation",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3606-3613",
+            "libs/genai/langchain_google_genai/chat_models.py:3725-3726",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2658-2665",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2697-2700",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2871"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "schema_pipeline",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "Vertex binds response_schema after replace_defs_in_schema and _strip_nullable_anyof",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3726-3763",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "tool_config",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "GenAI bind_tools forwards both truthy values with independent ifs",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3866-3872",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2929-2945"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "conversion_fallback",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "Vertex produces a singleton list containing _format_to_gapic_tool output",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3859-3872",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2935-2945"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "special_tools",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "including ordering sensitivity of Vertex guard",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/_function_utils.py:219-276",
+            "libs/genai/langchain_google_genai/_function_utils.py:356-379",
+            "libs/vertexai/langchain_google_vertexai/functions_utils.py:306-379"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "parsing_contract",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "parser-error fallback producing parsed=None",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3730-3752",
+            "libs/genai/langchain_google_genai/chat_models.py:3767-3794",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2853",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2871-2903"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "tool_choice_policy",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "GenAI chooses tool_name only when _supports_tool_choice is true, otherwise None",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3774-3785",
+            "libs/genai/langchain_google_genai/chat_models.py:3874-3880",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2881-2893"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        },
+        {
+          "id": "kwargs_and_schema",
+          "score": 1,
+          "max_score": 1,
+          "answer_quote": "Both discard strict and reject remaining kwargs",
+          "source_evidence": [
+            "libs/genai/langchain_google_genai/chat_models.py:3716-3720",
+            "libs/genai/langchain_google_genai/chat_models.py:3726-3763",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2830-2833",
+            "libs/vertexai/langchain_google_vertexai/chat_models.py:2838-2868"
+          ],
+          "justification": "Contains the material distinctions and preservation conditions required by the pre-run criterion, with matching source anchors and no critical false claim.",
+          "contradictions": []
+        }
+      ]
+    }
+  ]
+}

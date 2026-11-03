@@ -1,0 +1,43 @@
+{
+  "input_id": "e922191486d23ad347588fdd3299feaaa9a4d0fd91311d20596970262e3bd619",
+  "provenance": {
+    "source": {
+      "workspace": "/home/luke/dev/oss/langchain-google",
+      "files_sha256": "69098d2465c0dab36302288adf4897797980f009dc68453b18c9fd130c08691c",
+      "revision": "c638727187482262f4c318ba1ff2ce572e725767"
+    },
+    "scenario_sha256": "d51b6bdf011ce3f636e1fea36a45320c9c8056cecb49d298a8b0bf3968e4e2b5",
+    "tool": {
+      "name": "tree-sitter",
+      "version": "0.2.5a1"
+    },
+    "tool_output_sha256": "c25e66b6fb6326010a02dae0a690142a60d4abf1e32ca30b02b1ea7701bfc7a2",
+    "tool_status": "succeeded",
+    "actor_context_sha256": {
+      "baseline": "06cd06ad2dbc6389b2dd2ef503473d4a5d033b983bf3f6c1c224763a63196aed",
+      "treatment": "5a0f52eda3734eccbdad8ff277e2eb636a3338c140628a4ad61691af592deec5"
+    },
+    "delivery_mode": "tool_access",
+    "tool_access_sha256": "35679b8a7201113b422df850d1d7eb0545a92f5a968cbb4fbec1c8fea5e17c10",
+    "evaluation_interface": "neo4j",
+    "neo4j_sha256": "86cdde4209fcbd35f52155f386039451f5c0fe9afd0bb33bb3887130e85101b3"
+  },
+  "preparation": {
+    "wall_seconds": 0.8870115259996965,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 9.904718435001996,
+    "cold_preparation_wall_seconds": 11.484977978001552
+  },
+  "neo4j": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/langchain-ai/langchain-google",
+    "snapshot_id": "b525878e98e869239596717254957fcdf5e1beaa635a8b3f79fe77ef9fe39411",
+    "content_hash": "5aeeb375a76fee36426f3d68733199013e1c11f388943e2ee2a35baa811e59d4",
+    "nodes": 1212,
+    "relationships": 1211,
+    "verified": true,
+    "wall_seconds": 9.904718435001996
+  }
+}

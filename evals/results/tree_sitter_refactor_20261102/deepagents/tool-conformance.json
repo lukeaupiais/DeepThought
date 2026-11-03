@@ -1,0 +1,336 @@
+{
+  "status": "succeeded",
+  "coverage": [
+    {
+      "file": "libs/deepagents/deepagents/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "b8473628ecfa213979f63abe8c4b6b82315368fd98f6e95180f6fe19dd86c7eb"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_excluded_middleware.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "cc7064524e3e782928b4579f9ec1f635183333b7fae4682a7d40ce846918e68c"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_messages_reducer.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "4539763f8d47a4894fac9998d68b3fe0aa7eb369425f8dab08fc7cf9650aa681"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_models.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "aa09a4357ed8cdd12b1f1486cd6488424df1ca8c558b827a03b1724854f4ccc1"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_tools.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "b6b7a599ab20c474915d067f0187543f5ba5a22524b45c0182787da0052546fe"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_version.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "c31c32be3df59276accdcbceee358a90468f8a00d55d25d27b2dd5569661c19e"
+    },
+    {
+      "file": "libs/deepagents/deepagents/graph.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "fb08f3cae27492c39febb4a41dd7b1ae9ee98a71872c12595bf20d893dc132ef"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_api/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "8290629e79551159806bad6107571bdc2876a4aafd704293d8957e9f54aa11f7"
+    },
+    {
+      "file": "libs/deepagents/deepagents/_api/deprecation.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "7d01cf75facb29265bb505ba0a30765b831052c143999eed8ccc747a5d01dcfd"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "ffca1ffcd566ac7bb782f7a84c2bf8e46242c66d727b9ba3a5ff6c88f33ff42a"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/composite.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "c705e50069af1eafc570eb5f0f4058eccde6b08b0b6851eac61dcb93f8599af0"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/context_hub.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "46b9482e504ec69dd5a72cb3a49a7de2f2656a2c646ec2ba306a4fb164d55f4b"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/filesystem.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "3918bc72493ae28b5594943f49c68e718d7872c2da8310044d11347f9f3e63fe"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/langsmith.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "35aa38d901824cf8fdcaa9ada6572034ff09cbe9fef164af571b9ddc19c1d169"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/local_shell.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "c04a7570cd19364b9ece2ac8bf8d0f4813dd7dee88a69fbe5663775001ef2958"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/protocol.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "fc064c966a9f22d12645f420cbe2e263a48758fcf3da0fc30382c113caa12dd1"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/sandbox.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "13c228a22bfd1cf84e9cd1f2f8e4813e710a9fb405de19e189a2f42a3cfe60b6"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/state.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "2f00a2b29c2275a6c30812a2ad15e808ad93b93f41041775e86f156498b3622d"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/store.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "2e2114d8c8b8baa0366a7b3c25c2a18088b6447f7075cd9174b4663ee9ed2b28"
+    },
+    {
+      "file": "libs/deepagents/deepagents/backends/utils.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "c63150634801eef3c6fa43626269e3c8e9f1257570a02dc6c86ba359b2070755"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "d9c98363cc9504e0304b8627aef123efd7873a4555b6045d5b63de97b16b4464"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_fs_interrupt.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "5bd9c82e26412ece046497a17d6d89b1be888c117a4afaef426aaf97b45bf095"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_message_eviction.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "ec529779bf748ae6fc50dd0c7860ce4d2d31e305faad998b4f3a123ff66b3db2"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_overflow_clip.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "f02938ea6c7b738d2a92363e5e6c27494bae894fb65fa22c3c9a6008e2b76cc8"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_prompt_caching.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "a94072281f2e8e563102273e50193af889130f9545afdf53eeaf616e0e117a17"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_state.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "4109f4387cca9ed6b34be7a7caaa8c348bb33e5eb7bf8c56a8e05b062ffe4ae0"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_tool_exclusion.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "e58a3fba931a0d390269e7e11de8a4151dcb4dc926a7fbca4ee98c757a4950ea"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_utils.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "c882a7332a6d9e51ab35dabf9a75da10723d728e95b431a341d687a0cb39b965"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/_video.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "976b124f277b95241968d007198063a3fa3f83bf8a11eb201ca739a188a0d51c"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/async_subagents.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "6b2863728d5722fe04b68b3c7f65396fbba5fb2a255b6a8c1f8da61cd90de77a"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/filesystem.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "c719d3a4b76f2e41e88093f249b8d33534a5bd0bf6b075033a209b23c291d453"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/memory.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "21cdd92ea4aa8c09cd06d1c9e112c0a56af6b37e68b6dc8f69bf303bd6cf7a6e"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/patch_tool_calls.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "96fa01d39572f6236151ce9d7d5100e269a41c0bbaa9f6db2f30d3a9452188ed"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/permissions.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "dd44d44bcf08c382a9b63106dfb16bcff7298fbd54e49174ff65cecb09ff1ca9"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/rubric.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "dc928b98ac7917eda728df5c9779cd4802c756d3ab88931c5c6e1f0ae3bf947b"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/skills.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "ce342abfc5f2647cbf6cf2baf2b0afae581e17e834fc3c4bf16796a19b29c063"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/subagents.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "b95afaa0fb09f4e7e180e9b49864cca2b51bf032c3a6b1989cd526d081cd5714"
+    },
+    {
+      "file": "libs/deepagents/deepagents/middleware/summarization.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "f1d01347e1919108b3d29aa79e61712edbde7ff212904d32721525e231761275"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "8b32157d05bc14682bedae0102114894187d1e04f043ea8e6f20401ecccd57ec"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/_builtin_profiles.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "005a91e7fc4ca6b21220673dd9d02d6686bf63e1e4f1102d124b01f96886efcf"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/_keys.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "5a2f779be23a52e57a7fda4a5efdba5b4fc9aecf47f474c334950fdc7ed39a4e"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "abac1b343f0df8166532e73d47daa73e8d20ec9ea4dd3b61dcb527f0726dc4ae"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/_anthropic_haiku_4_5.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "06007fdaebf99f34f044ba59acc27a398a04983c0789d0d7405efb121218ac70"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/_anthropic_opus_4_7.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "195e77a4c329a2e461766dc594c8324c21c9de825ca134fdae8e9b1b100356f7"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/_anthropic_sonnet_4_6.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "027ab80097b7ddedb9bc55e2c261680d198a41025df389b03cdf637390efe883"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/_nvidia_nemotron_3_ultra.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "3b95b118e90c4ae19890c611cc7e1e85261217f971496e9bb7508142133c7d9a"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/_openai_codex.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "6b87246841718a97abaea09e8abe5df49c4c6c443ebf3d359bf168a07816870d"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/harness/harness_profiles.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "7748d433ce339d689ba8cf4e51fe21955d167dd89c0d6294255b1144b00c619f"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/provider/__init__.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "718b757d31d44c89df21ca881aef39afff7477b3177be07def143884c85c06a2"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/provider/_nvidia.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "19961430ff18ca781d89708cb67a04b6d642519a80456a6c6d70fcf2e0fbebdf"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/provider/_openai.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "2a6c0aa391be875462399e34e0e83ba8469f953aee8260f752ff9605409ff4f3"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/provider/_openrouter.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "ab20ff5f9195d2af7ae85c938e426bdf6ca956e532fd0e10262b6860c21130f9"
+    },
+    {
+      "file": "libs/deepagents/deepagents/profiles/provider/provider_profiles.py",
+      "language": "python",
+      "status": "analyzed",
+      "digest": "d2b37c1984ce8c437ca20608fef978fbc6eac672cd51271d67be611bea552341"
+    }
+  ],
+  "diagnostics": [],
+  "graph": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/langchain-ai/deepagents",
+    "snapshot_id": "a8ab4e7027b3397eaf8c750c9a2ebb552530d0ff8b4b0ca472d4385639c08d99",
+    "content_hash": "e5f4c316311e7426829dc4ee744633e965bda9308be6641ddb7347be8b744d21",
+    "nodes": 894,
+    "relationships": 893,
+    "verified": true,
+    "wall_seconds": 13.602586222001264
+  }
+}

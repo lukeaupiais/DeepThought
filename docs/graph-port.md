@@ -140,3 +140,9 @@ runs scored 78/78 and both treatment agents successfully queried Neo4j. Aggregat
 total tokens increased 19.4%; this port has no demonstrated general efficiency
 gain. Tests establish existing-query behaviour on supplied facts; declaration-only
 TreeSitter output does not supply caller/callee or distributed-system semantics.
+
+For AnalysisTool agent evaluations, prefer the verified Neo4j preparation in
+[the evaluation guide](evaluation.md). A descriptor alone no longer qualifies a
+run: actual query receipts must match the verified database/repository/snapshot.
+Optional `DEEPTHOUGHT_EVAL_*` audit settings instrument this same CLI/MCP query
+implementation without exposing credentials or the oracle to the actor.

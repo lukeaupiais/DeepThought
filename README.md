@@ -16,13 +16,13 @@ output = asyncio.run(tool.analyze("my-project", languages={"python"}))
 print(output.get_statistics())
 ```
 
-An offline, provider-neutral evaluation scaffold prepares separate baseline and
+A provider-neutral evaluation framework prepares separate baseline and
 tool-assisted inputs, grades structured answers against reviewed scenario packs,
 and compares caller-reported measurements. Public Tree-sitter packs include a
 synthetic calibration case and a revision-pinned investigation on DeepAgents.
 See [evaluation usage and limits](docs/evaluation.md) and the
-[independent validation cases](docs/evaluation-validation.md). No model calls,
-repository downloads, source builds or database services run automatically.
+[independent validation cases](docs/evaluation-validation.md). Neo4j evaluation uses a caller-configured database; model calls, repository
+downloads, target builds and database provisioning remain caller-controlled.
 The [first completed real-agent calibration](evals/results/tree_sitter_deepagents_20261102/README.md)
 found equal declaration accuracy and increased token use with raw tool output.
 
@@ -254,3 +254,7 @@ The [core graph port](docs/graph-port.md) restores the original Neo4j writer,
 shared tool-output coordinator, Cypher/context query service and MCP tools.
 Provision the `neo4j` or `mcp` extra, then use `deepthought-graph` or
 `deepthought-mcp` for on-demand access. The existing local SDK stays database-free.
+
+AnalysisTool agent evaluations now default to verified Neo4j query access.
+[The evaluation guide](docs/evaluation.md) explains preparation, actual query
+receipts and fail-closed comparison; raw-JSON injection is an explicit control.
