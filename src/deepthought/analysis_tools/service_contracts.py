@@ -14,6 +14,7 @@ import time
 
 from .._version import __version__
 from ..engine import analyze_repository
+from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.spring import SpringConfig, extract_spring
@@ -28,7 +29,7 @@ from .contracts import (
 from .evidence import EvidenceRule, register_rule
 from .registry import register_tool
 
-SUPPORTED_LANGUAGES = ("java",)
+SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python")
 
 ROUTE_RULE = register_rule(
     EvidenceRule(
@@ -63,6 +64,46 @@ REQUEST_RULES = {
         )
     ),
 }
+GRPC_SERVER_RULES = {
+    rule_id: register_rule(EvidenceRule(rule_id, "pattern_matched", description))
+    for rule_id, description in (
+        (
+            grpc_contracts.GO_REGISTER,
+            "pb.RegisterXServer(server, impl) registers a value of type T "
+            "(&T{}, new(T), or a name bound once to one of those) for service X, "
+            "and T declares, in the same Go package directory, a method named "
+            "as this rpc.",
+        ),
+        (
+            grpc_contracts.PYTHON_SERVICER,
+            "A class inheriting XServicer (or a class of the same file "
+            "inheriting such a class) defines a method named as this rpc of "
+            "service X.",
+        ),
+        (
+            grpc_contracts.JAVA_IMPL_BASE,
+            "A class extending XGrpc.XImplBase declares a method named as this "
+            "rpc of service X with a lowercase first letter.",
+        ),
+        (
+            grpc_contracts.NODE_ADD_SERVICE,
+            "server.addService(pkg.X.service, {key: handler}) maps the rpc "
+            "named by key to a function or method declared in the same file.",
+        ),
+    )
+}
+GRPC_CALL_RULE = register_rule(
+    EvidenceRule(
+        grpc_contracts.STUB_CALL,
+        "pattern_matched",
+        "A method is called on a stub of service X built by its generated "
+        "factory (NewXClient, XStub, XGrpc.newStub/newBlockingStub/"
+        "newFutureStub, new pkg.X), directly or through a name bound in the "
+        "same file only to stubs of X; X is declared by exactly one proto "
+        "package and the method names one of its rpcs. The channel's target "
+        "address is not read.",
+    )
+)
 
 
 def _is_test_source(path):
@@ -79,6 +120,7 @@ class ServiceContractTool(AnalysisTool):
     def __init__(self, repo_path):
         super().__init__(repo_path)
         self.last_facts = None
+        self.last_grpc = None
 
     def _get_metadata(self):
         return ToolMetadata(
@@ -124,6 +166,7 @@ class ServiceContractTool(AnalysisTool):
         config = SpringConfig(root)
         parser = None
         test_files = 0
+        grpc_sources = []
         for coverage in result.coverage:
             if coverage.status != "analyzed":
                 continue
@@ -137,6 +180,9 @@ class ServiceContractTool(AnalysisTool):
                 continue
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
+                continue
+            grpc_sources.append((coverage.file, coverage.language, content))
+            if coverage.language != "java":
                 continue
             if parser is None:
                 parser = make_parser("java", ".java")
@@ -159,6 +205,18 @@ class ServiceContractTool(AnalysisTool):
             )
         resolutions = contract_rules.resolve_requests(routes, requests)
         self.last_facts = (result, routes, requests, unread, resolutions)
+        grpc = grpc_contracts.collect(
+            root,
+            grpc_sources,
+            result.definitions,
+            repo_url,
+            grpc_contracts.proto_files(
+                root,
+                ("*",) if file_patterns is None else tuple(file_patterns),
+                () if skip_patterns is None else tuple(skip_patterns),
+            ),
+        )
+        self.last_grpc = grpc
 
         definitions = {d.id: d for d in result.definitions}
         languages_by_file = {c.file: c for c in result.coverage}
@@ -292,6 +350,85 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        grpc_names = {}
+        for (service, method), declared in sorted(grpc.index.methods.items()):
+            full = f"{service}/{method}"
+            name = f"{repo_url}::grpc::{full}"
+            grpc_names[(service, method)] = name
+            nodes.append(
+                NodeData(
+                    ["GrpcMethod", "Contract"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "protocol": "grpc",
+                        "name": full,
+                        "display_name": full,
+                        "service": service,
+                        "method": method,
+                        "file_path": declared[0].file,
+                        "line": declared[0].line,
+                        "declared_in": [f"{m.file}:{m.line}" for m in declared],
+                    },
+                )
+            )
+        for handler in grpc.handlers:
+            labels, source = symbol_node(handler.handler_id)
+            relationships.append(
+                RelationshipData(
+                    "HANDLES",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GrpcMethod", "Contract"],
+                    {
+                        "qualified_name": grpc_names[(handler.service, handler.method)],
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": handler.line,
+                        **_evidence(GRPC_SERVER_RULES[handler.rule]),
+                    },
+                )
+            )
+        grpc_counts = {}
+        grpc_calls = {c.id: c for c in grpc.calls}
+        for resolution in grpc.resolutions:
+            key = resolution.status + (
+                ":" + resolution.reason if resolution.reason else ""
+            )
+            grpc_counts[key] = grpc_counts.get(key, 0) + 1
+            call = grpc_calls[resolution.call_id]
+            written = f"{call.service}.{call.method}"
+            if resolution.status != "linked":
+                undisclosed.setdefault(call.file, {}).setdefault(
+                    resolution.status + "_grpc_calls", set()
+                ).add(written)
+                continue
+            if call.caller_id is None:
+                source = file_node(call.file)
+            else:
+                source = symbol_node(call.caller_id)
+            relationships.append(
+                RelationshipData(
+                    "REQUESTS",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    ["GrpcMethod", "Contract"],
+                    {
+                        "qualified_name": grpc_names[
+                            (resolution.service, resolution.method)
+                        ],
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "request_id": call.id,
+                        "request": written,
+                        "line": call.line,
+                        "column": call.column,
+                        **_evidence(GRPC_CALL_RULE),
+                    },
+                )
+            )
         for path, values in undisclosed.items():
             file_node(path)
             files[path].properties.update(
@@ -300,6 +437,9 @@ class ServiceContractTool(AnalysisTool):
         unread_counts = {}
         for item in unread:
             key = f"{item.kind}:{item.reason}"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
+        for _, _, kind, reason in grpc.unread:
+            key = f"grpc_{kind}:{reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
@@ -332,9 +472,16 @@ class ServiceContractTool(AnalysisTool):
                 "http_request_resolution": dict(sorted(counts.items())),
                 "unread": dict(sorted(unread_counts.items())),
                 "test_source_files_skipped": test_files,
+                "grpc_methods": len(grpc.index.methods),
+                "grpc_handlers": len(grpc.handlers),
+                "grpc_calls": len(grpc.calls),
+                "grpc_call_resolution": dict(sorted(grpc_counts.items())),
+                "proto_files": dict(sorted(grpc.proto_files.items())),
                 "scope": "Spring MVC routes, Feign clients and RestTemplate "
                 "requests with folded paths outside test source sets; requests linked to routes by "
-                "service name and path template, never by traced values",
+                "service name and path template, never by traced values; gRPC "
+                "methods from .proto files, their Go, Python, Java and Node "
+                "servers and stub calls, matched by proto service and rpc name",
             },
         )
         return StandardizedOutput(

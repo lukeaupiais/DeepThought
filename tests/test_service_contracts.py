@@ -492,9 +492,9 @@ class SpringContractTests(unittest.TestCase):
         urls = [q.url for q in tool.last_facts[2] if q.file.endswith("Later.java")]
         self.assertEqual(urls, [U])
 
-    def test_languages_without_java_are_rejected(self):
+    def test_unsupported_languages_are_rejected(self):
         with self.assertRaises(ValueError):
-            asyncio.run(ServiceContractTool(self.root).analyze("r", languages={"go"}))
+            asyncio.run(ServiceContractTool(self.root).analyze("r", languages={"rust"}))
 
 
 if __name__ == "__main__":
