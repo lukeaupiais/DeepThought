@@ -25,6 +25,8 @@ from deepthought.storage.graph import (
 )
 from deepthought.storage.graph.encoding import decode_properties
 
+from evidence_fixtures import FIXTURE_EVIDENCE
+
 
 def output(repo, snapshot="source-v1"):
     return StandardizedOutput(
@@ -55,7 +57,7 @@ def output(repo, snapshot="source-v1"):
                 {"qualified_name": "sample.py"},
                 ["Symbol"],
                 {"qualified_name": "sample.run"},
-                {"evidence": {"line": 3}},
+                {"evidence": {"line": 3}, **FIXTURE_EVIDENCE},
             )
         ],
         metadata=ToolExecutionMetadata(
@@ -233,6 +235,7 @@ class StorageNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     {"qualified_name": "sample.run"},
                     ["Symbol"],
                     {"qualified_name": "sample.other"},
+                    dict(FIXTURE_EVIDENCE),
                 )
             ],
             metadata=ToolExecutionMetadata(

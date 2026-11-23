@@ -23,6 +23,8 @@ from deepthought.analysis_tools import (
     tool_registry,
 )
 
+from evidence_fixtures import FIXTURE_EVIDENCE
+
 GRAMMARS = all(
     importlib.util.find_spec(name) is not None
     for name in ("tree_sitter", "tree_sitter_python", "tree_sitter_typescript")
@@ -111,6 +113,7 @@ class ContractTests(unittest.TestCase):
             {"qualified_name": "repo::a.py"},
             ["Function"],
             {"qualified_name": "repo::a.py::f"},
+            dict(FIXTURE_EVIDENCE),
         )
         output = StandardizedOutput(
             [node], [edge], ToolExecutionMetadata("test", "1", 0)

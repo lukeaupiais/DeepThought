@@ -14,6 +14,8 @@ from deepthought.storage.graph import BatchConfig, WriteCoordinator
 from deepthought.storage.graph.encoding import decode_properties, encode_properties
 from deepthought.storage.graph.writer import _prepare
 
+from evidence_fixtures import FIXTURE_EVIDENCE
+
 
 def fixture(snapshot="s1", repo="https://github.com/example/public"):
     return StandardizedOutput(
@@ -114,6 +116,7 @@ class StorageAdmissionTests(unittest.TestCase):
                 {"qualified_name": "sample.run"},
                 ["Symbol"],
                 {"qualified_name": "absent"},
+                dict(FIXTURE_EVIDENCE),
             )
         )
         with self.assertRaisesRegex(ValueError, "absent"):
@@ -129,6 +132,7 @@ class StorageAdmissionTests(unittest.TestCase):
                 {"qualified_name": "sample.run"},
                 ["Symbol"],
                 {"qualified_name": "external"},
+                dict(FIXTURE_EVIDENCE),
                 create_missing_nodes=True,
             )
         )

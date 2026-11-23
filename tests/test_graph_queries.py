@@ -15,6 +15,8 @@ from deepthought.analysis_tools.contracts import (
 )
 from deepthought.graph_queries import GraphQueryService, _bounds
 
+from evidence_fixtures import FIXTURE_EVIDENCE
+
 
 class QueryInputTests(unittest.TestCase):
     def test_bounds_reject_ambiguous_or_unbounded_requests(self):
@@ -109,7 +111,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 {"qualified_name": source},
                 byname[target].labels,
                 {"qualified_name": target},
-                props,
+                {**FIXTURE_EVIDENCE, **props},
             )
 
         rels = [

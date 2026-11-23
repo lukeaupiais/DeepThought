@@ -20,6 +20,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | applications/unified-server/src/main.py MCP tools | deepthought.graph_mcp | getCodeContext, getFileStructure and searchCodeElements |
 | applications/unified-server/src/main.py /api/v1/graph/query | deepthought.graph_queries + graph_cli/graph_mcp | Cypher execution, adapted to CLI and optional queryGraph MCP transport |
 | Original analyzer repository/file projection | deepthought.analysis_tools.tree_sitter | Repository -> CONTAINS -> File -> DEFINES -> declaration |
+| libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -57,6 +58,35 @@ shared ContextService schema: File -> DEFINES -> declaration. Typed query result
 are structured bounded envelopes with scope, capabilities and truncation rather
 than unbounded lists. No relationship means only that the selected analysis did
 not supply it; declaration-only extraction does not establish absence of calls.
+
+## Edge evidence
+
+Every relationship records how its endpoints were linked, never how likely the
+link is. `RelationshipData` and the storage writer both require two properties:
+
+- `evidence_type`: `resolved` (exact identity, such as an indexer symbol or a
+  parsed declaration inside a file), `pattern_matched` (a declared pattern such as
+  a route string matched) or `name_matched` (equal names without proof of
+  identity).
+- `rule_id`: the registered rule that produced the edge, written
+  `<producer>.<rule>` in lowercase, for example
+  `tree-sitter.file-defines-declaration`.
+
+Each rule is registered once with `register_rule(EvidenceRule(...))` and declares
+a single evidence type. An edge whose `evidence_type` differs from its rule's is
+rejected, so a tool cannot label a name match as resolved edge by edge. Unknown
+rules are rejected, as are `confidence` and `probability` properties: the
+original builder's confidence floats and its `resolved_method` label for a bare
+method-name match are not carried over. The writer repeats the check because
+records are mutable after construction.
+
+TreeSitterTool registers `tree-sitter.repository-contains-file` and
+`tree-sitter.file-defines-declaration`, both `resolved`. Typed queries already
+return relationship properties, so results carry the evidence and rule of each
+edge. Edge evidence is part of the snapshot's content fingerprint: a database
+holding a revision published before this contract rejects a re-import of the
+same source under the same revision as conflicting content. Select a new
+revision with `--snapshot` or use a fresh database.
 
 ## Provision and use
 
