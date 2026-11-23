@@ -52,7 +52,9 @@ def main(argv=None) -> int:
     analyze.add_argument("workspace")
     analyze.add_argument("--repository-id", required=True)
     analyze.add_argument(
-        "--language", action="append", choices=("javascript", "python", "typescript")
+        "--language",
+        action="append",
+        choices=("go", "javascript", "python", "typescript"),
     )
     analyze.add_argument("--include", action="append")
     analyze.add_argument("--exclude", action="append", default=[])

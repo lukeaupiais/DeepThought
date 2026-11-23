@@ -46,13 +46,14 @@ class RegistryTests(unittest.TestCase):
         )
         metadata = metadata[1:]
         self.assertEqual(
-            metadata[0].supported_languages, {"javascript", "python", "typescript"}
+            metadata[0].supported_languages,
+            {"go", "javascript", "python", "typescript"},
         )
         self.assertEqual(
             metadata[0].capabilities,
             {ToolCapability.AST_EXTRACTION, ToolCapability.SYMBOL_INDEXING},
         )
-        self.assertFalse(tool_registry.get_tools_for_language("go", Path(".")))
+        self.assertFalse(tool_registry.get_tools_for_language("cobol", Path(".")))
         self.assertFalse(
             tool_registry.get_tools_for_capability(ToolCapability.CALL_GRAPH, Path("."))
         )
@@ -254,7 +255,7 @@ class TreeSitterTests(unittest.TestCase):
             asyncio.run(tool.analyze("fixture", {"python"}))
             self.assertTrue(asyncio.run(tool.get_symbol_definitions()))
             with self.assertRaises(ValueError):
-                asyncio.run(tool.analyze("fixture", {"go"}))
+                asyncio.run(tool.analyze("fixture", {"cobol"}))
             self.assertEqual(asyncio.run(tool.get_symbol_definitions()), {})
             asyncio.run(tool.analyze("fixture", {"python"}))
             (path / "a.py").unlink()

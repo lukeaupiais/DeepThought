@@ -31,6 +31,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/utils/base/core.py `create_containment_relationships` (parent `CONTAINS` child by `parent_qname`) | deepthought.analysis_tools.tree_sitter + GraphQueryService.get_members/get_owner | Declaration -> CONTAINS -> nested declaration from parse-tree spans under a registered `resolved` rule (see below) |
 | libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM by the call name-binding rules, all `name_matched`; `get_class_hierarchy` follows classes and interfaces (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
+| libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
 | libs/analysis/.../tools/scip/transformation/enhanced_relationship_mapper.py `is_implementation` | deepthought.analysis_tools.scip + GraphQueryService.get_implementations/get_supertypes | Symbol -> IMPLEMENTS -> Symbol under a registered `resolved` rule; the original's doc-keyword EXTENDS guess and TYPE_OF mapping are not ported (see below) |
 
@@ -290,6 +291,40 @@ Tree-sitter missed in either corpus. Tarball sha256: execa
 indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
+
+## Go
+
+Go sources (`.go`) are analyzed when `go` is selected (`--language go`) and the
+`go` extra is installed; like JavaScript, the language is opt-in. Declarations
+are functions, methods, named types and interface method elements. A method is
+named by its receiver type (`Server.Start` for `func (s *Server) Start()`,
+`Box.Get` for `func (b Box[T]) Get()`), because Go declares methods at top
+level, not inside the type. A named type's kind is `Struct`, `Interface` or
+`Type` from its underlying type, and `type A = B` is a `TypeAlias`. Interface
+method elements and types declared inside functions are nested by CONTAINS.
+
+Import specs are facts (path, alias, `.` as `*`, `_` binds nothing) but are not
+linked to files: a Go import names a package by module path, which `go.mod`
+defines and the analysis does not read, so each stays `unresolved` with reason
+`go_module_path`. Calls are recorded as written, including selector calls such
+as `fmt.Println`, and the existing call rules apply: a bare call links only to
+a function declared in the same file. Calls to functions of the same package in
+other files, and method calls, are not linked yet; that needs package facts.
+
+Checked against scip-go 0.1.26 indexes with
+`tools/compare_go_declarations_with_scip.py` and
+`tools/compare_calls_with_scip.py --language go`:
+
+| Corpus | Declarations matched by scip-go (same file, line and name) | scip-go only | Receiver mismatches | Linked calls confirmed | Contradicted |
+|---|---|---|---|---|---|
+| cobra 1.8.1 | 580 / 585 | 0 | 0 | 438 / 438 | 0 |
+| gorilla/mux 1.8.1 | 235 / 238 | 0 | 0 | 255 / 255 | 0 |
+
+The eight declarations scip-go has no global symbol for are five types declared
+inside test functions, two interface method elements, and `preExecHook` in
+`command_win.go`, which a Linux build excludes. Recall of calls is low (438 of
+2,096 and 255 of 820 calls with an in-repository SCIP target) because
+same-package calls across files and method calls are not linked.
 
 ## SCIP references
 

@@ -17,10 +17,11 @@ LANGUAGES = {
         "tree_sitter_javascript",
         "language",
     ),
+    "go": ((".go",), "tree_sitter_go", "language"),
 }
-# Languages analyzed when none are selected. JavaScript is opt-in so that
-# existing Python/TypeScript analyses keep their output and do not need its
-# grammar; select it with languages=("javascript", ...) or --language.
+# Languages analyzed when none are selected. JavaScript and Go are opt-in so
+# that existing Python/TypeScript analyses keep their output and do not need
+# their grammars; select them with languages=("go", ...) or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
 KINDS = {
     "function_definition": "Function",
@@ -38,7 +39,36 @@ KINDS = {
     "type_alias_declaration": "TypeAlias",
     "internal_module": "Namespace",
     "module": "Namespace",
+    # Go: methods are named by receiver type, type specs by their type.
+    "method_declaration": "Method",
+    "method_elem": "Method",
+    "type_spec": "Type",
+    "type_alias": "TypeAlias",
 }
+_GO_TYPE_KINDS = {"struct_type": "Struct", "interface_type": "Interface"}
+
+
+def _go_receiver(node, content):
+    """Receiver type name of a Go method declaration, without pointer or type args."""
+    receiver = node.child_by_field_name("receiver")
+    parameter = (
+        next(
+            (c for c in receiver.named_children if c.type == "parameter_declaration"),
+            None,
+        )
+        if receiver is not None
+        else None
+    )
+    kind = parameter.child_by_field_name("type") if parameter is not None else None
+    while kind is not None and kind.type in {"pointer_type", "generic_type"}:
+        kind = (
+            next((c for c in kind.named_children if c.type != "type_arguments"), None)
+            if kind.type == "pointer_type"
+            else kind.child_by_field_name("type")
+        )
+    if kind is None or kind.type != "type_identifier":
+        return None
+    return content[kind.start_byte : kind.end_byte].decode("utf-8")
 
 
 def identifier(
@@ -78,9 +108,19 @@ def extract(tree, content: bytes, repository_id: str, file: str) -> list[Definit
             ):
                 kind = "Function"
         name_node = node.child_by_field_name("name") if kind else None
+        if node.type == "type_spec":
+            kind = _GO_TYPE_KINDS.get(
+                getattr(node.child_by_field_name("type"), "type", None), "Type"
+            )
         if name_node is not None:
             name = content[name_node.start_byte : name_node.end_byte].decode("utf-8")
             symbol = ".".join((*scope, name))
+            if node.type == "method_declaration" and node.child_by_field_name(
+                "receiver"
+            ):
+                # A Go method belongs to its receiver type, not to a scope.
+                receiver = _go_receiver(node, content)
+                symbol = f"{receiver}.{name}" if receiver else name
             if node.type == "function_definition" and in_class:
                 kind = "Method"
             ordinal = ordinals.get((symbol, kind), 0)
@@ -195,11 +235,38 @@ def _typescript_imports(node, content):
     yield _text(fragments[0], content), "export_from", names, ()
 
 
+def _go_imports(node, content):
+    """Yield one import per Go import spec: the package path and its binding.
+
+    An alias binds that name, ``.`` imports every exported name (``*``), and
+    ``_`` binds nothing. Without an alias the binding is the package's declared
+    name, which only the imported package states, so none is recorded.
+    """
+    if node.type != "import_spec":
+        return
+    path = node.child_by_field_name("path")
+    if path is None or path.type != "interpreted_string_literal":
+        return
+    parts = [c for c in path.named_children]
+    if len(parts) != 1 or parts[0].type != "interpreted_string_literal_content":
+        return
+    alias = node.child_by_field_name("name")
+    if alias is None or alias.type == "blank_identifier":
+        names = local_names = ()
+    elif alias.type == "dot":
+        names = local_names = ("*",)
+    else:
+        names, local_names = (), (_text(alias, content),)
+    yield _text(parts[0], content), "import", names, local_names
+
+
 def extract_imports(
     tree, content: bytes, repository_id: str, file: str, language: str
 ) -> list[Import]:
     """Static import statements in source order; dynamic loads are not facts here."""
-    visit = _python_imports if language == "python" else _typescript_imports
+    visit = {"python": _python_imports, "go": _go_imports}.get(
+        language, _typescript_imports
+    )
     imports, ordinals = [], {}
     stack = [tree.root_node]
     while stack:
@@ -225,17 +292,23 @@ def extract_imports(
     return imports
 
 
-_CHAIN_PARTS = {"identifier", "property_identifier", "this"}
+_CHAIN_PARTS = {"identifier", "property_identifier", "field_identifier", "this"}
 
 
 def _dotted(node, content):
     """'a.b.c' for a pure identifier chain; None for any other callee shape."""
     if node.type in _CHAIN_PARTS:
         return _text(node, content)
-    if node.type in {"attribute", "member_expression"}:
-        obj = node.child_by_field_name("object")
+    if node.type in {"attribute", "member_expression", "selector_expression"}:
+        obj = node.child_by_field_name(
+            "operand" if node.type == "selector_expression" else "object"
+        )
         prop = node.child_by_field_name(
-            "attribute" if node.type == "attribute" else "property"
+            {
+                "attribute": "attribute",
+                "member_expression": "property",
+                "selector_expression": "field",
+            }[node.type]
         )
         if obj is None or prop is None or prop.type not in _CHAIN_PARTS:
             return None

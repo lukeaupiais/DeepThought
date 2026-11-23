@@ -148,7 +148,7 @@ def analyze_repository(
     if not repository_id.strip():
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
-        raise ValueError("Supported languages: javascript, python, typescript")
+        raise ValueError("Supported languages: go, javascript, python, typescript")
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
     if max_files < 1 or max_total_bytes < 1:
