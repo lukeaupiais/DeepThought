@@ -47,7 +47,7 @@ class RegistryTests(unittest.TestCase):
         metadata = metadata[1:]
         self.assertEqual(
             metadata[0].supported_languages,
-            {"go", "java", "javascript", "python", "rust", "typescript"},
+            {"c", "go", "java", "javascript", "python", "rust", "typescript"},
         )
         self.assertEqual(
             metadata[0].capabilities,

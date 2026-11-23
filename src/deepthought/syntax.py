@@ -21,8 +21,9 @@ LANGUAGES = {
     "go": ((".go",), "tree_sitter_go", "language"),
     "java": ((".java",), "tree_sitter_java", "language"),
     "rust": ((".rs",), "tree_sitter_rust", "language"),
+    "c": ((".c", ".h"), "tree_sitter_c", "language"),
 }
-# Languages analyzed when none are selected. JavaScript, Go, Java and Rust are opt-in
+# Languages analyzed when none are selected. JavaScript, Go, Java, Rust and C are opt-in
 # so that existing Python/TypeScript analyses keep their output and do not need
 # their grammars; select them with languages=("go", ...) or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
@@ -232,6 +233,190 @@ def extract(
             in_class = kind == "Class"
         stack.extend((child, scope, in_class) for child in reversed(children(node)))
     return definitions
+
+
+# C: declarators that wrap the declared name.
+_C_WRAPPERS = {
+    "pointer_declarator",
+    "parenthesized_declarator",
+    "attributed_declarator",
+    "array_declarator",
+    "function_declarator",
+}
+_C_SPECIFIERS = {
+    "struct_specifier": "Struct",
+    "union_specifier": "Union",
+    "enum_specifier": "Enum",
+}
+
+
+def _c_prefixed_name(node):
+    """The name of a function declared after a macro the grammar does not
+    know (``API int f(...)``, ``API int (f)(...)``), from the shape the
+    grammar gives it; None for any other function declarator.
+
+    ``API T f(...)`` with ``T`` a type name parses as the declarator ``T``
+    with ``f`` in an error node before the parameters. ``API int (f)(...)``
+    parses as a function declarator applied to ``int(f)``, which C does not
+    allow without parentheses: the name is the inner list's one type.
+    """
+    error = next((c for c in node.children if c.type == "ERROR"), None)
+    if (
+        error is not None
+        and len(error.named_children) == 1
+        and error.named_children[0].type == "identifier"
+    ):
+        return error.named_children[0]
+    inner = node.child_by_field_name("declarator")
+    parameters = inner.child_by_field_name("parameters") if inner else None
+    entries = parameters.named_children if parameters is not None else []
+    if (
+        len(entries) == 1
+        and entries[0].type == "parameter_declaration"
+        and entries[0].child_by_field_name("declarator") is None
+        and getattr(entries[0].child_by_field_name("type"), "type", None)
+        == "type_identifier"
+    ):
+        return entries[0].child_by_field_name("type")
+    return None
+
+
+def _c_declared_name(declarator, kinds):
+    """The identifier a C declarator declares and the declarator holding it
+    (parentheses aside), when the identifier is of ``kinds``; else None."""
+    node, holder = declarator, None
+    while node is not None and node.type in _C_WRAPPERS:
+        if node.type == "parenthesized_declarator":
+            # `(name)` groups; the declarator around it holds the name.
+            node = next(iter(node.named_children), None)
+            continue
+        if node.type == "function_declarator":
+            recovered = _c_prefixed_name(node)
+            if recovered is not None:
+                return recovered, node
+        holder, node = node, node.child_by_field_name("declarator")
+    if node is None or node.type not in kinds:
+        return None
+    return node, holder
+
+
+def extract_c(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """C declarations at file scope, in source order, in every preprocessor
+    branch: functions (definitions and prototypes), named structs, unions
+    and enums that have a body, typedef names, and macros wherever they are
+    defined. Names are not qualified: C has one file scope. A macro the
+    grammar could not read (it contains an error node) is left out. ``nodes`` receives id -> (node, name).
+    """
+    found, ordinals = [], {}
+
+    def add(node, name_node, kind):
+        name = _text(name_node, content)
+        ordinal = ordinals.get((name, kind), 0)
+        ordinals[(name, kind)] = ordinal + 1
+        definition = Definition(
+            id=identifier(repository_id, file, name, kind, ordinal),
+            file=file,
+            symbol=name,
+            kind=kind,
+            line=node.start_point.row + 1,
+            column=node.start_point.column,
+            end_line=node.end_point.row + 1,
+            end_column=node.end_point.column,
+        )
+        found.append(definition)
+        if nodes is not None:
+            nodes[definition.id] = (node, name_node)
+
+    def macro(node):
+        # A definition the grammar could not read (a comment in a continued
+        # line) may take a later word for its name.
+        if not node.has_error:
+            add(node, node.child_by_field_name("name"), "Macro")
+
+    def specifiers(node):
+        """Structs, unions and enums with a body written in a type, at any
+        depth of member declarations (C does not scope them)."""
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            kind = _C_SPECIFIERS.get(current.type)
+            if kind is not None:
+                name = current.child_by_field_name("name")
+                if name is not None and current.child_by_field_name("body"):
+                    add(current, name, kind)
+                body = current.child_by_field_name("body")
+                if body is not None and kind != "Enum":
+                    stack.extend(
+                        member.child_by_field_name("type")
+                        for member in reversed(body.named_children)
+                        if member.type == "field_declaration"
+                        and member.child_by_field_name("type") is not None
+                    )
+
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in {"translation_unit", "linkage_specification", "ERROR"} or (
+            node.type.startswith("preproc_")
+            and node.type not in {"preproc_def", "preproc_function_def"}
+        ):
+            stack.extend(reversed(node.named_children))
+            continue
+        if node.type == "declaration_list":
+            stack.extend(reversed(node.named_children))
+            continue
+        if node.type in {"preproc_def", "preproc_function_def"}:
+            macro(node)
+            continue
+        kind = node.child_by_field_name("type")
+        if kind is not None and node.type in {
+            "function_definition",
+            "declaration",
+            "type_definition",
+        }:
+            specifiers(kind)
+        if node.type == "function_definition":
+            declared = _c_declared_name(
+                node.child_by_field_name("declarator"), {"identifier"}
+            )
+            if declared is not None and getattr(declared[1], "type", None) == (
+                "function_declarator"
+            ):
+                add(node, declared[0], "Function")
+            elif node.child_by_field_name("body") is not None:
+                # `namespace n {` in a C++ branch reads as a definition with
+                # no parameters; its body holds file-scope items.
+                stack.extend(reversed(node.child_by_field_name("body").named_children))
+                continue
+        elif node.type == "declaration":
+            for declarator in node.children_by_field_name("declarator"):
+                declared = _c_declared_name(declarator, {"identifier"})
+                # A prototype; a pointer to a function is a variable.
+                if (
+                    declared is not None
+                    and declared[1] is not None
+                    and (declared[1].type == "function_declarator")
+                ):
+                    add(node, declared[0], "Function")
+        elif node.type == "type_definition":
+            for declarator in node.children_by_field_name("declarator"):
+                declared = _c_declared_name(declarator, {"type_identifier"})
+                if declared is not None:
+                    add(node, declared[0], "TypeAlias")
+        elif node.type in _C_SPECIFIERS:
+            specifiers(node)
+        # A macro defined inside an item (a function body, a struct's
+        # members) is defined for the rest of the file.
+        inner = list(reversed(node.named_children))
+        while inner:
+            current = inner.pop()
+            if current.type in {"preproc_def", "preproc_function_def"}:
+                macro(current)
+            else:
+                inner.extend(reversed(current.named_children))
+    return found
 
 
 def _rust_macro_export(node):
@@ -1407,6 +1592,7 @@ def declaration_sources(
     file: str,
     *,
     expander: "RustExpander | None" = None,
+    language: str | None = None,
 ) -> dict:
     """Each declaration's source text, its span and its name's position, by id.
 
@@ -1416,7 +1602,10 @@ def declaration_sources(
     indexes using any encoding can find them.
     """
     nodes = {}
-    extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
+    if language == "c":
+        extract_c(tree, content, repository_id, file, nodes=nodes)
+    else:
+        extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")
     sources = {}
     for definition_id, (node, name) in nodes.items():
