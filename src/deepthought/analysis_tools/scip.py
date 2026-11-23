@@ -68,6 +68,36 @@ DEPENDS_ON_RULE = register_rule(
         "only in the target file.",
     )
 )
+IMPLEMENTS_RULE = register_rule(
+    EvidenceRule(
+        "scip.symbol-implementation",
+        "resolved",
+        "The indexer records that the source symbol implements the target "
+        "symbol: a class's supertypes, including indirect ones, through "
+        "extends or implements, and a member's overridden or implemented "
+        "member. Both symbols are declared in the analyzed files.",
+    )
+)
+
+
+def _implementations(index_path, max_index_bytes=50_000_000):
+    """(document, symbol, related symbol) for each is_implementation relationship."""
+    from .._scip import scip_pb2
+
+    content = Path(index_path).read_bytes()
+    if len(content) > max_index_bytes:
+        raise ValueError("Index exceeds max_index_bytes")
+    index = scip_pb2.Index()
+    index.ParseFromString(content)
+    return sorted(
+        {
+            (document.relative_path, info.symbol, relationship.symbol)
+            for document in index.documents
+            for info in document.symbols
+            for relationship in info.relationships
+            if relationship.is_implementation and info.symbol and relationship.symbol
+        }
+    )
 
 
 def _evidence(rule):
@@ -354,6 +384,34 @@ class ScipAnalysisTool(AnalysisTool):
                     "witness_ids": list(edge.witness_ids),
                 },
             )
+        # A local symbol is unique only within its document.
+        sites = {}
+        for item in graph.definitions:
+            d = item.definition
+            key = (
+                (d.file, d.native_id)
+                if d.native_id.startswith("local ")
+                else (d.native_id,)
+            )
+            sites.setdefault(key, []).append(targets[item.id])
+        implementations = {"linked": 0, "external_target": 0}
+        # Sites cover only selected files, so unselected sources are skipped and
+        # unselected or undeclared targets are counted, never guessed.
+        for file, symbol, related in _implementations(self.index_path):
+
+            def key(native):
+                return (file, native) if native.startswith("local ") else (native,)
+
+            sources, supers = sites.get(key(symbol), []), sites.get(key(related), [])
+            if not sources:
+                continue
+            if not supers:
+                implementations["external_target"] += 1
+                continue
+            implementations["linked"] += 1
+            for source in sorted(sources):
+                for target in sorted(supers):
+                    link("IMPLEMENTS", source, target, IMPLEMENTS_RULE)
         # Recheck index/source binding after ingestion and conversion as well.
         if validate_index(self.repo_path, self.index_path) != receipt:
             raise ValueError("SCIP inputs changed during analysis")
@@ -383,10 +441,16 @@ class ScipAnalysisTool(AnalysisTool):
                     "composer_version": graph.composer_version,
                     "resolution_semantics": "native_symbol_binding",
                     "model_tokens": 0,
-                    "capabilities": ["definitions", "references", "dependencies"],
+                    "capabilities": [
+                        "definitions",
+                        "references",
+                        "dependencies",
+                        "implementations",
+                    ],
                     "coverage": [vars(c) for c in result.coverage],
                     "diagnostics": diagnostics,
                     "resolution_counts": graph.resolution_counts,
+                    "implementation_relationships": implementations,
                     "source_receipt_sha256": sha256(
                         json.dumps(semantic_receipt, sort_keys=True).encode()
                     ).hexdigest(),

@@ -113,6 +113,8 @@ def parser():
         "imports",
         "importers",
         "references",
+        "implementations",
+        "supertypes",
         "dependencies",
         "dependents",
         "explain-edge",
@@ -135,6 +137,9 @@ def parser():
             "dependents",
         }:
             q.add_argument("--file", required=True)
+        if name in {"implementations", "supertypes"}:
+            q.add_argument("--symbol", required=True, help="SCIP native symbol")
+            q.add_argument("--file", help="Document scope for local SCIP symbols")
         if name == "references":
             q.add_argument("--symbol", required=True, help="SCIP native symbol")
             q.add_argument(
@@ -327,6 +332,15 @@ async def execute(args):
                 file_path=args.file,
                 after_reference_id=args.after_reference_id,
                 **kwargs,
+            )
+        if args.command in {"implementations", "supertypes"}:
+            method = (
+                service.get_implementations
+                if args.command == "implementations"
+                else service.get_supertypes
+            )
+            return await method(
+                args.symbol, args.repository_id, file_path=args.file, **kwargs
             )
         if args.command in {"dependencies", "dependents"}:
             method = (

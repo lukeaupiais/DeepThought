@@ -2,7 +2,7 @@
 
 The optional MCP transport contains no Cypher construction or extraction logic.
 The three original tool names are preserved; queryGraph adapts the original
-HTTP Cypher capability. The call, import, reference, dependency and explainEdge
+HTTP Cypher capability. The call, import, reference, implementation, dependency and explainEdge
 tools expose the ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
 requires a dedicated snapshot database and database-enforced read-only access.
 """
@@ -220,6 +220,42 @@ def create_server():
             snapshot_id=snapshot_id,
             file_path=file_path,
             after_reference_id=after_reference_id,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def findImplementations(
+        native_symbol: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        file_path: str | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Find symbols implementing, extending or overriding a SCIP symbol."""
+        return await ctx.request_context.lifespan_context.get_implementations(
+            native_symbol,
+            repository_id,
+            snapshot_id=snapshot_id,
+            file_path=file_path,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getSupertypes(
+        native_symbol: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        file_path: str | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get the symbols a SCIP symbol implements, extends or overrides."""
+        return await ctx.request_context.lifespan_context.get_supertypes(
+            native_symbol,
+            repository_id,
+            snapshot_id=snapshot_id,
+            file_path=file_path,
             limit=max_elements,
         )
 
