@@ -250,8 +250,14 @@ the chat model. The port answers from stored edges only:
 
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
-  CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM and
-  IMPLEMENTS.
+  CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
+  IMPLEMENTS and REQUESTS, and forwards over HANDLES. A route a changed
+  handler HANDLES is affected, and so is every declaration (or file) that
+  REQUESTS that route, so impact crosses service boundaries along the HTTP
+  contracts the `service-contracts` tool records (see "Service contracts").
+  Those hops are `pattern_matched`, and the path's evidence says so. The
+  traversal is a quantified path pattern, so this query needs Neo4j 5.9 or
+  later.
 - `get_file_impact(path)` (`deepthought-graph file-impact --file`, MCP
   getFileImpact): dependent files backwards over IMPORTS and DEPENDS_ON.
 
