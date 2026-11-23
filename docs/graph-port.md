@@ -481,8 +481,29 @@ package wildcard to every file declaring a type in that package
 Other outcomes: `not_in_repository` (JDK, libraries), ambiguous
 `multiple_source_roots` when several roots declare it and none is the
 importer's, and ambiguous `multiple_declarations` when two files of one root
-declare the same type. Build files (Maven, Gradle) are not read. Calls and
-declared bases are not recorded for Java yet.
+declare the same type. Build files (Maven, Gradle) are not read. Declared
+bases are not recorded for Java yet.
+
+Java calls are method invocations (`m()`, `this.m()`, `T.m()`, `a.b.T.m()`)
+and `new T()` expressions, with the number of arguments written; Java methods
+and constructors record their parameter count and whether the last parameter
+is variable-arity. Calls link by Java's name lookup, without types, so every
+link is `name_matched`:
+
+| Rule | Callee |
+|---|---|
+| `tree-sitter.java-enclosing-type-method` | `m()`: the innermost enclosing named type that declares a method `m` (Java stops at the first type declaring the name) |
+| `tree-sitter.java-static-import` | `m()` declared by no enclosing type: a method of a type imported with `import static`, by name or `*` |
+| `tree-sitter.call-self-method` | `this.m()`: the innermost enclosing type's `m` |
+| `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's lookup order (enclosing and local types, single-type imports, the package, wildcard imports, then a fully qualified name), and that type declares `m` |
+| `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
+
+Among same-named methods, only those whose parameters accept the argument
+count are candidates (a variable-arity method accepts one fewer or more);
+several left are ambiguous, none is `no_matching_arity` (the fitting
+overload is inherited). Calls on variables or expressions (`list.add(x)`)
+need types and stay unresolved (`attribute_call`), as do inherited methods
+the type does not declare.
 
 Checked against javac's own parser with
 `tools/compare_java_declarations_with_javac.py`, which runs
@@ -528,6 +549,31 @@ Guava's 8,457 ambiguous imports are test roots importing a package that both
 `guava/src` and `android/guava/src` declare; only the Maven build says which.
 The same-source-root rule is confirmed only for javac given the importer's
 root first, as it is.
+
+Calls are checked against javac's attribution with
+`tools/compare_java_calls_with_javac.py`, which runs
+`tools/JavaCallOracle.java` per source root in the same way. A link is
+confirmed when javac binds the call to the same declaration (file, name and
+line); a `new` binds the class it creates.
+
+| Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
+|---|---|---|---|---|---|
+| google/gson | 4,098 / 4,101 | 0 | 3 | 121 | 5,349 |
+| apache/commons-lang | 17,723 / 18,906 | 0 | 1,183 | 9,687 | 8,130 |
+| google/guava | 40,788 / 40,936 | 80 | 68 | 3,463 | 80,076 |
+
+Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
+57,943) and inherited or library methods (`unbound_name`). javac binds none
+for 1,183 commons-lang links because those test calls pass lambdas to
+JUnit-typed parameters, and JUnit is not on javac's class path; the links go
+to the statically imported `LangAssertions` methods of the same name. Guava's
+80 contradictions (0.2% of its links) come from two things a name lookup does
+not see: a call inside an anonymous class can bind a method the anonymous
+class inherits rather than the enclosing type's (`isRunning()` inside `new
+AbstractService() {...}`), and an inherited overload with the same arity can
+fit the argument types better (`putBytes`). junit5 is not reported: javac
+stops attributing most of its roots without their libraries, leaving
+nothing to compare.
 
 ## SCIP references
 

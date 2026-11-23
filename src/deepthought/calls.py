@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 import posixpath
 
-from .imports import PYTHON_FROM_IMPORT_SUBMODULE, resolve_imports
+from .imports import PYTHON_FROM_IMPORT_SUBMODULE, _java_index, resolve_imports
 from .models import AnalysisResult
 
 CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
@@ -20,6 +20,10 @@ CALL_MODULE_ATTRIBUTE = "tree-sitter.call-module-attribute"
 CALL_SELF_METHOD = "tree-sitter.call-self-method"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
 
+JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
+JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
+JAVA_TYPE_MEMBER = "tree-sitter.java-type-member"
+JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 _CALLABLE = {"Function", "Class"}
 _METHOD = {"Method", "Function"}
 
@@ -134,6 +138,180 @@ def package_peers(result: AnalysisResult) -> dict:
     return {file: tuple(sorted(files)) for files in groups.values() for file in files}
 
 
+_JAVA_TYPES = {"Class", "Interface", "Enum", "Record", "Annotation"}
+
+
+class _JavaScope:
+    """Java name lookup: enclosing types, then imports, then the package."""
+
+    def __init__(self, result, by_symbol):
+        self.by_symbol = by_symbol
+        self.roots, self.packages, self.types = _java_index(result)
+        self.package = {
+            p.file: p.name
+            for p in result.packages
+            if p.kind == "package" and p.file in self.roots
+        }
+        self.single = defaultdict(list)  # (file, simple name) -> type FQNs
+        self.on_demand = defaultdict(list)  # file -> package or type names
+        self.static = defaultdict(list)  # (file, member) -> type FQNs
+        self.static_all = defaultdict(list)  # file -> type FQNs
+        for item in result.imports:
+            if item.file not in self.roots:
+                continue
+            if item.names == ():
+                self.single[(item.file, item.local_names[0])].append(item.specifier)
+            elif item.names == ("*",):
+                self.on_demand[item.file].append(item.specifier)
+                self.static_all[item.file].append(item.specifier)
+            else:
+                self.static[(item.file, item.names[0])].append(item.specifier)
+
+    def _defs(self, file, symbol, kinds):
+        return [d for d in self.by_symbol.get((file, symbol), ()) if d.kind in kinds]
+
+    def qualified(self, name, root):
+        """Type declarations of a fully qualified type name, own root first."""
+        by_root = self.types.get(name)
+        if not by_root:
+            return []
+        files = by_root.get(root) or (
+            next(iter(by_root.values())) if len(by_root) == 1 else []
+        )
+        found = []
+        for file in sorted(set(files)):
+            symbol = name[len(self.package[file]) + 1 :]
+            found.extend(self._defs(file, symbol, _JAVA_TYPES))
+        return found
+
+    def type(self, file, scope, name):
+        """Declarations a type name denotes from a file and scope."""
+        first, *rest = name.split(".")
+        root = self.roots.get(file)
+        found = []
+        for depth in range(len(scope), -1, -1):
+            prefix = ".".join(scope[:depth])
+            found = self._defs(
+                file, f"{prefix}.{first}" if prefix else first, _JAVA_TYPES
+            )
+            if found:
+                break
+        if not found and root is not None:
+            for spec in self.single.get((file, first), ()):
+                found.extend(self.qualified(spec, root))
+            package = self.package.get(file)
+            if not found and package is not None:
+                found = self.qualified(f"{package}.{first}", root)
+            if not found:
+                for spec in self.on_demand.get(file, ()):
+                    found.extend(self.qualified(f"{spec}.{first}", root))
+        if not found and rest and root is not None:
+            # A fully qualified name: the longest package prefix that names it.
+            parts = name.split(".")
+            for size in range(len(parts), 1, -1):
+                found = self.qualified(".".join(parts[:size]), root)
+                if found:
+                    rest = parts[size:]
+                    break
+            else:
+                return []
+        for part in rest:
+            found = [
+                n
+                for d in found
+                for n in self._defs(d.file, f"{d.symbol}.{part}", _JAVA_TYPES)
+            ]
+        return found
+
+    @staticmethod
+    def arity(site, methods):
+        """Methods whose parameters accept the call's argument count."""
+        if site.arguments is None:
+            return methods
+        n = site.arguments
+        return [
+            m
+            for m in methods
+            if m.parameters is None
+            or n == m.parameters
+            or (m.variadic and n >= m.parameters - 1)
+        ]
+
+    def methods(self, site, declared, rule_id, none_reason):
+        """Link among same-named methods by arity; none fits: unresolved."""
+        if not declared:
+            return CallResolution(site.id, "unresolved", reason=none_reason)
+        return _pick(site.id, self.arity(site, declared), rule_id, "no_matching_arity")
+
+    def enclosing_types(self, file, scope):
+        for depth in range(len(scope), 0, -1):
+            prefix = ".".join(scope[:depth])
+            if self._defs(file, prefix, _JAVA_TYPES):
+                yield prefix
+
+    def call(self, site, scope):
+        parts = site.callee.split(".")
+        file = site.file
+        if site.kind == "new":
+            return _pick(
+                site.id,
+                self.type(file, scope, site.callee),
+                JAVA_TYPE_NAME,
+                "type_not_declared",
+            )
+        name = parts[-1]
+        if len(parts) == 1:
+            for owner in self.enclosing_types(file, scope):
+                methods = self._defs(file, f"{owner}.{name}", {"Method"})
+                if methods:
+                    # Java stops at the innermost type declaring the name; a
+                    # fitting overload missing there is inherited.
+                    return self.methods(
+                        site, methods, JAVA_ENCLOSING_METHOD, "no_declaration"
+                    )
+            root = self.roots.get(file)
+            imported = (
+                [
+                    m
+                    for spec in self.static.get((file, name), [])
+                    or self.static_all.get(file, [])
+                    for t in self.qualified(spec, root)
+                    for m in self._defs(t.file, f"{t.symbol}.{name}", {"Method"})
+                ]
+                if root is not None
+                else []
+            )
+            if imported:
+                return self.methods(
+                    site, imported, JAVA_STATIC_IMPORT, "no_declaration"
+                )
+            return CallResolution(site.id, "unresolved", reason="unbound_name")
+        head = ".".join(parts[:-1])
+        if head == "this":
+            owner = next(self.enclosing_types(file, scope), None)
+            if owner is None:
+                return CallResolution(site.id, "unresolved", reason="outside_class")
+            return self.methods(
+                site,
+                self._defs(file, f"{owner}.{name}", {"Method"}),
+                CALL_SELF_METHOD,
+                "not_declared_in_class",
+            )
+        owners = self.type(file, scope, head)
+        if not owners:
+            return CallResolution(site.id, "unresolved", reason="attribute_call")
+        return self.methods(
+            site,
+            [
+                m
+                for t in owners
+                for m in self._defs(t.file, f"{t.symbol}.{name}", {"Method"})
+            ],
+            JAVA_TYPE_MEMBER,
+            "not_declared_in_type",
+        )
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
@@ -141,11 +319,16 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     by_symbol, names, modules = bindings.by_symbol, bindings.names, bindings.modules
     top_level = bindings.top_level
     peers = package_peers(result)
+    languages = {item.file: item.language for item in result.coverage}
+    java = _JavaScope(result, by_symbol)
 
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
         caller = by_id.get(site.caller_id)
         scope = caller.symbol.split(".") if caller is not None else []
+        if languages.get(site.file) == "java":
+            resolutions.append(java.call(site, scope))
+            continue
         parts = site.callee.split(".")
         if len(parts) == 1:
             lexical = bindings.lexical(site.file, scope, site.callee, _CALLABLE)

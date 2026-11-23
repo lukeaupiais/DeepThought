@@ -6,8 +6,17 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from deepthought import analyze_repository
+from deepthought import AnalysisResult, analyze_repository
+from deepthought.models import CallSite, Definition
 from deepthought.analysis_tools import TreeSitterTool
+from deepthought.calls import (
+    CALL_SELF_METHOD,
+    JAVA_ENCLOSING_METHOD,
+    JAVA_STATIC_IMPORT,
+    JAVA_TYPE_MEMBER,
+    JAVA_TYPE_NAME,
+    resolve_calls,
+)
 from deepthought.imports import (
     JAVA_PACKAGE_MEMBER,
     JAVA_SAME_SOURCE_ROOT,
@@ -90,7 +99,6 @@ class JavaTests(unittest.TestCase):
             [("java.util.List", (), ("List",))],
         )
         self.assertEqual([p.name for p in result.packages], ["app"])
-        self.assertEqual(result.call_sites, ())
         self.assertEqual(result.supertypes, ())
 
     def test_annotations_belong_to_the_text_and_javadoc_does_not(self):
@@ -258,6 +266,148 @@ class JavaTests(unittest.TestCase):
         )
         (resolution,) = resolve_imports(result)
         self.assertEqual([link.target_file for link in resolution.links], ["lib/x.go"])
+
+    def test_calls_link_by_java_name_lookup(self):
+        self.maxDiff = None
+        root = "src/app/"
+        files = {
+            root + "util/Strings.java": (
+                "package app.util;\n"
+                "public class Strings {\n"
+                "  public static String trim(String s) { return s; }\n"
+                "  public static String pad(String s) { return s; }\n"
+                "  public static String pad(String s, int n) { return s; }\n"
+                "  public static String join(String s, Object... rest) { return s; }\n"
+                "  public static String join(int n) { return null; }\n"
+                "  public static class Builder { public static Builder of() { return null; } }\n"
+                "}\n"
+            ),
+            root + "util/Tools.java": (
+                "package app.util;\npublic class Tools { public static void tool() {} }\n"
+            ),
+            root + "Peer.java": (
+                "package app;\nclass Peer { static void ping() {} }\n"
+            ),
+            # The single-type import shadows this same-package Strings.
+            root + "Strings.java": (
+                "package app;\nclass Strings { static String trim(String s) { return s; } }\n"
+            ),
+            root + "Main.java": (
+                "package app;\n"
+                "import app.util.Strings;\n"
+                "import static app.util.Strings.trim;\n"
+                "import app.util.*;\n"
+                "import static app.util.Tools.*;\n"
+                "class Main {\n"
+                "  void run(String s) {\n"
+                "    helper();\n"
+                "    this.helper();\n"
+                "    trim(s);\n"
+                "    Strings.trim(s);\n"
+                "    Strings.pad(s);\n"
+                "    Strings.pad(s, 1, 2);\n"
+                "    Strings.join(s);\n"
+                "    Strings.join(s, 1, 2);\n"
+                "    Strings.join(/* one */ 1);\n"
+                "    Strings.join();\n"
+                "    recv(1);\n"
+                "    Strings.Builder.of();\n"
+                "    app.util.Strings.trim(s);\n"
+                "    Peer.ping();\n"
+                "    new Peer();\n"
+                "    new Strings.Builder();\n"
+                "    new Inner();\n"
+                "    s.trim();\n"
+                "    java.util.List.of();\n"
+                "    missing();\n"
+                "    new Tools();\n"
+                "    tool();\n"
+                "  }\n"
+                "  void helper() {}\n"
+                "  void recv(Main this, int a) {}\n"
+                "  class Inner { void go() { helper(); } }\n"
+                "}\n"
+            ),
+        }
+        # Another source root with its own copy of app.util.
+        files["flavor/app/util/Strings.java"] = files[root + "util/Strings.java"]
+        result = analyze(files)
+        symbols = {
+            d.id: ("util:" if d.file == root + "util/Strings.java" else "") + d.symbol
+            for d in result.definitions
+            if d.file.startswith(root)
+        }
+        sites = {s.id: s for s in result.call_sites}
+        outcomes = {
+            (sites[r.call_id].callee, sites[r.call_id].line): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == root + "Main.java"
+        }
+        self.assertEqual(
+            outcomes,
+            {
+                ("helper", 8): ("Main.helper", JAVA_ENCLOSING_METHOD),
+                ("this.helper", 9): ("Main.helper", CALL_SELF_METHOD),
+                ("trim", 10): ("util:Strings.trim", JAVA_STATIC_IMPORT),
+                ("Strings.trim", 11): ("util:Strings.trim", JAVA_TYPE_MEMBER),
+                # Overloads are told apart by argument count only.
+                ("Strings.pad", 12): ("util:Strings.pad", JAVA_TYPE_MEMBER),
+                ("Strings.pad", 13): (None, "no_matching_arity"),
+                ("Strings.join", 14): (None, "multiple_declarations"),
+                ("Strings.join", 15): ("util:Strings.join", JAVA_TYPE_MEMBER),
+                # A comment is not an argument; types are not compared.
+                ("Strings.join", 16): (None, "multiple_declarations"),
+                ("Strings.join", 17): (None, "no_matching_arity"),
+                # A receiver parameter is not counted.
+                ("recv", 18): ("Main.recv", JAVA_ENCLOSING_METHOD),
+                ("Strings.Builder.of", 19): (
+                    "util:Strings.Builder.of",
+                    JAVA_TYPE_MEMBER,
+                ),
+                ("app.util.Strings.trim", 20): ("util:Strings.trim", JAVA_TYPE_MEMBER),
+                ("Peer.ping", 21): ("Peer.ping", JAVA_TYPE_MEMBER),
+                ("Peer", 22): ("Peer", JAVA_TYPE_NAME),
+                ("Strings.Builder", 23): ("util:Strings.Builder", JAVA_TYPE_NAME),
+                ("Inner", 24): ("Main.Inner", JAVA_TYPE_NAME),
+                ("s.trim", 25): (None, "attribute_call"),
+                ("java.util.List.of", 26): (None, "attribute_call"),
+                ("missing", 27): (None, "unbound_name"),
+                ("Tools", 28): ("Tools", JAVA_TYPE_NAME),
+                ("tool", 29): ("Tools.tool", JAVA_STATIC_IMPORT),
+                # From an inner class, the outer class's method.
+                ("helper", 33): ("Main.helper", JAVA_ENCLOSING_METHOD),
+            },
+        )
+
+    def test_arity_is_serialized_for_java_only(self):
+        java = analyze({"A.java": "class A { void f(int... xs) { f(1, 2); } }\n"})
+        method = next(d for d in java.definitions if d.symbol == "A.f")
+        self.assertEqual((method.parameters, method.variadic), (1, True))
+        self.assertEqual([c.arguments for c in java.call_sites], [2])
+        self.assertEqual(AnalysisResult.from_json(java.to_json()), java)
+        data = analyze({"a.py": "def f():\n    f()\n"}, ("python",)).to_dict()
+        self.assertNotIn("parameters", data["definitions"][0])
+        self.assertNotIn("variadic", data["definitions"][0])
+        self.assertNotIn("arguments", data["call_sites"][0])
+        location = {
+            "file": "A.java",
+            "line": 1,
+            "column": 0,
+            "end_line": 1,
+            "end_column": 1,
+        }
+        for bad in (
+            {"parameters": -1},
+            {"parameters": 0, "variadic": True},
+            {"variadic": 1},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                Definition(id="d", symbol="f", kind="Method", **location, **bad)
+        with self.assertRaises(ValueError):
+            CallSite(id="c", callee="f", kind="call", **location, arguments=-1)
 
     def test_java_is_opt_in(self):
         default = analyze({"Outer.java": SOURCE, "a.py": "x = 1\n"}, languages=None)

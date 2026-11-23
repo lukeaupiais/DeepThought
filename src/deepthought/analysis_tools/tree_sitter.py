@@ -1,7 +1,7 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
 This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX,
-Go and Java declarations, static file imports, and name-matched calls and
+Go and Java declarations, static file imports, name-matched calls, and
 declared bases (not yet for Java).
 It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
@@ -184,6 +184,17 @@ _CALL_RULE_TEXT = {
     call_rules.CALL_PACKAGE_NAME: "A bare callee name equals a function declared "
     "at top level by another file in the same directory with the same package "
     "clause; build constraints are not evaluated.",
+    call_rules.JAVA_ENCLOSING_METHOD: "A bare Java method name is declared by "
+    "the innermost enclosing type that declares a method of that name; "
+    "inherited methods and argument types are not checked.",
+    call_rules.JAVA_STATIC_IMPORT: "A bare Java method name is a method of a "
+    "type the file imports statically, by name or with a wildcard.",
+    call_rules.JAVA_TYPE_MEMBER: "In a Java call 'T.name', T denotes a type by "
+    "Java's lookup order (enclosing and local types, single-type imports, the "
+    "package, wildcard imports, then a qualified name) that declares the "
+    "method; a variable that obscures the type is not checked.",
+    call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
+    "lookup order; the link reaches the type's declaration.",
 }
 CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))

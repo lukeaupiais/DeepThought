@@ -137,6 +137,22 @@ def extract(
                 kind = "Method"
             ordinal = ordinals.get((symbol, kind), 0)
             ordinals[(symbol, kind)] = ordinal + 1
+            parameters = node.child_by_field_name("parameters")
+            arity = {}
+            if parameters is not None and parameters.type == "formal_parameters":
+                # Java; a receiver parameter (``Outer this``) is not counted.
+                declared = [
+                    c
+                    for c in parameters.named_children
+                    if c.type in {"formal_parameter", "spread_parameter"}
+                ]
+                arity = {
+                    "parameters": len(declared),
+                    "variadic": bool(declared)
+                    and declared[-1].type == "spread_parameter",
+                }
+            elif node.type == "annotation_type_element_declaration":
+                arity = {"parameters": 0}
             definition = Definition(
                 id=identifier(repository_id, file, symbol, kind, ordinal),
                 file=file,
@@ -146,6 +162,7 @@ def extract(
                 column=node.start_point.column,
                 end_line=node.end_point.row + 1,
                 end_column=node.end_point.column,
+                **arity,
             )
             definitions.append(definition)
             if nodes is not None:
@@ -374,7 +391,51 @@ def _dotted(node, content):
     return None
 
 
+def _java_dotted(node, content):
+    """'a.B.c' for a Java name, field chain or (possibly generic) type."""
+    if node.type in {"identifier", "type_identifier", "this"}:
+        return _text(node, content)
+    if node.type == "field_access":
+        obj = node.child_by_field_name("object")
+        field = node.child_by_field_name("field")
+        if obj is None or field is None or field.type != "identifier":
+            return None
+        head = _java_dotted(obj, content)
+        return None if head is None else head + "." + _text(field, content)
+    if node.type in {"scoped_type_identifier", "generic_type"}:
+        parts = [c for c in node.named_children if c.type != "type_arguments"]
+        names = [_java_dotted(c, content) for c in parts]
+        if not names or None in names:
+            return None
+        return ".".join(names)
+    return None
+
+
+def _java_arguments(node):
+    """Arguments written in a Java call or ``new``; None for other languages."""
+    if node.type not in {"method_invocation", "object_creation_expression"}:
+        return None
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    return sum(
+        1
+        for c in arguments.named_children
+        if c.type not in {"line_comment", "block_comment"}
+    )
+
+
 def _callee(node, content):
+    if node.type == "method_invocation":
+        name = node.child_by_field_name("name")
+        receiver = node.child_by_field_name("object")
+        if receiver is None:
+            return _text(name, content), "call"
+        head = _java_dotted(receiver, content)
+        return (None if head is None else head + "." + _text(name, content)), "call"
+    if node.type == "object_creation_expression":
+        target = node.child_by_field_name("type")
+        return (_java_dotted(target, content) if target is not None else None), "new"
     if node.type in {"call", "call_expression"}:
         target = node.child_by_field_name("function")
         return (_dotted(target, content), "call") if target is not None else None
@@ -425,6 +486,7 @@ def extract_call_sites(
                         end_line=end[0],
                         end_column=end[1],
                         caller_id=caller,
+                        arguments=_java_arguments(node),
                     )
                 )
         stack.extend(reversed(node.named_children))
