@@ -219,6 +219,35 @@ def _grpc_servers(tool, labelled, tolerance):
     }
 
 
+def _message_pairs(endpoints, roots):
+    """Each publish site paired with each consume site of its destination."""
+    consumers = {}
+    for endpoint in endpoints:
+        if endpoint.role == "consume":
+            consumers.setdefault((endpoint.broker, endpoint.destination), []).append(
+                endpoint
+            )
+    pairs = []
+    for endpoint in endpoints:
+        if endpoint.role != "publish":
+            continue
+        for consumer in consumers.get((endpoint.broker, endpoint.destination), []):
+            pairs.append(
+                {
+                    "kind": "messaging",
+                    "from_service": _service_of(endpoint.file, roots),
+                    "to_service": _service_of(consumer.file, roots),
+                    "file": endpoint.file,
+                    "line": endpoint.line,
+                    "server_file": consumer.file,
+                    "server_line": consumer.line,
+                    "route": f"{endpoint.broker} {endpoint.destination}",
+                    "rule_id": endpoint.client,
+                }
+            )
+    return pairs
+
+
 def score(corpus, workspace, line_tolerance=3, kind="http"):
     from deepthought.analysis_tools import ServiceContractTool
 
@@ -249,6 +278,8 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
                 "rule_id": resolution.rule_id,
             }
         )
+    if kind == "messaging":
+        predicted = _message_pairs(tool.last_messages[0], roots)
     labelled = [link for link in corpus["links"] if link["kind"] == kind]
     report = {
         "corpus": corpus.get("corpus"),
@@ -313,8 +344,8 @@ def main(argv=None):
     parser.add_argument("corpus", type=Path)
     parser.add_argument("workspace", type=Path)
     parser.add_argument("--line-tolerance", type=int, default=3)
-    parser.add_argument("--kind", choices=("http", "grpc"), default="http")
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--kind", default="http", choices=("http", "grpc", "messaging"))
     args = parser.parse_args(argv)
     corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
     report = score(corpus, args.workspace, args.line_tolerance, args.kind)

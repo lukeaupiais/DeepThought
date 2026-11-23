@@ -1574,6 +1574,47 @@ line 60, outside the 3-line tolerance. Four more
 calls at don't-care sites (test clients inside currencyservice,
 recommendationservice and emailservice) are linked and count for neither side.
 
+### Message destinations
+
+The same tool reads where code publishes messages and where it consumes them
+(`deepthought.service_contracts.messaging`). Each destination is one
+`MessageDestination` node (labels `MessageDestination`, `Contract`;
+`protocol` is `kafka` or `amqp`), and publishers link to it by `PUBLISHES`
+and consumers by `CONSUMES`, from the enclosing declaration (a listener
+method is its own) or the file. Publishers and consumers of one destination
+meet at its node: the link between them is the shared broker and name, not
+a traced value, and consumer groups, brokers and clusters are not checked.
+
+| Client | Publish | Consume |
+|---|---|---|
+| Spring Kafka | `KafkaTemplate.send(topic, ...)` or `send(new ProducerRecord<>(topic, ...))` on a name declared only as `KafkaTemplate` | `@KafkaListener(topics = ...)` |
+| Spring AMQP | `convertAndSend`/`send(exchange, key, ...)`, or `(key, ...)` with the template's exchange | `@RabbitListener(queues = ...)` |
+| kafka-python | `send(topic, ...)` on a name bound once to `KafkaProducer(...)` | `KafkaConsumer(topic, ...)` |
+| pika | `basic_publish(exchange, routing_key)` | `basic_consume(queue)` |
+| Go `amqp` (streadway, amqp091-go) | `Publish(exchange, key, ...)` | `Consume(queue, ...)` |
+
+Each publish rule is `service-contracts.<client>-send`/`-publish` and each
+consume rule `-listener`/`-consumer`/`-consume`; all are pattern_matched.
+
+An AMQP destination is `exchange/routing-key`. A consumed queue `q` receives
+`/q` (every broker binds each queue to the default exchange by its name) and
+`x/k` for each `queue_bind`/`QueueBind(q, k, x)` in the same file; a Go
+queue may be named by `q.Name` of a `q, err := ch.QueueDeclare("q", ...)`.
+Binding keys with `*` or `#` (topic exchange patterns) are counted as unread,
+not matched. A Spring template given only a routing key sends to
+`spring.rabbitmq.template.exchange` from the module's configuration, or to
+the default exchange when that key is not set; a module whose Java code calls
+`setExchange` has no fixed template exchange.
+
+Destinations are folded like URLs. In addition, Java names a constant of
+another class (`Queues.queueName`) through the file's imports or package
+when exactly one file declares that class with a `static final String` the
+file fixes, and Python reads `self.NAME` for a class attribute assigned
+once in the class body and never through an attribute assignment. A
+destination with unknown text is counted as unread. Spring Cloud Stream
+bindings (destinations set per service in configuration, used through
+library code) are not read yet.
+
 ### Validation
 
 `tools/check_contracts_ground_truth.py CORPUS.json CHECKOUT` scores the tool
@@ -1598,6 +1639,19 @@ through a gateway (robot-shop's Locust calls `/api/cart/...`, which nginx
 rewrites) or come from browser code; gRPC links are scored separately. Online
 Boutique's frontend calls the shopping assistant at `"http://" + addr`, which
 fixes no path, so it stays unresolved.
+
+Labelled message links (`--kind messaging`):
+
+| Corpus | Labelled direct links | Predicted | Correct | Missed |
+|---|---|---|---|---|
+| ewolff/microservice-kafka (Spring Kafka, two consumers) | 2 | 2 | 2 | 0 |
+| robot-shop (pika publish to Go `amqp` consumer) | 1 | 1 | 1 | 0 |
+| apssouza22/java-microservice (Spring Cloud Stream) | 1 | 0 | 0 | 1: Spring Cloud Stream is not read |
+
+Train-ticket has no labelled messages; its four publish-to-consume pairs
+(food to delivery on `food_delivery`, and preserve, preserve-other and
+notification itself on `email`, each through a `Queues` constant of its
+own service) were checked by hand against the constants and listeners.
 
 Train-ticket (FudanSELab, commit `313886e9`, 41 Spring services using
 RestTemplate) has no labelled corpus, so its predictions were audited instead
