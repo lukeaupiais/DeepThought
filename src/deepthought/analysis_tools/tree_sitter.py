@@ -185,8 +185,8 @@ _CALL_RULE_TEXT = {
     "at top level by another file in the same directory with the same package "
     "clause; build constraints are not evaluated.",
     call_rules.JAVA_ENCLOSING_METHOD: "A bare Java method name is declared by "
-    "the innermost enclosing type that declares a method of that name; "
-    "inherited methods and argument types are not checked.",
+    "the innermost enclosing type that declares or inherits a method of that "
+    "name; argument types are not checked.",
     call_rules.JAVA_STATIC_IMPORT: "A bare Java method name is a method of a "
     "type the file imports statically, by name or with a wildcard.",
     call_rules.JAVA_TYPE_MEMBER: "In a Java call 'T.name', T denotes a type by "
@@ -195,6 +195,11 @@ _CALL_RULE_TEXT = {
     "method; a variable that obscures the type is not checked.",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
+    call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "
+    "or after a type 'T.', is not declared by the type found but by one of "
+    "its declared bases, followed through the repository; a nearer method "
+    "with the same parameter count overrides it, and argument types are not "
+    "checked.",
 }
 CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))

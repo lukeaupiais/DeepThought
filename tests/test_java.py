@@ -12,6 +12,7 @@ from deepthought.analysis_tools import TreeSitterTool
 from deepthought.calls import (
     CALL_SELF_METHOD,
     JAVA_ENCLOSING_METHOD,
+    JAVA_INHERITED_METHOD,
     JAVA_STATIC_IMPORT,
     JAVA_TYPE_MEMBER,
     JAVA_TYPE_NAME,
@@ -541,6 +542,102 @@ class JavaTests(unittest.TestCase):
             [
                 ("Builder", "Outer.Builder", JAVA_TYPE_NAME),
                 ("Local", "Main.run.Local", JAVA_TYPE_NAME),
+            ],
+        )
+
+    def test_calls_find_inherited_methods(self):
+        files = {
+            "src/app/Base.java": (
+                "package app;\n"
+                "class Base implements Named {\n"
+                "  void run() {}\n"
+                "  void put(int a) {}\n"
+                "  void put(int a, int b) {}\n"
+                "  static void util() {}\n"
+                "}\n"
+            ),
+            "src/app/Named.java": (
+                "package app;\n"
+                "interface Named { String name(); default void hello() {} }\n"
+            ),
+            "src/app/Other.java": (
+                "package app;\ninterface Other { void hello(); void put(int a); }\n"
+            ),
+            "src/app/Loop.java": (
+                "package app;\n"
+                "interface Loop extends Loop2 {}\ninterface Loop2 extends Loop {}\n"
+            ),
+            "src/app/Main.java": (
+                "package app;\n"
+                "class Main extends Base {\n"
+                "  void put(int a) {}\n"
+                "  void go() {\n"
+                "    run();\n"
+                "    this.run();\n"
+                "    put(1);\n"
+                "    put(1, 2);\n"
+                "    name();\n"
+                "    Main.util();\n"
+                "    hello();\n"
+                "  }\n"
+                "  class Inner { void go() { run(); } }\n"
+                "}\n"
+                "abstract class Both extends Base implements Other {\n"
+                "  void go() { hello(); put(1); }\n"
+                "}\n"
+                "abstract class Cyclic implements Loop { void go() { none(); } }\n"
+                "abstract class Two implements Named, Other {\n"
+                "  void go() { hello(); }\n"
+                "}\n"
+                "interface Three extends Named, Other {\n"
+                "  default void go() { hello(); }\n"
+                "}\n"
+                "interface Sub extends Named { String name(); }\n"
+                "abstract class Partial implements Named {}\n"
+                "abstract class Mixed extends Partial implements Sub {\n"
+                "  void go() { name(); }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        self.assertEqual(
+            sorted(
+                (
+                    sites[r.call_id].line,
+                    sites[r.call_id].callee,
+                    symbols.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_calls(result)
+                if sites[r.call_id].file == "src/app/Main.java"
+            ),
+            [
+                (5, "run", "Base.run", JAVA_INHERITED_METHOD),
+                (6, "this.run", "Base.run", JAVA_INHERITED_METHOD),
+                # Main's own put(int) overrides Base's; put(int, int) is
+                # inherited.
+                (7, "put", "Main.put", JAVA_ENCLOSING_METHOD),
+                (8, "put", "Base.put", JAVA_INHERITED_METHOD),
+                # Through Base's interface.
+                (9, "name", "Named.name", JAVA_INHERITED_METHOD),
+                (10, "Main.util", "Base.util", JAVA_INHERITED_METHOD),
+                (11, "hello", "Named.hello", JAVA_INHERITED_METHOD),
+                # From an inner class: the outer type's inherited method.
+                (13, "run", "Base.run", JAVA_INHERITED_METHOD),
+                # Base's own put implements Other's; Base only inherits
+                # hello from Named, which does not hide Other's.
+                (16, "hello", None, "multiple_declarations"),
+                (16, "put", "Base.put", JAVA_INHERITED_METHOD),
+                (18, "none", None, "unbound_name"),
+                # Two interfaces with a same-arity method: types decide.
+                (20, "hello", None, "multiple_declarations"),
+                # An interface's first base is not a superclass.
+                (23, "hello", None, "multiple_declarations"),
+                # Partial only inherits Named.name, so it does not hide
+                # Sub's; which interface method wins is not decided by name.
+                (28, "name", None, "multiple_declarations"),
             ],
         )
 
