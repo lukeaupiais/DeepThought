@@ -12,6 +12,14 @@ the tools that own each manifest format:
 - npm/Node: ``module.findPackageJSON`` (Node 22.14+) gives the package.json
   Node resolves for a file; every JavaScript, TypeScript and JSON file must be
   PART_OF the node package that manifest declares.
+- Dependencies: ``cargo metadata --all-features`` (with its resolve graph) gives the
+  in-repository packages each package depends on, and ``go mod edit -json``
+  each module's directory replacements of required modules; every REQUIRES
+  link with resolved evidence must be one of them and each of them must be
+  linked. A Yarn Berry ``yarn.lock`` at a repository root does the same for
+  npm packages: each workspace's locked dependencies that resolve to
+  ``workspace:`` entries (needs PyYAML). Name-matched links are counted as
+  confirmed or refuted.
 - Maven: ``mvn help:evaluate`` gives each pom.xml's artifactId (optional,
   ``--maven``; it may download the help plugin).
 
@@ -22,12 +30,17 @@ contradiction samples. Python projects have no such oracle and are not checked.
 """
 
 import argparse
+from fnmatch import fnmatchcase
 import json
 import os
+import posixpath
+from pathlib import PurePosixPath
+from urllib.parse import quote, unquote
 from pathlib import Path
 import subprocess
 import sys
 
+from deepthought.component_dependencies import NAME, resolve_dependencies
 from deepthought.components import (
     SKIPPED_DIRECTORIES,
     enclosing_components,
@@ -48,11 +61,13 @@ process.stdout.write(JSON.stringify(out));
 """
 
 
-def files_under(root):
+def files_under(root, exclude=()):
     for directory, dirs, names in os.walk(root):
         dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRECTORIES)
         for name in sorted(names):
-            yield (Path(directory) / name).relative_to(root).as_posix()
+            path = (Path(directory) / name).relative_to(root).as_posix()
+            if not any(fnmatchcase(path, pattern) for pattern in exclude):
+                yield path
 
 
 def nearest(path, components, kind):
@@ -210,6 +225,138 @@ def check_node(root, components, tally, files):
         )
 
 
+def check_dependencies(root, scan, tally):
+    links, _ = resolve_dependencies(
+        scan.components, scan.dependencies, dict(scan.coordinates)
+    )
+    ours = {}
+    for link in links:
+        key = (link.source.kind, link.source.manifest, link.target.manifest)
+        # A resolved rule wins over a name match for the same pair.
+        if ours.get(key) != "resolved":
+            ours[key] = "name_matched" if link.rule == NAME else "resolved"
+    expected, checked = set(), set()
+    env = {"GOWORK": "off"}
+    for module in [c for c in scan.components if c.kind == "go_module"]:
+        edited = run(["go", "mod", "edit", "-json"], root / module.root, **env)
+        if edited.returncode:
+            tally.skip("deps.go", "go mod edit failed")
+            continue
+        checked.add(("go_module", module.manifest))
+        data = json.loads(edited.stdout)
+        required = {r["Path"] for r in data.get("Require") or []}
+        for replace in data.get("Replace") or []:
+            new = replace["New"]
+            if replace["Old"]["Path"] not in required or new.get("Version"):
+                continue
+            target = (root / module.root / new["Path"]).resolve() / "go.mod"
+            try:
+                target = target.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            expected.add(("go_module", module.manifest, target))
+    seen = set()
+    for manifest in sorted(
+        {c.manifest for c in scan.components if c.kind == "cargo_package"}
+    ):
+        if manifest in seen:
+            continue
+        metadata = run(
+            ["cargo", "metadata", "--all-features", "--format-version", "1"],
+            root / Path(manifest).parent,
+        )
+        if metadata.returncode:
+            tally.skip("deps.cargo", "cargo metadata failed")
+            continue
+        data = json.loads(metadata.stdout)
+        local = {}
+        for package in data["packages"]:
+            if package["source"] is not None:
+                continue
+            try:
+                local[package["id"]] = (
+                    Path(package["manifest_path"])
+                    .resolve()
+                    .relative_to(root)
+                    .as_posix()
+                )
+            except ValueError:
+                continue
+        seen.update(local.values())
+        checked.update(("cargo_package", m) for m in local.values())
+        for node in (data.get("resolve") or {}).get("nodes", []):
+            if node["id"] not in local:
+                continue
+            for dep in node["deps"]:
+                if dep["pkg"] in local:
+                    expected.add(
+                        ("cargo_package", local[node["id"]], local[dep["pkg"]])
+                    )
+    lock = root / "yarn.lock"
+    if lock.is_file():
+        try:
+            import yaml
+        except ImportError:
+            tally.skip("deps.node", "PyYAML missing")
+        else:
+            entries = yaml.safe_load(lock.read_text())
+            resolution = {}
+            for keys, entry in entries.items():
+                if isinstance(entry, dict) and "resolution" in entry:
+                    for key in keys.split(", "):
+                        resolution[key.strip()] = entry["resolution"]
+
+            def workspace_manifest(value):
+                if "@link:" in value and "::locator=" in value:
+                    # A link: path, relative to the locating workspace.
+                    path, _, locator = value.partition("::locator=")
+                    base = workspace_manifest(unquote(locator))
+                    if base is None:
+                        return None
+                    base = str(PurePosixPath(base).parent)
+                    target = posixpath.normpath(
+                        posixpath.join(base, path.rpartition("@link:")[2])
+                    )
+                    return "package.json" if target == "." else target + "/package.json"
+                _, _, directory = value.rpartition("@workspace:")
+                if not directory or directory == value:
+                    return None
+                return (
+                    "package.json"
+                    if directory == "."
+                    else directory.rstrip("/") + "/package.json"
+                )
+
+            for entry in entries.values():
+                if not isinstance(entry, dict):
+                    continue
+                locator = entry.get("resolution", "")
+                if "@link:" in locator:
+                    continue  # Yarn does not install a link's dependencies.
+                source = workspace_manifest(locator)
+                if source is None:
+                    continue
+                checked.add(("node_package", source))
+                for name, spec in (entry.get("dependencies") or {}).items():
+                    descriptor = f"{name}@{spec}"
+                    target = workspace_manifest(
+                        resolution.get(descriptor)
+                        or resolution.get(
+                            descriptor + "::locator=" + quote(locator, safe="")
+                        )
+                        or ""
+                    )
+                    if target is not None and target != source:
+                        expected.add(("node_package", source, target))
+    for key, evidence in sorted(ours.items()):
+        if key[:2] not in checked:
+            tally.skip("deps." + evidence, "no oracle for " + key[0])
+            continue
+        tally.add("deps." + evidence, key in expected, list(key))
+    for key in sorted(expected):
+        tally.add("deps.oracle-linked", key in ours, list(key))
+
+
 def check_maven(root, components, tally):
     for module in [c for c in components if c.kind == "maven_module"]:
         answer = run(
@@ -244,10 +391,11 @@ def main(argv=None):
         root = repository.resolve()
         scan = scan_components(root, exclude=tuple(args.exclude))
         tally = Tally()
-        files = list(files_under(root))
+        files = list(files_under(root, tuple(args.exclude)))
         check_go(root, scan.components, tally)
         check_cargo(root, scan.components, tally)
         check_node(root, scan.components, tally, files)
+        check_dependencies(root, scan, tally)
         if args.maven:
             check_maven(root, scan.components, tally)
         kinds = {}
@@ -264,7 +412,9 @@ def main(argv=None):
     contradicted = sum(
         bucket["contradicted"]
         for entry in report.values()
-        for bucket in entry["checks"].values()
+        for check, bucket in entry["checks"].items()
+        # A name match the build resolves elsewhere is what name_matched means.
+        if check != "deps.name_matched"
     )
     return 1 if contradicted else 0
 

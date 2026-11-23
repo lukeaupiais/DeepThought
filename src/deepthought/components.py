@@ -161,6 +161,10 @@ class ManifestScan:
     manifests: tuple[tuple[str, str], ...]
     # (path, message) for each manifest that could not be read.
     diagnostics: tuple[tuple[str, str], ...]
+    # Dependencies the manifests declare, as written.
+    dependencies: tuple = ()
+    # Maven module manifest -> "groupId:artifactId".
+    coordinates: tuple[tuple[str, str], ...] = ()
 
 
 def scan_components(
@@ -172,7 +176,10 @@ def scan_components(
 ) -> ManifestScan:
     """Read every manifest under ``root`` that the patterns select."""
     root = Path(root).resolve(strict=True)
+    from .component_dependencies import extract_dependencies, maven_coordinates
+
     components, manifests, diagnostics = [], [], []
+    dependencies, coordinates = [], []
 
     def directory_error(exc):
         diagnostics.append(("", "Could not enumerate a selected directory"))
@@ -220,7 +227,18 @@ def scan_components(
                 )
                 continue
             components.extend(declared)
-    return ManifestScan(tuple(components), tuple(manifests), tuple(diagnostics))
+            dependencies.extend(extract_dependencies(relative, content))
+            if name == "pom.xml" and declared:
+                group, artifact = maven_coordinates(ElementTree.fromstring(content))
+                if group and artifact:
+                    coordinates.append((relative, group + ":" + artifact))
+    return ManifestScan(
+        tuple(components),
+        tuple(manifests),
+        tuple(diagnostics),
+        tuple(dependencies),
+        tuple(coordinates),
+    )
 
 
 def enclosing_components(path: str, components) -> list[Component]:
