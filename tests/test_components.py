@@ -424,6 +424,166 @@ COMPOSE = {
 }
 
 
+# Two Maven services joined by one HTTP contract, plus a client in the
+# provider's own package, which consumes nothing.
+CONTRACTS = {
+    "stats/pom.xml": "<project><artifactId>stats</artifactId></project>",
+    "stats/src/main/resources/application.properties": "spring.application.name=stats\n",
+    "stats/src/main/java/s/StatsController.java": "package s;\n"
+    "import org.springframework.web.bind.annotation.*;\n"
+    "@RestController\n"
+    '@RequestMapping("/stats")\n'
+    "public class StatsController {\n"
+    '  @GetMapping("/latest")\n'
+    '  public String latest() { return ""; }\n'
+    "}\n",
+    "stats/src/main/java/s/Self.java": "package s;\n"
+    "import org.springframework.web.client.RestTemplate;\n"
+    "public class Self {\n"
+    "  RestTemplate rest;\n"
+    '  public String own() { return rest.getForObject("http://stats/stats/latest", String.class); }\n'
+    "}\n",
+    "web/pom.xml": "<project><artifactId>web</artifactId></project>",
+    "web/src/main/java/w/StatsReader.java": "package w;\n"
+    "import org.springframework.web.client.RestTemplate;\n"
+    "public class StatsReader {\n"
+    "  RestTemplate rest;\n"
+    '  public String read() { return rest.getForObject("http://stats/stats/latest", String.class); }\n'
+    '  public String again() { return rest.getForObject("http://stats/stats/latest", String.class); }\n'
+    "}\n",
+}
+JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_java"
+)
+
+
+async def contract_outputs(directory, repo):
+    from deepthought.analysis_tools.service_contracts import ServiceContractTool
+
+    write(directory, CONTRACTS)
+    return [
+        await TreeSitterTool(directory).analyze(repo, languages={"java"}),
+        await ComponentsTool(directory).analyze(repo),
+        await ServiceContractTool(Path(directory)).analyze(repo),
+    ]
+
+
+@unittest.skipUnless(JAVA, "Provision the java grammar")
+class ConsumerTests(unittest.TestCase):
+    def test_packages_joined_by_a_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outputs = asyncio.run(contract_outputs(directory, "repo"))
+        combined, _ = _combine(outputs, "repo", "rev", WriteCoordinatorConfig())
+        consumes = [r for r in combined.relationships if r.type == "USES_CONTRACT_OF"]
+        # Two requests from web to one route make one edge; the request from
+        # inside stats makes none.
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"],
+                    r.target_match["qualified_name"],
+                    r.properties["contract"].split("::")[1],
+                    r.properties["rule_id"],
+                    r.properties["evidence_type"],
+                )
+                for r in consumes
+            ],
+            [
+                (
+                    "repo::web/pom.xml::maven_module::component",
+                    "repo::stats/pom.xml::maven_module::component",
+                    "stats/src/main/java/s/StatsController.java",
+                    "components.contract-consumer",
+                    "pattern_matched",
+                )
+            ],
+        )
+        self.assertEqual(
+            combined.metadata.custom_metrics["component_contracts"],
+            {"contract_links": 1},
+        )
+        # Without the components tool there is nothing to join.
+        alone, _ = _combine(
+            [outputs[0], outputs[2]], "repo", "rev", WriteCoordinatorConfig()
+        )
+        self.assertFalse(
+            [r for r in alone.relationships if r.type == "USES_CONTRACT_OF"]
+        )
+
+
+class MessagingContractTests(unittest.TestCase):
+    def test_consumers_use_the_publishers_package(self):
+        from deepthought.analysis_tools.components import bind_contract_users
+        from deepthought.analysis_tools.contracts import NodeData, RelationshipData
+
+        def package(root):
+            manifest = root + "/go.mod"
+            return NodeData(
+                ["Component"],
+                {
+                    "qualified_name": "r::%s::go_module::component" % manifest,
+                    "repo_url": "r",
+                    "kind": "go_module",
+                    "manifest": manifest,
+                    "name": root,
+                },
+            )
+
+        def symbol(name, path):
+            return NodeData(
+                ["Function", "Symbol"],
+                {"qualified_name": "r::" + name, "repo_url": "r", "file_path": path},
+            )
+
+        def edge(kind, source):
+            return RelationshipData(
+                kind,
+                ["Symbol"],
+                {"qualified_name": "r::" + source, "repo_url": "r"},
+                ["MessageDestination", "Contract"],
+                {"qualified_name": "r::orders-topic", "repo_url": "r"},
+                # Any registered rule; the binding reads only the edge type.
+                {
+                    "evidence_type": "pattern_matched",
+                    "rule_id": "service-contracts.http-path",
+                },
+            )
+
+        nodes = [
+            package("orders"),
+            package("billing"),
+            package("audit"),
+            symbol("publish", "orders/send.go"),
+            symbol("bill", "billing/recv.go"),
+            symbol("log", "audit/recv.go"),
+            symbol("self", "orders/recv.go"),
+        ]
+        relationships = [
+            edge("PUBLISHES", "publish"),
+            edge("CONSUMES", "bill"),
+            edge("CONSUMES", "log"),
+            edge("CONSUMES", "self"),
+        ]
+        edges, counts = bind_contract_users(nodes, relationships, "r")
+        self.assertEqual(
+            [
+                (r.source_match["qualified_name"], r.target_match["qualified_name"])
+                for r in edges
+            ],
+            [
+                (
+                    "r::audit/go.mod::go_module::component",
+                    "r::orders/go.mod::go_module::component",
+                ),
+                (
+                    "r::billing/go.mod::go_module::component",
+                    "r::orders/go.mod::go_module::component",
+                ),
+            ],
+        )
+        self.assertEqual(counts, {"contract_links": 2})
+
+
 @unittest.skipUnless(YAML, "Provision PyYAML")
 class ComposeTests(unittest.TestCase):
     def analyze(self, files):
@@ -770,6 +930,46 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
             core, repo, snapshot_id=snapshot, evidence_types=["resolved"]
         )
         self.assertEqual(strict["items"], [])
+
+    @unittest.skipUnless(JAVA, "Provision the java grammar")
+    async def test_component_impact_crosses_http_contracts(self):
+        from deepthought.storage.graph import WriteCoordinator
+
+        repo = self.repo + "-contracts"
+        self.addAsyncCleanup(self.remove_repo, repo)
+        with tempfile.TemporaryDirectory() as directory:
+            outputs = await contract_outputs(directory, repo)
+        snapshot = "rev-" + uuid4().hex
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs(outputs, repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        impact = await self.service.get_component_impact(
+            repo + "::stats/pom.xml::maven_module::component",
+            repo,
+            snapshot_id=snapshot,
+        )
+        self.assertEqual(
+            [
+                (
+                    i["element"]["display_name"],
+                    i["depth"],
+                    i["evidence_type"],
+                    [e["type"] for e in i["edges"]],
+                    [e["rule_id"] for e in i["edges"]],
+                )
+                for i in impact["items"]
+            ],
+            [
+                (
+                    "web",
+                    1,
+                    "pattern_matched",
+                    ["USES_CONTRACT_OF"],
+                    ["components.contract-consumer"],
+                )
+            ],
+        )
 
     @unittest.skipUnless(YAML, "Provision PyYAML")
     async def test_component_impact_reaches_deployments(self):

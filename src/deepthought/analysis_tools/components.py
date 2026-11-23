@@ -15,6 +15,7 @@ from .. import component_dependencies as deps
 from .. import deployments
 from ..components import (
     COMPONENT_KINDS,
+    PACKAGE_KINDS,
     Component,
     enclosing_components,
     scan_components,
@@ -257,6 +258,94 @@ def bind_components(nodes, repo_url):
                 )
             )
     return relationships, {"files_linked": linked, "files_outside": unlinked}
+
+
+CONTRACT_RULE = register_rule(
+    EvidenceRule(
+        "components.contract-consumer",
+        "pattern_matched",
+        "Code in this package uses a contract that code in that package "
+        "provides: it REQUESTS an HTTP route the other HANDLES, or CONSUMES a "
+        "message destination the other PUBLISHES to. Each file counts in its "
+        "nearest package: the package component (of any kind) whose root is "
+        "deepest above it. As weak as the contract edges it joins, which "
+        "match names and path templates, not traced values.",
+    )
+)
+# Contract edges by role: (provider relation, consumer relation).
+CONTRACT_ROLES = (("HANDLES", "REQUESTS"), ("PUBLISHES", "CONSUMES"))
+
+
+def _depth(component):
+    return len(component.root.split("/")) if component.root else 0
+
+
+def _nearest_packages(path, packages, cache):
+    if path not in cache:
+        found = enclosing_components(path, packages)
+        deepest = max(map(_depth, found), default=None)
+        cache[path] = [c for c in found if _depth(c) == deepest]
+    return cache[path]
+
+
+def bind_contract_users(nodes, relationships, repo_url):
+    """USES_CONTRACT_OF edges between package components.
+
+    For each contract node (an HTTP route or message destination), every
+    package holding a consumer (REQUESTS, CONSUMES) USES_CONTRACT_OF every
+    other package holding its provider (HANDLES, PUBLISHES), once per
+    contract. Run when tool outputs are combined, since the contracts and
+    components come from different tools. Returns (relationships, counts).
+    """
+    nodes = list(nodes)
+    packages, files = {}, {}
+    for node in nodes:
+        p = node.properties
+        if "Component" in node.labels and p.get("kind") in PACKAGE_KINDS:
+            packages[Component(p["kind"], p["manifest"], p.get("name"))] = node
+        path = p.get("path") if "File" in node.labels else p.get("file_path")
+        if path:
+            files[p["qualified_name"]] = path
+    if not packages:
+        return [], {"contract_links": 0}
+    roles = {}
+    for provides, uses in CONTRACT_ROLES:
+        roles[provides], roles[uses] = 0, 1
+    sides = {}
+    for rel in relationships:
+        if rel.type in roles and "Contract" in rel.target_labels:
+            path = files.get(rel.source_match["qualified_name"])
+            if path is not None:
+                sides.setdefault(rel.target_match["qualified_name"], ([], []))[
+                    roles[rel.type]
+                ].append(path)
+    found, cache = set(), {}
+    for contract, (providers, consumers) in sides.items():
+        provided = {
+            c for path in providers for c in _nearest_packages(path, packages, cache)
+        }
+        for path in consumers:
+            for consumer in _nearest_packages(path, packages, cache):
+                for provider in provided - {consumer}:
+                    found.add(
+                        (
+                            packages[consumer].properties["qualified_name"],
+                            packages[provider].properties["qualified_name"],
+                            contract,
+                        )
+                    )
+    edges = [
+        RelationshipData(
+            "USES_CONTRACT_OF",
+            ["Component"],
+            {"qualified_name": consumer, "repo_url": repo_url},
+            ["Component"],
+            {"qualified_name": provider, "repo_url": repo_url},
+            {"contract": contract, **_evidence(CONTRACT_RULE)},
+        )
+        for consumer, provider, contract in sorted(found)
+    ]
+    return edges, {"contract_links": len(edges)}
 
 
 @register_tool
