@@ -1,7 +1,8 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
-This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX
-and Go declarations, static file imports, and name-matched calls and declared bases.
+This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX,
+Go and Java declarations, static file imports (not yet for Java), and
+name-matched calls and declared bases (not yet for Java).
 It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
@@ -205,7 +206,7 @@ class TreeSitterTool(AnalysisTool):
                 ToolCapability.AST_EXTRACTION,
                 ToolCapability.SYMBOL_INDEXING,
             },
-            supported_languages={"go", "javascript", "python", "typescript"},
+            supported_languages={"go", "java", "javascript", "python", "typescript"},
             requires_binary=False,
             binary_name=None,
             performance_class="unmeasured",
@@ -216,6 +217,7 @@ class TreeSitterTool(AnalysisTool):
             importlib.util.find_spec(name) is not None
             for name in (
                 "tree_sitter_go",
+                "tree_sitter_java",
                 "tree_sitter_javascript",
                 "tree_sitter_python",
                 "tree_sitter_typescript",
