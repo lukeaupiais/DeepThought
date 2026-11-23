@@ -106,6 +106,10 @@ def main():
             root / "tests", tests, ignore=shutil.ignore_patterns("__pycache__")
         )
         shutil.copytree(root / "evals", base / "evals")
+        # Evaluator scripts the tests import; the package itself stays installed.
+        shutil.copytree(
+            root / "tools", base / "tools", ignore=shutil.ignore_patterns("__pycache__")
+        )
         scratch.mkdir()
         command = ["bwrap"]
         if args.privileged:
