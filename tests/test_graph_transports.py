@@ -190,6 +190,19 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                 "explain-edge", *self.scope_args(), "--edge-id", edge["edge_id"]
             )
         )
+        same = self.command(
+            "diff",
+            "--repository-id",
+            self.repo,
+            "--base",
+            self.snapshot,
+            "--head",
+            self.snapshot,
+            "--change",
+            "nodes.changed",
+        )
+        self.assertEqual(list(same["changes"]), ["nodes.changed"])
+        self.assertEqual(same["summary"]["nodes"]["changed"], 0)
         importers = self.command("importers", *self.scope_args(), "--file", "cases.py")
         self.assertEqual(importers["status"], "unsupported_or_unobserved")
         self.assert_declarations(
@@ -223,6 +236,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                         self.assertEqual(initialized.serverInfo.name, "DeepThought")
                         tools = (await session.list_tools()).tools
                         expected = {
+                            "diffSnapshots",
                             "explainEdge",
                             "getCodeContext",
                             "getFileImporters",
@@ -338,6 +352,20 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                                 self.snapshot,
                                 [item["snapshot_id"] for item in payload["items"]],
                             )
+                            same = await session.call_tool(
+                                "diffSnapshots",
+                                {
+                                    "repository_id": self.repo,
+                                    "base_snapshot_id": self.snapshot,
+                                    "head_snapshot_id": self.snapshot,
+                                },
+                            )
+                            self.assertFalse(same.isError, same.content)
+                            payload = same.structuredContent or json.loads(
+                                same.content[0].text
+                            )
+                            self.assertEqual(payload["summary"]["nodes"]["added"], 0)
+                            self.assertEqual(payload["summary"]["edges"]["removed"], 0)
 
         await session_journey(False)
         await session_journey(True)

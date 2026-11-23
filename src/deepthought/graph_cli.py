@@ -69,6 +69,24 @@ def parser():
     snapshots.add_argument("--commit", help="Full commit hash")
     snapshots.add_argument("--limit", type=int, default=20)
     snapshots.add_argument("--max-output-bytes", type=int, default=16000)
+    diff = commands.add_parser("diff", help="Compare two complete snapshots")
+    diff.add_argument("--repository-id", required=True)
+    diff.add_argument("--base", required=True, help="Base snapshot ID")
+    diff.add_argument("--head", required=True, help="Head snapshot ID")
+    diff.add_argument(
+        "--change",
+        action="append",
+        choices=(
+            "nodes.added",
+            "nodes.removed",
+            "nodes.changed",
+            "edges.added",
+            "edges.removed",
+        ),
+        help="Repeat to list only these categories; all are always counted",
+    )
+    diff.add_argument("--limit", type=int, default=20)
+    diff.add_argument("--max-output-bytes", type=int, default=16000)
     for name in (
         "search",
         "context",
@@ -193,6 +211,15 @@ async def execute(args):
             database=config["database"],
             observer=query_observer(),
         )
+        if args.command == "diff":
+            return await service.diff_snapshots(
+                args.repository_id,
+                base_snapshot_id=args.base,
+                head_snapshot_id=args.head,
+                changes=args.change,
+                limit=args.limit,
+                max_output_bytes=args.max_output_bytes,
+            )
         if args.command == "snapshots":
             return await service.list_snapshots(
                 args.repository_id,
