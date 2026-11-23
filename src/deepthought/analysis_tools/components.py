@@ -11,7 +11,14 @@ import json
 import time
 
 from .._version import __version__
-from ..components import MANIFESTS, Component, enclosing_components, scan_components
+from .. import component_dependencies as deps
+from .. import deployments
+from ..components import (
+    COMPONENT_KINDS,
+    Component,
+    enclosing_components,
+    scan_components,
+)
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -35,7 +42,9 @@ DECLARES_RULE = register_rule(
         "resolved",
         "The manifest declares the component: pyproject.toml [project] or "
         "[tool.poetry] name, a package.json object, the go.mod module "
-        "directive, Cargo.toml [package] or the pom.xml project artifactId.",
+        "directive, Cargo.toml [package], the pom.xml project artifactId, a "
+        "Compose file's services entry, or a Kubernetes workload or Service "
+        "object.",
     )
 )
 PART_OF_RULE = register_rule(
@@ -51,12 +60,113 @@ PART_OF_RULE = register_rule(
     )
 )
 
+_REQUIRES_TEXT = {
+    deps.PATH["cargo_package"]: "A Cargo.toml dependency's path is the "
+    "directory of this Cargo package.",
+    deps.PATH["go_module"]: "A go.mod require of a module that a replace "
+    "directive points at this go.mod's directory.",
+    deps.PATH["node_package"]: "A package.json dependency's file: or link: "
+    "path is the directory of this package.",
+    deps.PATH["python_project"]: "A pyproject.toml dependency whose "
+    "[tool.uv.sources] or Poetry path is the directory of this project.",
+    deps.WORKSPACE["cargo_package"]: "A Cargo.toml dependency with workspace = "
+    "true, whose entry in the nearest enclosing [workspace.dependencies] has "
+    "a path to this package's directory.",
+    deps.PATCH: "A Cargo.toml dependency names a package that a [patch] table "
+    "in an enclosing manifest replaces with a path to this package's "
+    "directory.",
+    deps.WORKSPACE["node_package"]: "A package.json dependency using the "
+    "workspace: protocol names this package, the only one in the repository "
+    "with that name.",
+    deps.WORKSPACE["python_project"]: "A pyproject.toml dependency with a "
+    "workspace = true uv source names this project, the only one in the "
+    "repository with that (normalized) name.",
+}
+REQUIRES_RULES = {
+    rule: register_rule(EvidenceRule("components." + rule, "resolved", text))
+    for rule, text in _REQUIRES_TEXT.items()
+}
+REQUIRES_RULES[deps.NAME] = register_rule(
+    EvidenceRule(
+        "components." + deps.NAME,
+        "name_matched",
+        "A declared dependency's name (Maven groupId:artifactId, Go module path, "
+        "normalized Python name, npm or Cargo package name) equals the name of "
+        "exactly one component of the same kind in the repository. The build "
+        "may take that name from a registry instead, at another version.",
+    )
+)
+
+REQUIRES_RULES[deps.COMPOSE_DEPENDS_ON] = register_rule(
+    EvidenceRule(
+        "components." + deps.COMPOSE_DEPENDS_ON,
+        "resolved",
+        "A Compose service's depends_on names this service of the same file.",
+    )
+)
+DEPLOYS_RULES = {
+    deployments.BUILD_CONTEXT: register_rule(
+        EvidenceRule(
+            "components." + deployments.BUILD_CONTEXT,
+            "resolved",
+            "The Compose service's build context is this component's root directory.",
+        )
+    ),
+    deployments.IMAGE_NAME: register_rule(
+        EvidenceRule(
+            "components." + deployments.IMAGE_NAME,
+            "name_matched",
+            "The Compose service builds nothing; the last path segment of its "
+            "image name, without tag or digest, equals the name (or the last "
+            "/-segment of the name) of exactly one package component. The "
+            "image may be built from other sources.",
+        )
+    ),
+}
+
+DEPLOYS_RULES[deployments.SKAFFOLD_CONTEXT] = register_rule(
+    EvidenceRule(
+        "components." + deployments.SKAFFOLD_CONTEXT,
+        "resolved",
+        "The workload's container images name Skaffold build artifacts with one "
+        "build context, and that context is this component's root directory.",
+    )
+)
+DEPLOYS_RULES[deployments.K8S_IMAGE_NAME] = register_rule(
+    EvidenceRule(
+        "components." + deployments.K8S_IMAGE_NAME,
+        "name_matched",
+        "The workload has one container image and no Skaffold context; the "
+        "image's last path segment, without tag or digest, equals the name (or "
+        "the last /-segment of the name) of exactly one package component. The "
+        "image may be built from other sources.",
+    )
+)
+SELECTS_RULE = register_rule(
+    EvidenceRule(
+        "components." + deployments.SERVICE_SELECTOR,
+        "resolved",
+        "The Kubernetes Service's nonempty spec.selector is a subset of the "
+        "workload's pod template labels, both declare the same namespace (or "
+        "neither does), and both are declared in the same directory. This is "
+        "the selection Kubernetes applies when that directory's objects are "
+        "applied as written; overlays or charts that change them are not "
+        "rendered, and objects in other directories are not matched.",
+    )
+)
+
 
 def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
 def component_name(repo_url, component):
+    if component.kind in {"compose_service", "k8s_workload", "k8s_service"}:
+        # These files declare several units.
+        return (
+            f"{repo_url}::{component.manifest}::{component.kind}::"
+            f"{component.name}::component"
+        )
     return f"{repo_url}::{component.manifest}::{component.kind}::component"
 
 
@@ -64,20 +174,33 @@ def file_name(repo_url, path):
     return f"{repo_url}::{path}::file"
 
 
-def _component_node(repo_url, component):
+def _component_node(repo_url, component, coordinates=None):
     properties = {
         "qualified_name": component_name(repo_url, component),
         "repo_url": repo_url,
         "kind": component.kind,
-        "root": component.root,
         "manifest": component.manifest,
         "file_path": component.manifest,
         "display_name": component.name or component.root or ".",
     }
+    if component.root is not None:
+        properties["root"] = component.root
+    if component.image is not None:
+        properties["image"] = component.image
+    if component.kind in {"k8s_workload", "k8s_service"}:
+        if component.namespace is not None:
+            properties["namespace"] = component.namespace
+        for key in ("labels", "selector"):
+            if getattr(component, key):
+                properties[key] = [k + "=" + v for k, v in getattr(component, key)]
+        if component.images:
+            properties["images"] = list(component.images)
     if component.name is not None:
         properties["name"] = component.name
     if component.line is not None:
         properties["start_line"] = component.line
+    if coordinates is not None:
+        properties["coordinates"] = coordinates
     return NodeData(["Component"], properties)
 
 
@@ -90,9 +213,18 @@ def bind_components(nodes, repo_url):
     components = []
     for node in nodes:
         p = node.properties
-        if "Component" in node.labels and p.get("kind") in MANIFESTS.values():
+        if "Component" in node.labels and p.get("kind") in COMPONENT_KINDS:
+            compose = p["kind"] in {"compose_service", "k8s_workload"}
             components.append(
-                (Component(p["kind"], p["manifest"], p.get("name")), node)
+                (
+                    Component(
+                        p["kind"],
+                        p["manifest"],
+                        p.get("name"),
+                        context=p.get("root") if compose else None,
+                    ),
+                    node,
+                )
             )
     relationships, linked, unlinked = [], 0, 0
     if not components:
@@ -176,8 +308,27 @@ class ComponentsTool(AnalysisTool):
             "manifests": scan.manifests,
             "diagnostics": scan.diagnostics,
             "components": [
-                [c.kind, c.manifest, c.name, c.line] for c in scan.components
+                [
+                    c.kind,
+                    c.manifest,
+                    c.name,
+                    c.line,
+                    c.context,
+                    c.image,
+                    c.namespace,
+                    c.labels,
+                    c.selector,
+                    c.images,
+                ]
+                for c in scan.components
             ],
+            "dependencies": [
+                [d.manifest, d.section, d.name, d.path, d.workspace]
+                for d in scan.dependencies
+            ],
+            "coordinates": scan.coordinates,
+            "artifacts": scan.artifacts,
+            "kubernetes": scan.kubernetes,
         }
         snapshot_id = sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         repository = f"{repo_url}::repository"
@@ -221,7 +372,9 @@ class ComponentsTool(AnalysisTool):
         counts = {}
         for component in scan.components:
             counts[component.kind] = counts.get(component.kind, 0) + 1
-            node = _component_node(repo_url, component)
+            node = _component_node(
+                repo_url, component, dict(scan.coordinates).get(component.manifest)
+            )
             nodes.append(node)
             relationships.append(
                 RelationshipData(
@@ -237,6 +390,88 @@ class ComponentsTool(AnalysisTool):
                         "repo_url": repo_url,
                     },
                     _evidence(DECLARES_RULE),
+                )
+            )
+        links, dependency_counts = deps.resolve_dependencies(
+            scan.components, scan.dependencies, dict(scan.coordinates)
+        )
+        for link in links:
+            relationships.append(
+                RelationshipData(
+                    "REQUIRES",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, link.source),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, link.target),
+                        "repo_url": repo_url,
+                    },
+                    {
+                        **_evidence(REQUIRES_RULES[link.rule]),
+                        "section": link.dependency.section,
+                        "declared_name": link.dependency.name,
+                        **(
+                            {"declared_path": link.dependency.path}
+                            if link.dependency.path is not None
+                            else {}
+                        ),
+                    },
+                )
+            )
+        for service, target, rule in deployments.resolve_deployments(scan.components):
+            relationships.append(
+                RelationshipData(
+                    "DEPLOYS",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, service),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, target),
+                        "repo_url": repo_url,
+                    },
+                    _evidence(DEPLOYS_RULES[rule]),
+                )
+            )
+        for service, workload in deployments.resolve_selectors(scan.components):
+            relationships.append(
+                RelationshipData(
+                    "SELECTS",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, service),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, workload),
+                        "repo_url": repo_url,
+                    },
+                    _evidence(SELECTS_RULE),
+                )
+            )
+        for workload, target, rule in deployments.resolve_workload_deployments(
+            scan.components
+        ):
+            relationships.append(
+                RelationshipData(
+                    "DEPLOYS",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, workload),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, target),
+                        "repo_url": repo_url,
+                    },
+                    _evidence(DEPLOYS_RULES[rule]),
                 )
             )
         part_of, membership = bind_components(nodes, repo_url)
@@ -264,6 +499,7 @@ class ComponentsTool(AnalysisTool):
                     "diagnostics": [list(item) for item in scan.diagnostics],
                     "component_counts": dict(sorted(counts.items())),
                     "membership": membership,
+                    "dependency_resolution": dependency_counts,
                     "scope": "components that build manifests declare and the "
                     "nearest enclosing root of each kind; no deployment, "
                     "network or call-graph inference",

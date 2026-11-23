@@ -24,6 +24,7 @@ from deepthought.storage.graph.write_coordinator import (
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
 )
+YAML = importlib.util.find_spec("yaml")
 
 WORKSPACE = {
     "pyproject.toml": '[build-system]\nrequires = ["hatchling"]\n\n'
@@ -244,6 +245,378 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("component_membership", alone.metadata.custom_metrics)
 
 
+DEPENDENCIES = {
+    "Cargo.toml": '[workspace]\nmembers = ["a", "b", "c"]\n'
+    '[workspace.dependencies]\nb = { path = "b" }\n'
+    '[patch.crates-io]\nc = { path = "c" }\n',
+    "a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\n'
+    'b = { workspace = true }\nc = "1"\nserde = "1"\n'
+    '[dev-dependencies]\nown-b = { package = "b", path = "../b" }\n',
+    "b/Cargo.toml": '[package]\nname = "b"\n',
+    "c/Cargo.toml": '[package]\nname = "c"\n',
+    "go/app/go.mod": "module example.com/app\n\nrequire (\n"
+    "\texample.com/lib v1.0.0\n\texample.com/other v1.0.0\n)\n\n"
+    "replace example.com/lib => ../lib\n",
+    "go/lib/go.mod": "module example.com/lib\n",
+    "go/other/go.mod": "module example.com/other\n",
+    "js/web/package.json": '{"name": "web", "dependencies": '
+    '{"ui": "workspace:*", "util": "file:../util", "core": "^1.0.0", '
+    '"react": "^18"}}',
+    "js/ui/package.json": '{"name": "ui"}',
+    "js/util/package.json": '{"name": "util"}',
+    "js/core/package.json": '{"name": "core"}',
+    "py/app/pyproject.toml": '[project]\nname = "app"\n'
+    'dependencies = ["Shared_Lib>=1", "models", "requests"]\n'
+    "[tool.uv.sources]\nshared-lib = { workspace = true }\n"
+    'models = { path = "../models" }\n',
+    "py/shared/pyproject.toml": '[project]\nname = "shared.lib"\n',
+    "py/models/pyproject.toml": '[project]\nname = "models"\n',
+    "java/api/pom.xml": "<project><groupId>org.acme</groupId>"
+    "<artifactId>api</artifactId></project>",
+    "java/app/pom.xml": "<project><parent><groupId>org.acme</groupId>"
+    "<artifactId>parent</artifactId></parent><artifactId>app</artifactId>"
+    "<dependencies><dependency><groupId>org.acme</groupId>"
+    "<artifactId>api</artifactId><scope>test</scope></dependency>"
+    "<dependency><groupId>other</groupId><artifactId>api</artifactId>"
+    "</dependency></dependencies></project>",
+}
+
+
+class DependencyTests(unittest.TestCase):
+    def test_each_rule_and_external_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DEPENDENCIES)
+            output = asyncio.run(ComponentsTool(directory).analyze("repo"))
+        edges = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[1],
+                r.target_match["qualified_name"].split("::")[1],
+                r.properties["rule_id"],
+                r.properties["evidence_type"],
+                r.properties["section"],
+            )
+            for r in output.relationships
+            if r.type == "REQUIRES"
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "a/Cargo.toml",
+                    "b/Cargo.toml",
+                    "components.cargo-path-dependency",
+                    "resolved",
+                    "dev-dependencies",
+                ),
+                (
+                    "a/Cargo.toml",
+                    "b/Cargo.toml",
+                    "components.cargo-workspace-dependency",
+                    "resolved",
+                    "dependencies",
+                ),
+                (
+                    "a/Cargo.toml",
+                    "c/Cargo.toml",
+                    "components.cargo-patch-path",
+                    "resolved",
+                    "dependencies",
+                ),
+                (
+                    "go/app/go.mod",
+                    "go/lib/go.mod",
+                    "components.go-replace-directory",
+                    "resolved",
+                    "require",
+                ),
+                (
+                    "go/app/go.mod",
+                    "go/other/go.mod",
+                    "components.dependency-name",
+                    "name_matched",
+                    "require",
+                ),
+                (
+                    "java/app/pom.xml",
+                    "java/api/pom.xml",
+                    "components.dependency-name",
+                    "name_matched",
+                    "dependencies.test",
+                ),
+                (
+                    "js/web/package.json",
+                    "js/core/package.json",
+                    "components.dependency-name",
+                    "name_matched",
+                    "dependencies",
+                ),
+                (
+                    "js/web/package.json",
+                    "js/ui/package.json",
+                    "components.npm-workspace-protocol",
+                    "resolved",
+                    "dependencies",
+                ),
+                (
+                    "js/web/package.json",
+                    "js/util/package.json",
+                    "components.npm-file-dependency",
+                    "resolved",
+                    "dependencies",
+                ),
+                (
+                    "py/app/pyproject.toml",
+                    "py/models/pyproject.toml",
+                    "components.python-path-source",
+                    "resolved",
+                    "project.dependencies",
+                ),
+                (
+                    "py/app/pyproject.toml",
+                    "py/shared/pyproject.toml",
+                    "components.python-workspace-source",
+                    "resolved",
+                    "project.dependencies",
+                ),
+            ],
+        )
+        counts = output.metadata.custom_metrics["dependency_resolution"]
+        # serde, react, requests and other:api are not in the repository.
+        self.assertEqual(counts, {"linked": 11, "external": 4, "ambiguous": 0})
+        api = next(
+            n
+            for n in output.nodes
+            if n.properties.get("manifest") == "java/app/pom.xml"
+        )
+        self.assertEqual(api.properties["coordinates"], "org.acme:app")
+
+    def test_paths_outside_the_repository_and_ambiguous_names(self):
+        files = {
+            "a/package.json": '{"name": "a", "dependencies": '
+            '{"x": "file:../../x", "dup": "1"}}',
+            "b/package.json": '{"name": "dup"}',
+            "c/package.json": '{"name": "dup"}',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(ComponentsTool(directory).analyze("repo"))
+        self.assertFalse([r for r in output.relationships if r.type == "REQUIRES"])
+        self.assertEqual(
+            output.metadata.custom_metrics["dependency_resolution"],
+            {"linked": 0, "external": 1, "ambiguous": 1},
+        )
+
+
+COMPOSE = {
+    "compose.yaml": "services:\n"
+    "  api:\n    build: ./api\n    depends_on: [db, cache]\n"
+    "  worker:\n    build:\n      context: api\n      dockerfile: Worker\n"
+    "    depends_on:\n      db:\n        condition: service_healthy\n"
+    "  web:\n    image: registry.example:5000/acme/web:1.2\n"
+    "  db:\n    image: postgres:16\n"
+    "  remote:\n    build: https://github.com/acme/x.git\n"
+    "  env:\n    build: ${CONTEXT}\n",
+    "api/pyproject.toml": '[project]\nname = "api"\n',
+    "api/app.py": "print(1)\n",
+    "frontend/package.json": '{"name": "@acme/web"}',
+    "ops/docker-compose.prod.yml": "services:\n  api:\n    build: ../api\n",
+    "notcompose.yaml": "services: {}\n",
+}
+
+
+@unittest.skipUnless(YAML, "Provision PyYAML")
+class ComposeTests(unittest.TestCase):
+    def analyze(self, files):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            return asyncio.run(ComponentsTool(directory).analyze("repo"))
+
+    def test_services_contexts_and_images(self):
+        found, _ = __import__(
+            "deepthought.deployments", fromlist=["extract_compose"]
+        ).extract_compose("compose.yaml", COMPOSE["compose.yaml"].encode())
+        self.assertEqual(
+            [(c.name, c.context, c.image) for c in found],
+            [
+                ("api", "api", None),
+                ("db", None, "postgres:16"),
+                ("env", None, None),
+                ("remote", None, None),
+                ("web", None, "registry.example:5000/acme/web:1.2"),
+                ("worker", "api", None),
+            ],
+        )
+
+    def test_edges(self):
+        output = self.analyze(COMPOSE)
+        edges = sorted(
+            (
+                r.type,
+                "::".join(r.source_match["qualified_name"].split("::")[1:-1]),
+                "::".join(r.target_match["qualified_name"].split("::")[1:-1]),
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type in {"REQUIRES", "DEPLOYS"}
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "DEPLOYS",
+                    "compose.yaml::compose_service::api",
+                    "api/pyproject.toml::python_project",
+                    "components.compose-build-context",
+                ),
+                (
+                    "DEPLOYS",
+                    "compose.yaml::compose_service::web",
+                    "frontend/package.json::node_package",
+                    "components.compose-image-name",
+                ),
+                (
+                    "DEPLOYS",
+                    "compose.yaml::compose_service::worker",
+                    "api/pyproject.toml::python_project",
+                    "components.compose-build-context",
+                ),
+                (
+                    "DEPLOYS",
+                    "ops/docker-compose.prod.yml::compose_service::api",
+                    "api/pyproject.toml::python_project",
+                    "components.compose-build-context",
+                ),
+                (
+                    "REQUIRES",
+                    "compose.yaml::compose_service::api",
+                    "compose.yaml::compose_service::db",
+                    "components.compose-depends-on",
+                ),
+                (
+                    "REQUIRES",
+                    "compose.yaml::compose_service::worker",
+                    "compose.yaml::compose_service::db",
+                    "components.compose-depends-on",
+                ),
+            ],
+        )
+        # depends_on naming no service of the file is external.
+        self.assertEqual(
+            output.metadata.custom_metrics["dependency_resolution"]["external"], 1
+        )
+        # Files under a build context belong to every service built from it.
+        part_of = sorted(
+            r.target_match["qualified_name"].split("::")[-2]
+            for r in output.relationships
+            if r.type == "PART_OF"
+            and r.source_match["qualified_name"] == "repo::api/pyproject.toml::file"
+        )
+        self.assertEqual(part_of, ["api", "api", "python_project", "worker"])
+
+    def test_invalid_compose_file(self):
+        output = self.analyze({"compose.yaml": "services: [\n"})
+        self.assertEqual(output.metadata.custom_metrics["analysis_status"], "partial")
+
+
+KUBERNETES = {
+    "src/api/go.mod": "module example.com/shop/api\n",
+    "src/api/main.go": "package main\n",
+    "src/web/package.json": '{"name": "web"}',
+    "skaffold.yaml": "apiVersion: skaffold/v4beta6\nkind: Config\n"
+    "build:\n  artifacts:\n  - image: api\n    context: src/api\n",
+    "deploy/app.yaml": "apiVersion: apps/v1\nkind: Deployment\n"
+    "metadata: {name: api, namespace: shop}\n"
+    "spec:\n  template:\n    metadata:\n      labels: {app: api, tier: be}\n"
+    "    spec:\n      containers:\n      - {name: server, image: api}\n"
+    "---\napiVersion: v1\nkind: Service\n"
+    "metadata: {name: api, namespace: shop}\nspec:\n  selector: {app: api}\n"
+    "---\napiVersion: v1\nkind: Service\n"
+    "metadata: {name: other-namespace}\nspec:\n  selector: {app: api}\n"
+    "---\napiVersion: v1\nkind: Service\n"
+    "metadata: {name: headless, namespace: shop}\nspec: {}\n",
+    "deploy/web.yaml": "apiVersion: v1\nkind: List\nitems:\n"
+    "- apiVersion: batch/v1\n  kind: CronJob\n"
+    "  metadata: {name: web-job, namespace: shop}\n"
+    "  spec:\n    jobTemplate:\n      spec:\n        template:\n"
+    "          metadata: {labels: {app: web}}\n"
+    "          spec: {containers: [{name: c, image: 'gcr.io/x/web:1'}]}\n",
+    "elsewhere/svc.yaml": "apiVersion: v1\nkind: Service\n"
+    "metadata: {name: api, namespace: shop}\nspec:\n  selector: {app: api}\n",
+    "chart/templates/deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\n"
+    "metadata:\n  name: {{ .Release.Name }}\n",
+    "ci.yml": "on: push\njobs: {}\n",
+}
+
+
+@unittest.skipUnless(YAML, "Provision PyYAML")
+class KubernetesTests(unittest.TestCase):
+    def test_objects_selectors_and_skaffold_contexts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, KUBERNETES)
+            output = asyncio.run(ComponentsTool(directory).analyze("repo"))
+        self.assertEqual(output.metadata.custom_metrics["analysis_status"], "succeeded")
+        units = {
+            n.properties["name"]: n.properties
+            for n in output.nodes
+            if n.properties.get("kind") in {"k8s_workload", "k8s_service"}
+        }
+        self.assertEqual(
+            sorted(units),
+            [
+                "CronJob/shop/web-job",
+                "Deployment/shop/api",
+                "Service/other-namespace",
+                "Service/shop/api",
+                "Service/shop/headless",
+            ],
+        )
+        api = units["Deployment/shop/api"]
+        self.assertEqual(api["root"], "src/api")
+        self.assertEqual(api["labels"], ["app=api", "tier=be"])
+        self.assertEqual(api["images"], ["api"])
+        self.assertNotIn("root", units["CronJob/shop/web-job"])
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].split("::")[-2],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type in {"SELECTS", "DEPLOYS"}
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "DEPLOYS",
+                    "CronJob/shop/web-job",
+                    "node_package",
+                    "components.k8s-image-name",
+                ),
+                (
+                    "DEPLOYS",
+                    "Deployment/shop/api",
+                    "go_module",
+                    "components.k8s-skaffold-context",
+                ),
+                (
+                    "SELECTS",
+                    "Service/shop/api",
+                    "Deployment/shop/api",
+                    "components.k8s-service-selector",
+                ),
+            ],
+        )
+        part_of = sorted(
+            r.target_match["qualified_name"].split("::")[-2]
+            for r in output.relationships
+            if r.type == "PART_OF"
+            and r.source_match["qualified_name"] == "repo::src/api/go.mod::file"
+        )
+        self.assertEqual(part_of, ["Deployment/shop/api", "go_module"])
+
+
 @unittest.skipUnless(
     READY and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
     "Provision isolated Neo4j and the python extra",
@@ -350,6 +723,63 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
             after_path=first["next_after_path"],
         )
         self.assertEqual([i["path"] for i in rest["items"]], ["web/src/index.ts"])
+
+    async def test_dependencies_and_component_impact(self):
+        from deepthought.storage.graph import WriteCoordinator
+
+        repo = self.repo + "-deps"
+        self.addAsyncCleanup(self.remove_repo, repo)
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DEPENDENCIES)
+            output = await ComponentsTool(directory).analyze(repo)
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_tool_output("components", output, repo)
+        self.assertTrue(written.success, written.errors)
+        snapshot = output.metadata.custom_metrics["snapshot_id"]
+        b = repo + "::b/Cargo.toml::cargo_package::component"
+        required_by = await self.service.get_component_dependencies(
+            b, repo, snapshot_id=snapshot, incoming=True
+        )
+        self.assertEqual(
+            [
+                (
+                    i["element"]["properties"]["manifest"],
+                    i["relationship"]["properties"]["rule_id"],
+                )
+                for i in required_by["items"]
+            ],
+            # Ordered by section: dependencies, then dev-dependencies.
+            [
+                ("a/Cargo.toml", "components.cargo-workspace-dependency"),
+                ("a/Cargo.toml", "components.cargo-path-dependency"),
+            ],
+        )
+        core = repo + "::js/core/package.json::node_package::component"
+        impact = await self.service.get_component_impact(
+            core, repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            [
+                (i["element"]["display_name"], i["evidence_type"])
+                for i in impact["items"]
+            ],
+            [("web", "name_matched")],
+        )
+        strict = await self.service.get_component_impact(
+            core, repo, snapshot_id=snapshot, evidence_types=["resolved"]
+        )
+        self.assertEqual(strict["items"], [])
+
+    async def remove_repo(self, repo):
+        async with self.manager.driver.session(
+            database=self.manager.database
+        ) as session:
+            await (
+                await session.run(
+                    "MATCH (n {repo_url:$repo}) DETACH DELETE n", repo=repo
+                )
+            ).consume()
 
 
 if __name__ == "__main__":

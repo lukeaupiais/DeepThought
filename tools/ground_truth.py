@@ -24,6 +24,8 @@ the others let a link at that position be judged right or wrong.
 
 Subcommands:
   derive WORKSPACE INDEX                   write expected calls (TSV) to stdout
+  derive-java WORKSPACE                    the same from javac's attribution
+                                           (tools/JavaCallTruth.java)
   score WORKSPACE TRUTH --language L       score the engine against a TSV
   check [--corpus NAME ...] [--cache DIR]  fetch each pinned corpus, score it
                                            and compare with the baseline
@@ -143,6 +145,60 @@ def derive(workspace, index):
     return expected, indexed
 
 
+_PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
+
+
+def java_source_roots(workspace):
+    """Directories a file's package declaration places it under."""
+    roots = set()
+    for path in sorted(Path(workspace).rglob("*.java")):
+        if ".git" in path.parts or not path.is_file():
+            continue
+        match = _PACKAGE.search(path.read_text("utf-8", "replace"))
+        depth = len(match.group(1).split(".")) if match else 0
+        parent = path.parent.relative_to(workspace)
+        if depth <= len(parent.parts):
+            roots.add(Path(*parent.parts[: len(parent.parts) - depth]).as_posix())
+    return sorted(roots)
+
+
+def derive_java(workspace, java="java"):
+    """Expected calls from javac, attributing one source root at a time."""
+    workspace = Path(workspace).resolve()
+    roots = java_source_roots(workspace)
+    oracle = Path(__file__).with_name("JavaCallTruth.java")
+    expected, indexed = {}, set()
+    for root in roots:
+        others = [r for r in roots if r != root]
+        output = subprocess.run(
+            [
+                java,
+                "--add-exports",
+                "jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
+                "--add-exports",
+                "jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
+                "--add-exports",
+                "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+                str(oracle),
+                str(workspace),
+                root,
+                *others,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        for row in output.splitlines():
+            file, line, name, target_file, target_line, kind = row.split("\t")
+            expected.setdefault((file, int(line), name), set()).add(
+                (target_file, int(target_line), kind)
+            )
+    for root in roots:
+        for path in (workspace / root).rglob("*.java"):
+            indexed.add(path.relative_to(workspace).as_posix())
+    return expected, indexed
+
+
 def write_truth(expected, indexed, stream):
     stream.write(HEADER + "\n")
     for file in sorted(indexed):
@@ -166,6 +222,10 @@ def read_truth(path):
     return expected, indexed
 
 
+def _at(definition):
+    return (definition.file, definition.line) if definition else None
+
+
 def score(result, truth, examples=10):
     """Judge every engine call resolution against expected calls."""
     from deepthought.calls import resolve_calls
@@ -177,8 +237,23 @@ def score(result, truth, examples=10):
         if any(kind == "callable" for _, _, kind in targets)
     }
     by_id = {d.id: d for d in result.definitions}
+    in_file = {}
+    for d in result.definitions:
+        in_file.setdefault(d.file, []).append(d)
+    cache = {}
+
+    def innermost(file, line):
+        """The narrowest declaration whose span holds ``line`` of ``file``."""
+        if (file, line) not in cache:
+            spans = [d for d in in_file.get(file, ()) if d.line <= line <= d.end_line]
+            cache[(file, line)] = min(
+                spans, key=lambda d: (d.end_line - d.line, -d.line, d.id), default=None
+            )
+        return cache[(file, line)]
+
     sites = {s.id: s for s in result.call_sites}
     outcomes = Counter()
+    by_rule = {}
     found = set()
     samples = {}
     # Why each expected call has no confirmed link, by engine outcome.
@@ -194,13 +269,21 @@ def score(result, truth, examples=10):
         ids = [i for i in (resolution.target_id, *resolution.candidates) if i]
         ours = [(by_id[i].file, by_id[i].line) for i in ids]
         targets = {t[:2] for k in keys for t in positions[k]}
+        # A declaration's line can be that of its annotations or modifiers,
+        # an oracle's that of its name: one inside the other is a match.
+        targets |= {(d.file, d.line) for t in targets if (d := innermost(*t))}
         if resolution.status == "linked":
             if not keys:
                 outcome = "unjudged" if site.file in indexed else "not_indexed"
             elif ours[0] in targets:
                 outcome = "confirmed"
                 found.update(
-                    k for k in keys if ours[0] in {t[:2] for t in positions[k]}
+                    k
+                    for k in keys
+                    if any(
+                        ours[0] == t[:2] or ours[0] == _at(innermost(*t[:2]))
+                        for t in positions[k]
+                    )
                 )
             else:
                 outcome = "contradicted"
@@ -219,6 +302,8 @@ def score(result, truth, examples=10):
                 "unresolved_expected" if set(keys) & expected else "unresolved_unjudged"
             )
         outcomes[outcome] += 1
+        if resolution.status == "linked":
+            by_rule.setdefault(resolution.rule_id, Counter())[outcome] += 1
         for key in set(keys) & expected:
             near.setdefault(key, f"{resolution.status}:{resolution.reason or 'linked'}")
         if outcome in {"contradicted", "ambiguous_excludes", "unjudged"}:
@@ -236,6 +321,7 @@ def score(result, truth, examples=10):
         "missed_by_engine_outcome": dict(sorted(why.items())),
         "precision": round(outcomes["confirmed"] / judged, 4) if judged else None,
         "recall": round(len(found) / len(expected), 4) if expected else None,
+        "by_rule": {r: dict(sorted(c.items())) for r, c in sorted(by_rule.items())},
     }
     samples["missed"] = [[*k, near.get(k, "no_call_site")] for k in missed]
     return report, {k: v[:examples] for k, v in sorted(samples.items())}
@@ -294,6 +380,12 @@ def regressions(report, baseline):
         )
     if report["confirmed"] < baseline["confirmed"]:
         problems.append(f"confirmed {baseline['confirmed']} -> {report['confirmed']}")
+    for rule, counts in sorted(baseline.get("by_rule", {}).items()):
+        now = report.get("by_rule", {}).get(rule, {})
+        for outcome, worse in (("contradicted", int.__gt__), ("confirmed", int.__lt__)):
+            before, after = counts.get(outcome, 0), now.get(outcome, 0)
+            if worse(after, before):
+                problems.append(f"{rule} {outcome} {before} -> {after}")
     if report["expected"] != baseline["expected"]:
         problems.append(
             f"expected {baseline['expected']} -> {report['expected']} "
@@ -333,12 +425,55 @@ def check(names, cache, update=False, examples=10):
     return reports, failed
 
 
+def call_rules():
+    """The evidence rules call resolution can name."""
+    from deepthought import calls
+    from deepthought.analysis_tools.evidence import registered_rules
+
+    rules = registered_rules()
+    return sorted(
+        {
+            value
+            for name, value in vars(calls).items()
+            if name.isupper() and isinstance(value, str) and value in rules
+        }
+        # Imported for use, or rules of impls, not of calls.
+        - {
+            calls.PYTHON_FROM_IMPORT_SUBMODULE,
+            calls.RUST_IMPL_TYPE,
+            calls.RUST_IMPL_TRAIT,
+        }
+    )
+
+
+def rule_coverage(reports):
+    """Confirmed and contradicted links per call rule across all corpora.
+
+    A rule with no confirmed link is not verified by the corpus: breaking it
+    would go unnoticed here.
+    """
+    totals = {rule: Counter() for rule in call_rules()}
+    for report in reports.values():
+        for rule, counts in report.get("by_rule", {}).items():
+            totals.setdefault(rule, Counter()).update(counts)
+    return {
+        "rules": {
+            rule: {k: c.get(k, 0) for k in ("confirmed", "contradicted")}
+            for rule, c in sorted(totals.items())
+        },
+        "unverified": sorted(r for r, c in totals.items() if not c.get("confirmed")),
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     d = sub.add_parser("derive")
     d.add_argument("workspace", type=Path)
     d.add_argument("index", type=Path)
+    j = sub.add_parser("derive-java")
+    j.add_argument("workspace", type=Path)
+    j.add_argument("--java", default="java")
     s = sub.add_parser("score")
     s.add_argument("workspace", type=Path)
     s.add_argument("truth", type=Path)
@@ -354,6 +489,9 @@ def main(argv=None):
     if args.command == "derive":
         write_truth(*derive(args.workspace, args.index), sys.stdout)
         return 0
+    if args.command == "derive-java":
+        write_truth(*derive_java(args.workspace, args.java), sys.stdout)
+        return 0
     if args.command == "score":
         report, samples = score(
             analyze(args.workspace, args.language, args.exclude),
@@ -365,7 +503,8 @@ def main(argv=None):
     reports, failed = check(
         set(args.corpus), args.cache, args.update_baseline, args.examples
     )
-    print(json.dumps(reports, indent=2))
+    coverage = rule_coverage(reports)
+    print(json.dumps({"corpora": reports, "rule_coverage": coverage}, indent=2))
     return 1 if failed else 0
 
 

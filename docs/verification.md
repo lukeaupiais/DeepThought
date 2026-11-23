@@ -57,6 +57,17 @@ scored against a yardstick its own rules cannot move.
   oracle indexed.
 - `baseline.json` is the current score of each corpus.
 
+Java has no SCIP indexer in this setup, so `derive-java` takes the truth from
+javac's own attribution (`tools/JavaCallTruth.java`, JDK only): every method
+invocation and `new` expression javac binds, at the line of the called name,
+targeting the line of the declaration's name. A `new` expression accepts its
+constructor and its class. Calls javac cannot bind (a missing library) are left
+out.
+
+An engine link matches a target when it is on the target's line or is the
+innermost declaration whose span holds that line: the engine records a Java
+declaration at its first annotation or modifier, the oracles at its name.
+
 Every engine call resolution is judged at its source position:
 
 | Outcome | Meaning |
@@ -84,6 +95,31 @@ than its baseline, or when its truth file no longer matches the baseline's
 expected count. An improvement is accepted by updating the baseline in the
 same change. The whole corpus fetches and scores in about ten seconds.
 
+Scores are also broken down by the evidence rule that made each link, and
+`check` fails when any single rule loses a confirmed link or gains a
+contradiction, even if the totals hold. Its `rule_coverage` output lists, for
+every call rule, confirmed and contradicted links across all corpora, and
+names the rules with no confirmed link: breaking one of those would go
+unnoticed here. Today there are none; every call rule has at least 8
+confirmed links:
+
+| Rule | Confirmed | Contradicted |
+|---|---|---|
+| tree-sitter.call-lexical-name | 969 | 1 |
+| tree-sitter.call-imported-name | 484 | 0 |
+| tree-sitter.call-module-attribute | 18 | 0 |
+| tree-sitter.call-self-method | 165 | 0 |
+| tree-sitter.call-package-name | 566 | 0 |
+| tree-sitter.rust-call-path | 1,831 | 0 |
+| tree-sitter.rust-call-associated | 1,123 | 0 |
+| tree-sitter.rust-call-self-method | 580 | 0 |
+| tree-sitter.rust-call-local-item | 35 | 0 |
+| tree-sitter.java-enclosing-type-method | 1,529 | 0 |
+| tree-sitter.java-type-name | 2,379 | 0 |
+| tree-sitter.java-type-member | 391 | 0 |
+| tree-sitter.java-inherited-method | 19 | 0 |
+| tree-sitter.java-static-import | 8 | 0 |
+
 Before a contradiction is reported as an engine defect it is checked against
 the source: the oracle can be misconfigured too. For example, scip-python
 resolves `click` in click's own tests to an installed copy unless the
@@ -99,6 +135,7 @@ Baseline (calls):
 | cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
+| gson | java | 11,139 | 4,332 | 0 | 1.0 | 0.3824 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -117,3 +154,38 @@ The one contradiction is a real defect: in `examples/imagepipe/imagepipe.py`
 line 35, `processor(stream)` calls the loop variable of
 `for processor in processors`, and the engine links it to the module-level
 function `processor` defined on line 42.
+
+## Metamorphic checks
+
+An edit whose effect on the graph is known in advance must change exactly
+that. `tools/check_metamorphic.py` applies a transformation to a copy of a
+workspace, analyzes both, and compares every call, import, supertype and impl
+resolution (keyed by the position and text of its fact) with the original
+mapped through the predicted effect:
+
+| Transformation | Prediction |
+|---|---|
+| `shift FILE N`: prepend N blank lines | positions in FILE and targets declared in FILE move down N lines; nothing else changes |
+| `rename OLD NEW`: replace a called function or method name everywhere, same length | the original graph with OLD replaced by NEW |
+| `add FILE`: a file whose declarations use names found nowhere else | every original resolution is unchanged; an import of a Go package also links the new file |
+
+```sh
+python tools/check_metamorphic.py WORKSPACE --language go --trials 9 --seed 0
+```
+
+`tests/test_metamorphic.py` runs all three on the polyglot workspace with three
+seeds and checks that a shift predicted wrongly is caught.
+
+Results (every resolution as predicted):
+
+| Repository | Language | Resolutions | Trials |
+|---|---|---|---|
+| click | python | 7,679 | 9 |
+| ky | typescript | 13,275 | 9 |
+| cobra | go | 4,301 | 9 |
+| gson | java | 21,531 | 6 |
+| anyhow | rust | 997 | 6 |
+| ripgrep | rust | 11,843 | 6 |
+
+Rust has no `add` trial: a new module needs a `mod` line elsewhere, so it is
+not an unrelated edit.
