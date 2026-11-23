@@ -644,7 +644,9 @@ tuple, slice, array or trait object) adds no qualifier. A raw identifier
 the module name, as a file's items in the other languages are not. Constants,
 statics, fields, enum variants and closures are not declarations, and items
 written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed.
-Calls, `use` declarations and impl relationships are not facts for Rust yet.
+A `mod name;` declaration is also an import fact: it includes a file as a
+module (see "Rust module files" below). Calls, `use` declarations and impl
+relationships are not facts for Rust yet.
 
 Checked against rust-analyzer's SCIP index (`rust-analyzer scip`, rust-analyzer
 1.97.0) with `tools/compare_rust_declarations_with_scip.py`. A declaration
@@ -670,6 +672,54 @@ alias (22: `impl OwnedDFA` in regex, `impl From<SignalKind> for c_int` in
 tokio), which are qualified by the alias as written while rust-analyzer names
 the aliased type. rust-analyzer leaves a `target` directory with build output
 in the root; remove it before comparing.
+
+### Rust module files
+
+Each `mod name;` (a module without a body) is an import of kind `module`
+whose specifier is the module's path from the declaring file's module
+directory (`outer/name` inside `mod outer { ... }`); with a `#[path = "..."]`
+attribute it is of kind `module_path`, the specifier is the attribute's path
+and `names` are the inline modules around it. The first `#[path]` counts, as
+in rustc. Resolution follows Cargo's module layout and links the one file it
+names with rule `tree-sitter.rust-module-file`:
+
+- A crate root (`lib.rs`, `main.rs`, `build.rs`, a file directly in
+  `src/bin`, or a file directly in `tests`, `benches` or `examples` outside
+  any `src` directory that no `mod` declaration names) and a `mod.rs`
+  declare their modules beside them; any other file `a.rs` declares them in
+  `a/`. Inline modules add a directory each.
+- A module `m` is `m.rs` or `m/mod.rs` there. When both exist the import is
+  ambiguous (`module_file_ambiguous`); when neither does it is unresolved
+  (`module_file_missing`).
+- A `#[path]` outside inline modules is read from the declaring file's
+  directory, inside them from the inline modules' directory.
+
+`#[cfg_attr(..., path = "...")]` is not read, a module declared inside a
+macro invocation is not seen, and paths through symbolic links are not
+followed (the analysis does not read linked files).
+
+Checked against rust-analyzer's SCIP index with
+`tools/compare_rust_modules_with_scip.py`: rust-analyzer references the
+module's symbol on the declaration and defines that symbol at line 1 of the
+file it includes, so a link is confirmed when it reaches that file.
+
+| Corpus | Declarations | Confirmed | Contradicted | Missed | Not indexed (linked / unresolved) | Not compared |
+|---|---|---|---|---|---|---|
+| ripgrep | 84 | 83 | 0 | 0 | 1 / 0 | 0 |
+| regex | 208 | 178 | 0 | 0 | 12 / 0 | 18 shared symbols, ours among them |
+| serde | 52 | 48 | 0 | 1 `cfg_attr` path | 1 / 2 | 0 |
+| tokio | 318 | 258 | 0 | 0 | 58 / 0 | 2 `#[cfg]` variants |
+
+Not indexed declarations are behind an inactive `#[cfg]` or in files no crate
+builds; serde's two unresolved ones are `#[cfg(docsrs)]` paths through a
+symbolic link. rust-analyzer gives a package's library and its test crates the
+same module symbols (`regex-automata/src/dfa/mod.rs` and
+`regex-automata/tests/dfa/mod.rs` are both `dfa/`), so a reference names two
+files; the file linked here is one of them in all 18 cases. A module declared
+twice in one file under different `#[cfg]`s (tokio's `process::imp`, unix and
+`#[path = "windows.rs"]`) has one symbol for both declarations and is not
+compared. Resolutions are identical across repeated runs, and every rule
+above is covered by a test that fails when it is removed.
 
 ## SCIP references
 

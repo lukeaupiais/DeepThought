@@ -109,7 +109,11 @@ class Reference:
             )
 
 
-IMPORT_KINDS = frozenset({"import", "from_import", "export_from"})
+# "module" and "module_path": a Rust `mod name;`, which includes a file as a
+# module, by name or by a #[path] attribute.
+IMPORT_KINDS = frozenset(
+    {"import", "from_import", "export_from", "module", "module_path"}
+)
 
 
 @dataclass(frozen=True)

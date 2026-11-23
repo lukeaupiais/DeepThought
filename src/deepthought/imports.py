@@ -22,6 +22,7 @@ JAVASCRIPT_EXTENSIONLESS_MODULE = "tree-sitter.javascript-extensionless-module"
 GO_MODULE_PACKAGE = "tree-sitter.go-module-package"
 JAVA_PACKAGE_MEMBER = "tree-sitter.java-package-member"
 JAVA_SAME_SOURCE_ROOT = "tree-sitter.java-same-source-root"
+RUST_MODULE_FILE = "tree-sitter.rust-module-file"
 _JAVA_TYPES = frozenset({"Class", "Interface", "Enum", "Record", "Annotation"})
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
@@ -345,6 +346,91 @@ def _java(item: Import, roots, packages, types):
     )
 
 
+# Directories whose files can be crate roots by Cargo's defaults
+# (src/bin/*.rs, and examples/*.rs, tests/*.rs, benches/*.rs in a package).
+_RUST_TARGET_DIRS = {"bin", "examples", "tests", "benches"}
+_RUST_PACKAGE_TARGETS = ("tests", "benches", "examples")
+
+
+def _rust_candidates(item: Import, roots_of_crate: bool | None):
+    """Files a Rust ``mod name;`` may name.
+
+    A crate root or ``mod.rs`` declares its modules beside it; any other file
+    ``a.rs`` declares them in ``a/``. A file directly in a Cargo target
+    directory is a crate root when ``roots_of_crate`` is true, a module when
+    false, and either when None.
+    A module ``m`` is ``m.rs`` or ``m/mod.rs`` there; a ``#[path]`` names its
+    file from the declaring file's directory (inside inline modules, from the
+    module directory).
+    """
+    directory, base = posixpath.split(item.file)
+    stem = base.removesuffix(".rs")
+    nested = posixpath.join(directory, stem)
+    if stem in {"lib", "main", "mod"} or base == "build.rs":
+        bases = [directory]
+    elif posixpath.basename(directory) in _RUST_TARGET_DIRS:
+        bases = {True: [directory], False: [nested]}.get(
+            roots_of_crate, [directory, nested]
+        )
+    else:
+        bases = [nested]
+    if item.kind == "module_path":
+        # Outside inline modules a path is read from the file's directory;
+        # inside them, from the module directory and the inline modules.
+        roots = (
+            [posixpath.join(b, *item.names) for b in bases]
+            if item.names
+            else [directory]
+        )
+        return [posixpath.normpath(posixpath.join(r, item.specifier)) for r in roots]
+    return [
+        posixpath.join(r, item.specifier) + suffix
+        for r in bases
+        for suffix in (".rs", "/mod.rs")
+    ]
+
+
+def _rust_target_dirs(files):
+    """Cargo's target directories: ``src/bin``, and ``tests``, ``benches`` and
+    ``examples`` outside any ``src`` (a package keeps them beside ``src``)."""
+    targets = set()
+    for f in files:
+        parts = f.split("/")[:-1]
+        if parts[-2:] == ["src", "bin"] or (
+            parts and parts[-1] in _RUST_PACKAGE_TARGETS and "src" not in parts
+        ):
+            targets.add("/".join(parts))
+    return targets
+
+
+def _rust_declared(items, files):
+    """Files some ``mod`` declaration may name: these are modules, not roots."""
+    return {c for item in items for c in _rust_candidates(item, None) if c in files}
+
+
+def _rust(item: Import, files, declared, targets):
+    """A Rust ``mod name;``: the file Cargo's module layout gives it.
+
+    A file in a target directory that no ``mod`` declaration names is a crate
+    root; one that is named is read as the module it is declared as.
+    """
+    root = item.file not in declared and posixpath.dirname(item.file) in targets
+    candidates = _rust_candidates(item, root)
+    found = sorted({c for c in candidates if c in files})
+    if len(found) == 1:
+        return ImportResolution(
+            item.id, "linked", (ImportLink(found[0], RUST_MODULE_FILE),)
+        )
+    if found:
+        return ImportResolution(
+            item.id,
+            "ambiguous",
+            reason="module_file_ambiguous",
+            candidates=tuple(found),
+        )
+    return ImportResolution(item.id, "unresolved", reason="module_file_missing")
+
+
 def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     """One resolution per import fact, in import identity order."""
     files = {item.file for item in result.coverage}
@@ -352,6 +438,10 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     roots = ("",) + (("src",) if any(f.startswith("src/") for f in files) else ())
     modules, packages = _go_modules(result), _go_packages(result)
     java = _java_index(result)
+    declared = _rust_declared(
+        [item for item in result.imports if languages[item.file] == "rust"], files
+    )
+    targets = _rust_target_dirs({f for f, lang in languages.items() if lang == "rust"})
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
@@ -363,6 +453,8 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
             resolutions.append(_go(item, modules, packages))
         elif language == "java":
             resolutions.append(_java(item, *java))
+        elif language == "rust":
+            resolutions.append(_rust(item, files, declared, targets))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)
