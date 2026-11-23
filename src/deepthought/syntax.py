@@ -212,6 +212,8 @@ def extract(
                 }
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
+            elif node.type == "macro_definition":
+                arity = {"macro_export": _rust_macro_export(node)}
             definition = Definition(
                 id=identifier(repository_id, file, symbol, kind, ordinal),
                 file=file,
@@ -230,6 +232,23 @@ def extract(
             in_class = kind == "Class"
         stack.extend((child, scope, in_class) for child in reversed(children(node)))
     return definitions
+
+
+def _rust_macro_export(node):
+    """Whether a ``macro_rules!`` definition carries ``#[macro_export]``."""
+    sibling = node.prev_named_sibling
+    while sibling is not None and sibling.type in {
+        "attribute_item",
+        "line_comment",
+        "block_comment",
+    }:
+        if sibling.type == "attribute_item":
+            attribute = sibling.named_children[0] if sibling.named_children else None
+            path = attribute.named_children[0] if attribute else None
+            if path is not None and path.text == b"macro_export":
+                return True
+        sibling = sibling.prev_named_sibling
+    return False
 
 
 def _text(node, content: bytes) -> str:

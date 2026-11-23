@@ -188,6 +188,15 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.RUST_USE_EXPORTED_MACRO,
+                "resolved",
+                "A Rust use path names a macro at a crate's root, and a "
+                "#[macro_export] macro_rules! of that name is defined in a file "
+                "of that crate, which places it there.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.RUST_EXTERN_CRATE,
                 "resolved",
                 "A Rust 'extern crate name;' names the one workspace library "

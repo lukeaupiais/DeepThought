@@ -817,7 +817,12 @@ to the file of the last module reached:
   chain of uses in a cycle is not followed;
 - `tree-sitter.rust-use-module` when the next name is neither declared nor
   bound there: a constant or static, or an item a macro generates. The link
-  names the module the path goes through, not where the item is defined.
+  names the module the path goes through, not where the item is defined;
+- `tree-sitter.rust-use-exported-macro` when the path ends at a crate root
+  with the name of a `#[macro_export]` `macro_rules!` defined in any file of
+  that crate (in any module), which the attribute places at the root. The
+  link is to the file that defines it. Each Rust macro declaration records
+  whether it carries the attribute (`macro_export`).
 
 `extern crate` links to the library root (`tree-sitter.rust-extern-crate`),
 and an `extern crate x as y;` in a crate root lets paths start with `y`.
@@ -836,12 +841,12 @@ Checked with `tools/compare_rust_uses_with_scip.py`: rust-analyzer has an
 occurrence of the symbol each leaf names on the declaration's lines, defined
 in some file.
 
-| Corpus | Uses | Declared: confirmed / contradicted / not indexed | Re-export: confirmed / contradicted / not indexed | Module: same file / defined elsewhere / not indexed or outside | `extern crate` | External: outside the repository / no symbol | Missed |
-|---|---|---|---|---|---|---|---|
-| ripgrep | 1,083 | 505 / 0 / 20 | 73 / 0 / 5 | 21 / 0 / 0 | 6 | 429 / 23 | 1 |
-| regex | 1,808 | 900 / 0 / 135 | 183 / 0 / 27 | 28 / 1 / 6 | 0 | 491 / 37 | 0 |
-| serde | 981 | 187 / 0 / 20 | 7 / 0 / 0 | 29 / 49 / 7 | 1 | 316 / 13 | 159 |
-| tokio | 7,554 | 1,197 / 0 / 376 | 1,278 / 0 / 193 | 206 / 178 / 241 | 0 | 3,346 / 500 | 14 |
+| Corpus | Uses | Declared: confirmed / contradicted / not indexed | Re-export: confirmed / contradicted / not indexed | Exported macro: confirmed / contradicted / not indexed | Module: same file / defined elsewhere / not indexed or outside | `extern crate` | External: outside the repository / no symbol | Missed |
+|---|---|---|---|---|---|---|---|---|
+| ripgrep | 1,083 | 505 / 0 / 20 | 73 / 0 / 5 | 0 / 0 / 0 | 21 / 0 / 0 | 6 | 429 / 23 | 1 |
+| regex | 1,808 | 900 / 0 / 135 | 183 / 0 / 27 | 1 / 0 / 0 | 28 / 0 / 6 | 0 | 491 / 37 | 0 |
+| serde | 981 | 187 / 0 / 20 | 7 / 0 / 0 | 0 / 0 / 0 | 29 / 49 / 7 | 1 | 316 / 13 | 159 |
+| tokio | 7,554 | 1,197 / 0 / 376 | 1,278 / 0 / 193 | 167 / 0 / 16 | 206 / 11 / 225 | 0 | 3,346 / 500 | 14 |
 
 A use with several links (one per `#[cfg]` meaning) counts as confirmed when
 rust-analyzer's file, from the one configuration it indexes, is among them
@@ -851,16 +856,17 @@ Uses whose file no crate reaches and for which rust-analyzer has no
 definition in the repository either are not counted above (serde 193, tokio
 25).
 
-No declared or re-export link is contradicted. Following re-exports moved
+No declared, re-export or exported-macro link is contradicted. Following re-exports moved
 ripgrep's links to a re-exporting module from 73 to 0 (its `grep` crate
 re-exports the others with `pub extern crate`) and regex's from 183 to 1 (a
 `#[macro_export]` macro). Reading item macros moved tokio's misses from
 1,311 to 14 and its links to a module the name is not declared in from 968 to
-178. The "defined elsewhere" links left are mostly `#[macro_export]` macros,
-which belong to the crate root wherever they are written, items written
-inside other macro invocations (`pin_project! { pub struct ... }`), and in
-serde modules and re-exports inside `crate_root!()`, a macro without
-arguments that is not an item macro. serde's misses are
+178, and placing `#[macro_export]` macros at the crate root moved them to
+11 (and regex's last one to 0). The "defined elsewhere" links left are, in
+tokio, macros defined inside another macro's invocation (`join!`,
+`try_join!`) and a module declared in a macro that is not an item macro
+(`runtime::signal`), and in serde, modules and re-exports inside
+`crate_root!()`, a macro without arguments that is not an item macro. serde's misses are
 `module_context_unknown` for the same reason: its modules are declared in
 `crate_root!()`, so those files have no crate. The rest are a path through a
 name another `use` bound (8, tokio), a file whose `mod` declaration is in a
