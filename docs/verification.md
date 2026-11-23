@@ -189,3 +189,39 @@ Results (every resolution as predicted):
 
 Rust has no `add` trial: a new module needs a `mod` line elsewhere, so it is
 not an unrelated edit.
+
+## Mutation testing
+
+A suite that never fails proves little. `tools/mutate_resolution.py` makes one
+small change at a time to a resolution module (`==` to `!=`, `<` to `<=`, `in`
+to `not in`, `and` to `or`, dropping a `not`) and checks whether anything
+notices: the ground-truth corpus first (any rule with fewer confirmed or more
+contradicted links, a crash or a timeout), then the unit tests of call
+resolution. Analyses are computed once; each mutant only re-resolves.
+
+```sh
+python tools/mutate_resolution.py --module calls     # about 20 minutes
+```
+
+Results for `src/deepthought/calls.py` (187 mutants):
+
+| Outcome | Mutants |
+|---|---|
+| killed by the corpus | 107 |
+| killed by an error on the corpus | 49 |
+| killed by unit tests only | 17 |
+| survived | 14 |
+
+173 of 187 (92.5%) are killed. Eight survivors change a position comparison
+from `<` to `<=` (or back) where the two positions cannot coincide, such as a
+call starting at the same column as the declaration that contains it, so they
+are equivalent. Six are gaps nothing checks:
+
+| Line | Function | Mutation | What is unchecked |
+|---|---|---|---|
+| 190 | `_JavaScope.__init__` | `and` to `or` | package facts outside a source root |
+| 200 | `_JavaScope.__init__` | `and` to `or` | supertypes outside a source root or without an owner |
+| 259 | `_JavaScope.type` | `and` to `or` | top-level type lookup when the scope prefix is empty |
+| 273 | `_JavaScope.type` | `and` to `or` | static member-type imports after a type was found |
+| 683 | `_RustPaths._declared` | `or` to `and` | a module path read in another crate root's context |
+| 864 | `_RustPaths.resolve` | `not declared` to `declared` | the `not_declared` reason of unresolved Rust paths |
