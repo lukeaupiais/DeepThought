@@ -13,6 +13,7 @@ from deepthought.imports import (
     RUST_MODULE_FILE,
     RUST_USE_DECLARED,
     RUST_USE_MODULE,
+    RUST_USE_REEXPORT,
     resolve_imports,
 )
 from deepthought.analysis_tools import TreeSitterTool
@@ -429,10 +430,27 @@ class RustTests(unittest.TestCase):
                 "pub struct Top;\n"
                 "pub use shapes::Circle;\n"
                 "mod inner { pub mod deeper { pub fn f() {} } }\n"
-                "pub fn regex() {}\n",
+                "pub fn regex() {}\n"
+                "pub mod prelude;\npub mod x;\npub mod y;\npub mod both;\n"
+                "pub mod one;\n"
+                "mod a1;\nmod a2;\n"
+                "pub use shapes as shp;\n"
+                "pub mod hub { pub use super::shapes::Kind; }\n",
+                "util/src/prelude.rs": "pub use crate::shapes::*;\n"
+                "pub use crate::inner::deeper;\n"
+                "pub use crate::Circle as Round;\n"
+                "pub use crate::shp::sub::S as S2;\n",
+                "util/src/x.rs": "pub use crate::y::Loop;\n",
+                "util/src/y.rs": "pub use crate::x::Loop;\n",
+                "util/src/both.rs": "pub use crate::a1::*;\npub use crate::a2::*;\n",
+                "util/src/one.rs": "pub use crate::a1::*;\npub use crate::shapes::*;\n",
+                "util/src/a1.rs": "pub struct Same;\n",
+                "util/src/a2.rs": "pub struct Same;\n",
                 "util/src/shapes.rs": "pub struct Circle;\n"
                 "pub enum Kind { A }\n"
-                "pub const MAX: u8 = 1;\n",
+                "pub const MAX: u8 = 1;\n"
+                "pub mod sub;\n",
+                "util/src/shapes/sub.rs": "pub struct S;\n",
                 "app/Cargo.toml": '[package]\nname = "app"\n'
                 '[[bin]]\nname = "tool"\npath = "src/bin/tool.rs"\n',
                 "app/src/bin/tool.rs": "pub struct Thing;\n",
@@ -473,10 +491,23 @@ class RustTests(unittest.TestCase):
                 "use imp::Sys;\n"
                 "fn body() { mod m { use self::Z; } }\n"
                 "mod cyc;\n"
-                "use cyc::again::again::Deeper;\n",
+                "use cyc::again::again::Deeper;\n"
+                "use my_util::prelude::Kind;\n"
+                "use my_util::prelude::deeper::f as f2;\n"
+                "use my_util::prelude::Round;\n"
+                "use my_util::x::Loop;\n"
+                "use my_util::both::Same;\n"
+                "use my_util::prelude::Kind::A as A2;\n"
+                "pub extern crate my_util as mu;\n"
+                "use mu::Top as T4;\n"
+                "use my_util::prelude::sub::S;\n"
+                "use my_util::prelude::S2 as S3;\n"
+                "use my_util::hub::Kind as K2;\n"
+                "use my_util::one::Same as Same2;\n",
                 "app/src/a.rs": "pub struct Thing;\nuse super::b::c::Deep;\n",
                 "app/src/b/c.rs": "pub struct Deep;\nuse super::super::a::Thing;\n",
-                "app/src/main.rs": "mod shared;\nuse app::b::c::Deep;\n",
+                "app/src/main.rs": "mod shared;\nuse app::b::c::Deep;\n"
+                "use app::mu::shapes::Circle;\n",
                 "app/src/shared.rs": "use crate::a::Thing;\n",
                 "app/src/orphan.rs": "use crate::a::Thing;\n",
             }
@@ -499,8 +530,14 @@ class RustTests(unittest.TestCase):
             )
             for r in resolve_imports(result)
             if imports[r.import_id].kind in {"use", "use_glob", "extern_crate"}
+            # Re-exporting helpers, checked through the uses of them.
+            and imports[r.import_id].file
+            not in {
+                f"util/src/{name}.rs" for name in ("prelude", "x", "y", "both", "one")
+            }
         }
         declared, module = RUST_USE_DECLARED, RUST_USE_MODULE
+        reexport = RUST_USE_REEXPORT
         self.maxDiff = None
         self.assertEqual(
             outcomes,
@@ -517,12 +554,11 @@ class RustTests(unittest.TestCase):
                     None,
                     [("util/src/shapes.rs", declared)],
                 ),
-                # Not declared where the path names it (a re-export): the
-                # module the path goes through.
+                # A re-export, followed to the declaration.
                 ("app/src/lib.rs", 6): (
                     "linked",
                     None,
-                    [("util/src/lib.rs", module)],
+                    [("util/src/shapes.rs", reexport)],
                 ),
                 # A path through an enum: the enum is declared there.
                 ("app/src/lib.rs", 7): (
@@ -530,7 +566,8 @@ class RustTests(unittest.TestCase):
                     None,
                     [("util/src/shapes.rs", declared)],
                 ),
-                # Constants are not declarations here.
+                # Constants are not declarations here: the module the path
+                # goes through.
                 ("app/src/lib.rs", 8): (
                     "linked",
                     None,
@@ -605,6 +642,84 @@ class RustTests(unittest.TestCase):
                     None,
                     [("app/src/cyc.rs", declared)],
                 ),
+                # Through a glob re-export.
+                ("app/src/lib.rs", 34): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", reexport)],
+                ),
+                # Through a re-exported module, then on down.
+                ("app/src/lib.rs", 35): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", reexport)],
+                ),
+                # A chain of re-exports, renamed on the way.
+                ("app/src/lib.rs", 36): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", reexport)],
+                ),
+                # Re-exports in a cycle, and two globs that both supply the
+                # name, are not followed.
+                ("app/src/lib.rs", 37): (
+                    "linked",
+                    None,
+                    [("util/src/x.rs", module)],
+                ),
+                ("app/src/lib.rs", 38): (
+                    "linked",
+                    None,
+                    [("util/src/both.rs", module)],
+                ),
+                # A name inside a re-exported item is declared with it.
+                ("app/src/lib.rs", 39): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", reexport)],
+                ),
+                ("app/src/lib.rs", 40): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", RUST_EXTERN_CRATE)],
+                ),
+                # A crate renamed by `extern crate` in the crate root.
+                ("app/src/lib.rs", 41): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", declared)],
+                ),
+                # A module a glob re-exports, then on down to its own file.
+                ("app/src/lib.rs", 42): (
+                    "linked",
+                    None,
+                    [("util/src/shapes/sub.rs", reexport)],
+                ),
+                # A re-export whose own path goes through a re-exported
+                # module.
+                ("app/src/lib.rs", 43): (
+                    "linked",
+                    None,
+                    [("util/src/shapes/sub.rs", reexport)],
+                ),
+                # A re-export inside an inline module, read from there.
+                ("app/src/lib.rs", 44): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", reexport)],
+                ),
+                # Of two globs, the one that supplies the name.
+                ("app/src/lib.rs", 45): (
+                    "linked",
+                    None,
+                    [("util/src/a1.rs", reexport)],
+                ),
+                # A crate re-exported by `pub extern crate`, then on down.
+                ("app/src/main.rs", 3): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", reexport)],
+                ),
                 # A test file outside src is a crate root of its own.
                 ("app/tests/it.rs", 1): (
                     "linked",
@@ -634,6 +749,16 @@ class RustTests(unittest.TestCase):
                     ["app/src/a.rs", "app/src/main.rs"],
                 ),
                 ("util/src/lib.rs", 3): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", declared)],
+                ),
+                ("util/src/lib.rs", 13): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", declared)],
+                ),
+                ("util/src/lib.rs", 14): (
                     "linked",
                     None,
                     [("util/src/shapes.rs", declared)],

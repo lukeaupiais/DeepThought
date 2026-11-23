@@ -779,11 +779,17 @@ reached:
 
 - `tree-sitter.rust-use-declared` when the path ends there or its next name
   is declared in that module (a function, type, trait, macro or module);
-- `tree-sitter.rust-use-module` when the next name is not declared there: a
-  re-export, a constant or static, or an item a macro generates. The link
+- `tree-sitter.rust-use-reexport` when the module binds the name with a use
+  of its own (an `extern crate`, an explicit `use`, or exactly one glob
+  `use` that supplies it) and following those uses reaches the file that
+  declares it, or a module the rest of the path continues from. A chain of
+  uses in a cycle, or two globs that both supply the name, is not followed;
+- `tree-sitter.rust-use-module` when the next name is neither declared nor
+  bound there: a constant or static, or an item a macro generates. The link
   names the module the path goes through, not where the item is defined.
 
-`extern crate` links to the library root (`tree-sitter.rust-extern-crate`).
+`extern crate` links to the library root (`tree-sitter.rust-extern-crate`),
+and an `extern crate x as y;` in a crate root lets paths start with `y`.
 A file in several crates is resolved in each and is ambiguous
 (`use_context_ambiguous`) when they differ. Other outcomes: `external_crate`
 (no workspace library has the name, as for `std`), `crate_ambiguous` (two
@@ -799,20 +805,25 @@ Checked with `tools/compare_rust_uses_with_scip.py`: rust-analyzer has an
 occurrence of the symbol each leaf names on the declaration's lines, defined
 in some file.
 
-| Corpus | Uses | Declared: confirmed / contradicted / not indexed | Module: same file / defined elsewhere / not indexed or outside | External: outside the repository / no symbol | Missed |
-|---|---|---|---|---|---|
-| ripgrep | 1,083 | 505 / 0 / 20 | 21 / 73 / 11 | 429 / 23 | 1 |
-| regex | 1,808 | 900 / 0 / 135 | 29 / 183 / 33 | 491 / 37 | 0 |
-| serde | 981 | 187 / 0 / 20 | 29 / 56 / 8 | 316 / 13 | 159 |
-| tokio | 7,101 | 150 / 0 / 80 | 27 / 1,106 / 146 | 1,700 / 84 | 1,311 |
+| Corpus | Uses | Declared: confirmed / contradicted / not indexed | Re-export: confirmed / contradicted / not indexed | Module: same file / defined elsewhere / not indexed or outside | `extern crate` | External: outside the repository / no symbol | Missed |
+|---|---|---|---|---|---|---|---|
+| ripgrep | 1,083 | 505 / 0 / 20 | 73 / 0 / 5 | 21 / 0 / 0 | 6 | 429 / 23 | 1 |
+| regex | 1,808 | 900 / 0 / 135 | 183 / 0 / 27 | 28 / 1 / 6 | 0 | 491 / 37 | 0 |
+| serde | 981 | 187 / 0 / 20 | 7 / 0 / 0 | 29 / 49 / 7 | 1 | 316 / 13 | 159 |
+| tokio | 7,101 | 150 / 0 / 80 | 138 / 0 / 2 | 27 / 968 / 144 | 0 | 1,700 / 84 | 1,311 |
 
 Uses whose file no crate reaches and for which rust-analyzer has no
 definition in the repository either are not counted above (serde 193, tokio
 2,497).
 
-No declared link is contradicted. "Defined elsewhere" module links are
-re-exports (`pub use`), constants and `#[macro_export]` macros, which
-rust-analyzer resolves to their definition. Nearly all misses are
+No declared or re-export link is contradicted. Following re-exports moved
+ripgrep's links to a re-exporting module from 73 to 0 (its `grep` crate
+re-exports the others with `pub extern crate`) and regex's from 183 to 1 (a
+`#[macro_export]` macro). The "defined elsewhere" links left in serde and
+tokio are mostly modules and re-exports written inside macro invocations
+(`cfg_time! { pub mod time; }`, serde's `crate_root!()`), which the parse
+tree does not expand, and `#[macro_export]` macros, which belong to the crate
+root wherever they are written. Nearly all misses are
 `module_context_unknown`: serde and tokio declare most of their modules
 inside macro invocations (`cfg_rt! { mod runtime; }`, `crate_root!()`), which
 the parse tree does not expand, so those files have no crate. The rest are a
