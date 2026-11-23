@@ -51,7 +51,7 @@ packages = ["src/deepthought"]
 NOTICE = "deepthought/NOTICE"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "tools", "evals", "docs/evaluation.md", "docs/evaluation-validation.md", "docs/graph-port.md", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
+include = ["src", "tests", "tools", "evals", "docs/evaluation.md", "docs/evaluation-validation.md", "docs/graph-port.md", "docs/verification.md", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "licenses"]
 
 [tool.ruff]
 extend-exclude = ["src/deepthought/_scip/scip_pb2.py", "tests/fixtures"]
