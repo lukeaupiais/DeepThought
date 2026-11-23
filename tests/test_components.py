@@ -771,6 +771,98 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(strict["items"], [])
 
+    @unittest.skipUnless(YAML, "Provision PyYAML")
+    async def test_component_impact_reaches_deployments(self):
+        from deepthought.storage.graph import WriteCoordinator
+
+        found = {}
+        for name, files in (("k8s", KUBERNETES), ("compose", COMPOSE)):
+            repo = "%s-%s" % (self.repo, name)
+            self.addAsyncCleanup(self.remove_repo, repo)
+            with tempfile.TemporaryDirectory() as directory:
+                write(directory, files)
+                output = await ComponentsTool(directory).analyze(repo)
+            written = await WriteCoordinator(
+                self.manager.driver, database=self.manager.database
+            ).write_tool_output("components", output, repo)
+            self.assertTrue(written.success, written.errors)
+            found[name] = (repo, output.metadata.custom_metrics["snapshot_id"])
+
+        async def impact(name, component):
+            repo, snapshot = found[name]
+            response = await self.service.get_component_impact(
+                "%s::%s" % (repo, component), repo, snapshot_id=snapshot
+            )
+            return [
+                (
+                    i["element"]["qualified_name"].split("::", 1)[1],
+                    i["depth"],
+                    i["evidence_type"],
+                    [e["type"] for e in i["edges"]],
+                )
+                for i in response["items"]
+            ]
+
+        # A package reaches the workload that runs it and the Service in
+        # front of that workload.
+        self.assertEqual(
+            await impact("k8s", "src/api/go.mod::go_module::component"),
+            [
+                (
+                    "deploy/app.yaml::k8s_workload::Deployment/shop/api::component",
+                    1,
+                    "resolved",
+                    ["DEPLOYS"],
+                ),
+                (
+                    "deploy/app.yaml::k8s_service::Service/shop/api::component",
+                    2,
+                    "resolved",
+                    ["SELECTS", "DEPLOYS"],
+                ),
+            ],
+        )
+        self.assertEqual(
+            await impact("compose", "api/pyproject.toml::python_project::component"),
+            [
+                (
+                    "compose.yaml::compose_service::api::component",
+                    1,
+                    "resolved",
+                    ["DEPLOYS"],
+                ),
+                (
+                    "compose.yaml::compose_service::worker::component",
+                    1,
+                    "resolved",
+                    ["DEPLOYS"],
+                ),
+                (
+                    "ops/docker-compose.prod.yml::compose_service::api::component",
+                    1,
+                    "resolved",
+                    ["DEPLOYS"],
+                ),
+            ],
+        )
+        self.assertEqual(
+            await impact("compose", "compose.yaml::compose_service::db::component"),
+            [
+                (
+                    "compose.yaml::compose_service::api::component",
+                    1,
+                    "resolved",
+                    ["REQUIRES"],
+                ),
+                (
+                    "compose.yaml::compose_service::worker::component",
+                    1,
+                    "resolved",
+                    ["REQUIRES"],
+                ),
+            ],
+        )
+
     async def remove_repo(self, repo):
         async with self.manager.driver.session(
             database=self.manager.database

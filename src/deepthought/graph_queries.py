@@ -807,11 +807,18 @@ class GraphQueryService:
         max_output_bytes=16000,
         timeout=5,
     ):
-        """Components that require a component, transitively, over REQUIRES."""
+        """Components that depend on a component, transitively.
+
+        Follows REQUIRES (package and Compose depends_on dependencies),
+        DEPLOYS (the Compose services and Kubernetes workloads that build or
+        run a package) and SELECTS (the Kubernetes Services that route to a
+        workload) backwards, so a package change reaches what deploys and
+        exposes it.
+        """
         return await self._impact(
             "MATCH (root:Component {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) WITH root, [] AS parts ",
-            "REQUIRES",
+            "REQUIRES|DEPLOYS|SELECTS",
             qualified_name,
             repo_url,
             snapshot_id,
