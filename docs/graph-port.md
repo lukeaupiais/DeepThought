@@ -1802,7 +1802,8 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --snapshot REV`) records
+tree-sitter --tool data-contracts --language java --language python --snapshot
+REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
 
@@ -1813,6 +1814,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
 | Symbol -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-repository` | pattern_matched | an interface extending a Spring Data CRUD repository (READS and WRITES) or paging-and-sorting repository (READS) whose entity type argument is a mapped entity |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-db-table` | pattern_matched | a Django model (a `django.db.models.Model` base, directly or through repository models named by unique class name) whose own `Meta.db_table` names the table |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-default-table-name` | pattern_matched | a concrete model without `db_table`: `{app_label}_{class name lower case}`, the app label being `Meta.app_label`, else the literal `label` of the app's `AppConfig` in `apps.py`, else the package holding the models module; a proxy uses its concrete base's table, an abstract model has none |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-manager-call` | pattern_matched | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, `Model` being the one model of the repository with that class name; instance `save()`/`delete()`, other managers and raw SQL are not read |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -1838,6 +1843,21 @@ services. All 6 entities map to a table that their own service's DDL
 declares, with no unmatched mapping. Vet's `@JoinTable` maps
 `vet_specialties`, so all 7 declared tables are mapped. All 4 repositories
 resolve to their entity.
+
+On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
+sites, redirects, flatpages) the tool finds the 13 tables those apps create
+in every Django database, and no others: `auth_group`,
+`auth_group_permissions`, `auth_permission`, `auth_user`,
+`auth_user_groups`, `auth_user_user_permissions`, `django_admin_log`,
+`django_content_type`, `django_flatpage`, `django_flatpage_sites`,
+`django_redirect`, `django_session` and `django_site`. These come from
+9 concrete models. The abstract `AbstractUser`, `PermissionsMixin` and
+`AbstractBaseSession` give none, and `auth_user_groups` comes from the
+abstract `PermissionsMixin`'s field. 16 manager calls are linked, with none
+unresolved. Over the whole repository, including Django's test apps, 1,580
+models give 1,697 tables in 33 s. 3,578 manager calls are linked, and 7,472
+are left unlinked because the class name is not a model or names several
+models.
 
 ## Commit-linked snapshots
 

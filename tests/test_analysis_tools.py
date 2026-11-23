@@ -46,7 +46,7 @@ class RegistryTests(unittest.TestCase):
         )
         self.assertEqual(metadata[0].capabilities, {ToolCapability.DEPENDENCY_ANALYSIS})
         self.assertFalse(metadata[0].requires_binary)
-        self.assertEqual(metadata[1].supported_languages, {"java"})
+        self.assertEqual(metadata[1].supported_languages, {"java", "python"})
         self.assertEqual(metadata[1].capabilities, {ToolCapability.DEPENDENCY_ANALYSIS})
         metadata = metadata[2:]
         self.assertEqual(metadata[0].supported_languages, {"typescript"})
