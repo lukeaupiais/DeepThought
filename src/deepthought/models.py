@@ -43,8 +43,18 @@ class Definition:
     end_column: int
     native_id: str | None = None
     coordinate_encoding: str = "utf-8"
+    # Java methods and constructors: declared parameter count, and whether
+    # the last one is variable-arity (``T...``). None elsewhere.
+    parameters: int | None = None
+    variadic: bool = False
 
     def __post_init__(self):
+        if self.parameters is not None and (
+            type(self.parameters) is not int or self.parameters < 0
+        ):
+            raise ValueError("Parameter count must be a nonnegative integer")
+        if type(self.variadic) is not bool or (self.variadic and not self.parameters):
+            raise ValueError("Only a declaration with parameters can be variadic")
         validate_location(
             self.file,
             self.line,
@@ -156,8 +166,14 @@ class CallSite:
     end_column: int
     caller_id: str | None = None
     coordinate_encoding: str = "utf-8"
+    # Java calls: the number of arguments written. None elsewhere.
+    arguments: int | None = None
 
     def __post_init__(self):
+        if self.arguments is not None and (
+            type(self.arguments) is not int or self.arguments < 0
+        ):
+            raise ValueError("Argument count must be a nonnegative integer")
         validate_location(
             self.file,
             self.line,
@@ -372,6 +388,14 @@ class AnalysisResult:
 
     def to_dict(self) -> dict:
         data = json.loads(json.dumps(asdict(self)))
+        # Arity is recorded for Java only; other facts keep their serialized
+        # identity.
+        for item in data["definitions"]:
+            if item["parameters"] is None:
+                del item["parameters"], item["variadic"]
+        for item in data["call_sites"]:
+            if item["arguments"] is None:
+                del item["arguments"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
