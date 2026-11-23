@@ -71,10 +71,26 @@ def main(argv=None) -> int:
     ingest.add_argument("--repository-id", required=True)
     ingest.add_argument("--max-index-bytes", type=int, default=50_000_000)
     ingest.add_argument(
+        "--default-position-encoding",
+        choices=("utf-8", "utf-16", "utf-32"),
+        help="Coordinate encoding for documents whose index leaves it unspecified",
+    )
+    ingest.add_argument(
         "--path-prefix",
         default="",
         help="Map index-relative paths under this workspace-relative directory",
     )
+    indexer = subcommands.add_parser(
+        "index-typescript",
+        help="Run a provisioned scip-typescript and write a source-bound index",
+    )
+    indexer.add_argument("workspace")
+    indexer.add_argument("--node", required=True, help="Node.js executable")
+    indexer.add_argument(
+        "--indexer", required=True, help="scip-typescript entry script"
+    )
+    indexer.add_argument("--output", help="Index path, default workspace/index.scip")
+    indexer.add_argument("--timeout", type=int, default=180)
     compose = subcommands.add_parser(
         "compose",
         help="Compose supplied analysis JSON artifacts into a local reference graph",
@@ -114,6 +130,18 @@ def main(argv=None) -> int:
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.signal(sig, lambda _sig, _frame: cancel.set())
     try:
+        if args.command == "index-typescript":
+            from .scip_indexing import index_typescript
+
+            receipt = index_typescript(
+                args.workspace,
+                node=args.node,
+                indexer=args.indexer,
+                output=args.output,
+                timeout=args.timeout,
+            )
+            print(json.dumps(receipt, sort_keys=True))
+            return 0
         if args.command == "analyze":
             earlier = None
             if args.previous is not None:
@@ -147,6 +175,7 @@ def main(argv=None) -> int:
                 repository_id=args.repository_id,
                 max_index_bytes=args.max_index_bytes,
                 path_prefix=args.path_prefix,
+                default_position_encoding=args.default_position_encoding,
             )
         elif args.command == "check-source":
             if (

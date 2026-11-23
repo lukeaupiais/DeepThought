@@ -31,7 +31,9 @@ This local alpha extracts named declarations, static import statements and named
 call sites from Python and TypeScript/TSX, and from JavaScript/JSX
 (`.js`, `.jsx`, `.mjs`, `.cjs`) when `--language javascript` is selected, preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
-portable reference graphs. It retains ranges, native symbol identities, role
+portable reference graphs. The `scip` graph tool stores TypeScript references
+from a source-bound scip-typescript index in Neo4j (see
+[docs/graph-port.md](docs/graph-port.md#scip-references)). It retains ranges, native symbol identities, role
 flags, coverage, diagnostics and source snapshots. It does not infer calls,
 instantiations, inheritance or architectural roles from reference occurrences.
 

@@ -1,6 +1,7 @@
 """Graph SDK acceptance using literal SCIP native symbols and located evidence."""
 
 from pathlib import Path
+from dataclasses import replace
 import tempfile
 import unittest
 import json
@@ -43,6 +44,40 @@ def result_for(repository_id, documents):
 
 
 class GraphTests(unittest.TestCase):
+    def test_version_two_native_binding_preserves_declarations_and_legacy_graphs(self):
+        source = result_for(
+            "fixture",
+            [("api.py", [(FIRST, "helper")], []), ("client.py", [], [(0, FIRST, 0)])],
+        )
+        overload = replace(source.definitions[0], id="overload", line=2, end_line=2)
+        source = replace(source, definitions=(*source.definitions, overload))
+        legacy = deepthought.compose_graph([source])
+        self.assertEqual(legacy.references[0].resolution, "ambiguous")
+        self.assertFalse(legacy.edges)
+        graph = deepthought.compose_graph([source], composer_version="2")
+        self.assertEqual(graph.references[0].resolution, "resolved")
+        self.assertEqual(len(graph.references[0].target_ids), 2)
+        self.assertEqual(len(graph.edges), 1)
+        self.assertEqual(graph.edges[0].target_file, "api.py")
+        self.assertEqual(graph.edges[0].witness_ids, (graph.references[0].id,))
+        self.assertNotEqual(graph.snapshot_id, legacy.snapshot_id)
+        for saved in [legacy, graph]:
+            self.assertEqual(GraphSnapshot.from_json(saved.to_json()), saved)
+        # A binding to one native symbol does not pick between destination files.
+        other_file = replace(overload, file="client.py")
+        split = deepthought.compose_graph(
+            [replace(source, definitions=(source.definitions[0], other_file))],
+            composer_version="2",
+        )
+        self.assertEqual(split.references[0].resolution, "resolved")
+        self.assertFalse(split.edges)
+        duplicate = result_for("duplicate", [("api.py", [(FIRST, "helper")], [])])
+        conflict = deepthought.compose_graph([source, duplicate], composer_version="2")
+        self.assertEqual(conflict.references[0].resolution, "ambiguous")
+        self.assertFalse(conflict.edges)
+        with self.assertRaises(ValueError):
+            deepthought.compose_graph([source], composer_version="unknown")
+
     def test_import_cannot_hide_incomplete_coverage_behind_success_status(self):
         source = result_for("fixture", [("lib.py", [(FIRST, "helper")], [])])
         for field in ("coverage", "diagnostics"):

@@ -134,6 +134,7 @@ class GraphQueryService:
         timeout=5,
         database_scope=False,
         repository_scope=False,
+        required_capability=None,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -158,6 +159,12 @@ class GraphQueryService:
                 else:
                     marker = await self._marker(tx, repo_url, snapshot_id)
                 metadata = json.loads(marker["metadata"] or "{}")
+                if required_capability is not None and required_capability not in (
+                    metadata.get("custom_metrics", {}).get("capabilities", [])
+                ):
+                    raise ValueError(
+                        "Selected snapshot does not provide " + required_capability
+                    )
                 if database_scope:
                     check = await tx.run(
                         "MATCH (n) WHERE NOT (n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) OR n.repo_url IS NULL OR n.snapshot_id IS NULL RETURN count(n) AS other_nodes",
@@ -468,14 +475,14 @@ class GraphQueryService:
                 WHERE node.repo_url=$repo_url AND node.snapshot_id=$snapshot_id
                   AND score > 0.1 AND ($file_path IS NULL OR node.file_path=$file_path)
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column} AS element,score
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element,score
                 ORDER BY score DESC,element.file_path,element.start_line,element.qualified_name
                 LIMIT $fetch_limit"""
         else:
             statement = """MATCH (node:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
                 WHERE $file_path IS NULL OR node.file_path=$file_path
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column} AS element
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element
                 ORDER BY element.file_path,element.start_line,element.qualified_name
                 LIMIT $fetch_limit"""
         return await self._read(
@@ -511,7 +518,7 @@ class GraphQueryService:
             -[:DEFINES]->(elem:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
             WHERE $line_number IS NULL OR (elem.start_line <= $line_number AND elem.end_line >= $line_number)
             RETURN elem {.qualified_name,.definition_id,.name,.display_name,.kind,
-                .file_path,.start_line,.end_line,.column,.end_column} AS element
+                .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element
             ORDER BY CASE WHEN $line_number IS NULL THEN elem.start_line ELSE elem.end_line-elem.start_line END,
                 elem.start_line,elem.qualified_name LIMIT $fetch_limit""",
             {"file_path": file_path, "line_number": line_number},
@@ -702,6 +709,121 @@ class GraphQueryService:
             timeout,
             evidence=evidence_types,
             incoming=True,
+        )
+
+    async def get_references(
+        self,
+        native_symbol,
+        repo_url,
+        *,
+        snapshot_id,
+        file_path=None,
+        after_reference_id="",
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """SCIP occurrences of one native symbol, in reference_id order.
+
+        Local symbols are unique only within a document, so they need file_path.
+        Continue a truncated listing with the last returned reference_id.
+        """
+        _text(native_symbol, "native_symbol")
+        if file_path is not None:
+            _text(file_path, "file_path")
+        if native_symbol.startswith("local ") and file_path is None:
+            raise ValueError("Local SCIP symbols require file_path document scope")
+        if not isinstance(after_reference_id, str):
+            raise ValueError("Reference cursor must be a string")
+        return await self._read(
+            """MATCH (r:Reference {repo_url:$repo_url,snapshot_id:$snapshot_id,native_id:$native_symbol})
+            WHERE ($file_path IS NULL OR r.file_path=$file_path) AND r.reference_id > $after
+            OPTIONAL MATCH (r)-[e:REFERENCES]->(d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            WITH r,e,d ORDER BY r.reference_id,d.definition_id
+            WITH r,collect(CASE WHEN d IS NULL THEN NULL ELSE {definition_id:d.definition_id,
+                qualified_name:d.qualified_name,file_path:d.file_path,start_line:d.start_line,
+                edge_id:e._dt_edge_id} END) AS targets
+            ORDER BY r.reference_id
+            RETURN r {.reference_id,.native_id,.file_path,.start_line,.column,.end_line,
+                .end_column,.coordinate_encoding,.symbol_roles,.resolution,
+                .declaration_resolution} AS reference,targets
+            LIMIT $fetch_limit""",
+            {
+                "native_symbol": native_symbol,
+                "file_path": file_path,
+                "after": after_reference_id,
+            },
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="references",
+        )
+
+    async def _dependencies(
+        self,
+        file_path,
+        repo_url,
+        snapshot_id,
+        limit,
+        max_output_bytes,
+        timeout,
+        incoming,
+    ):
+        _text(file_path, "file_path")
+        other = "(other:File {repo_url:$repo_url,snapshot_id:$snapshot_id})"
+        pattern = (
+            f"{other}-[r:DEPENDS_ON]->(f)"
+            if incoming
+            else f"(f)-[r:DEPENDS_ON]->{other}"
+        )
+        return await self._read(
+            f"""MATCH (f:File {{repo_url:$repo_url,snapshot_id:$snapshot_id,path:$file_path}})
+            MATCH {pattern}
+            WHERE r.relation='references'
+            RETURN other.path AS file,r.dependency_id AS dependency_id,
+                r._dt_edge_id AS edge_id,r.evidence_type AS evidence_type,
+                r.rule_id AS rule_id,size(r.witness_ids) AS witness_count,
+                r.witness_ids[0..20] AS witness_ids
+            ORDER BY other.path,r.dependency_id LIMIT $fetch_limit""",
+            {"file_path": file_path},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="dependencies",
+        )
+
+    async def get_file_dependencies(
+        self,
+        file_path,
+        repo_url,
+        *,
+        snapshot_id,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Files declaring symbols this file references, with up to 20 witnesses."""
+        return await self._dependencies(
+            file_path, repo_url, snapshot_id, limit, max_output_bytes, timeout, False
+        )
+
+    async def get_file_dependents(
+        self,
+        file_path,
+        repo_url,
+        *,
+        snapshot_id,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Files that reference symbols declared in this file."""
+        return await self._dependencies(
+            file_path, repo_url, snapshot_id, limit, max_output_bytes, timeout, True
         )
 
     async def get_file_exports(

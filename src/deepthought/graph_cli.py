@@ -65,6 +65,11 @@ def parser():
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
     index.add_argument(
+        "--scip-index",
+        type=Path,
+        help="Source-bound SCIP index for --tool scip, default workspace/index.scip",
+    )
+    index.add_argument(
         "--previous-artifact",
         type=Path,
         help="Earlier tree-sitter analysis; unchanged files need no parsing",
@@ -107,6 +112,9 @@ def parser():
         "callees",
         "imports",
         "importers",
+        "references",
+        "dependencies",
+        "dependents",
         "explain-edge",
         "cypher",
     ):
@@ -118,8 +126,25 @@ def parser():
         q.add_argument("--max-output-bytes", type=int, default=16000)
         if name in {"search", "cypher"}:
             q.add_argument("--query", required=True)
-        if name in {"context", "structure", "imports", "importers"}:
+        if name in {
+            "context",
+            "structure",
+            "imports",
+            "importers",
+            "dependencies",
+            "dependents",
+        }:
             q.add_argument("--file", required=True)
+        if name == "references":
+            q.add_argument("--symbol", required=True, help="SCIP native symbol")
+            q.add_argument(
+                "--file", help="Document scope; required for local SCIP symbols"
+            )
+            q.add_argument(
+                "--after-reference-id",
+                default="",
+                help="Continue after this reference_id",
+            )
         if name == "context":
             q.add_argument("--line", type=int)
         if name in {"callers", "callees"}:
@@ -181,8 +206,18 @@ async def execute(args):
                     _read_artifact(args.previous_artifact, 50_000_000).decode("utf-8")
                 )
             analysis = reuse = None
+            if args.scip_index is not None and "scip" not in names:
+                raise ValueError("--scip-index belongs to the scip tool")
             for name in names:
-                tool = tool_registry.get_tool(name, args.workspace)
+                tool = tool_registry.get_tool(
+                    name,
+                    args.workspace,
+                    **(
+                        {"index_path": args.scip_index}
+                        if name == "scip" and args.scip_index is not None
+                        else {}
+                    ),
+                )
                 if tool is None:
                     raise ValueError("Unknown AnalysisTool: " + name)
                 options = {"previous": earlier} if name == "tree-sitter" else {}
@@ -285,6 +320,21 @@ async def execute(args):
             return await service.get_file_structure(
                 args.file, args.repository_id, **kwargs
             )
+        if args.command == "references":
+            return await service.get_references(
+                args.symbol,
+                args.repository_id,
+                file_path=args.file,
+                after_reference_id=args.after_reference_id,
+                **kwargs,
+            )
+        if args.command in {"dependencies", "dependents"}:
+            method = (
+                service.get_file_dependencies
+                if args.command == "dependencies"
+                else service.get_file_dependents
+            )
+            return await method(args.file, args.repository_id, **kwargs)
         if args.command in {"callers", "callees", "imports", "importers"}:
             method = {
                 "callers": service.get_function_callers,
