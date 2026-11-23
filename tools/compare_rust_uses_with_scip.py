@@ -4,7 +4,8 @@ For each ``use`` leaf (and each ``path::*`` glob's module), rust-analyzer's
 index has an occurrence of the symbol it names on the declaration's lines,
 and defines that symbol in some file. A link the analysis marks
 ``rust-use-declared`` (the name is declared in the linked module, or is the
-module) is confirmed when that is the file. A ``rust-use-module`` link names
+module) or ``rust-use-reexport`` (the declaration a chain of re-exports
+reaches) is confirmed when that is the file. A ``rust-use-module`` link names
 the module the path goes through when the name is not declared there (a
 re-export, a constant, a variant or a macro-generated item), so it is counted
 as such when rust-analyzer's definition is elsewhere.
@@ -21,7 +22,12 @@ from pathlib import Path
 import re
 
 import deepthought
-from deepthought.imports import RUST_USE_DECLARED, resolve_imports
+from deepthought.imports import (
+    RUST_USE_DECLARED,
+    RUST_USE_MODULE,
+    RUST_USE_REEXPORT,
+    resolve_imports,
+)
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -75,22 +81,25 @@ def main():
                 outcome = f"{resolution.reason}_outside_repository"
             else:
                 outcome = f"{resolution.reason}_not_indexed"
-        elif not expected:
-            kind = "declared" if link.rule_id == RUST_USE_DECLARED else "module"
-            where = "outside_repository" if symbols else "not_indexed"
-            outcome = f"{kind}_{where}"
-        elif link.target_file in expected:
-            outcome = (
-                "declared_confirmed"
-                if link.rule_id == RUST_USE_DECLARED
-                else "module_confirmed"
-            )
-        elif link.rule_id == RUST_USE_DECLARED:
-            outcome = "declared_contradicted"
         else:
-            outcome = "module_defined_elsewhere"
+            kind = {
+                RUST_USE_DECLARED: "declared",
+                RUST_USE_REEXPORT: "reexport",
+                RUST_USE_MODULE: "module",
+            }.get(link.rule_id, "extern_crate")
+            if not expected:
+                where = "outside_repository" if symbols else "not_indexed"
+                outcome = f"{kind}_{where}"
+            elif link.target_file in expected:
+                outcome = f"{kind}_confirmed"
+            elif kind == "module":
+                outcome = "module_defined_elsewhere"
+            else:
+                outcome = f"{kind}_contradicted"
         outcomes[outcome] += 1
-        if outcome == "declared_contradicted" or outcome.startswith("missed"):
+        if outcome.endswith(("contradicted", "elsewhere")) or outcome.startswith(
+            "missed"
+        ):
             examples.setdefault(outcome, []).append(
                 [
                     item.file,

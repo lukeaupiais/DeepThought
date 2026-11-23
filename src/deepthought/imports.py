@@ -27,6 +27,7 @@ RUST_CRATE_ROOT = "tree-sitter.rust-crate-root"
 RUST_USE_DECLARED = "tree-sitter.rust-use-declared"
 RUST_USE_MODULE = "tree-sitter.rust-use-module"
 RUST_EXTERN_CRATE = "tree-sitter.rust-extern-crate"
+RUST_USE_REEXPORT = "tree-sitter.rust-use-reexport"
 _RUST_MODULE_KINDS = frozenset({"module", "module_path"})
 _RUST_CRATE_KINDS = frozenset({"crate_library", "crate_target"})
 # Declarations a use path can go through: modules and types.
@@ -526,6 +527,18 @@ class _RustIndex:
                 self.types.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
             if d.kind == "Module" and (d.file, parts) not in bodyless:
                 inline.setdefault(d.file, set()).add(parts)
+        # Names other uses bind in each (file, inline modules) scope, and the
+        # globs there.
+        self.bindings, self.globs, self.externs = {}, {}, {}
+        for i in rust:
+            if i.kind == "extern_crate":
+                scope = self.externs.setdefault((i.file, i.names), {})
+                scope.setdefault(i.local_names[0], []).append(i)
+            elif i.kind == "use":
+                scope = self.bindings.setdefault((i.file, i.names), {})
+                scope.setdefault(i.local_names[0], []).append(i)
+            elif i.kind == "use_glob":
+                self.globs.setdefault((i.file, i.names), []).append(i)
         # (crate root, module path) -> {(file, inline modules)}, and
         # file -> {(crate root, module path of the file)}.
         self.modules, self.contexts = {}, {}
@@ -581,14 +594,9 @@ class _RustIndex:
             return None, ("ambiguous", "crate_ambiguous", (), tuple(sorted(roots)))
         return None, ("unresolved", "external_crate", (), ())
 
-    def _resolve(self, item: Import, root, path):
-        """(status, reason, links, candidates) of one use in one crate's
-        module."""
-        if item.kind == "extern_crate":
-            library, failed = self._library(item.specifier)
-            if failed:
-                return failed
-            return "linked", None, (ImportLink(library, RUST_EXTERN_CRATE),), ()
+    def _walk(self, item: Import, root, path):
+        """Where a use path leads in one crate's module: the failure outcome,
+        or (crate root, module path, remaining names)."""
         module = path + item.names
         segments = item.specifier.split("::")
         first = segments[0]
@@ -612,10 +620,18 @@ class _RustIndex:
         ):
             rest = segments
         else:
-            library, failed = self._library(first)
+            # A crate: an `extern crate` in the crate root names it there.
+            renamed = self.externs.get((root, ()), {}).get(first, ())
+            name = renamed[0].specifier if renamed else first
+            library, failed = self._library(name)
             if failed:
                 return failed
             root, module, rest = library, (), segments[1:]
+        return root, module, rest
+
+    def _descend(self, root, module, rest):
+        """Follow modules down a path: (module, rest, (file, scope)) or the
+        failure outcome."""
         while rest and (root, module + (rest[0],)) in self.modules:
             module, rest = module + (rest[0],), rest[1:]
         scopes = self.modules.get((root, module), set())
@@ -629,8 +645,89 @@ class _RustIndex:
         file, scope = next(iter(scopes))
         if rest and (file, scope, rest[0]) in self.unlinked:
             return "unresolved", "module_missing", (), ()
-        declared = not rest or rest[0] in self.items.get((file, scope), ())
-        rule = RUST_USE_DECLARED if declared else RUST_USE_MODULE
+        return module, rest, (file, scope)
+
+    def _follow(self, root, module, rest, visiting):
+        """Down a path from a module, through the uses that bind names: a
+        failure outcome, or (what, file, root, module, followed) where what
+        is "item" (the next name is declared in file), "module" (the path
+        names the module in file) or "undeclared" (file's module does not
+        declare or bind the next name). followed says whether a use was
+        followed on the way."""
+        followed = False
+        while True:
+            descended = self._descend(root, module, rest)
+            if len(descended) != 3:
+                return descended
+            module, rest, (file, scope) = descended
+            if not rest:
+                return "module", file, root, module, followed
+            if rest[0] in self.items.get((file, scope), ()):
+                # A name inside an item (a variant, an associated item) is
+                # declared with it.
+                return "item", file, root, module, followed
+            found = self._bound(root, module, (file, scope), rest[0], visiting)
+            if found is None:
+                return "undeclared", file, root, module, followed
+            followed = True
+            if found[0] == "item":
+                return found[:4] + (True,)
+            root, module, rest = found[2], found[3], rest[1:]
+
+    def _bound(self, root, module, where, name, visiting):
+        """What a use in a module binds ``name`` to, as an "item" or
+        "module" outcome of _follow, or None. ``extern crate`` and explicit
+        uses come before globs, and several globs must agree."""
+        key = (root, module, name)
+        if key in visiting:
+            return None
+        visiting = visiting | {key}
+        file, scope = where
+        path = module[: len(module) - len(scope)]
+        for item in self.externs.get(where, {}).get(name, ()):
+            library, failed = self._library(item.specifier)
+            if library:
+                return "module", library, library, (), True
+        for item in self.bindings.get(where, {}).get(name, ()):
+            walked = self._walk(item, root, path)
+            if len(walked) == 3:
+                found = self._follow(*walked, visiting)
+                if found[0] in {"item", "module"}:
+                    return found
+        found = set()
+        for item in self.globs.get(where, ()):
+            walked = self._walk(item, root, path)
+            if len(walked) != 3:
+                continue
+            descended = self._descend(*walked)
+            # Only a glob of a module: one of an enum's variants names no
+            # declaration here.
+            if len(descended) != 3 or descended[1]:
+                continue
+            target = self._follow(walked[0], descended[0], [name], visiting)
+            if target[0] in {"item", "module"}:
+                found.add(target[:4])
+        return found.pop() + (True,) if len(found) == 1 else None
+
+    def _resolve(self, item: Import, root, path):
+        """(status, reason, links, candidates) of one use in one crate's
+        module."""
+        if item.kind == "extern_crate":
+            library, failed = self._library(item.specifier)
+            if failed:
+                return failed
+            return "linked", None, (ImportLink(library, RUST_EXTERN_CRATE),), ()
+        walked = self._walk(item, root, path)
+        if len(walked) != 3:
+            return walked
+        found = self._follow(*walked, frozenset())
+        if found[0] not in {"item", "module", "undeclared"}:
+            return found
+        what, file, _, _, followed = found
+        if what == "undeclared":
+            rule = RUST_USE_MODULE
+        else:
+            rule = RUST_USE_REEXPORT if followed else RUST_USE_DECLARED
         return "linked", None, (ImportLink(file, rule),), ()
 
 

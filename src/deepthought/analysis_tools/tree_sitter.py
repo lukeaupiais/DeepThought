@@ -165,9 +165,19 @@ IMPORT_RULES = {
                 import_rules.RUST_USE_MODULE,
                 "resolved",
                 "A Rust use path goes through the crate's module tree to a "
-                "module whose file does not declare the next name (a "
-                "re-export, constant or generated item); the link is to that "
-                "module's file.",
+                "module whose file neither declares the next name nor "
+                "re-exports a declaration of it (a constant, static or "
+                "generated item); the link is to that module's file.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.RUST_USE_REEXPORT,
+                "resolved",
+                "A Rust use path reaches a module that does not declare the "
+                "next name but binds it with its own use (or exactly one of "
+                "its glob uses supplies it); following those uses reaches the "
+                "file that declares it.",
             )
         ),
         register_rule(
