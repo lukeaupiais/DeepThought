@@ -1,0 +1,525 @@
+# file	line	name	target_file	target_line	kind
+# indexed	extras/src/main/java/com/google/gson/extras/examples/rawcollections/RawCollectionsExample.java
+# indexed	extras/src/main/java/com/google/gson/interceptors/Intercept.java
+# indexed	extras/src/main/java/com/google/gson/interceptors/InterceptorFactory.java
+# indexed	extras/src/main/java/com/google/gson/interceptors/JsonPostDeserializer.java
+# indexed	extras/src/main/java/com/google/gson/typeadapters/PostConstructAdapterFactory.java
+# indexed	extras/src/main/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactory.java
+# indexed	extras/src/main/java/com/google/gson/typeadapters/UtcDateTypeAdapter.java
+# indexed	extras/src/test/java/com/google/gson/interceptors/InterceptorTest.java
+# indexed	extras/src/test/java/com/google/gson/typeadapters/PostConstructAdapterFactoryTest.java
+# indexed	extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java
+# indexed	extras/src/test/java/com/google/gson/typeadapters/UtcDateTypeAdapterTest.java
+# indexed	gson/src/main/java-templates/com/google/gson/internal/GsonBuildConfig.java
+# indexed	gson/src/main/java/com/google/gson/ExclusionStrategy.java
+# indexed	gson/src/main/java/com/google/gson/FieldAttributes.java
+# indexed	gson/src/main/java/com/google/gson/FieldNamingPolicy.java
+# indexed	gson/src/main/java/com/google/gson/FieldNamingStrategy.java
+# indexed	gson/src/main/java/com/google/gson/FormattingStyle.java
+# indexed	gson/src/main/java/com/google/gson/Gson.java
+# indexed	gson/src/main/java/com/google/gson/GsonBuilder.java
+# indexed	gson/src/main/java/com/google/gson/InstanceCreator.java
+# indexed	gson/src/main/java/com/google/gson/JsonArray.java
+# indexed	gson/src/main/java/com/google/gson/JsonDeserializationContext.java
+# indexed	gson/src/main/java/com/google/gson/JsonDeserializer.java
+# indexed	gson/src/main/java/com/google/gson/JsonElement.java
+# indexed	gson/src/main/java/com/google/gson/JsonIOException.java
+# indexed	gson/src/main/java/com/google/gson/JsonNull.java
+# indexed	gson/src/main/java/com/google/gson/JsonObject.java
+# indexed	gson/src/main/java/com/google/gson/JsonParseException.java
+# indexed	gson/src/main/java/com/google/gson/JsonParser.java
+# indexed	gson/src/main/java/com/google/gson/JsonPrimitive.java
+# indexed	gson/src/main/java/com/google/gson/JsonSerializationContext.java
+# indexed	gson/src/main/java/com/google/gson/JsonSerializer.java
+# indexed	gson/src/main/java/com/google/gson/JsonStreamParser.java
+# indexed	gson/src/main/java/com/google/gson/JsonSyntaxException.java
+# indexed	gson/src/main/java/com/google/gson/LongSerializationPolicy.java
+# indexed	gson/src/main/java/com/google/gson/ReflectionAccessFilter.java
+# indexed	gson/src/main/java/com/google/gson/Strictness.java
+# indexed	gson/src/main/java/com/google/gson/ToNumberPolicy.java
+# indexed	gson/src/main/java/com/google/gson/ToNumberStrategy.java
+# indexed	gson/src/main/java/com/google/gson/TypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/TypeAdapterFactory.java
+# indexed	gson/src/main/java/com/google/gson/annotations/Expose.java
+# indexed	gson/src/main/java/com/google/gson/annotations/JsonAdapter.java
+# indexed	gson/src/main/java/com/google/gson/annotations/SerializedName.java
+# indexed	gson/src/main/java/com/google/gson/annotations/Since.java
+# indexed	gson/src/main/java/com/google/gson/annotations/Until.java
+# indexed	gson/src/main/java/com/google/gson/annotations/package-info.java
+# indexed	gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java
+# indexed	gson/src/main/java/com/google/gson/internal/Excluder.java
+# indexed	gson/src/main/java/com/google/gson/internal/GsonTypes.java
+# indexed	gson/src/main/java/com/google/gson/internal/JavaVersion.java
+# indexed	gson/src/main/java/com/google/gson/internal/JsonReaderInternalAccess.java
+# indexed	gson/src/main/java/com/google/gson/internal/LazilyParsedNumber.java
+# indexed	gson/src/main/java/com/google/gson/internal/LinkedTreeMap.java
+# indexed	gson/src/main/java/com/google/gson/internal/NonNullElementWrapperList.java
+# indexed	gson/src/main/java/com/google/gson/internal/NumberLimits.java
+# indexed	gson/src/main/java/com/google/gson/internal/ObjectConstructor.java
+# indexed	gson/src/main/java/com/google/gson/internal/PreJava9DateFormatProvider.java
+# indexed	gson/src/main/java/com/google/gson/internal/Primitives.java
+# indexed	gson/src/main/java/com/google/gson/internal/ReflectionAccessFilterHelper.java
+# indexed	gson/src/main/java/com/google/gson/internal/Streams.java
+# indexed	gson/src/main/java/com/google/gson/internal/TroubleshootingGuide.java
+# indexed	gson/src/main/java/com/google/gson/internal/UnsafeAllocator.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/ArrayTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/CollectionTypeAdapterFactory.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/DefaultDateTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/EnumTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/IgnoreAndroidApiLevelRequirement.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/JavaTimeTypeAdapterFactory.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/JdkOptionalTypeAdapters.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/JsonAdapterAnnotationTypeAdapterFactory.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/JsonElementTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/JsonTreeReader.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/JsonTreeWriter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/NumberTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/SerializationDelegatingTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/TreeTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/TypeAdapterRuntimeTypeWrapper.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/TypeAdapters.java
+# indexed	gson/src/main/java/com/google/gson/internal/bind/util/ISO8601Utils.java
+# indexed	gson/src/main/java/com/google/gson/internal/package-info.java
+# indexed	gson/src/main/java/com/google/gson/internal/reflect/ReflectionHelper.java
+# indexed	gson/src/main/java/com/google/gson/internal/sql/SqlDateTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/sql/SqlTimeTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/sql/SqlTimestampTypeAdapter.java
+# indexed	gson/src/main/java/com/google/gson/internal/sql/SqlTypesSupport.java
+# indexed	gson/src/main/java/com/google/gson/package-info.java
+# indexed	gson/src/main/java/com/google/gson/reflect/TypeToken.java
+# indexed	gson/src/main/java/com/google/gson/reflect/package-info.java
+# indexed	gson/src/main/java/com/google/gson/stream/JsonReader.java
+# indexed	gson/src/main/java/com/google/gson/stream/JsonScope.java
+# indexed	gson/src/main/java/com/google/gson/stream/JsonToken.java
+# indexed	gson/src/main/java/com/google/gson/stream/JsonWriter.java
+# indexed	gson/src/main/java/com/google/gson/stream/MalformedJsonException.java
+# indexed	gson/src/main/java/com/google/gson/stream/package-info.java
+# indexed	gson/src/main/java/module-info.java
+# indexed	gson/src/test/java/com/google/gson/CommentsTest.java
+# indexed	gson/src/test/java/com/google/gson/DefaultInetAddressTypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/DefaultMapJsonSerializerTest.java
+# indexed	gson/src/test/java/com/google/gson/ExposeAnnotationExclusionStrategyTest.java
+# indexed	gson/src/test/java/com/google/gson/FieldAttributesTest.java
+# indexed	gson/src/test/java/com/google/gson/FieldNamingPolicyTest.java
+# indexed	gson/src/test/java/com/google/gson/GenericArrayTypeTest.java
+# indexed	gson/src/test/java/com/google/gson/GsonBuilderTest.java
+# indexed	gson/src/test/java/com/google/gson/GsonTest.java
+# indexed	gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/InnerClassExclusionStrategyTest.java
+# indexed	gson/src/test/java/com/google/gson/JavaSerializationTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonArrayAsListSuiteTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonArrayAsListTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonArrayTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonNullTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonObjectAsMapSuiteTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonObjectAsMapTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonObjectTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonParserParameterizedTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonParserTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonPrimitiveTest.java
+# indexed	gson/src/test/java/com/google/gson/JsonStreamParserTest.java
+# indexed	gson/src/test/java/com/google/gson/LongSerializationPolicyTest.java
+# indexed	gson/src/test/java/com/google/gson/MixedStreamTest.java
+# indexed	gson/src/test/java/com/google/gson/ObjectTypeAdapterParameterizedTest.java
+# indexed	gson/src/test/java/com/google/gson/ObjectTypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/OverrideCoreTypeAdaptersTest.java
+# indexed	gson/src/test/java/com/google/gson/ParameterizedTypeFixtures.java
+# indexed	gson/src/test/java/com/google/gson/ParameterizedTypeTest.java
+# indexed	gson/src/test/java/com/google/gson/PrimitiveTypeAdapter.java
+# indexed	gson/src/test/java/com/google/gson/SubsetTest.java
+# indexed	gson/src/test/java/com/google/gson/ToNumberPolicyTest.java
+# indexed	gson/src/test/java/com/google/gson/TypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/VersionExclusionStrategyTest.java
+# indexed	gson/src/test/java/com/google/gson/common/MoreAsserts.java
+# indexed	gson/src/test/java/com/google/gson/common/TestTypes.java
+# indexed	gson/src/test/java/com/google/gson/functional/ArrayTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/CircularReferenceTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/CollectionTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ConcurrencyTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/CustomDeserializerTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/CustomSerializerTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/DefaultTypeAdaptersTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/DelegateTypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/EnumTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/EnumWithObfuscatedTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/EscapingTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ExclusionStrategyFunctionalTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ExposeFieldsTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/FieldExclusionTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/FieldNamingTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/FormattingStyleTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/GsonVersionDiagnosticsTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/InheritanceTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/InstanceCreatorTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/InterfaceTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/InternationalizationTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/Java17RecordTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JavaTimeTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JavaUtilConcurrentAtomicTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JavaUtilTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JsonParserTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/JsonTreeTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/LeniencyTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/MapAsArrayTypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/MapTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/MoreSpecificTypeSerializationTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/NamingPolicyTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/NullObjectAndFieldTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/NumberLimitsTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ObjectTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/PrettyPrintingTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/PrimitiveCharacterTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/PrimitiveTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/PrintFormattingTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/RawSerializationTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ReadersWritersTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ReflectionAccessFilterTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ReflectionAccessTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ReusedTypeVariablesFullyResolveTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/SecurityTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/SerializedNameTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/StringTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/ToNumberPolicyFunctionalTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/TreeTypeAdaptersTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/TypeAdapterPrecedenceTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/TypeAdapterRuntimeTypeWrapperTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/TypeVariableTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/UncategorizedTest.java
+# indexed	gson/src/test/java/com/google/gson/functional/VersioningTest.java
+# indexed	gson/src/test/java/com/google/gson/integration/OSGiManifestIT.java
+# indexed	gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/GsonBuildConfigTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/GsonTypesTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/JavaVersionTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/LazilyParsedNumberTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/LinkedTreeMapSuiteTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/LinkedTreeMapTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/StreamsTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/UnsafeAllocatorInstantiationTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/DefaultDateTypeAdapterTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/Java17ReflectiveTypeAdapterFactoryTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/JsonElementReaderTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/JsonTreeReaderTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/JsonTreeWriterTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/RecursiveTypesResolveTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/bind/util/ISO8601UtilsTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/reflect/Java17ReflectionHelperTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/sql/SqlTypesGsonTest.java
+# indexed	gson/src/test/java/com/google/gson/internal/sql/SqlTypesSupportTest.java
+# indexed	gson/src/test/java/com/google/gson/metrics/PerformanceTest.java
+# indexed	gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java
+# indexed	gson/src/test/java/com/google/gson/stream/JsonReaderPathTest.java
+# indexed	gson/src/test/java/com/google/gson/stream/JsonReaderTest.java
+# indexed	gson/src/test/java/com/google/gson/stream/JsonWriterTest.java
+# indexed	metrics/src/main/java/com/google/gson/metrics/BagOfPrimitives.java
+# indexed	metrics/src/main/java/com/google/gson/metrics/BagOfPrimitivesDeserializationBenchmark.java
+# indexed	metrics/src/main/java/com/google/gson/metrics/CollectionsDeserializationBenchmark.java
+# indexed	metrics/src/main/java/com/google/gson/metrics/NonUploadingCaliperRunner.java
+# indexed	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java
+# indexed	metrics/src/main/java/com/google/gson/metrics/SerializationBenchmark.java
+# indexed	proto/src/main/java/com/google/gson/protobuf/LegacyProtoTypeAdapterFactory.java
+# indexed	proto/src/main/java/com/google/gson/protobuf/ProtoTypeAdapter.java
+# indexed	proto/src/main/java/com/google/gson/protobuf/StructTypeAdapter.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/ProtosWithAnnotationsAndJsonNamesTest.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/ProtosWithAnnotationsTest.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/ProtosWithComplexAndRepeatedFieldsTest.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/ProtosWithPrimitiveTypesTest.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/StructTypeAdapterTest.java
+# indexed	proto/src/test/java/com/google/gson/protobuf/functional/TestMessages.java
+# indexed	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java
+# indexed	test-graal-native-image/src/test/java/com/google/gson/native_test/JavaTimeTest.java
+# indexed	test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java
+# indexed	test-jpms/src/main/java/module-info.java
+# indexed	test-jpms/src/test/java/com/google/gson/jpms_test/ExportedPackagesTest.java
+# indexed	test-jpms/src/test/java/com/google/gson/jpms_test/ModuleTest.java
+# indexed	test-jpms/src/test/java/com/google/gson/jpms_test/ReflectionInaccessibleTest.java
+# indexed	test-jpms/src/test/java/com/google/gson/jpms_test/opened/ReflectionTest.java
+# indexed	test-jpms/src/test/java/module-info.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithAdapter.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithExposeAnnotation.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithHasArgsConstructor.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithJsonAdapterAnnotation.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithNamedFields.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithNoArgsConstructor.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithSerializedName.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithUnreferencedHasArgsConstructor.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithUnreferencedNoArgsConstructor.java
+# indexed	test-shrinker/src/main/java/com/example/ClassWithVersionAnnotations.java
+# indexed	test-shrinker/src/main/java/com/example/EnumClass.java
+# indexed	test-shrinker/src/main/java/com/example/EnumClassWithSerializedName.java
+# indexed	test-shrinker/src/main/java/com/example/GenericClasses.java
+# indexed	test-shrinker/src/main/java/com/example/InterfaceWithImplementation.java
+# indexed	test-shrinker/src/main/java/com/example/Main.java
+# indexed	test-shrinker/src/main/java/com/example/NoSerializedNameMain.java
+# indexed	test-shrinker/src/main/java/com/example/TestExecutor.java
+# indexed	test-shrinker/src/main/java/com/example/UnusedClass.java
+# indexed	test-shrinker/src/test/java/com/google/gson/it/ShrinkingIT.java
+extras/src/main/java/com/google/gson/interceptors/InterceptorFactory.java	28	InterceptorFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+extras/src/main/java/com/google/gson/interceptors/InterceptorFactory.java	40	InterceptorAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+extras/src/main/java/com/google/gson/typeadapters/PostConstructAdapterFactory.java	30	PostConstructAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+extras/src/main/java/com/google/gson/typeadapters/PostConstructAdapterFactory.java	48	PostConstructAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+extras/src/main/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactory.java	158	RuntimeTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+extras/src/main/java/com/google/gson/typeadapters/UtcDateTypeAdapter.java	33	UtcDateTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+extras/src/test/java/com/google/gson/interceptors/InterceptorTest.java	167	UserValidator	extras/src/main/java/com/google/gson/interceptors/JsonPostDeserializer.java	27	type
+extras/src/test/java/com/google/gson/interceptors/InterceptorTest.java	191	AddressValidator	extras/src/main/java/com/google/gson/interceptors/JsonPostDeserializer.java	27	type
+extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	225	CreditCard	extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	217	type
+extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	234	BankTransfer	extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	217	type
+gson/src/main/java/com/google/gson/FieldNamingPolicy.java	31	FieldNamingPolicy	gson/src/main/java/com/google/gson/FieldNamingStrategy.java	34	type
+gson/src/main/java/com/google/gson/Gson.java	1239	FutureTypeAdapter	gson/src/main/java/com/google/gson/internal/bind/SerializationDelegatingTypeAdapter.java	22	type
+gson/src/main/java/com/google/gson/JsonArray.java	42	JsonArray	-	0	external
+gson/src/main/java/com/google/gson/JsonArray.java	42	JsonArray	gson/src/main/java/com/google/gson/JsonElement.java	96	type
+gson/src/main/java/com/google/gson/JsonIOException.java	25	JsonIOException	gson/src/main/java/com/google/gson/JsonParseException.java	32	type
+gson/src/main/java/com/google/gson/JsonNull.java	26	JsonNull	gson/src/main/java/com/google/gson/JsonElement.java	96	type
+gson/src/main/java/com/google/gson/JsonObject.java	40	JsonObject	gson/src/main/java/com/google/gson/JsonElement.java	96	type
+gson/src/main/java/com/google/gson/JsonParseException.java	32	JsonParseException	-	0	external
+gson/src/main/java/com/google/gson/JsonPrimitive.java	35	JsonPrimitive	gson/src/main/java/com/google/gson/JsonElement.java	96	type
+gson/src/main/java/com/google/gson/JsonStreamParser.java	51	JsonStreamParser	-	0	external
+gson/src/main/java/com/google/gson/JsonSyntaxException.java	24	JsonSyntaxException	gson/src/main/java/com/google/gson/JsonParseException.java	32	type
+gson/src/main/java/com/google/gson/ToNumberPolicy.java	36	ToNumberPolicy	gson/src/main/java/com/google/gson/ToNumberStrategy.java	60	type
+gson/src/main/java/com/google/gson/TypeAdapter.java	299	NullSafeTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java	411	ThrowingObjectConstructor	gson/src/main/java/com/google/gson/internal/ObjectConstructor.java	27	type
+gson/src/main/java/com/google/gson/internal/ConstructorConstructor.java	428	InstanceCreatorConstructor	gson/src/main/java/com/google/gson/internal/ObjectConstructor.java	27	type
+gson/src/main/java/com/google/gson/internal/Excluder.java	49	Excluder	-	0	external
+gson/src/main/java/com/google/gson/internal/Excluder.java	49	Excluder	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/GsonTypes.java	512	ParameterizedTypeImpl	-	0	external
+gson/src/main/java/com/google/gson/internal/GsonTypes.java	585	GenericArrayTypeImpl	-	0	external
+gson/src/main/java/com/google/gson/internal/GsonTypes.java	620	WildcardTypeImpl	-	0	external
+gson/src/main/java/com/google/gson/internal/LazilyParsedNumber.java	29	LazilyParsedNumber	-	0	external
+gson/src/main/java/com/google/gson/internal/LinkedTreeMap.java	44	LinkedTreeMap	-	0	external
+gson/src/main/java/com/google/gson/internal/LinkedTreeMap.java	459	Node	-	0	external
+gson/src/main/java/com/google/gson/internal/LinkedTreeMap.java	552	LinkedTreeMapIterator	-	0	external
+gson/src/main/java/com/google/gson/internal/LinkedTreeMap.java	590	EntrySet	-	0	external
+gson/src/main/java/com/google/gson/internal/LinkedTreeMap.java	631	KeySet	-	0	external
+gson/src/main/java/com/google/gson/internal/NonNullElementWrapperList.java	34	NonNullElementWrapperList	-	0	external
+gson/src/main/java/com/google/gson/internal/Streams.java	78	AppendableWriter	-	0	external
+gson/src/main/java/com/google/gson/internal/Streams.java	135	CurrentWrite	-	0	external
+gson/src/main/java/com/google/gson/internal/bind/ArrayTypeAdapter.java	35	ArrayTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/CollectionTypeAdapterFactory.java	35	CollectionTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/CollectionTypeAdapterFactory.java	65	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/DefaultDateTypeAdapter.java	55	DefaultDateTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/EnumTypeAdapter.java	35	EnumTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/JavaTimeTypeAdapterFactory.java	57	JavaTimeTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/JdkOptionalTypeAdapters.java	74	OptionalAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/JsonAdapterAnnotationTypeAdapterFactory.java	37	JsonAdapterAnnotationTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/JsonAdapterAnnotationTypeAdapterFactory.java	38	DummyTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/JsonElementTypeAdapter.java	35	JsonElementTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/JsonTreeReader.java	39	JsonTreeReader	gson/src/main/java/com/google/gson/stream/JsonReader.java	212	type
+gson/src/main/java/com/google/gson/internal/bind/JsonTreeWriter.java	33	JsonTreeWriter	gson/src/main/java/com/google/gson/stream/JsonWriter.java	162	type
+gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java	115	MapTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/MapTypeAdapterFactory.java	161	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/NumberTypeAdapter.java	32	NumberTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/ObjectTypeAdapter.java	40	ObjectTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java	60	ReflectiveTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java	498	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java	567	FieldReflectionAdapter	gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java	498	type
+gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java	592	RecordAdapter	gson/src/main/java/com/google/gson/internal/bind/ReflectiveTypeAdapterFactory.java	498	type
+gson/src/main/java/com/google/gson/internal/bind/SerializationDelegatingTypeAdapter.java	22	SerializationDelegatingTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/TreeTypeAdapter.java	42	TreeTypeAdapter	gson/src/main/java/com/google/gson/internal/bind/SerializationDelegatingTypeAdapter.java	22	type
+gson/src/main/java/com/google/gson/internal/bind/TreeTypeAdapter.java	162	SingleTypeFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/main/java/com/google/gson/internal/bind/TreeTypeAdapter.java	200	GsonContextImpl	gson/src/main/java/com/google/gson/JsonDeserializationContext.java	28	type
+gson/src/main/java/com/google/gson/internal/bind/TreeTypeAdapter.java	200	GsonContextImpl	gson/src/main/java/com/google/gson/JsonSerializationContext.java	28	type
+gson/src/main/java/com/google/gson/internal/bind/TypeAdapterRuntimeTypeWrapper.java	28	TypeAdapterRuntimeTypeWrapper	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/TypeAdapters.java	463	FloatAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/TypeAdapters.java	496	DoubleAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/bind/TypeAdapters.java	853	IntegerFieldsTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/reflect/ReflectionHelper.java	233	RecordSupportedHelper	gson/src/main/java/com/google/gson/internal/reflect/ReflectionHelper.java	223	type
+gson/src/main/java/com/google/gson/internal/reflect/ReflectionHelper.java	300	RecordNotSupportedHelper	gson/src/main/java/com/google/gson/internal/reflect/ReflectionHelper.java	223	type
+gson/src/main/java/com/google/gson/internal/sql/SqlDateTypeAdapter.java	40	SqlDateTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/sql/SqlTimeTypeAdapter.java	41	SqlTimeTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/internal/sql/SqlTimestampTypeAdapter.java	30	SqlTimestampTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/main/java/com/google/gson/stream/JsonReader.java	212	JsonReader	-	0	external
+gson/src/main/java/com/google/gson/stream/JsonWriter.java	162	JsonWriter	-	0	external
+gson/src/main/java/com/google/gson/stream/MalformedJsonException.java	26	MalformedJsonException	-	0	external
+gson/src/test/java/com/google/gson/GsonTest.java	93	TestTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/GsonTest.java	107	IntegerAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/GsonTest.java	142	NullAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/GsonTest.java	170	DummyAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/GsonTest.java	242	WrappingAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/GsonTest.java	340	DummyAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/GsonTest.java	364	DummyFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	89	ExceptionTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	89	ExceptionTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	108	AtomicIntegerTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	108	AtomicIntegerTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	129	Concrete	gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	125	type
+gson/src/test/java/com/google/gson/ParameterizedTypeFixtures.java	89	MyParameterizedTypeInstanceCreator	gson/src/main/java/com/google/gson/InstanceCreator.java	80	type
+gson/src/test/java/com/google/gson/ParameterizedTypeFixtures.java	108	MyParameterizedTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/ParameterizedTypeFixtures.java	108	MyParameterizedTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/common/TestTypes.java	49	Sub	gson/src/test/java/com/google/gson/common/TestTypes.java	41	type
+gson/src/test/java/com/google/gson/common/TestTypes.java	82	BaseSerializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/common/TestTypes.java	93	SubSerializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/common/TestTypes.java	420	CrazyLongTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/common/TestTypes.java	420	CrazyLongTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/CollectionTest.java	189	CollectionWithoutNoArgsConstructor	-	0	external
+gson/src/test/java/com/google/gson/functional/CustomDeserializerTest.java	108	DataHolderDeserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/CustomDeserializerTest.java	156	SubType1	gson/src/test/java/com/google/gson/functional/CustomDeserializerTest.java	137	type
+gson/src/test/java/com/google/gson/functional/CustomDeserializerTest.java	160	SubType2	gson/src/test/java/com/google/gson/functional/CustomDeserializerTest.java	137	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	198	Derived	gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	194	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	221	FooTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	221	FooTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	319	StringHolderTypeAdapter	gson/src/main/java/com/google/gson/InstanceCreator.java	80	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	319	StringHolderTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	319	StringHolderTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	482	DataHolderSerializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	491	DataHolderDeserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	506	DateTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java	506	DateTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/DefaultTypeAdaptersTest.java	884	MyClassTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/DefaultTypeAdaptersTest.java	901	NumberAsStringAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/DelegateTypeAdapterTest.java	74	StatsTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/EnumTest.java	226	MyEnumTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/EnumTest.java	226	MyEnumTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/ExclusionStrategyFunctionalTest.java	203	MyExclusionStrategy	gson/src/main/java/com/google/gson/ExclusionStrategy.java	94	type
+gson/src/test/java/com/google/gson/functional/ExposeFieldsTest.java	173	SomeObject	gson/src/test/java/com/google/gson/functional/ExposeFieldsTest.java	169	type
+gson/src/test/java/com/google/gson/functional/ExposeFieldsTest.java	177	SomeInterfaceInstanceCreator	gson/src/main/java/com/google/gson/InstanceCreator.java	80	type
+gson/src/test/java/com/google/gson/functional/FieldExclusionTest.java	80	Inner	gson/src/test/java/com/google/gson/functional/FieldExclusionTest.java	87	type
+gson/src/test/java/com/google/gson/functional/InheritanceTest.java	156	SubTypeOfNested	gson/src/test/java/com/google/gson/common/TestTypes.java	241	type
+gson/src/test/java/com/google/gson/functional/InstanceCreatorTest.java	86	SubArrayList	-	0	external
+gson/src/test/java/com/google/gson/functional/InstanceCreatorTest.java	98	SubTreeSet	-	0	external
+gson/src/test/java/com/google/gson/functional/InterfaceTest.java	58	TestObject	gson/src/test/java/com/google/gson/functional/InterfaceTest.java	54	type
+gson/src/test/java/com/google/gson/functional/Java17RecordTest.java	391	Adapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/Java17RecordTest.java	391	Adapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java	270	SubClass	gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java	260	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	187	NullReturningFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	229	JsonAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	251	JsonAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	271	B	gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	222	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	301	UserJsonAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	326	NullableClassJsonAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	345	FooJsonAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	407	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	463	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	653	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	700	Serializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	731	Deserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	760	Serializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnClassesTest.java	789	Serializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	134	PartJsonFieldAnnotationAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	147	GizmoPartTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	183	UserClassAnnotationAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	206	UserFieldAnnotationAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	219	RegisteredUserAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	304	LongToStringTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	352	Gizmo2PartTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	391	JsonElementAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	533	DelegatingAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	568	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	613	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	665	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	705	Serializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterAnnotationOnFieldsTest.java	735	Deserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	86	UserSerializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	93	UserDeserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	101	UserSerializerDeserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	101	UserSerializerDeserializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	141	UserSerializerDeserializer2	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	141	UserSerializerDeserializer2	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	188	BaseStringAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonAdapterSerializerDeserializerTest.java	196	BaseIntegerAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/JsonTreeTest.java	103	SubTypeOfBagOfPrimitives	gson/src/test/java/com/google/gson/common/TestTypes.java	112	type
+gson/src/test/java/com/google/gson/functional/MapTest.java	443	MyParameterizedMap	-	0	external
+gson/src/test/java/com/google/gson/functional/MapTest.java	505	MapWithoutNoArgsConstructor	-	0	external
+gson/src/test/java/com/google/gson/functional/MapTest.java	597	MyMap	-	0	external
+gson/src/test/java/com/google/gson/functional/MoreSpecificTypeSerializationTest.java	178	Sub	gson/src/test/java/com/google/gson/functional/MoreSpecificTypeSerializationTest.java	170	type
+gson/src/test/java/com/google/gson/functional/MoreSpecificTypeSerializationTest.java	245	ParameterizedSub	gson/src/test/java/com/google/gson/functional/MoreSpecificTypeSerializationTest.java	237	type
+gson/src/test/java/com/google/gson/functional/NamingPolicyTest.java	318	UpperCaseNamingStrategy	gson/src/main/java/com/google/gson/FieldNamingStrategy.java	34	type
+gson/src/test/java/com/google/gson/functional/NullObjectAndFieldTest.java	207	ClassWithObjectsSerializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/ObjectTest.java	165	Subclass	gson/src/test/java/com/google/gson/functional/ObjectTest.java	167	type
+gson/src/test/java/com/google/gson/functional/ObjectTest.java	167	Superclass1	gson/src/test/java/com/google/gson/functional/ObjectTest.java	172	type
+gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	473	MyQuantity	gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	468	type
+gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	484	Amount	-	0	external
+gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	484	Amount	gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	478	type
+gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	484	Amount	gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	480	type
+gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	484	Amount	gson/src/test/java/com/google/gson/functional/ParameterizedTypesTest.java	482	type
+gson/src/test/java/com/google/gson/functional/ReadersWritersTest.java	159	CustomAppendable	-	0	external
+gson/src/test/java/com/google/gson/functional/ReflectionAccessFilterTest.java	50	ClassExtendingJdkClass	-	0	external
+gson/src/test/java/com/google/gson/functional/ReflectionAccessFilterTest.java	193	SubTestClass	gson/src/test/java/com/google/gson/functional/ReflectionAccessFilterTest.java	191	type
+gson/src/test/java/com/google/gson/functional/ReflectionAccessFilterTest.java	253	ExtendingClassWithPrivateField	gson/src/test/java/com/google/gson/functional/ReflectionAccessFilterTest.java	248	type
+gson/src/test/java/com/google/gson/functional/ReusedTypeVariablesFullyResolveTest.java	66	TestEnumSetCollection	gson/src/test/java/com/google/gson/functional/ReusedTypeVariablesFullyResolveTest.java	68	type
+gson/src/test/java/com/google/gson/functional/ReusedTypeVariablesFullyResolveTest.java	68	SetCollection	gson/src/test/java/com/google/gson/functional/ReusedTypeVariablesFullyResolveTest.java	70	type
+gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	69	JsonAdapterFactory	gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	102	type
+gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	83	Circle	gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	62	type
+gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	92	Square	gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	62	type
+gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	102	RuntimeTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+gson/src/test/java/com/google/gson/functional/TreeTypeAdaptersTest.java	157	IdTreeTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/TreeTypeAdaptersTest.java	157	IdTreeTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/TypeAdapterRuntimeTypeWrapperTest.java	38	Subclass	gson/src/test/java/com/google/gson/functional/TypeAdapterRuntimeTypeWrapperTest.java	36	type
+gson/src/test/java/com/google/gson/functional/TypeAdapterRuntimeTypeWrapperTest.java	48	Deserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/TypeAdapterRuntimeTypeWrapperTest.java	184	CyclicSub	gson/src/test/java/com/google/gson/functional/TypeAdapterRuntimeTypeWrapperTest.java	179	type
+gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	148	ManagerAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	148	ManagerAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	162	EmployeeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	162	EmployeeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	221	Manager	gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	209	type
+gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	226	CEO	gson/src/test/java/com/google/gson/functional/TypeHierarchyAdapterTest.java	221	type
+gson/src/test/java/com/google/gson/functional/TypeVariableTest.java	78	Blue	gson/src/test/java/com/google/gson/functional/TypeVariableTest.java	97	type
+gson/src/test/java/com/google/gson/functional/TypeVariableTest.java	108	Foo	gson/src/test/java/com/google/gson/functional/TypeVariableTest.java	97	type
+gson/src/test/java/com/google/gson/functional/TypeVariableTest.java	135	Bar	gson/src/test/java/com/google/gson/functional/TypeVariableTest.java	108	type
+gson/src/test/java/com/google/gson/functional/UncategorizedTest.java	122	Derived1	gson/src/test/java/com/google/gson/functional/UncategorizedTest.java	118	type
+gson/src/test/java/com/google/gson/functional/UncategorizedTest.java	128	Derived2	gson/src/test/java/com/google/gson/functional/UncategorizedTest.java	118	type
+gson/src/test/java/com/google/gson/functional/UncategorizedTest.java	134	BaseTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+gson/src/test/java/com/google/gson/functional/VersioningTest.java	191	Version1_1	gson/src/test/java/com/google/gson/functional/VersioningTest.java	182	type
+gson/src/test/java/com/google/gson/functional/VersioningTest.java	198	Version1_2	gson/src/test/java/com/google/gson/functional/VersioningTest.java	191	type
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	83	CustomSortedSet	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	90	CustomSet	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	97	CustomQueue	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	104	CustomList	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	135	CustomCollectionInterface	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	137	CustomSetInterface	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	139	CustomListInterface	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	188	CustomEnumMap	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	196	CustomConcurrentNavigableMap	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	203	CustomConcurrentMap	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	210	CustomSortedMap	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	217	CustomLinkedHashMap	-	0	external
+gson/src/test/java/com/google/gson/internal/ConstructorConstructorTest.java	252	CustomMapInterface	-	0	external
+gson/src/test/java/com/google/gson/internal/GsonTypesTest.java	149	CustomProperties	-	0	external
+gson/src/test/java/com/google/gson/internal/StreamsTest.java	29	TestAppendable	-	0	external
+gson/src/test/java/com/google/gson/internal/bind/Java17ReflectiveTypeAdapterFactoryTest.java	82	PrincipalTypeAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+gson/src/test/java/com/google/gson/internal/bind/JsonTreeReaderTest.java	211	CustomSubclass	gson/src/main/java/com/google/gson/JsonElement.java	96	type
+gson/src/test/java/com/google/gson/internal/reflect/Java17ReflectionHelperTest.java	69	PrincipalImpl	-	0	external
+gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	301	CustomTypeToken	gson/src/main/java/com/google/gson/reflect/TypeToken.java	54	type
+gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	316	SubTypeToken	gson/src/main/java/com/google/gson/reflect/TypeToken.java	54	type
+gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	317	SubSubTypeToken1	gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	316	type
+gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	318	SubSubTypeToken2	gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	316	type
+gson/src/test/java/com/google/gson/reflect/TypeTokenTest.java	471	ClassSatisfyingBounds	-	0	external
+gson/src/test/java/com/google/gson/stream/JsonReaderTest.java	2476	ChunkLimitingReader	-	0	external
+metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	172	GsonStreamParser	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	168	type
+metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	217	GsonSkipParser	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	168	type
+metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	226	JacksonStreamParser	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	168	type
+metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	272	GsonDomParser	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	168	type
+metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	279	GsonBindParser	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	168	type
+metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	289	JacksonBindParser	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	168	type
+proto/src/main/java/com/google/gson/protobuf/LegacyProtoTypeAdapterFactory.java	74	LegacyProtoTypeAdapterFactory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+proto/src/main/java/com/google/gson/protobuf/LegacyProtoTypeAdapterFactory.java	107	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+proto/src/main/java/com/google/gson/protobuf/LegacyProtoTypeAdapterFactory.java	666	DynamicAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+proto/src/main/java/com/google/gson/protobuf/ProtoTypeAdapter.java	75	ProtoTypeAdapter	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+proto/src/main/java/com/google/gson/protobuf/ProtoTypeAdapter.java	75	ProtoTypeAdapter	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	388	StringAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	459	RtafToLegacyCompatProvider	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	444	type
+proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	465	LegacyCompatToRtafProvider	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	444	type
+proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	471	OneofProvider	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	444	type
+test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	109	CustomAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	133	CustomAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java	159	CustomAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java	188	CustomAdapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-shrinker/src/main/java/com/example/ClassWithAdapter.java	11	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-shrinker/src/main/java/com/example/ClassWithJsonAdapterAnnotation.java	71	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-shrinker/src/main/java/com/example/ClassWithJsonAdapterAnnotation.java	83	Factory	gson/src/main/java/com/google/gson/TypeAdapterFactory.java	165	type
+test-shrinker/src/main/java/com/example/ClassWithJsonAdapterAnnotation.java	106	Serializer	gson/src/main/java/com/google/gson/JsonSerializer.java	75	type
+test-shrinker/src/main/java/com/example/ClassWithJsonAdapterAnnotation.java	113	Deserializer	gson/src/main/java/com/google/gson/JsonDeserializer.java	77	type
+test-shrinker/src/main/java/com/example/GenericClasses.java	56	Adapter	gson/src/main/java/com/google/gson/TypeAdapter.java	122	type
+test-shrinker/src/main/java/com/example/InterfaceWithImplementation.java	10	Implementation	test-shrinker/src/main/java/com/example/InterfaceWithImplementation.java	6	type

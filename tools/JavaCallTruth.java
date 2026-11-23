@@ -11,12 +11,17 @@
 // binds its constructor and its class (only the class when no constructor is
 // declared), as a constructor in a SCIP index does.
 //
+// With --bases first, prints instead one row per extends or implements entry
+// of a class, interface, enum or record: the type's file, name line and name,
+// then the bound supertype with kind `type` (or `external`).
+//
 // Usage:
 //   java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED \
 //     --add-exports jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED \
 //     --add-exports jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED \
-//     tools/JavaCallTruth.java REPOSITORY ROOT [SOURCEPATH_ROOT ...]
+//     tools/JavaCallTruth.java [--bases] REPOSITORY ROOT [SOURCEPATH_ROOT ...]
 
+import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
@@ -83,7 +88,10 @@ public class JavaCallTruth {
             + unit.getLineMap().getLineNumber(position) + "\tcallable";
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] arguments) throws Exception {
+        boolean bases = arguments.length > 0 && arguments[0].equals("--bases");
+        String[] args = bases
+            ? java.util.Arrays.copyOfRange(arguments, 1, arguments.length) : arguments;
         repository = Path.of(args[0]).toAbsolutePath().normalize();
         Path root = repository.resolve(args[1]);
         List<String> sourcepath = new ArrayList<>();
@@ -147,14 +155,40 @@ public class JavaCallTruth {
                 }
 
                 @Override
+                public Void visitClass(ClassTree node, Void unused) {
+                    if (bases && !node.getSimpleName().isEmpty()) {
+                        Element type = trees.getElement(getCurrentPath());
+                        String self = type == null ? null : target(type);
+                        List<Tree> entries = new ArrayList<>();
+                        if (node.getExtendsClause() != null) entries.add(node.getExtendsClause());
+                        entries.addAll(node.getImplementsClause());
+                        for (Tree entry : entries) {
+                            Tree named = entry instanceof ParameterizedTypeTree p ? p.getType() : entry;
+                            String bound;
+                            try {
+                                bound = target(trees.getElement(new TreePath(getCurrentPath(), named)));
+                            } catch (RuntimeException e) {
+                                bound = null;
+                            }
+                            if (self == null || bound == null || self.startsWith("-")) continue;
+                            String[] at = self.split("\t");
+                            System.out.println(at[0] + "\t" + at[1] + "\t" + node.getSimpleName()
+                                + "\t" + bound.replace("\tcallable", "\ttype"));
+                        }
+                    }
+                    return super.visitClass(node, unused);
+                }
+
+                @Override
                 public Void visitMethodInvocation(MethodInvocationTree node, Void unused) {
+                    if (bases) return super.visitMethodInvocation(node, unused);
                     name(node.getMethodSelect(), trees.getElement(getCurrentPath()));
                     return super.visitMethodInvocation(node, unused);
                 }
 
                 @Override
                 public Void visitNewClass(NewClassTree node, Void unused) {
-                    if (node.getClassBody() == null) {
+                    if (!bases && node.getClassBody() == null) {
                         name(node.getIdentifier(), trees.getElement(getCurrentPath()));
                     }
                     return super.visitNewClass(node, unused);
