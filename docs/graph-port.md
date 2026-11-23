@@ -18,6 +18,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../engine/data_access/graph_repository.py | deepthought.graph_queries | Calls/callers, imports/exports, hierarchy, paths, statistics and symbol lookup |
 | libs/core/.../context/context_service.py | deepthought.graph_queries | File/line context, neighbouring relationships, fulltext search and file navigation |
 | applications/unified-server/src/main.py MCP tools | deepthought.graph_mcp | getCodeContext, getFileStructure and searchCodeElements |
+| libs/analysis/.../engine/data_access/graph_repository.py calls/imports (not exposed to agents in the original) | deepthought.graph_mcp + graph_cli | getFunctionCallers, getFunctionCalls, getFileImports, getFileImporters and explainEdge (see below) |
 | applications/unified-server/src/main.py /api/v1/graph/query | deepthought.graph_queries + graph_cli/graph_mcp | Cypher execution, adapted to CLI and optional queryGraph MCP transport |
 | Original analyzer repository/file projection | deepthought.analysis_tools.tree_sitter | Repository -> CONTAINS -> File -> DEFINES -> declaration |
 | libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
@@ -147,6 +148,39 @@ callees result still says the relation was unsupported or unobserved.
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
 at the callee name.
 
+## Edge queries
+
+Callers, callees, imports and importers return each stored edge with its
+properties, including `evidence_type`, `rule_id` and a stable `edge_id`. The
+`edge_id` is the content hash the writer computes for the edge within its
+snapshot; Neo4j's `element_id` is internal to one database and is not an identity.
+Results are ordered by endpoint, line, column and `edge_id`, so the same snapshot
+gives the same page.
+
+Pass `evidence_types` (CLI: repeat `--evidence`) to keep only edges with those
+evidence types, for example only `resolved` edges when name matches are not
+good enough. An empty filtered result still reports `unsupported_or_unobserved`:
+it shows what was stored, not that no such edge exists.
+
+`explain_edge(edge_id)` (MCP `explainEdge`, CLI `explain-edge`) returns one edge
+of the selected snapshot with:
+
+- its source and target declarations or files;
+- its location: the source file, plus the line and column the edge records (or
+  the declaration's start line for DEFINES);
+- its evidence type and what that type does and does not establish;
+- its rule ID and the rule's description;
+- `rule_status`: `registered`, `unregistered` (the installed version does not
+  know the rule) or `conflicts_with_registry` (the stored evidence type differs
+  from the one the rule now declares);
+- a one-line `statement`, for example
+  `CALLS from run to helper at main.py:15:11. Evidence: name_matched, by rule
+  tree-sitter.call-imported-name: ...`.
+
+Snapshots store the evidence type and rule ID, not the rule text. The description
+comes from the rules registered by the installed version, which is why
+`rule_status` is reported. An unknown `edge_id` gives status `not_found`.
+
 ## Provision and use
 
 ```sh
@@ -167,6 +201,10 @@ write statistics. Select that revision explicitly for subsequent operations:
 deepthought-graph search --repository-id public-project --snapshot REVISION --query Service
 deepthought-graph context --repository-id public-project --snapshot REVISION --file src/service.py --line 20
 deepthought-graph structure --repository-id public-project --snapshot REVISION --file src
+deepthought-graph importers --repository-id public-project --snapshot REVISION --file src/service.py
+deepthought-graph callers --repository-id public-project --snapshot REVISION \
+  --symbol QUALIFIED_NAME --evidence resolved
+deepthought-graph explain-edge --repository-id public-project --snapshot REVISION --edge-id EDGE_ID
 ```
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
@@ -176,8 +214,9 @@ ported. The embedded Python API can
 register tools through the existing registry.
 
 For an agent, configure the stdio command `deepthought-mcp` with the same database
-environment. The three original context/search/file tools are available by
-default. CLI and MCP results carry actual stored facts and bounded relationships;
+environment. The three original context/search/file tools and the edge tools
+(`getFunctionCallers`, `getFunctionCalls`, `getFileImports`, `getFileImporters`,
+`explainEdge`) are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access

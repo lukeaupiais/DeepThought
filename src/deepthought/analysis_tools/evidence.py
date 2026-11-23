@@ -15,6 +15,16 @@ from dataclasses import dataclass
 
 EVIDENCE_TYPES = frozenset({"resolved", "pattern_matched", "name_matched"})
 
+# What each evidence type does and does not establish, for edge explanations.
+EVIDENCE_MEANINGS = {
+    "resolved": "The link is exact: a compiler or indexer symbol identity, or a "
+    "structural fact such as a file containing a parsed declaration.",
+    "pattern_matched": "A declared pattern matched; the link is as good as the "
+    "pattern, not proven by symbol identity.",
+    "name_matched": "The link rests on equal names only; identity is not proven "
+    "and runtime rebinding or dispatch may point elsewhere.",
+}
+
 # "<producer>.<rule>", lowercase, at least two dot-separated segments.
 _RULE_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+")
 

@@ -122,6 +122,38 @@ class GraphTransportIntegrationTests(unittest.TestCase):
         self.assertEqual(result["repo_url"], self.repo)
         self.assertEqual(result["snapshot_id"], self.snapshot)
 
+    def defines_edge(self, context):
+        """The File -> DEFINES -> Reader.parse edge returned with the context."""
+        rows = [
+            row
+            for row in context["relationships"]
+            if row["relationship"]["type"] == "DEFINES"
+            and row["target"]["properties"]["name"] == "Reader.parse"
+        ]
+        self.assertEqual(len(rows), 1)
+        return {
+            "edge_id": rows[0]["relationship"]["edge_id"],
+            "target_qname": rows[0]["target"]["properties"]["qualified_name"],
+        }
+
+    def assert_explained_defines(self, explained):
+        self.assertEqual(explained["returned"], 1)
+        item = explained["items"][0]
+        self.assertEqual(item["type"], "DEFINES")
+        self.assertEqual(
+            item["location"], {"file": "cases.py", "line": 11, "column": None}
+        )
+        self.assertEqual(item["evidence"]["evidence_type"], "resolved")
+        self.assertEqual(
+            item["evidence"]["rule_id"], "tree-sitter.file-defines-declaration"
+        )
+        self.assertEqual(item["evidence"]["rule_status"], "registered")
+        self.assertTrue(
+            item["statement"].startswith(
+                "DEFINES from cases.py to Reader.parse at cases.py:11."
+            )
+        )
+
     def test_cli_index_search_context_structure_and_cypher(self):
         selected = self.command("search", *self.scope_args(), "--query", "")
         self.assert_declarations(selected)
@@ -152,6 +184,14 @@ class GraphTransportIntegrationTests(unittest.TestCase):
             expected_exit=2,
         )
         self.assertIn("read query", denied)
+        edge = self.defines_edge(context)
+        self.assert_explained_defines(
+            self.command(
+                "explain-edge", *self.scope_args(), "--edge-id", edge["edge_id"]
+            )
+        )
+        importers = self.command("importers", *self.scope_args(), "--file", "cases.py")
+        self.assertEqual(importers["status"], "unsupported_or_unobserved")
         self.assert_declarations(
             self.command("search", *self.scope_args(), "--query", "")
         )
@@ -183,14 +223,25 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                         self.assertEqual(initialized.serverInfo.name, "DeepThought")
                         tools = (await session.list_tools()).tools
                         expected = {
+                            "explainEdge",
                             "getCodeContext",
+                            "getFileImporters",
+                            "getFileImports",
                             "getFileStructure",
+                            "getFunctionCallers",
+                            "getFunctionCalls",
                             "searchCodeElements",
                         }
                         if raw_enabled:
                             expected.add("queryGraph")
                         self.assertEqual({tool.name for tool in tools}, expected)
                         for tool in tools:
+                            if tool.name == "explainEdge":
+                                # One edge per identity; no element bound applies.
+                                self.assertNotIn(
+                                    "max_elements", tool.inputSchema["properties"]
+                                )
+                                continue
                             bounds = tool.inputSchema["properties"]["max_elements"]
                             self.assertEqual(bounds["minimum"], 1)
                             self.assertEqual(bounds["maximum"], 100)
@@ -256,6 +307,25 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                                 "getFileStructure", file_path="cases.py"
                             )
                             self.assertEqual(structure["returned"], 1)
+                            edge = self.defines_edge(context)
+                            explained = await call(
+                                "explainEdge", edge_id=edge["edge_id"]
+                            )
+                            self.assert_explained_defines(explained)
+                            importers = await call(
+                                "getFileImporters",
+                                file_path="cases.py",
+                                evidence_types=["resolved"],
+                            )
+                            self.assertEqual(importers["items"], [])
+                            self.assertEqual(importers["evidence_types"], ["resolved"])
+                            callers = await call(
+                                "getFunctionCallers",
+                                qualified_name=edge["target_qname"],
+                            )
+                            self.assertEqual(
+                                callers["status"], "unsupported_or_unobserved"
+                            )
 
         await session_journey(False)
         await session_journey(True)

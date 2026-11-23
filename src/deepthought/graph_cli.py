@@ -62,20 +62,40 @@ def parser():
     index.add_argument("--language", action="append", choices=("python", "typescript"))
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
-    for name in ("search", "context", "structure", "callers", "callees", "cypher"):
+    for name in (
+        "search",
+        "context",
+        "structure",
+        "callers",
+        "callees",
+        "imports",
+        "importers",
+        "explain-edge",
+        "cypher",
+    ):
         q = commands.add_parser(name)
         q.add_argument("--repository-id", required=True)
         q.add_argument("--snapshot", required=True)
-        q.add_argument("--limit", type=int, default=20)
+        if name != "explain-edge":
+            q.add_argument("--limit", type=int, default=20)
         q.add_argument("--max-output-bytes", type=int, default=16000)
         if name in {"search", "cypher"}:
             q.add_argument("--query", required=True)
-        if name in {"context", "structure"}:
+        if name in {"context", "structure", "imports", "importers"}:
             q.add_argument("--file", required=True)
         if name == "context":
             q.add_argument("--line", type=int)
         if name in {"callers", "callees"}:
-            q.add_argument("--symbol", required=True)
+            q.add_argument("--symbol", required=True, help="Qualified name")
+        if name in {"callers", "callees", "imports", "importers"}:
+            q.add_argument(
+                "--evidence",
+                action="append",
+                choices=("resolved", "pattern_matched", "name_matched"),
+                help="Repeat to keep only edges with these evidence types",
+            )
+        if name == "explain-edge":
+            q.add_argument("--edge-id", required=True)
         if name == "cypher":
             q.add_argument("--parameters", default="{}", help="JSON parameter object")
             q.add_argument(
@@ -147,6 +167,13 @@ async def execute(args):
             database=config["database"],
             observer=query_observer(),
         )
+        if args.command == "explain-edge":
+            return await service.explain_edge(
+                args.edge_id,
+                args.repository_id,
+                snapshot_id=args.snapshot,
+                max_output_bytes=args.max_output_bytes,
+            )
         kwargs = dict(
             snapshot_id=args.snapshot,
             limit=args.limit,
@@ -164,13 +191,19 @@ async def execute(args):
             return await service.get_file_structure(
                 args.file, args.repository_id, **kwargs
             )
-        if args.command in {"callers", "callees"}:
-            method = (
-                service.get_function_callers
-                if args.command == "callers"
-                else service.get_function_calls
+        if args.command in {"callers", "callees", "imports", "importers"}:
+            method = {
+                "callers": service.get_function_callers,
+                "callees": service.get_function_calls,
+                "imports": service.get_file_imports,
+                "importers": service.get_file_importers,
+            }[args.command]
+            subject = (
+                args.symbol if args.command in {"callers", "callees"} else args.file
             )
-            return await method(args.symbol, args.repository_id, **kwargs)
+            return await method(
+                subject, args.repository_id, evidence_types=args.evidence, **kwargs
+            )
         parameters = json.loads(args.parameters)
         if not isinstance(parameters, dict):
             raise ValueError("Cypher parameters must be a JSON object")
