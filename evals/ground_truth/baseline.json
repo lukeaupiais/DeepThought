@@ -45,8 +45,7 @@
         "confirmed": 379
       },
       "tree-sitter.call-lexical-name": {
-        "confirmed": 386,
-        "contradicted": 1
+        "confirmed": 386
       },
       "tree-sitter.call-module-attribute": {
         "confirmed": 3
@@ -56,7 +55,7 @@
       }
     },
     "confirmed": 927,
-    "contradicted": 1,
+    "contradicted": 0,
     "expected": 3313,
     "inherits": {
       "confirmed": 43,
@@ -73,15 +72,16 @@
       "ambiguous:multiple_bindings": 14,
       "ambiguous:multiple_declarations": 22,
       "no_call_site": 67,
-      "unresolved:attribute_call": 541,
+      "unresolved:attribute_call": 225,
       "unresolved:imported_name_not_declared": 3,
+      "unresolved:local_binding": 316,
       "unresolved:module_attribute_not_declared": 1717,
       "unresolved:not_declared_in_class": 36
     },
-    "precision": 0.9989,
+    "precision": 1.0,
     "recall": 0.2756,
     "unresolved_expected": 2299,
-    "unresolved_unjudged": 3555
+    "unresolved_unjudged": 3556
   },
   "cobra": {
     "by_rule": {

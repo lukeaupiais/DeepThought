@@ -899,6 +899,12 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(rust.call(site))
             continue
         parts = site.callee.split(".")
+        if site.shadowed and parts[0] not in {"self", "this"}:
+            # A local name (`for f in fs: f()`) is not the module's `f`.
+            resolutions.append(
+                CallResolution(site.id, "unresolved", reason="local_binding")
+            )
+            continue
         if len(parts) == 1:
             lexical = bindings.lexical(site.file, scope, site.callee, _CALLABLE)
             bound = names.get((site.file, site.callee), [])

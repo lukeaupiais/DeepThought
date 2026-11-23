@@ -138,6 +138,143 @@ class PythonCallTests(unittest.TestCase):
             ("unresolved", None, None, "outside_class"),
         )
 
+    def test_names_bound_in_functions_shadow_module_declarations(self):
+        source = (
+            "import json\n"  # 1
+            "def f(): pass\n"  # 2
+            "def loop(fs):\n"  # 3
+            "    for f in fs:\n"  # 4
+            "        f()\n"  # 5
+            "def param(f, json):\n"  # 6
+            "    f()\n"  # 7
+            "    json.dumps()\n"  # 8
+            "def assigned():\n"  # 9
+            "    f()\n"  # 10 a name assigned anywhere is local throughout
+            "    f = 1\n"  # 11
+            "def declared_global():\n"  # 12
+            "    global f\n"  # 13
+            "    f = 2\n"  # 14
+            "    f()\n"  # 15
+            "def closure():\n"  # 16
+            "    with open() as f:\n"  # 17
+            "        def inner():\n"  # 18
+            "            f()\n"  # 19
+            "def other_scopes():\n"  # 20
+            "    g = lambda f: f()\n"  # 21
+            "    [f() for f in fs]\n"  # 22
+            "    [x for x in f()]\n"  # 23 the first iterable is outside
+            "    def nested(f): pass\n"  # 24 a parameter of another scope
+            "    f()\n"  # 25
+            "class C:\n"  # 26
+            "    f = 1\n"  # 27
+            "    def m(self):\n"  # 28
+            "        f()\n"  # 29 a class body is not an enclosing scope
+            "        self.m()\n"  # 30
+            "def caught():\n"  # 31
+            "    try: pass\n"  # 32
+            "    except E as f: f()\n"  # 33
+            "def walrus():\n"  # 34
+            "    [(f := y) for y in ys]\n"  # 35
+            "    f()\n"  # 36
+            "def deleted():\n"  # 37
+            "    del f\n"  # 38
+            "    f()\n"  # 39
+            "def unpacked():\n"  # 40
+            "    a, (b, *f) = 1, (2, 3)\n"  # 41
+            "    f()\n"  # 42
+            "def attribute(o):\n"  # 43
+            "    o.f = 1\n"  # 44
+            "    f()\n"  # 45
+            "def matched(v):\n"  # 46
+            "    match v:\n"  # 47
+            "        case f: f()\n"  # 48
+            "def defaults(f=f()):\n"  # 49 defaults are evaluated outside
+            "    pass\n"  # 50
+            "def typed(*, f: int = 0, **json):\n"  # 51
+            "    f()\n"  # 52
+            "    json.dumps()\n"  # 53
+            "def annotated(f: int):\n"  # 54
+            "    f()\n"  # 55
+            "def augmented():\n"  # 56
+            "    f += 1\n"  # 57
+            "    f()\n"  # 58
+            "def leaks():\n"  # 59
+            "    def inner():\n"  # 60
+            "        f = 1\n"  # 61 binds in inner only
+            "    f()\n"  # 62
+            "def same_name(fs):\n"  # 63
+            "    return [f for f in f()]\n"  # 64
+            "def outer_bound():\n"  # 65
+            "    f = 1\n"  # 66
+            "    def inner():\n"  # 67
+            "        global f\n"  # 68
+            "        f()\n"  # 69
+            "def value_pattern(v):\n"  # 70
+            "    match v:\n"  # 71
+            "        case f.x: f()\n"  # 72
+            "def in_lambda():\n"  # 73
+            "    return lambda: [(f := 1), f()]\n"  # 74
+            "def nested_capture(v):\n"  # 75
+            "    match v:\n"  # 76
+            "        case [f]: f()\n"  # 77
+            "def declared_and_assigned():\n"  # 78
+            "    def f(): pass\n"  # 79
+            "    f()\n"  # 80 the nested declaration, as before
+            "    f = 1\n"  # 81
+        )
+        found = links(analyze({"main.py": source}, "python"))
+        local = ("unresolved", None, None, "local_binding")
+        module = ("linked", "main.py::f", CALL_LEXICAL_NAME, None)
+        expected = {
+            5: local,
+            7: local,
+            10: local,
+            15: module,
+            19: local,
+            21: local,
+            22: local,
+            23: module,
+            25: module,
+            29: module,
+            33: local,
+            36: local,
+            39: local,
+            42: local,
+            45: module,
+            48: local,
+            49: module,
+            52: local,
+            55: local,
+            58: local,
+            62: module,
+            64: module,
+            69: module,
+            72: module,
+            74: local,
+            77: local,
+            80: ("linked", "main.py::declared_and_assigned.f", CALL_LEXICAL_NAME, None),
+        }
+        self.assertEqual(
+            {line: found[("main.py", line, "f")] for line in expected}, expected
+        )
+        self.assertEqual(found[("main.py", 8, "json.dumps")], local)
+        self.assertEqual(found[("main.py", 53, "json.dumps")], local)
+        self.assertEqual(
+            found[("main.py", 30, "self.m")],
+            ("linked", "main.py::C.m", CALL_SELF_METHOD, None),
+        )
+        # An import in a function is resolved as an import, as before.
+        imported = links(
+            analyze(
+                {
+                    "m.py": "def g(): pass\n",
+                    "main.py": "def run():\n    from m import g\n    g()\n",
+                },
+                "python",
+            )
+        )
+        self.assertEqual(imported[("main.py", 3, "g")][:2], ("linked", "m.py::g"))
+
     def test_import_bindings_follow_aliases_and_module_attributes(self):
         result = analyze(
             {
