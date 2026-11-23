@@ -12,7 +12,13 @@ import time
 
 from .._version import __version__
 from .. import component_dependencies as deps
-from ..components import MANIFESTS, Component, enclosing_components, scan_components
+from .. import deployments
+from ..components import (
+    COMPONENT_KINDS,
+    Component,
+    enclosing_components,
+    scan_components,
+)
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -36,7 +42,8 @@ DECLARES_RULE = register_rule(
         "resolved",
         "The manifest declares the component: pyproject.toml [project] or "
         "[tool.poetry] name, a package.json object, the go.mod module "
-        "directive, Cargo.toml [package] or the pom.xml project artifactId.",
+        "directive, Cargo.toml [package], the pom.xml project artifactId, or a "
+        "Compose file's services entry.",
     )
 )
 PART_OF_RULE = register_rule(
@@ -89,12 +96,45 @@ REQUIRES_RULES[deps.NAME] = register_rule(
     )
 )
 
+REQUIRES_RULES[deps.COMPOSE_DEPENDS_ON] = register_rule(
+    EvidenceRule(
+        "components." + deps.COMPOSE_DEPENDS_ON,
+        "resolved",
+        "A Compose service's depends_on names this service of the same file.",
+    )
+)
+DEPLOYS_RULES = {
+    deployments.BUILD_CONTEXT: register_rule(
+        EvidenceRule(
+            "components." + deployments.BUILD_CONTEXT,
+            "resolved",
+            "The Compose service's build context is this component's root directory.",
+        )
+    ),
+    deployments.IMAGE_NAME: register_rule(
+        EvidenceRule(
+            "components." + deployments.IMAGE_NAME,
+            "name_matched",
+            "The Compose service builds nothing; the last path segment of its "
+            "image name, without tag or digest, equals the name (or the last "
+            "/-segment of the name) of exactly one package component. The "
+            "image may be built from other sources.",
+        )
+    ),
+}
+
 
 def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
 def component_name(repo_url, component):
+    if component.kind == "compose_service":
+        # A Compose file declares several services.
+        return (
+            f"{repo_url}::{component.manifest}::{component.kind}::"
+            f"{component.name}::component"
+        )
     return f"{repo_url}::{component.manifest}::{component.kind}::component"
 
 
@@ -107,11 +147,14 @@ def _component_node(repo_url, component, coordinates=None):
         "qualified_name": component_name(repo_url, component),
         "repo_url": repo_url,
         "kind": component.kind,
-        "root": component.root,
         "manifest": component.manifest,
         "file_path": component.manifest,
         "display_name": component.name or component.root or ".",
     }
+    if component.root is not None:
+        properties["root"] = component.root
+    if component.image is not None:
+        properties["image"] = component.image
     if component.name is not None:
         properties["name"] = component.name
     if component.line is not None:
@@ -130,9 +173,18 @@ def bind_components(nodes, repo_url):
     components = []
     for node in nodes:
         p = node.properties
-        if "Component" in node.labels and p.get("kind") in MANIFESTS.values():
+        if "Component" in node.labels and p.get("kind") in COMPONENT_KINDS:
+            compose = p["kind"] == "compose_service"
             components.append(
-                (Component(p["kind"], p["manifest"], p.get("name")), node)
+                (
+                    Component(
+                        p["kind"],
+                        p["manifest"],
+                        p.get("name"),
+                        context=p.get("root") if compose else None,
+                    ),
+                    node,
+                )
             )
     relationships, linked, unlinked = [], 0, 0
     if not components:
@@ -216,7 +268,8 @@ class ComponentsTool(AnalysisTool):
             "manifests": scan.manifests,
             "diagnostics": scan.diagnostics,
             "components": [
-                [c.kind, c.manifest, c.name, c.line] for c in scan.components
+                [c.kind, c.manifest, c.name, c.line, c.context, c.image]
+                for c in scan.components
             ],
             "dependencies": [
                 [d.manifest, d.section, d.name, d.path, d.workspace]
@@ -313,6 +366,23 @@ class ComponentsTool(AnalysisTool):
                             else {}
                         ),
                     },
+                )
+            )
+        for service, target, rule in deployments.resolve_deployments(scan.components):
+            relationships.append(
+                RelationshipData(
+                    "DEPLOYS",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, service),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, target),
+                        "repo_url": repo_url,
+                    },
+                    _evidence(DEPLOYS_RULES[rule]),
                 )
             )
         part_of, membership = bind_components(nodes, repo_url)
