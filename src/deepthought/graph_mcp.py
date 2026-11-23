@@ -188,8 +188,10 @@ def create_server():
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
-        Follows CALLS, INHERITS_FROM and IMPLEMENTS backwards; each dependent
-        has its depth, its path's edges and the path's weakest evidence.
+        Follows CALLS, INHERITS_FROM, IMPLEMENTS and REQUESTS backwards and
+        HANDLES forwards, so callers of a changed HTTP handler's route in
+        other services count; each dependent has its depth, its path's edges
+        and the path's weakest evidence.
         """
         return await ctx.request_context.lifespan_context.get_impact(
             qualified_name,
@@ -380,7 +382,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get components that transitively require a component, each with its path and weakest evidence."""
+        """Get components that transitively require, deploy or select a component, each with its path and weakest evidence."""
         return await ctx.request_context.lifespan_context.get_component_impact(
             qualified_name,
             repository_id,

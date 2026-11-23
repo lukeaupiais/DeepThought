@@ -26,6 +26,7 @@ from evidence_fixtures import FIXTURE_EVIDENCE
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
 )
+JAVA_READY = importlib.util.find_spec("tree_sitter_java")
 SCIP_READY = importlib.util.find_spec("google") and importlib.util.find_spec(
     "google.protobuf"
 )
@@ -51,6 +52,29 @@ SOURCES = {
     "    return use()\n"
     "\n"
     "top()\n",
+}
+# Two services joined by one HTTP contract: StatsReader.read requests the
+# route StatsController.latest handles.
+SERVICES = {
+    "stats/pom.xml": "<project/>",
+    "stats/src/main/resources/application.properties": "spring.application.name=stats\n",
+    "stats/src/main/java/s/StatsController.java": "package s;\n"
+    "import org.springframework.web.bind.annotation.*;\n"
+    "@RestController\n"
+    '@RequestMapping("/stats")\n'
+    "public class StatsController {\n"
+    '  @GetMapping("/latest")\n'
+    "  public String latest() { return compute(); }\n"
+    '  String compute() { return ""; }\n'
+    "}\n",
+    "web/pom.xml": "<project/>",
+    "web/src/main/java/w/StatsReader.java": "package w;\n"
+    "import org.springframework.web.client.RestTemplate;\n"
+    "public class StatsReader {\n"
+    "  RestTemplate rest;\n"
+    '  public String read() { return rest.getForObject("http://stats/stats/latest", String.class); }\n'
+    "  public String twice() { return read() + read(); }\n"
+    "}\n",
 }
 
 
@@ -309,6 +333,86 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             ),
             [("Dog", "resolved", "IMPLEMENTS"), ("Shadow", "resolved", "IMPLEMENTS")],
         )
+
+    @unittest.skipUnless(JAVA_READY, "Provision the java grammar")
+    async def test_impact_crosses_http_contracts(self):
+        from deepthought.analysis_tools.service_contracts import ServiceContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in SERVICES.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(repo, languages={"java"})
+            contracts = await ServiceContractTool(Path(directory)).analyze(repo)
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, contracts], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        names = {
+            n.properties["name"]: n.properties["qualified_name"]
+            for n in trees.nodes
+            if "Symbol" in n.labels
+        }
+        impact = await self.service.get_impact(
+            names["StatsController.compute"], repo, snapshot_id=snapshot, max_depth=5
+        )
+        rows = self.rows(impact)
+        self.assertEqual(
+            [row for row in rows if not row[0].endswith(".java")],
+            [
+                ("StatsController.latest", 1, "name_matched", ["CALLS"]),
+                ("GET /stats/latest", 2, "name_matched", ["HANDLES", "CALLS"]),
+                (
+                    "StatsReader.read",
+                    3,
+                    "name_matched",
+                    ["REQUESTS", "HANDLES", "CALLS"],
+                ),
+                (
+                    "StatsReader.twice",
+                    4,
+                    "name_matched",
+                    ["CALLS", "REQUESTS", "HANDLES", "CALLS"],
+                ),
+            ],
+        )
+        self.assertEqual(impact["forward_relations"], ["HANDLES"])
+        self.assertIn("forwards over HANDLES", impact["semantics"])
+        # Edges are listed from the dependent towards the change.
+        # From the handler, the contract hops are pattern matched.
+        handler = await self.service.get_impact(
+            names["StatsController.latest"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            self.rows(handler)[:2],
+            [
+                ("GET /stats/latest", 1, "pattern_matched", ["HANDLES"]),
+                ("StatsReader.read", 2, "pattern_matched", ["REQUESTS", "HANDLES"]),
+            ],
+        )
+        self.assertEqual(
+            [e["rule_id"] for e in self.rows_edges(handler)[1]],
+            [
+                "service-contracts.http-service-path",
+                "service-contracts.spring-route-mapping",
+            ],
+        )
+        # A requester depends on the route; the route does not depend on it,
+        # so neither the route nor its handler is affected by the requester.
+        reader = await self.service.get_impact(
+            names["StatsReader.read"], repo, snapshot_id=snapshot, max_depth=5
+        )
+        self.assertNotIn("GET /stats/latest", [row[0] for row in self.rows(reader)])
+        self.assertNotIn(
+            "StatsController.latest", [row[0] for row in self.rows(reader)]
+        )
+
+    @staticmethod
+    def rows_edges(response):
+        return [item["edges"] for item in response["items"]]
 
 
 if __name__ == "__main__":
