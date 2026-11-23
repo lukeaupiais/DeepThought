@@ -155,7 +155,7 @@ def analyze_repository(
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
         raise ValueError(
-            "Supported languages: go, java, javascript, python, typescript"
+            "Supported languages: go, java, javascript, python, rust, typescript"
         )
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
@@ -321,6 +321,10 @@ def analyze_repository(
                     )
                 declared = extract(tree, content, repository_id, relative)
                 definitions.extend(declared)
+                if language == "rust":
+                    # Rust: declarations only so far; calls, uses and impls
+                    # are not facts yet.
+                    continue
                 call_sites.extend(
                     extract_call_sites(tree, content, repository_id, relative, declared)
                 )
