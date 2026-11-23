@@ -538,9 +538,10 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
                 )
                 for i in required_by["items"]
             ],
+            # Ordered by section: dependencies, then dev-dependencies.
             [
-                ("a/Cargo.toml", "components.cargo-path-dependency"),
                 ("a/Cargo.toml", "components.cargo-workspace-dependency"),
+                ("a/Cargo.toml", "components.cargo-path-dependency"),
             ],
         )
         core = repo + "::js/core/package.json::node_package::component"
