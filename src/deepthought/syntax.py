@@ -20,8 +20,9 @@ LANGUAGES = {
     ),
     "go": ((".go",), "tree_sitter_go", "language"),
     "java": ((".java",), "tree_sitter_java", "language"),
+    "rust": ((".rs",), "tree_sitter_rust", "language"),
 }
-# Languages analyzed when none are selected. JavaScript, Go and Java are opt-in
+# Languages analyzed when none are selected. JavaScript, Go, Java and Rust are opt-in
 # so that existing Python/TypeScript analyses keep their output and do not need
 # their grammars; select them with languages=("go", ...) or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
@@ -53,6 +54,18 @@ KINDS = {
     "annotation_type_element_declaration": "Method",
     "constructor_declaration": "Constructor",
     "compact_constructor_declaration": "Constructor",
+    # Rust: functions in an impl or trait are methods (see _rust_kind); an
+    # impl names no declaration but scopes its items by the implementing type.
+    "function_item": "Function",
+    "function_signature_item": "Function",
+    "struct_item": "Struct",
+    "enum_item": "Enum",
+    "union_item": "Union",
+    "trait_item": "Trait",
+    "type_item": "TypeAlias",
+    "associated_type": "TypeAlias",
+    "mod_item": "Module",
+    "macro_definition": "Macro",
 }
 _GO_TYPE_KINDS = {"struct_type": "Struct", "interface_type": "Interface"}
 
@@ -78,6 +91,36 @@ def _go_receiver(node, content):
     if kind is None or kind.type != "type_identifier":
         return None
     return content[kind.start_byte : kind.end_byte].decode("utf-8")
+
+
+def _rust_impl_type(node, content):
+    """Name of the type an impl block implements for: the last path segment,
+    without references, pointers or type arguments; None for other types."""
+    kind = node.child_by_field_name("type")
+    while kind is not None and kind.type in {
+        "reference_type",
+        "pointer_type",
+        "generic_type",
+    }:
+        kind = kind.child_by_field_name("type")
+    if kind is not None and kind.type == "scoped_type_identifier":
+        kind = kind.child_by_field_name("name")
+    if kind is None or kind.type not in {"type_identifier", "primitive_type"}:
+        return None
+    return _text(kind, content)
+
+
+def _rust_kind(node, kind):
+    """A Rust function is a method in an impl or trait body."""
+    body = node.parent
+    if (
+        node.type in {"function_item", "function_signature_item"}
+        and body is not None
+        and body.parent is not None
+        and body.parent.type in {"impl_item", "trait_item"}
+    ):
+        return "Method"
+    return kind
 
 
 def identifier(
@@ -124,8 +167,15 @@ def extract(
             kind = _GO_TYPE_KINDS.get(
                 getattr(node.child_by_field_name("type"), "type", None), "Type"
             )
+        if node.type == "impl_item":
+            implemented = _rust_impl_type(node, content)
+            if implemented is not None:
+                scope = (*scope, implemented)
+        kind = _rust_kind(node, kind)
         if name_node is not None:
             name = content[name_node.start_byte : name_node.end_byte].decode("utf-8")
+            if name.startswith("r#"):
+                name = name[2:]  # A Rust raw identifier names the bare word.
             symbol = ".".join((*scope, name))
             if node.type == "method_declaration" and node.child_by_field_name(
                 "receiver"

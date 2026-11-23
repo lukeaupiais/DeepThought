@@ -625,6 +625,52 @@ type lookup as calls, and links with `tree-sitter.java-base-type`
 Guava's 594 ambiguous bases are test roots extending a type both
 `guava/src` and `android/guava/src` declare.
 
+## Rust
+
+Rust sources (`.rs`) are analyzed when `rust` is selected (`--language rust`)
+and the `rust` extra is installed; like JavaScript, Go and Java, the language
+is opt-in. Declarations are functions, structs (`Struct`), enums, unions
+(`Union`), traits (`Trait`), type aliases and associated types (`TypeAlias`),
+modules (`Module`, both `mod name { ... }` and `mod name;`) and `macro_rules!`
+macros (`Macro`). A function in an `impl` or trait body is a `Method`; other
+functions, including foreign functions in an `extern` block and functions
+inside function bodies, are `Function`s. Names are lexical: items are
+qualified by the inline modules, traits and functions around them, and an
+`impl` block qualifies its items by the type it implements for, the last path
+segment without references, pointers or type arguments (`impl<'a> Draw for
+&'a outer::Shape` names `Shape.draw`). An impl for a type with no name (a
+tuple, slice, array or trait object) adds no qualifier. A raw identifier
+(`r#match`) names the bare word. Items in a file module are not qualified by
+the module name, as a file's items in the other languages are not. Constants,
+statics, fields, enum variants and closures are not declarations, and items
+written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed.
+Calls, `use` declarations and impl relationships are not facts for Rust yet.
+
+Checked against rust-analyzer's SCIP index (`rust-analyzer scip`, rust-analyzer
+1.97.0) with `tools/compare_rust_declarations_with_scip.py`. A declaration
+matches when rust-analyzer defines a global symbol of the same name on the
+same line of the same file, and a method's SCIP symbol must name the type or
+trait it was qualified by. Every difference is classified from the parse tree,
+and none is left unexplained:
+
+| Corpus | Matched | Owner differs | Tree-sitter only: `mod name;` / inactive `#[cfg]` / file in no crate | SCIP only: file module / inside a macro invocation / macro-generated |
+|---|---|---|---|---|
+| BurntSushi/ripgrep `4a51093` | 3,511 / 3,636 | 2 | 84 / 30 / 11 | 83 / 843 / 7 |
+| rust-lang/regex `fde4946` | 4,945 / 5,436 | 32 | 208 / 190 / 93 | 196 / 147 / 10 |
+| serde-rs/serde `5dfc8b0` | 2,635 / 3,017 | 11 | 52 / 28 / 302 | 57 / 174 / 10 |
+| tokio-rs/tokio `6bbeecf` | 7,756 / 9,990 | 13 | 318 / 960 / 956 | 402 / 651 / 1 |
+
+rust-analyzer indexes one configuration: items behind an inactive `#[cfg]` and
+files no crate builds (fuzz targets, compile-fail tests) have no SCIP
+definition, while the declarations here cover every configuration. A
+`mod name;` is declared where it is written; rust-analyzer defines that module
+at line 1 of its file. Owner differences are methods of impls for unnamed
+types (36), which have no qualifier here, and impls written through a type
+alias (22: `impl OwnedDFA` in regex, `impl From<SignalKind> for c_int` in
+tokio), which are qualified by the alias as written while rust-analyzer names
+the aliased type. rust-analyzer leaves a `target` directory with build output
+in the root; remove it before comparing.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a

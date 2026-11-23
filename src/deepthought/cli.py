@@ -54,7 +54,7 @@ def main(argv=None) -> int:
     analyze.add_argument(
         "--language",
         action="append",
-        choices=("go", "java", "javascript", "python", "typescript"),
+        choices=("go", "java", "javascript", "python", "rust", "typescript"),
     )
     analyze.add_argument("--include", action="append")
     analyze.add_argument("--exclude", action="append", default=[])
