@@ -62,7 +62,7 @@ def parser():
     index.add_argument(
         "--language",
         action="append",
-        choices=("go", "java", "javascript", "python", "rust", "typescript"),
+        choices=("c", "go", "java", "javascript", "python", "rust", "typescript"),
     )
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
