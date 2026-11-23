@@ -745,9 +745,10 @@ class GraphQueryService:
 
         The change set is the declaration and every declaration it CONTAINS.
         Dependents are reached backwards over CALLS, INHERITS_FROM,
-        IMPLEMENTS and REQUESTS edges, and forwards over HANDLES: a handler's
-        route depends on it, and the callers requesting that route depend on
-        the route. At most ``max_depth`` hops. Each dependent is listed
+        IMPLEMENTS, REQUESTS and CONSUMES edges, and forwards over HANDLES and
+        PUBLISHES: a handler's route (a publisher's destination) depends on
+        it, and the callers requesting that route (the consumers of that
+        destination) depend on the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
         """
@@ -756,7 +757,7 @@ class GraphQueryService:
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
             "WHERE part.repo_url=$repo_url AND part.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT part) AS parts ",
-            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS",
+            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS|CONSUMES",
             qname,
             repo_url,
             snapshot_id,
@@ -765,7 +766,7 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
-            reverse="HANDLES",
+            reverse="HANDLES|PUBLISHES",
         )
 
     async def get_file_impact(
@@ -812,13 +813,15 @@ class GraphQueryService:
         Follows REQUIRES (package and Compose depends_on dependencies),
         DEPLOYS (the Compose services and Kubernetes workloads that build or
         run a package) and SELECTS (the Kubernetes Services that route to a
-        workload) backwards, so a package change reaches what deploys and
-        exposes it.
+        workload) and USES_CONTRACT_OF (packages whose code requests a route
+        or consumes a message destination another package provides)
+        backwards, so a package change reaches what deploys and exposes it
+        and the packages that use its contracts.
         """
         return await self._impact(
             "MATCH (root:Component {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) WITH root, [] AS parts ",
-            "REQUIRES|DEPLOYS|SELECTS",
+            "REQUIRES|DEPLOYS|SELECTS|USES_CONTRACT_OF",
             qualified_name,
             repo_url,
             snapshot_id,
