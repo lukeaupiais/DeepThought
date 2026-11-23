@@ -446,6 +446,43 @@ so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
 
+## Java
+
+Java sources (`.java`) are analyzed when `java` is selected (`--language java`)
+and the `java` extra is installed; like JavaScript and Go, the language is
+opt-in. Declarations are classes, interfaces, enums, records (`Record`),
+annotation types (`Annotation`), methods, constructors (`Constructor`, named
+after their class, so `Outer.Outer`; a record's compact constructor too) and
+annotation elements (`Method`, as javac declares them). Names are lexical:
+nested and local types and their members are qualified by every enclosing
+named declaration, and a method of an anonymous class (including an enum
+constant body) belongs to the enclosing scope, since the class has no name.
+Overloads are separate declarations with distinct identities. Lambdas and
+fields are not declarations. A declaration's text starts at its first
+annotation or modifier; a Javadoc comment before it is not part of it.
+
+Imports, packages, calls and declared bases are not recorded for Java yet.
+
+Checked against javac's own parser with
+`tools/compare_java_declarations_with_javac.py`, which runs
+`tools/JavaDeclarationOracle.java` (javac 21, parse only). A declaration matches
+when file, qualified name, kind, start and end (UTF-16 offsets) are equal, and
+every stored name range covers the declared name:
+
+| Corpus | Declarations matched | javac only | Tree-sitter only |
+|---|---|---|---|
+| google/gson `d9b5079` | 4,360 / 4,360 | 0 | 0 |
+| apache/commons-lang `1880038` | 13,105 / 13,108 | 3 | 0 |
+| google/guava `b8eedaa` | 66,678 / 66,678 | 0 | 0 |
+| junit-team/junit5 `68e59c0` | 19,441 / 19,447 | 6 | 4 |
+
+The three commons-lang declarations are in `ClassUtilsOssFuzzTest.java`, which
+the grammar cannot parse; the file is `partial` with a `syntax_error`. The
+junit5 differences are two Java 25 compact source files: javac wraps their
+top-level methods in an implicit class named after the file, while here they
+are top-level methods. Guava's annotated varargs (`Object @Nullable ...`) make
+13 files `partial`, but every declaration in them still matches.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a

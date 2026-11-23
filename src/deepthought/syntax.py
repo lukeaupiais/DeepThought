@@ -19,9 +19,10 @@ LANGUAGES = {
         "language",
     ),
     "go": ((".go",), "tree_sitter_go", "language"),
+    "java": ((".java",), "tree_sitter_java", "language"),
 }
-# Languages analyzed when none are selected. JavaScript and Go are opt-in so
-# that existing Python/TypeScript analyses keep their output and do not need
+# Languages analyzed when none are selected. JavaScript, Go and Java are opt-in
+# so that existing Python/TypeScript analyses keep their output and do not need
 # their grammars; select them with languages=("go", ...) or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
 KINDS = {
@@ -45,6 +46,13 @@ KINDS = {
     "method_elem": "Method",
     "type_spec": "Type",
     "type_alias": "TypeAlias",
+    # Java: class, interface, enum and method declarations share the names
+    # above; annotation elements are methods, as javac declares them.
+    "record_declaration": "Record",
+    "annotation_type_declaration": "Annotation",
+    "annotation_type_element_declaration": "Method",
+    "constructor_declaration": "Constructor",
+    "compact_constructor_declaration": "Constructor",
 }
 _GO_TYPE_KINDS = {"struct_type": "Struct", "interface_type": "Interface"}
 
@@ -269,6 +277,10 @@ def extract_imports(
     tree, content: bytes, repository_id: str, file: str, language: str
 ) -> list[Import]:
     """Static import statements in source order; dynamic loads are not facts here."""
+    if language == "java":
+        # Java imports name packages and types, which only package
+        # declarations resolve; they are not recorded yet.
+        return []
     visit = {"python": _python_imports, "go": _go_imports}.get(
         language, _typescript_imports
     )
