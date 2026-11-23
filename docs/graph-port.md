@@ -516,6 +516,17 @@ occurrences have no compiler identifier: module specifier strings (1,220),
 shorthand properties and destructuring names that are their own declaration.
 All 41,014 edges round-trip through Neo4j with their rule.
 
+The work-in-progress branch also had a second reference source: a pinned
+TypeScript 6.0.3 compiler run at index time that stored its own alias-closure
+reference evidence beside SCIP and checked the current files again at query
+time. It is not ported. The table above shows SCIP already gives every
+compiler-bound identifier in rxjs an edge; the compiler adds only references
+through a renamed re-export's import name, such as `outward` in the
+`scip_alias_reexport` fixture, which the graph keeps unresolved rather than
+guessed. A second compiler pipeline in the engine, pinned to one compiler
+version, costs more than that gap. The compiler stays an offline oracle
+(`tools/typescript_reference_oracle.cjs`).
+
 ## SCIP implementations
 
 The same tool turns each SCIP `is_implementation` relationship into
