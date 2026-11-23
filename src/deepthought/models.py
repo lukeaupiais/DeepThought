@@ -206,8 +206,14 @@ class CallSite:
     # methods are named in, first line, last line) for each such class around
     # the call, innermost first. None elsewhere.
     anonymous: tuple[tuple[str, str, int, int], ...] | None = None
+    # Python calls whose callee's first name is bound in a function, lambda
+    # or comprehension around the call (a parameter, an assignment, a loop
+    # variable): True. None elsewhere.
+    shadowed: bool | None = None
 
     def __post_init__(self):
+        if self.shadowed not in (None, True):
+            raise ValueError("shadowed must be True or None")
         if self.arguments is not None and (
             type(self.arguments) is not int or self.arguments < 0
         ):
@@ -505,6 +511,8 @@ class AnalysisResult:
                 del item["arguments"]
             if item["anonymous"] is None:
                 del item["anonymous"]
+            if item["shadowed"] is None:
+                del item["shadowed"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
