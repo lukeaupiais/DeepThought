@@ -10,7 +10,13 @@ import stat
 from threading import Event
 
 from .models import AnalysisResult, Diagnostic, FileCoverage, is_relative_file
-from .syntax import LANGUAGES, extract, extract_imports, make_parser
+from .syntax import (
+    LANGUAGES,
+    extract,
+    extract_call_sites,
+    extract_imports,
+    make_parser,
+)
 from ._version import __version__
 
 
@@ -40,6 +46,7 @@ def analyze_repository(
         raise ValueError("File and total-byte limits must be positive")
     languages = tuple(sorted(set(languages)))
     definitions, imports, coverage, diagnostics = [], [], [], []
+    call_sites = []
     parsers, versions = {}, {}
     cancelled = False
     stop = False
@@ -156,7 +163,11 @@ def analyze_repository(
                             relative, language, "analyzed", sha256(content).hexdigest()
                         )
                     )
-                definitions.extend(extract(tree, content, repository_id, relative))
+                declared = extract(tree, content, repository_id, relative)
+                definitions.extend(declared)
+                call_sites.extend(
+                    extract_call_sites(tree, content, repository_id, relative, declared)
+                )
                 imports.extend(
                     extract_imports(tree, content, repository_id, relative, language)
                 )
@@ -204,7 +215,8 @@ def analyze_repository(
         tuple(diagnostics),
         "tree-sitter",
         tuple(sorted(versions.items())),
-        capabilities=("definitions", "imports"),
+        capabilities=("call_sites", "definitions", "imports"),
         schema_version="3",
         imports=tuple(imports),
+        call_sites=tuple(call_sites),
     )

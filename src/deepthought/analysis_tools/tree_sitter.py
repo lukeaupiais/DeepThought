@@ -1,8 +1,8 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
-This bounded port supports Python and TypeScript/TSX declarations and static
-file imports. It does not port the legacy heuristic CALLS/CFG/data-flow output
-or claim additional languages.
+This bounded port supports Python and TypeScript/TSX declarations, static file
+imports and name-matched calls. It does not port the legacy confidence-scored
+CALLS output, CFG/data-flow output or claim additional languages.
 """
 
 import importlib.util
@@ -10,6 +10,7 @@ import time
 from copy import deepcopy
 
 from .._version import __version__
+from .. import calls as call_rules
 from .. import imports as import_rules
 from ..engine import analyze_repository
 from .base import AnalysisTool, ToolCapability, ToolMetadata
@@ -73,6 +74,21 @@ IMPORT_RULES = {
             )
         ),
     )
+}
+
+_CALL_RULE_TEXT = {
+    call_rules.CALL_LEXICAL_NAME: "A bare callee name equals a function or class "
+    "declared in an enclosing lexical scope of the same file.",
+    call_rules.CALL_IMPORTED_NAME: "A bare callee name is bound by an import "
+    "whose module file declares that name at top level.",
+    call_rules.CALL_MODULE_ATTRIBUTE: "A callee 'module.name' uses a module "
+    "import binding whose file declares that name at top level.",
+    call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
+    "method declared in the enclosing class body; inheritance is not followed.",
+}
+CALL_RULES = {
+    rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
+    for rule_id, text in _CALL_RULE_TEXT.items()
 }
 
 
@@ -236,6 +252,48 @@ class TreeSitterTool(AnalysisTool):
                         },
                     )
                 )
+        qualified = {
+            d.id: f"{repo_url}::{d.file}::{d.symbol}::{d.id}"
+            for d in result.definitions
+        }
+        kinds = {d.id: d.kind for d in result.definitions}
+        sites = {site.id: site for site in result.call_sites}
+        call_counts = {}
+        for resolution in call_rules.resolve_calls(result):
+            key = resolution.status + (
+                ":" + resolution.reason if resolution.reason else ""
+            )
+            call_counts[key] = call_counts.get(key, 0) + 1
+            if resolution.status != "linked":
+                continue
+            site = sites[resolution.call_id]
+            if site.caller_id is None:
+                source = (["File"], files[site.file])
+            else:
+                source = (
+                    [kinds[site.caller_id], "Symbol"],
+                    qualified[site.caller_id],
+                )
+            relationships.append(
+                RelationshipData(
+                    "CALLS",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    [kinds[resolution.target_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[resolution.target_id],
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "call_id": site.id,
+                        "callee": site.callee,
+                        "call_kind": site.kind,
+                        "line": site.line,
+                        "column": site.column,
+                        **_evidence(CALL_RULES[resolution.rule_id]),
+                    },
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -264,8 +322,9 @@ class TreeSitterTool(AnalysisTool):
                 "capabilities": artifact["capabilities"],
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
-                "scope": "named declarations and static file imports; "
-                "no call, control or data-flow inference",
+                "call_resolution": dict(sorted(call_counts.items())),
+                "scope": "named declarations, static file imports and "
+                "name-matched calls; no control or data-flow inference",
             },
         )
         output = StandardizedOutput(

@@ -167,8 +167,9 @@ class CorePortIndependentReview(unittest.TestCase):
             self.assertEqual(
                 {edge.target_match["qualified_name"] for edge in contains}, set(files)
             )
-            self.assertEqual(
-                {edge.type for edge in output.relationships}, {"CONTAINS", "DEFINES"}
+            self.assertLessEqual(
+                {edge.type for edge in output.relationships},
+                {"CONTAINS", "DEFINES", "IMPORTS", "CALLS"},
             )
             self.assertEqual(
                 output.metadata.custom_metrics["coverage"], sdk.to_dict()["coverage"]

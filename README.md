@@ -3,9 +3,9 @@ Standalone code intelligence and analysis engine for IDEs, development tools, an
 
 The existing SDK is also available through a portable `AnalysisTool` interface
 and registry. The first registered plugin is `TreeSitterTool`, scoped to the
-same Python/TypeScript/TSX declarations and static file imports as the SDK. It
-does not infer calls or advertise the legacy analyzer's broader language and flow
-capabilities.
+same Python/TypeScript/TSX declarations, static file imports and named call
+sites as the SDK. Its call edges are name matches, labelled `name_matched`; it
+does not advertise the legacy analyzer's broader language and flow capabilities.
 
 ```python
 import asyncio
@@ -27,8 +27,8 @@ downloads, target builds and database provisioning remain caller-controlled.
 The [first completed real-agent calibration](evals/results/tree_sitter_deepagents_20261102/README.md)
 found equal declaration accuracy and increased token use with raw tool output.
 
-This local alpha extracts named declarations and static import statements from
-Python and TypeScript/TSX, preserves namespace and quoted ambient-module owners in declaration names,
+This local alpha extracts named declarations, static import statements and named
+call sites from Python and TypeScript/TSX, preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. It retains ranges, native symbol identities, role
 flags, coverage, diagnostics and source snapshots. It does not infer calls,
@@ -132,7 +132,7 @@ failed and cancelled source states remain visible. Existing graph lookup methods
 continue returning their full tuples; query results do not change graph artifacts.
 
 Results support `to_json()` and their respective `from_json()` methods. Analysis
-schema 3 adds import facts (Tree-sitter extraction); schema 2 adds references and
+schema 3 adds import and call-site facts (Tree-sitter extraction); schema 2 adds references and
 is still emitted unchanged by producers without imports, such as SCIP ingestion;
 schema 1 imports as definitions-only. Graph schema 1
 includes source artifacts and validates projections against those facts on import.
