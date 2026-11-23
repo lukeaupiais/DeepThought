@@ -1330,8 +1330,8 @@ class GraphQueryService:
         )
         response["semantics"] = (
             "Components declared by build manifests (pyproject.toml, package.json, "
-            "go.mod, Cargo.toml, pom.xml) in the analyzed paths; units that no "
-            "manifest declares are not listed."
+            "go.mod, Cargo.toml, pom.xml) and Compose files in the analyzed "
+            "paths; units that no manifest declares are not listed."
         )
         return response
 
