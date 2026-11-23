@@ -6,6 +6,10 @@ relation: SCIP also links files through references that need no import (for
 example members of inferred types), and an import of a package links to its
 __init__.py or index file rather than to where a name is defined.
 
+A Go import names a package (a directory), and its edges reach every file of
+that package, so for Go the comparison is also made per (file, package
+directory) pair across directories: "package_level".
+
 Usage:
   python tools/compare_imports_with_scip.py ROOT INDEX.scip --language python \
       [--include 'src/*'] [--path-prefix src]
@@ -15,9 +19,28 @@ import argparse
 import asyncio
 import json
 from pathlib import Path
+import posixpath
 
 import deepthought
 from deepthought.analysis_tools import TreeSitterTool
+
+
+def _package_level(edges, scip):
+    def directories(pairs):
+        return {
+            (source, posixpath.dirname(target))
+            for source, target in pairs
+            if posixpath.dirname(source) != posixpath.dirname(target)
+        }
+
+    ours, theirs = directories(edges), directories(scip)
+    return {
+        "tree_sitter_pairs": len(ours),
+        "scip_pairs": len(theirs),
+        "shared": len(ours & theirs),
+        "only_tree_sitter": sorted(map(list, ours - theirs)),
+        "only_scip": sorted(map(list, theirs - ours)),
+    }
 
 
 def main():
@@ -60,9 +83,13 @@ def main():
             counts = rules.setdefault(rule_id, {"edges": 0, "in_scip": 0})
             counts["edges"] += 1
             counts["in_scip"] += pair in scip
+    report = {}
+    if args.language == "go":
+        report["package_level"] = _package_level(edges.keys(), scip)
     print(
         json.dumps(
             {
+                **report,
                 "files": len(files),
                 "import_resolution": output.metadata.custom_metrics[
                     "import_resolution"

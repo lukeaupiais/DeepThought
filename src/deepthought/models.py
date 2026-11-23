@@ -177,6 +177,7 @@ class CallSite:
 
 
 SUPERTYPE_KINDS = frozenset({"extends", "implements"})
+PACKAGE_KINDS = frozenset({"package", "module"})
 
 
 @dataclass(frozen=True)
@@ -218,7 +219,11 @@ class Supertype:
 
 @dataclass(frozen=True)
 class PackageClause:
-    """The package a source file declares (Go's ``package name``), as written."""
+    """A package or module a file declares, as written.
+
+    ``package`` is a Go source file's ``package name``; ``module`` is the
+    module path a ``go.mod`` file's ``module`` directive declares.
+    """
 
     id: str
     file: str
@@ -227,6 +232,7 @@ class PackageClause:
     column: int
     end_line: int
     end_column: int
+    kind: str = "package"
     coordinate_encoding: str = "utf-8"
 
     def __post_init__(self):
@@ -240,6 +246,8 @@ class PackageClause:
         )
         if not all(isinstance(v, str) and v for v in (self.id, self.name)):
             raise ValueError("Package clause identity and name must be nonempty")
+        if self.kind not in PACKAGE_KINDS:
+            raise ValueError("Unsupported package clause kind")
 
 
 @dataclass(frozen=True)

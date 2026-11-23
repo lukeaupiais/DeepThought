@@ -121,6 +121,8 @@ def package_peers(result: AnalysisResult) -> dict:
     """
     groups = defaultdict(list)
     for clause in result.packages:
+        if clause.kind != "package":
+            continue
         groups[(posixpath.dirname(clause.file), clause.name)].append(clause.file)
     return {file: tuple(sorted(files)) for files in groups.values() for file in files}
 
