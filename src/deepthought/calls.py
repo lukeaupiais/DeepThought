@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import posixpath
 
 from .imports import PYTHON_FROM_IMPORT_SUBMODULE, _java_index, resolve_imports
-from .models import AnalysisResult
+from .models import AnalysisResult, Definition
 
 CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
 CALL_IMPORTED_NAME = "tree-sitter.call-imported-name"
@@ -24,6 +24,7 @@ JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
 JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
 JAVA_TYPE_MEMBER = "tree-sitter.java-type-member"
 JAVA_TYPE_NAME = "tree-sitter.java-type-name"
+JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
 _CALLABLE = {"Function", "Class"}
 _METHOD = {"Method", "Function"}
 
@@ -139,6 +140,27 @@ def package_peers(result: AnalysisResult) -> dict:
 
 
 _JAVA_TYPES = {"Class", "Interface", "Enum", "Record", "Annotation"}
+_JAVA_CLASSES = {"Class", "Enum", "Record"}
+
+
+@dataclass(frozen=True)
+class _Member:
+    """A method found on a type, and whether the type inherits it."""
+
+    definition: Definition
+    inherited: bool
+
+    @property
+    def id(self):
+        return self.definition.id
+
+    @property
+    def parameters(self):
+        return self.definition.parameters
+
+    @property
+    def variadic(self):
+        return self.definition.variadic
 
 
 class _JavaScope:
@@ -152,11 +174,17 @@ class _JavaScope:
             for p in result.packages
             if p.kind == "package" and p.file in self.roots
         }
-        owners = {d.id: (d.file, d.symbol) for d in result.definitions}
-        self.bases = defaultdict(list)  # (file, type symbol) -> base names
-        for item in result.supertypes:
-            if item.file in self.roots and item.owner_id in owners:
-                self.bases[owners[item.owner_id]].append(item.name)
+        owners = {d.id: d for d in result.definitions}
+        # (file, type symbol) -> base names, a class's superclass first.
+        self.bases = defaultdict(list)
+        for item in sorted(
+            result.supertypes,
+            key=lambda i: (i.owner_id, i.line, i.column),
+        ):
+            owner = owners.get(item.owner_id)
+            if item.file in self.roots and owner is not None:
+                self.bases[(owner.file, owner.symbol)].append(item.name)
+        self._members = {}  # (file, type symbol, name) -> [_Member]
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
         self.static = defaultdict(list)  # (file, member) -> type FQNs
@@ -269,11 +297,65 @@ class _JavaScope:
             or (m.variadic and n >= m.parameters - 1)
         ]
 
-    def methods(self, site, declared, rule_id, none_reason):
-        """Link among same-named methods by arity; none fits: unresolved."""
-        if not declared:
+    def methods(self, site, candidates, rule_id, none_reason):
+        """Link among same-named methods by arity; none fits: unresolved.
+
+        A link to a method the type inherits rather than declares carries
+        the inherited-method rule.
+        """
+        if not candidates:
             return CallResolution(site.id, "unresolved", reason=none_reason)
-        return _pick(site.id, self.arity(site, declared), rule_id, "no_matching_arity")
+        declared = {m.id for m in candidates if not m.inherited}
+        resolution = _pick(
+            site.id,
+            [m.definition for m in self.arity(site, candidates)],
+            rule_id,
+            "no_matching_arity",
+        )
+        if resolution.status == "linked" and resolution.target_id not in declared:
+            return CallResolution(
+                site.id, "linked", resolution.target_id, JAVA_INHERITED_METHOD
+            )
+        return resolution
+
+    def members(self, file, symbol, name):
+        """Methods ``name`` of a type: declared, then inherited through its
+        declared bases unless a nearer method with the same parameter count
+        overrides them (argument types are not compared)."""
+        key = (file, symbol, name)
+        if key not in self._members:
+            self._members[key] = self._inherit(file, symbol, name, frozenset())
+        return self._members[key]
+
+    def _inherit(self, file, symbol, name, seen):
+        found = [
+            _Member(m, False) for m in self._defs(file, f"{symbol}.{name}", {"Method"})
+        ]
+        if (file, symbol) in seen:
+            return found
+        seen = seen | {(file, symbol)}
+        shapes = {(m.parameters, m.variadic) for m in found}
+        outer = symbol.split(".")[:-1]
+        inherited = {}
+        # Bases in source order: a class's superclass comes first.
+        for base in self.bases.get((file, symbol), ()):
+            for t in self.type(file, outer, base):
+                for m in self._inherit(t.file, t.symbol, name, seen):
+                    if (m.parameters, m.variadic) not in shapes:
+                        inherited.setdefault(m.id, _Member(m.definition, True))
+            # A method declared in a class (the superclass chain) implements
+            # a same-shaped interface method rather than competing with it;
+            # interface methods do not hide each other by name.
+            shapes |= {
+                (m.parameters, m.variadic)
+                for m in inherited.values()
+                if self._defs(
+                    m.definition.file,
+                    m.definition.symbol.rpartition(".")[0],
+                    _JAVA_CLASSES,
+                )
+            }
+        return found + list(inherited.values())
 
     def enclosing_types(self, file, scope):
         for depth in range(len(scope), 0, -1):
@@ -294,10 +376,10 @@ class _JavaScope:
         name = parts[-1]
         if len(parts) == 1:
             for owner in self.enclosing_types(file, scope):
-                methods = self._defs(file, f"{owner}.{name}", {"Method"})
+                methods = self.members(file, owner, name)
                 if methods:
-                    # Java stops at the innermost type declaring the name; a
-                    # fitting overload missing there is inherited.
+                    # Java stops at the innermost type with a method of that
+                    # name, declared or inherited.
                     return self.methods(
                         site, methods, JAVA_ENCLOSING_METHOD, "no_declaration"
                     )
@@ -308,7 +390,7 @@ class _JavaScope:
                     for spec in self.static.get((file, name), [])
                     or self.static_all.get(file, [])
                     for t in self.qualified(spec, root)
-                    for m in self._defs(t.file, f"{t.symbol}.{name}", {"Method"})
+                    for m in self.members(t.file, t.symbol, name)
                 ]
                 if root is not None
                 else []
@@ -325,7 +407,7 @@ class _JavaScope:
                 return CallResolution(site.id, "unresolved", reason="outside_class")
             return self.methods(
                 site,
-                self._defs(file, f"{owner}.{name}", {"Method"}),
+                self.members(file, owner, name),
                 CALL_SELF_METHOD,
                 "not_declared_in_class",
             )
@@ -334,11 +416,7 @@ class _JavaScope:
             return CallResolution(site.id, "unresolved", reason="attribute_call")
         return self.methods(
             site,
-            [
-                m
-                for t in owners
-                for m in self._defs(t.file, f"{t.symbol}.{name}", {"Method"})
-            ],
+            [m for t in owners for m in self.members(t.file, t.symbol, name)],
             JAVA_TYPE_MEMBER,
             "not_declared_in_type",
         )

@@ -491,11 +491,12 @@ link is `name_matched`:
 
 | Rule | Callee |
 |---|---|
-| `tree-sitter.java-enclosing-type-method` | `m()`: the innermost enclosing named type that declares a method `m` (Java stops at the first type declaring the name) |
+| `tree-sitter.java-enclosing-type-method` | `m()`: the innermost enclosing named type that has a method `m`, declared or inherited (Java stops at the first such type), when that type declares it |
 | `tree-sitter.java-static-import` | `m()` declared by no enclosing type: a method of a type imported with `import static`, by name or `*` |
 | `tree-sitter.call-self-method` | `this.m()`: the innermost enclosing type's `m` |
 | `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
 | `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
+| `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -508,12 +509,20 @@ package). A type found in the importer's own source root is chosen; one
 declared only in several other roots is ambiguous, since only the build
 says which is on the class path.
 
+A type's methods named `m` are the ones it declares, then those its
+repository bases have, followed in source order (a class's superclass
+first) through every level. A nearer method with the same parameter count
+overrides an inherited one, and a method declared in a class (the
+superclass chain) also implements a same-shaped interface method; methods of
+two interfaces with the same shape are both kept, since only types say which
+wins. Bases outside the repository (`AbstractList`, `TestCase`) are not
+read, so their methods stay unresolved.
+
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity` (the fitting
-overload is inherited). Calls on variables or expressions (`list.add(x)`)
-need types and stay unresolved (`attribute_call`), as do inherited methods
-the type does not declare.
+several left are ambiguous, none is `no_matching_arity`. Calls on variables
+or expressions (`list.add(x)`) need types and stay unresolved
+(`attribute_call`).
 
 Checked against javac's own parser with
 `tools/compare_java_declarations_with_javac.py`, which runs
@@ -568,12 +577,12 @@ line); a `new` binds the class it creates.
 
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
-| google/gson | 4,098 / 4,101 | 0 | 3 | 121 | 5,349 |
-| apache/commons-lang | 17,733 / 18,916 | 0 | 1,183 | 9,687 | 8,120 |
-| google/guava | 40,870 / 41,019 | 78 | 71 | 38,210 | 45,245 |
+| google/gson | 4,105 / 4,108 | 0 | 3 | 121 | 5,342 |
+| apache/commons-lang | 18,008 / 19,191 | 0 | 1,183 | 9,691 | 7,841 |
+| google/guava | 47,881 / 48,010 | 56 | 73 | 39,039 | 37,427 |
 
 Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
-36,756) and inherited or library methods (`unbound_name`). Most of guava's
+36,756) and methods inherited from library types (`unbound_name`). Most of guava's
 ambiguous calls are test roots calling a type that both `guava/src` and
 `android/guava/src` declare. Five ambiguous calls (one in commons-lang, four
 in guava) leave out javac's method: an inherited overload, or a GWT
@@ -581,11 +590,11 @@ super-source file javac binds elsewhere. javac binds none
 for 1,183 commons-lang links because those test calls pass lambdas to
 JUnit-typed parameters, and JUnit is not on javac's class path; the links go
 to the statically imported `LangAssertions` methods of the same name. Guava's
-78 contradictions (0.2% of its links) come from two things a name lookup does
+56 contradictions (0.1% of its links) come from two things a name lookup does
 not see: a call inside an anonymous class can bind a method the anonymous
 class inherits rather than the enclosing type's (`isRunning()` inside `new
-AbstractService() {...}`), and an inherited overload with the same arity can
-fit the argument types better (`putBytes`). junit5 is not reported: javac
+AbstractService() {...}`), and an overload with the same arity elsewhere in
+the hierarchy can fit the argument types better (`putBytes`, `hashBytes`). junit5 is not reported: javac
 stops attributing most of its roots without their libraries, leaving
 nothing to compare.
 
