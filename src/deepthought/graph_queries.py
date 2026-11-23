@@ -522,6 +522,7 @@ class GraphQueryService:
         snapshot_id,
         line_number=None,
         definition_id=None,
+        native_symbol=None,
         source_offset=0,
         max_source_characters=1200,
         limit=20,
@@ -534,14 +535,21 @@ class GraphQueryService:
         Each declaration carries a page of its stored source text:
         ``max_source_characters`` Unicode code points from ``source_offset``,
         with ``source_characters`` giving the full length to page through.
+        An indexer (SCIP) symbol bound to a parsed declaration is returned as
+        that declaration, listing the symbols in ``native_ids``;
+        ``native_symbol`` selects by indexer symbol.
         """
         _text(file_path, "file_path")
         if line_number is not None and (
             type(line_number) is not int or line_number < 1
         ):
             raise ValueError("line_number must be a positive integer or None")
-        if definition_id is not None:
-            _text(definition_id, "definition_id")
+        for value, label in (
+            (definition_id, "definition_id"),
+            (native_symbol, "native_symbol"),
+        ):
+            if value is not None:
+                _text(value, label)
         if type(source_offset) is not int or not 0 <= source_offset <= 2_000_000:
             raise ValueError("source_offset must be from 0 to 2000000")
         if (
@@ -551,11 +559,18 @@ class GraphQueryService:
             raise ValueError("max_source_characters must be from 0 to 8192")
         response = await self._read(
             """MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id,path:$file_path})
-            -[:DEFINES]->(elem:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            -[:DEFINES]->(n:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            OPTIONAL MATCH (n)-[:HAS_AST_DECLARATION]->
+                (ast:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            WITH n,coalesce(ast,n) AS elem
             WHERE ($line_number IS NULL OR (elem.start_line <= $line_number AND elem.end_line >= $line_number))
-              AND ($definition_id IS NULL OR elem.definition_id = $definition_id)
+              AND ($definition_id IS NULL OR elem.definition_id = $definition_id
+                   OR n.definition_id = $definition_id)
+              AND ($native_symbol IS NULL OR n.native_id = $native_symbol)
+            WITH elem,[x IN collect(n.native_id) WHERE x IS NOT NULL] AS native_ids
             RETURN elem {.qualified_name,.definition_id,.name,.display_name,.kind,
                 .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                native_ids:native_ids,
                 .source_sha256,.source_start_line,.source_start_column,
                 .source_end_line,.source_end_column,
                 .name_range_utf8,.name_range_utf16,.name_range_utf32,
@@ -568,6 +583,7 @@ class GraphQueryService:
                 "file_path": file_path,
                 "line_number": line_number,
                 "definition_id": definition_id,
+                "native_symbol": native_symbol,
                 "source_offset": source_offset,
                 "max_source_characters": max_source_characters,
             },

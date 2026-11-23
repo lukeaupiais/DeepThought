@@ -293,6 +293,11 @@ class TreeSitterTool(AnalysisTool):
                         "name": coverage.file,
                         "language": coverage.language,
                         "coverage_status": coverage.status,
+                        **(
+                            {"file_sha256": coverage.digest}
+                            if coverage.digest is not None
+                            else {}
+                        ),
                         **declared_packages.get(coverage.file, {}),
                         **{
                             key: sorted(values)

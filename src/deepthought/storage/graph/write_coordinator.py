@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import json
 
+from ...analysis_tools.declaration_binding import bind_declarations
 from ...analysis_tools.contracts import (
     NodeData,
     StandardizedOutput,
@@ -192,6 +193,18 @@ def _combine(outputs, repo_url, snapshot_id, config):
                 )
             else:
                 edges[key] = rel
+    # Indexer symbols bind to the parsed declarations they name (resolved).
+    bindings, binding_counts = bind_declarations(nodes.values(), repo_url)
+    for rel in bindings:
+        for match in (rel.source_match, rel.target_match):
+            match["snapshot_id"] = revision
+        edges[
+            (
+                "HAS_AST_DECLARATION",
+                rel.source_match["qualified_name"],
+                rel.target_match["qualified_name"],
+            )
+        ] = rel
     contributions = [_semantic(output.metadata) for output in outputs]
     capabilities = sorted(
         {
@@ -219,6 +232,7 @@ def _combine(outputs, repo_url, snapshot_id, config):
             "capabilities": capabilities,
             "tool_outputs": contributions,
             "source_binding": "caller_selected_graph_revision",
+            "declaration_binding": binding_counts,
             "model_tokens": sum(
                 output.metadata.custom_metrics["model_tokens"] for output in outputs
             )

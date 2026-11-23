@@ -279,8 +279,10 @@ class SymbolSourceQueryTests(unittest.IsolatedAsyncioTestCase):
             for item in listing["items"]
             if "properties" in item
         }
-        # A same-length edit changes only the text hash.
-        self.assertEqual(changed, {"duplicate": ["source_sha256"]})
+        # A same-length edit changes only the text hash and the file's digest.
+        self.assertEqual(
+            changed, {"a.ts": ["file_sha256"], "duplicate": ["source_sha256"]}
+        )
 
 
 if __name__ == "__main__":
