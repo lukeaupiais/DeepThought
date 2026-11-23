@@ -151,6 +151,35 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.RUST_USE_DECLARED,
+                "resolved",
+                "A Rust use path, read from the declaring module (crate, self, "
+                "super, a local module or type, or a workspace library by "
+                "crate name), goes through the crate's module tree of mod "
+                "declarations to a module whose file declares the next name, "
+                "or names that module itself.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.RUST_USE_MODULE,
+                "resolved",
+                "A Rust use path goes through the crate's module tree to a "
+                "module whose file does not declare the next name (a "
+                "re-export, constant or generated item); the link is to that "
+                "module's file.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.RUST_EXTERN_CRATE,
+                "resolved",
+                "A Rust 'extern crate name;' names the one workspace library "
+                "with that crate name.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.JAVA_SAME_SOURCE_ROOT,
                 "name_matched",
                 "Several source roots declare the imported package or type; "

@@ -24,6 +24,15 @@ JAVA_PACKAGE_MEMBER = "tree-sitter.java-package-member"
 JAVA_SAME_SOURCE_ROOT = "tree-sitter.java-same-source-root"
 RUST_MODULE_FILE = "tree-sitter.rust-module-file"
 RUST_CRATE_ROOT = "tree-sitter.rust-crate-root"
+RUST_USE_DECLARED = "tree-sitter.rust-use-declared"
+RUST_USE_MODULE = "tree-sitter.rust-use-module"
+RUST_EXTERN_CRATE = "tree-sitter.rust-extern-crate"
+_RUST_MODULE_KINDS = frozenset({"module", "module_path"})
+_RUST_CRATE_KINDS = frozenset({"crate_library", "crate_target"})
+# Declarations a use path can go through: modules and types.
+_RUST_TYPE_KINDS = frozenset(
+    {"Module", "Struct", "Enum", "Union", "Trait", "TypeAlias"}
+)
 _JAVA_TYPES = frozenset({"Class", "Interface", "Enum", "Record", "Annotation"})
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
@@ -423,7 +432,7 @@ def _rust(item: Import, files, declared, targets, crate_roots):
     directory that no ``mod`` declaration names is one too; one that is named
     is read as the module it is declared as.
     """
-    if item.kind in {"crate_library", "crate_target"}:
+    if item.kind in _RUST_CRATE_KINDS:
         path = _rust_crate_root(item)
         if path in files:
             return ImportResolution(
@@ -449,6 +458,182 @@ def _rust(item: Import, files, declared, targets, crate_roots):
     return ImportResolution(item.id, "unresolved", reason="module_file_missing")
 
 
+class _RustIndex:
+    """The module trees of a repository's Rust crates.
+
+    Crate roots are the files Cargo.toml targets name, and ``lib.rs``,
+    ``main.rs`` and ``build.rs`` files and files directly in a target
+    directory that no ``mod`` declaration includes. Each file reached from a
+    root through ``mod`` declarations has a module path in that crate; inline
+    modules extend the path of their file. A file can be in several crates.
+    """
+
+    def __init__(self, result: AnalysisResult, files, languages):
+        rust = [i for i in result.imports if languages[i.file] == "rust"]
+        mods = [i for i in rust if i.kind in _RUST_MODULE_KINDS]
+        crates = [i for i in rust if i.kind in _RUST_CRATE_KINDS]
+        declared = _rust_declared(mods, files)
+        sources = {f for f, lang in languages.items() if lang == "rust"}
+        targets = _rust_target_dirs(sources)
+        crate_roots = {_rust_crate_root(i) for i in crates}
+        self.resolutions = {
+            i.id: _rust(i, files, declared, targets, crate_roots) for i in mods + crates
+        }
+        # Library crate name -> root files.
+        self.libraries = {}
+        for i in crates:
+            links = self.resolutions[i.id].links
+            if i.kind == "crate_library" and links:
+                self.libraries.setdefault(i.local_names[0], set()).add(
+                    links[0].target_file
+                )
+        # Bodyless modules whose file is not known: (file, inline, name).
+        # Bodyless modules: (file, inline modules and name).
+        children, included, self.unlinked, bodyless = {}, set(), set(), set()
+        for i in mods:
+            links = self.resolutions[i.id].links
+            inline = (
+                i.names
+                if i.kind == "module_path"
+                else tuple(i.specifier.split("/")[:-1])
+            )
+            bodyless.add((i.file, inline + i.local_names))
+            if not links:
+                self.unlinked.add((i.file, inline, i.local_names[0]))
+                continue
+            child = links[0].target_file
+            children.setdefault(i.file, []).append((inline + i.local_names, child))
+            included.add(child)
+        roots = crate_roots | {
+            f
+            for f in sources
+            if f.endswith(".rs")
+            and f not in included
+            and (
+                posixpath.basename(f) in {"lib.rs", "main.rs", "build.rs"}
+                or posixpath.dirname(f) in targets
+            )
+        }
+        # Names declared in each (file, inline modules) scope, those that can
+        # start a path (modules and types), and the inline modules of each file.
+        self.items, self.types, inline = {}, {}, {}
+        for d in result.definitions:
+            if languages.get(d.file) != "rust":
+                continue
+            parts = tuple(d.symbol.split("."))
+            self.items.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
+            if d.kind in _RUST_TYPE_KINDS:
+                self.types.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
+            if d.kind == "Module" and (d.file, parts) not in bodyless:
+                inline.setdefault(d.file, set()).add(parts)
+        # (crate root, module path) -> {(file, inline modules)}, and
+        # file -> {(crate root, module path of the file)}.
+        self.modules, self.contexts = {}, {}
+        for root in sorted(roots):
+            stack, seen = [(root, ())], set()
+            while stack:
+                file, path = stack.pop()
+                if file in seen:
+                    continue
+                seen.add(file)
+                self.contexts.setdefault(file, set()).add((root, path))
+                self.modules.setdefault((root, path), set()).add((file, ()))
+                for scope in inline.get(file, ()):
+                    # A module inside a function is never reached: a path
+                    # goes through modules one at a time.
+                    self.modules.setdefault((root, path + scope), set()).add(
+                        (file, scope)
+                    )
+                for relative, child in children.get(file, ()):
+                    stack.append((child, path + relative))
+
+    def resolve(self, item: Import):
+        if item.kind not in {"use", "use_glob", "extern_crate"}:
+            return self.resolutions[item.id]
+        contexts = self.contexts.get(item.file)
+        if not contexts:
+            return ImportResolution(
+                item.id, "unresolved", reason="module_context_unknown"
+            )
+        outcomes = {self._resolve(item, root, path) for root, path in contexts}
+        if len(outcomes) == 1:
+            status, reason, links, candidates = outcomes.pop()
+            return ImportResolution(item.id, status, links, reason, candidates)
+        found = {
+            f
+            for _, _, links, candidates in outcomes
+            for f in (*(link.target_file for link in links), *candidates)
+        }
+        return ImportResolution(
+            item.id,
+            "ambiguous",
+            reason="use_context_ambiguous",
+            candidates=tuple(sorted(found)),
+        )
+
+    def _library(self, name):
+        """The root of the one workspace library named ``name``, or the
+        unresolved outcome."""
+        roots = self.libraries.get(name, set())
+        if len(roots) == 1:
+            return next(iter(roots)), None
+        if roots:
+            return None, ("ambiguous", "crate_ambiguous", (), tuple(sorted(roots)))
+        return None, ("unresolved", "external_crate", (), ())
+
+    def _resolve(self, item: Import, root, path):
+        """(status, reason, links, candidates) of one use in one crate's
+        module."""
+        if item.kind == "extern_crate":
+            library, failed = self._library(item.specifier)
+            if failed:
+                return failed
+            return "linked", None, (ImportLink(library, RUST_EXTERN_CRATE),), ()
+        module = path + item.names
+        segments = item.specifier.split("::")
+        first = segments[0]
+        if first == "":
+            # `::name`: a crate.
+            library, failed = self._library(segments[1])
+            if failed:
+                return failed
+            root, module, rest = library, (), segments[2:]
+        elif first == "crate":
+            module, rest = (), segments[1:]
+        elif first in {"self", "super"}:
+            rest = segments[1:] if first == "self" else segments
+            while rest and rest[0] == "super":
+                if not module:
+                    return "unresolved", "super_outside_crate", (), ()
+                module, rest = module[:-1], rest[1:]
+        elif (root, module + (first,)) in self.modules or any(
+            first in self.types.get(scope, ())
+            for scope in self.modules.get((root, module), ())
+        ):
+            rest = segments
+        else:
+            library, failed = self._library(first)
+            if failed:
+                return failed
+            root, module, rest = library, (), segments[1:]
+        while rest and (root, module + (rest[0],)) in self.modules:
+            module, rest = module + (rest[0],), rest[1:]
+        scopes = self.modules.get((root, module), set())
+        if len(scopes) > 1:
+            # One module in several files (one per #[cfg]).
+            files = tuple(sorted({file for file, _ in scopes}))
+            return "ambiguous", "module_file_ambiguous", (), files
+        if not scopes:
+            # A use in a module inside a function body.
+            return "unresolved", "module_missing", (), ()
+        file, scope = next(iter(scopes))
+        if rest and (file, scope, rest[0]) in self.unlinked:
+            return "unresolved", "module_missing", (), ()
+        declared = not rest or rest[0] in self.items.get((file, scope), ())
+        rule = RUST_USE_DECLARED if declared else RUST_USE_MODULE
+        return "linked", None, (ImportLink(file, rule),), ()
+
+
 def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     """One resolution per import fact, in import identity order."""
     files = {item.file for item in result.coverage}
@@ -456,16 +641,7 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     roots = ("",) + (("src",) if any(f.startswith("src/") for f in files) else ())
     modules, packages = _go_modules(result), _go_packages(result)
     java = _java_index(result)
-    rust = [item for item in result.imports if languages[item.file] == "rust"]
-    declared = _rust_declared(
-        [item for item in rust if item.kind in {"module", "module_path"}], files
-    )
-    crate_roots = {
-        _rust_crate_root(item)
-        for item in rust
-        if item.kind in {"crate_library", "crate_target"}
-    }
-    targets = _rust_target_dirs({f for f, lang in languages.items() if lang == "rust"})
+    rust = _RustIndex(result, files, languages)
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
@@ -478,7 +654,7 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
         elif language == "java":
             resolutions.append(_java(item, *java))
         elif language == "rust":
-            resolutions.append(_rust(item, files, declared, targets, crate_roots))
+            resolutions.append(rust.resolve(item))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)
