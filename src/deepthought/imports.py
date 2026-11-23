@@ -530,10 +530,26 @@ class _RustIndex:
                 self.types.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
             if d.kind == "Module" and (d.file, parts) not in bodyless:
                 inline.setdefault(d.file, set()).add(parts)
+        # A use in a function body binds its names in that body only.
+        bodies = {}
+        for d in result.definitions:
+            if d.kind in {"Function", "Method"}:
+                bodies.setdefault(d.file, []).append(
+                    ((d.line, d.column), (d.end_line, d.end_column))
+                )
+
+        def in_body(i):
+            return any(
+                start < (i.line, i.column) < end
+                for start, end in bodies.get(i.file, ())
+            )
+
         # Names other uses bind in each (file, inline modules) scope, and the
         # globs there.
         self.bindings, self.globs, self.externs = {}, {}, {}
         for i in rust:
+            if in_body(i):
+                continue
             if i.kind == "extern_crate":
                 scope = self.externs.setdefault((i.file, i.names), {})
                 scope.setdefault(i.local_names[0], []).append(i)

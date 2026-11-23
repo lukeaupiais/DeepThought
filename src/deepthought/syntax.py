@@ -143,9 +143,18 @@ def make_parser(language: str, suffix: str):
 
 
 def extract(
-    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+    tree,
+    content: bytes,
+    repository_id: str,
+    file: str,
+    *,
+    nodes=None,
+    expander: "RustExpander | None" = None,
 ) -> list[Definition]:
-    """Named declarations in source order; ``nodes`` receives id -> (node, name)."""
+    """Named declarations in source order; ``nodes`` receives id -> (node,
+    name). An ``expander`` reads Rust items written in pass-through macro
+    invocations."""
+    children = expander.children if expander else (lambda node: node.named_children)
     definitions = []
     ordinals = {}
     stack = [(tree.root_node, (), False)]
@@ -219,9 +228,7 @@ def extract(
                 nodes[definition.id] = (node, name_node)
             scope = (*scope, name)
             in_class = kind == "Class"
-        stack.extend(
-            (child, scope, in_class) for child in reversed(node.named_children)
-        )
+        stack.extend((child, scope, in_class) for child in reversed(children(node)))
     return definitions
 
 
@@ -382,15 +389,118 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
-def _rust_inline_modules(node, content):
-    """Names of the inline ``mod name { ... }`` around a node, outermost first."""
+def _rust_inline_modules(node, content, expander=None):
+    """Names of the inline ``mod name { ... }`` around a node, outermost first;
+    an item written in an expanded macro invocation is in the modules around
+    the invocation."""
     parents = []
     outer = node.parent
-    while outer is not None and outer.type != "source_file":
+    while outer is not None:
+        if outer.type == "source_file":
+            outer = expander.invocation(outer) if expander else None
+            continue
         if outer.type == "mod_item":
             parents.append(_text(outer.child_by_field_name("name"), content))
         outer = outer.parent
     return [p.removeprefix("r#") for p in reversed(parents)]
+
+
+# Rust macros that emit each item they are given unchanged, apart from added
+# attributes: one rule, `($($i:item)*)` (optionally after `#![$m:meta]`),
+# transcribed as `$( #[...]* $i )*`.
+_RUST_ITEM_MATCHER = re.compile(r"\((?:#!\[\$\w+:meta\])?\$\(\$(\w+):item\)\*\)")
+_RUST_ATTRIBUTE = r"#\[(?:[^\[\]]|\[[^\[\]]*\])*\]"
+
+
+def rust_macro_rules(tree, content: bytes):
+    """(name, passes items through) for each ``macro_rules!`` definition."""
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type != "macro_definition":
+            continue
+        name = node.child_by_field_name("name")
+        rules = [c for c in node.named_children if c.type == "macro_rule"]
+        through = False
+        if name is not None and len(rules) == 1:
+            left = rules[0].child_by_field_name("left")
+            right = rules[0].child_by_field_name("right")
+            compact = [
+                re.sub(r"\s+", "", _text(side, content)) if side else ""
+                for side in (left, right)
+            ]
+            matched = _RUST_ITEM_MATCHER.fullmatch(compact[0])
+            through = bool(matched) and bool(
+                re.fullmatch(
+                    r"[\(\[\{]\$\((?:%s)*\$%s\)\*[\)\]\}]"
+                    % (_RUST_ATTRIBUTE, re.escape(matched.group(1))),
+                    compact[1],
+                )
+            )
+        if name is not None:
+            yield _text(name, content).removeprefix("r#"), through
+
+
+class RustExpander:
+    """Items written in invocations of item pass-through macros.
+
+    An invocation at module level of a macro in ``item_macros`` (each of its
+    definitions passes items through, see rust_macro_rules) is read as the
+    items in its body: the body is parsed on its own, in place, and its
+    items take the invocation's place in the tree.
+    """
+
+    def __init__(self, content: bytes, item_macros):
+        self.content = content
+        self.item_macros = frozenset(item_macros)
+        self.parser = make_parser("rust", ".rs") if self.item_macros else None
+        self.trees, self.invocations = [], {}
+
+    def invocation(self, root):
+        """The invocation an expanded body's root stands for, or None."""
+        return self.invocations.get((root.start_byte, root.end_byte))
+
+    def children(self, node):
+        if (
+            self.parser is None
+            or node.type != "macro_invocation"
+            or node.parent is None
+            or not (
+                node.parent.type == "source_file"
+                or (
+                    node.parent.type == "declaration_list"
+                    and node.parent.parent is not None
+                    and node.parent.parent.type == "mod_item"
+                )
+            )
+        ):
+            return node.named_children
+        name = node.child_by_field_name("macro")
+        body = next((c for c in node.named_children if c.type == "token_tree"), None)
+        if (
+            name is None
+            or body is None
+            or _text(name, self.content).split("::")[-1] not in self.item_macros
+        ):
+            return node.named_children
+        from tree_sitter import Range
+
+        start, end = body.start_point, body.end_point
+        self.parser.included_ranges = [
+            Range(
+                (start[0], start[1] + 1),
+                (end[0], end[1] - 1),
+                body.start_byte + 1,
+                body.end_byte - 1,
+            )
+        ]
+        tree = self.parser.parse(self.content)
+        if tree.root_node.has_error:
+            return node.named_children
+        self.trees.append(tree)
+        self.invocations[(tree.root_node.start_byte, tree.root_node.end_byte)] = node
+        return tree.root_node.named_children
 
 
 def _rust_path(node, content):
@@ -428,7 +538,7 @@ def _rust_use_tree(node, content, prefix):
         yield path, "use", path[-1]
 
 
-def _rust_imports(node, content):
+def _rust_imports(node, content, expander=None):
     """Rust ``mod name;``, ``use`` and ``extern crate`` declarations.
 
     Each leaf of a ``use`` tree is one import of kind ``use`` (or
@@ -438,9 +548,9 @@ def _rust_imports(node, content):
     ``extern crate name [as alias];`` is kind ``extern_crate``.
     """
     if node.type == "mod_item":
-        yield from _rust_modules(node, content)
+        yield from _rust_modules(node, content, expander)
     elif node.type == "use_declaration":
-        parents = tuple(_rust_inline_modules(node, content))
+        parents = tuple(_rust_inline_modules(node, content, expander))
         argument = node.child_by_field_name("argument")
         if argument is None:
             return
@@ -463,12 +573,12 @@ def _rust_imports(node, content):
         yield (
             word,
             "extern_crate",
-            tuple(_rust_inline_modules(node, content)),
+            tuple(_rust_inline_modules(node, content, expander)),
             (local,),
         )
 
 
-def _rust_modules(node, content):
+def _rust_modules(node, content, expander=None):
     """A Rust ``mod name;`` declaration, as the file module it includes.
 
     The specifier is the module's path from the declaring file's module
@@ -482,7 +592,7 @@ def _rust_modules(node, content):
     if name is None:
         return
     word = _text(name, content).removeprefix("r#")
-    parents = _rust_inline_modules(node, content)
+    parents = _rust_inline_modules(node, content, expander)
     path = None
     sibling = node.prev_named_sibling
     while sibling is not None and sibling.type in {
@@ -511,20 +621,33 @@ def _rust_modules(node, content):
 
 
 def extract_imports(
-    tree, content: bytes, repository_id: str, file: str, language: str
+    tree,
+    content: bytes,
+    repository_id: str,
+    file: str,
+    language: str,
+    *,
+    expander: "RustExpander | None" = None,
 ) -> list[Import]:
-    """Static import statements in source order; dynamic loads are not facts here."""
+    """Static import statements in source order; dynamic loads are not facts
+    here. An ``expander`` reads Rust items written in pass-through macro
+    invocations."""
+    children = expander.children if expander else (lambda node: node.named_children)
     visit = {
         "python": _python_imports,
         "go": _go_imports,
         "java": _java_imports,
-        "rust": _rust_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
-        for specifier, kind, names, local_names in visit(node, content):
+        found = (
+            _rust_imports(node, content, expander)
+            if language == "rust"
+            else visit(node, content)
+        )
+        for specifier, kind, names, local_names in found:
             ordinal = ordinals.get(specifier, 0)
             ordinals[specifier] = ordinal + 1
             imports.append(
@@ -541,7 +664,7 @@ def extract_imports(
                     local_names=local_names,
                 )
             )
-        stack.extend(reversed(node.named_children))
+        stack.extend(reversed(children(node)))
     return imports
 
 
@@ -1052,7 +1175,14 @@ def _columns(line: bytes, column: int):
     }
 
 
-def declaration_sources(tree, content: bytes, repository_id: str, file: str) -> dict:
+def declaration_sources(
+    tree,
+    content: bytes,
+    repository_id: str,
+    file: str,
+    *,
+    expander: "RustExpander | None" = None,
+) -> dict:
     """Each declaration's source text, its span and its name's position, by id.
 
     The text runs from the declaration's decorators or ``export`` keyword to its
@@ -1061,7 +1191,7 @@ def declaration_sources(tree, content: bytes, repository_id: str, file: str) -> 
     indexes using any encoding can find them.
     """
     nodes = {}
-    extract(tree, content, repository_id, file, nodes=nodes)
+    extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")
     sources = {}
     for definition_id, (node, name) in nodes.items():

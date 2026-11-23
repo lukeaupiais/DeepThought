@@ -31,7 +31,7 @@ This local alpha extracts named declarations, static import statements, named
 call sites and declared class and interface bases from Python and TypeScript/TSX, and from JavaScript/JSX
 (`.js`, `.jsx`, `.mjs`, `.cjs`) when `--language javascript` is selected, and
 Go declarations and import facts when `--language go` is selected, Java declarations, imports, calls and declared bases when
-`--language java` is selected, Rust declarations, `mod name;` module files, `Cargo.toml` crate roots and `use` declarations when `--language rust` is selected, preserves namespace and quoted ambient-module owners in declaration names,
+`--language java` is selected, Rust declarations, `mod name;` module files, `Cargo.toml` crate roots and `use` declarations (including items in item pass-through macros) when `--language rust` is selected, preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. The `scip` graph tool stores TypeScript references
 from a source-bound scip-typescript index in Neo4j (see

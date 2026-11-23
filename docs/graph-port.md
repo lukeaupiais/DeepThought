@@ -643,7 +643,8 @@ tuple, slice, array or trait object) adds no qualifier. A raw identifier
 (`r#match`) names the bare word. Items in a file module are not qualified by
 the module name, as a file's items in the other languages are not. Constants,
 statics, fields, enum variants and closures are not declarations, and items
-written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed.
+written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed,
+except in item macros (see "Rust item macros" below).
 A `mod name;` declaration is also an import fact: it includes a file as a
 module (see "Rust module files" below), as are `Cargo.toml` crate roots and
 `use` declarations. Calls and impl relationships are not facts for Rust yet.
@@ -660,18 +661,43 @@ and none is left unexplained:
 | BurntSushi/ripgrep `4a51093` | 3,511 / 3,636 | 2 | 84 / 30 / 11 | 83 / 843 / 7 |
 | rust-lang/regex `fde4946` | 4,945 / 5,436 | 32 | 208 / 190 / 93 | 196 / 147 / 10 |
 | serde-rs/serde `5dfc8b0` | 2,635 / 3,017 | 11 | 52 / 28 / 302 | 57 / 174 / 10 |
-| tokio-rs/tokio `6bbeecf` | 7,756 / 9,990 | 13 | 318 / 960 / 956 | 402 / 651 / 1 |
+| tokio-rs/tokio `6bbeecf` | 7,994 / 10,577 | 15 | 536 / 1,091 / 956 | 402 / 413 / 1 |
 
 rust-analyzer indexes one configuration: items behind an inactive `#[cfg]` and
 files no crate builds (fuzz targets, compile-fail tests) have no SCIP
 definition, while the declarations here cover every configuration. A
 `mod name;` is declared where it is written; rust-analyzer defines that module
 at line 1 of its file. Owner differences are methods of impls for unnamed
-types (36), which have no qualifier here, and impls written through a type
+types (38), which have no qualifier here, and impls written through a type
 alias (22: `impl OwnedDFA` in regex, `impl From<SignalKind> for c_int` in
 tokio), which are qualified by the alias as written while rust-analyzer names
-the aliased type. rust-analyzer leaves a `target` directory with build output
-in the root; remove it before comparing.
+the aliased type. Items read from an item macro are classified in the body
+as parsed, and count as behind an inactive `#[cfg]` when the macro adds one
+(tokio's `cfg_rt!` without the `rt` feature). rust-analyzer leaves a `target`
+directory with build output in the root; remove it before comparing.
+
+### Rust item macros
+
+Many crates gate groups of items with a macro that emits each item it is
+given, adding attributes (`cfg_rt! { mod runtime; pub use runtime::Runtime; }`
+in tokio, where `cfg_rt!` adds `#[cfg(feature = "rt")]`). Before extracting,
+the analysis reads every `macro_rules!` definition in the selected Rust
+sources. A macro is an item macro when each of its definitions has one rule
+whose matcher is `($($i:item)*)`, optionally after `#![$m:meta]`, and whose
+transcriber is `$( #[...]* $i )*`: the items, each after attributes, and
+nothing else. The names are recorded as the analyzer input
+`rust-item-macros`, and a change to them parses every Rust file again on an
+incremental run.
+
+An invocation of an item macro at module level (in a file or an inline
+module, by its name or a path ending in it) is read as the items in its
+body: the body is parsed on its own, in place, so positions are those in the
+file, and the items count as written where the invocation is, for
+declarations, `mod` and `use` facts and declaration text. Invocations inside
+item macros are read the same way. A body that does not parse as items, an
+invocation in a function body and a macro with any other definition are left
+unread. The attributes a macro adds are not applied: as for `#[cfg]` written
+out, every configuration is analyzed.
 
 ### Rust module files
 
@@ -696,8 +722,8 @@ names with rule `tree-sitter.rust-module-file`:
   directory, inside them from the inline modules' directory.
 
 `#[cfg_attr(..., path = "...")]` is not read, a module declared inside a
-macro invocation is not seen, and paths through symbolic links are not
-followed (the analysis does not read linked files).
+macro invocation other than an item macro is not seen, and paths through
+symbolic links are not followed (the analysis does not read linked files).
 
 ### Cargo manifests
 
@@ -746,7 +772,7 @@ file it includes, so a link is confirmed when it reaches that file.
 | ripgrep | 84 | 83 | 0 | 0 | 1 / 0 | 0 |
 | regex | 208 | 178 | 0 | 0 | 12 / 0 | 18 shared symbols, ours among them |
 | serde | 52 | 48 | 0 | 1 `cfg_attr` path | 1 / 2 | 0 |
-| tokio | 318 | 258 | 0 | 0 | 58 / 0 | 2 `#[cfg]` variants |
+| tokio | 536 | 394 | 0 | 0 | 115 / 0 | 26 `#[cfg]` variants, 1 shared symbol |
 
 Not indexed declarations are behind an inactive `#[cfg]` or in files no crate
 builds; serde's two unresolved ones are `#[cfg(docsrs)]` paths through a
@@ -802,7 +828,8 @@ workspace libraries share it), `module_missing` (a module whose file is
 unknown, or a module inside a function body), `super_outside_crate`, and
 `module_context_unknown` (a file no crate root reaches, usually because its
 `mod` declaration is written inside a macro invocation). A name that a `use`
-brings into scope does not start another path, and dependency renames in
+brings into scope does not start another path, a `use` written in a function
+body binds its name in that body only, and dependency renames in
 `Cargo.toml` are not read.
 
 Checked with `tools/compare_rust_uses_with_scip.py`: rust-analyzer has an
@@ -814,30 +841,32 @@ in some file.
 | ripgrep | 1,083 | 505 / 0 / 20 | 73 / 0 / 5 | 21 / 0 / 0 | 6 | 429 / 23 | 1 |
 | regex | 1,808 | 900 / 0 / 135 | 183 / 0 / 27 | 28 / 1 / 6 | 0 | 491 / 37 | 0 |
 | serde | 981 | 187 / 0 / 20 | 7 / 0 / 0 | 29 / 49 / 7 | 1 | 316 / 13 | 159 |
-| tokio | 7,101 | 150 / 0 / 80 | 139 / 0 / 2 | 50 / 944 / 144 | 0 | 1,700 / 84 | 1,311 |
+| tokio | 7,554 | 1,197 / 0 / 376 | 1,278 / 0 / 193 | 206 / 178 / 241 | 0 | 3,346 / 500 | 14 |
 
 A use with several links (one per `#[cfg]` meaning) counts as confirmed when
 rust-analyzer's file, from the one configuration it indexes, is among them
-(regex 2, tokio 3).
+(regex 2, tokio 80).
 
 Uses whose file no crate reaches and for which rust-analyzer has no
 definition in the repository either are not counted above (serde 193, tokio
-2,497).
+25).
 
 No declared or re-export link is contradicted. Following re-exports moved
 ripgrep's links to a re-exporting module from 73 to 0 (its `grep` crate
 re-exports the others with `pub extern crate`) and regex's from 183 to 1 (a
-`#[macro_export]` macro). The "defined elsewhere" links left in serde and
-tokio are mostly modules and re-exports written inside macro invocations
-(`cfg_time! { pub mod time; }`, serde's `crate_root!()`), which the parse
-tree does not expand, and `#[macro_export]` macros, which belong to the crate
-root wherever they are written. Nearly all misses are
-`module_context_unknown`: serde and tokio declare most of their modules
-inside macro invocations (`cfg_rt! { mod runtime; }`, `crate_root!()`), which
-the parse tree does not expand, so those files have no crate. The rest are a
-`use` of a type declared in a function body (4, serde), a path through a name
-another `use` bound (1, tokio), a module chosen by `#[cfg_attr(..., path)]`
-(1, serde), and one leaf name imported twice in one declaration whose other
+`#[macro_export]` macro). Reading item macros moved tokio's misses from
+1,311 to 14 and its links to a module the name is not declared in from 968 to
+178. The "defined elsewhere" links left are mostly `#[macro_export]` macros,
+which belong to the crate root wherever they are written, items written
+inside other macro invocations (`pin_project! { pub struct ... }`), and in
+serde modules and re-exports inside `crate_root!()`, a macro without
+arguments that is not an item macro. serde's misses are
+`module_context_unknown` for the same reason: its modules are declared in
+`crate_root!()`, so those files have no crate. The rest are a path through a
+name another `use` bound (8, tokio), a file whose `mod` declaration is in a
+macro that is not an item macro (6, tokio), a `use` of a type declared in a
+function body (4, serde), a module chosen by `#[cfg_attr(..., path)]` (1,
+serde), and one leaf name imported twice in one declaration whose other
 occurrence the comparison matched (1, ripgrep).
 
 ## SCIP references

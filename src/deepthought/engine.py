@@ -33,6 +33,8 @@ from .syntax import (
     extract_packages,
     extract_supertypes,
     make_parser,
+    rust_macro_rules,
+    RustExpander,
 )
 from ._version import __version__
 
@@ -64,6 +66,48 @@ class _FileFacts:
                 versions.get(name) == value for name, value in self.versions.items()
             )
         )
+
+
+# The analyzer input naming the Rust macros whose invocations are read as the
+# items they are given (see syntax.RustExpander), comma-separated.
+RUST_ITEM_MACROS = "rust-item-macros"
+
+
+def _rust_item_macros(root, include, exclude, max_file_bytes):
+    """Names of the macros every ``macro_rules!`` definition of which, in the
+    selected Rust sources, passes items through unchanged."""
+    found = {}
+    parser = None
+    for directory, dirs, names, directory_fd in os.fwalk(root, follow_symlinks=False):
+        dirs[:] = sorted(
+            d for d in dirs if d not in {".git", ".venv", "node_modules", "__pycache__"}
+        )
+        for name in sorted(names):
+            relative = (Path(directory) / name).relative_to(root).as_posix()
+            if (
+                not name.endswith(".rs")
+                or not any(fnmatchcase(relative, pattern) for pattern in include)
+                or any(fnmatchcase(relative, pattern) for pattern in exclude)
+            ):
+                continue
+            try:
+                fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    dir_fd=directory_fd,
+                )
+                with os.fdopen(fd, "rb") as source:
+                    if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                        continue
+                    content = source.read(max_file_bytes + 1)
+            except OSError:
+                continue
+            if len(content) > max_file_bytes or b"macro_rules" not in content:
+                continue
+            parser = parser or make_parser("rust", ".rs")
+            for macro, through in rust_macro_rules(parser.parse(content), content):
+                found.setdefault(macro, set()).add(through)
+    return ",".join(sorted(name for name, kinds in found.items() if kinds == {True}))
 
 
 def reusable_files(previous, repository_id):
@@ -112,6 +156,9 @@ def reusable_files(previous, repository_id):
         if language is None:
             continue
         packages = ("tree-sitter", language[1].replace("_", "-"))
+        if item.language == "rust":
+            # Rust facts depend on which macros pass items through.
+            packages += (RUST_ITEM_MACROS,)
         if any(name not in recorded for name in packages):
             continue
         facts[item.file] = _FileFacts(
@@ -168,6 +215,14 @@ def analyze_repository(
     supertypes = []
     packages = []
     parsers, versions = {}, {"deepthought-analysis-engine": __version__}
+    if "rust" in languages:
+        try:
+            versions[RUST_ITEM_MACROS] = _rust_item_macros(
+                root, include, exclude, max_file_bytes
+            )
+        except ImportError:
+            pass  # The grammar is missing: each Rust file reports it.
+    item_macros = [m for m in versions.get(RUST_ITEM_MACROS, "").split(",") if m]
     reusable, rejected = reusable_files(previous, repository_id)
     stats = {"reused": 0, "parsed": 0, "previous_rejected": rejected}
     cancelled = False
@@ -341,10 +396,22 @@ def analyze_repository(
                             relative, language, "analyzed", sha256(content).hexdigest()
                         )
                     )
-                declared = extract(tree, content, repository_id, relative)
+                expander = (
+                    RustExpander(content, item_macros) if language == "rust" else None
+                )
+                declared = extract(
+                    tree, content, repository_id, relative, expander=expander
+                )
                 definitions.extend(declared)
                 imports.extend(
-                    extract_imports(tree, content, repository_id, relative, language)
+                    extract_imports(
+                        tree,
+                        content,
+                        repository_id,
+                        relative,
+                        language,
+                        expander=expander,
+                    )
                 )
                 if language == "rust":
                     # Rust: declarations and file modules so far; calls, uses
