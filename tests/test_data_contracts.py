@@ -40,6 +40,9 @@ WORKSPACE = {
     "@Table(name = Order.TABLE)\n"
     "public class Order {\n"
     '  static final String TABLE = "orders";\n'
+    "  @ManyToMany\n"
+    '  @JoinTable(name = "order_tags")\n'
+    "  java.util.Set<String> tags;\n"
     "}\n",
     MODEL + "LineItem.java": "package shop.model;\n"
     "import javax.persistence.Entity;\n"
@@ -164,6 +167,12 @@ class ToolTests(unittest.TestCase):
                 (
                     "MAPS_TO",
                     "Order",
+                    store + "order_tags",
+                    "data-contracts.jpa-join-table",
+                ),
+                (
+                    "MAPS_TO",
+                    "Order",
                     store + "orders",
                     "data-contracts.jpa-table-annotation",
                 ),
@@ -194,7 +203,8 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(
             metrics["repository_resolution"], {"linked": 2, "not_an_entity": 1}
         )
-        self.assertEqual(metrics["tables"], 3)
+        self.assertEqual(metrics["tables"], 4)
+        self.assertEqual(metrics["association_tables"], 1)
         tables = [n for n in output.nodes if "DbTable" in n.labels]
         self.assertTrue(all("Contract" in n.labels for n in tables))
         # Same facts, same output.
@@ -204,6 +214,69 @@ class ToolTests(unittest.TestCase):
         )
         self.assertEqual(
             metrics["snapshot_id"], again.metadata.custom_metrics["snapshot_id"]
+        )
+
+    def test_one_persistent_datasource_shares_its_tables(self):
+        entity = (
+            "package {p};\nimport jakarta.persistence.*;\n"
+            '@Entity @Table(name = "orders") public class Order {{ }}\n'
+        )
+        repository = (
+            "package {p};\nimport org.springframework.data.repository.{base};\n"
+            "public interface Orders extends {base}<Order, Long> {{ }}\n"
+        )
+        files = {}
+        for module, url, base in (
+            ("billing", "jdbc:postgresql://db:5432/shop", "CrudRepository"),
+            ("report", "jdbc:postgresql://db:5432/shop", "PagingAndSortingRepository"),
+            ("cache", "jdbc:h2:mem:cache", "PagingAndSortingRepository"),
+        ):
+            java = f"{module}/src/main/java/{module}/"
+            files[f"{module}/pom.xml"] = (
+                f"<project><artifactId>{module}</artifactId></project>"
+            )
+            files[f"{module}/src/main/resources/application.yml"] = (
+                f"spring:\n  datasource:\n    url: {url}\n"
+            )
+            files[java + "Order.java"] = entity.format(p=module)
+            files[java + "Orders.java"] = repository.format(p=module, base=base)
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            outputs = [
+                asyncio.run(TreeSitterTool(directory).analyze("r", languages={"java"})),
+                asyncio.run(ComponentsTool(directory).analyze("r")),
+                asyncio.run(DataContractTool(directory).analyze("r")),
+            ]
+        tables = sorted(
+            n.properties["qualified_name"]
+            for n in outputs[2].nodes
+            if "DbTable" in n.labels
+        )
+        self.assertEqual(
+            tables,
+            [
+                "r::cache/pom.xml::db-table::orders",
+                "r::datasource:jdbc:postgresql://db:5432/shop::db-table::orders",
+            ],
+        )
+        merged, _ = _combine(outputs, "r", "rev", WriteCoordinatorConfig())
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"],
+                    r.target_match["qualified_name"],
+                    r.properties["rule_id"],
+                )
+                for r in merged.relationships
+                if r.type == "USES_CONTRACT_OF"
+            ],
+            [
+                (
+                    "r::report/pom.xml::maven_module::component",
+                    "r::billing/pom.xml::maven_module::component",
+                    "components.contract-consumer",
+                )
+            ],
         )
 
     def test_combined_with_tree_sitter_and_components(self):
