@@ -232,8 +232,23 @@ class _Values:
     ``_MAX_ALTERNATIVES`` alternatives are kept; more give unknown text.
     """
 
-    def __init__(self, root, content):
+    def __init__(self, root, content, constants=None, imports=None):
         self.content = content
+        # Constants of other classes: {qualified class: {field: text}}.
+        self._constants = constants or {}
+        self._imports = imports
+        self._package = _package(root, content)
+        self._classes = {
+            _text(n.child_by_field_name("name"), content)
+            for n in _descendants(root)
+            if n.type
+            in (
+                "class_declaration",
+                "interface_declaration",
+                "enum_declaration",
+                "record_declaration",
+            )
+        }
         assigned = _assigned_names(root, content)
         declared, methods = {}, {}
         stack = [root]
@@ -470,15 +485,35 @@ class _Values:
         if kind == "identifier":
             return self._name(node, env, depth)
         if kind == "field_access":
-            # this.x or Class.CONSTANT of a class in this file.
-            field = node.child_by_field_name("field")
-            value = self._fields.get(_text(field, self.content))
-            if value is None:
-                return [PLACEHOLDER]
-            return self._fold(("field", _text(field, self.content)), value, None, depth)
+            field = _text(node.child_by_field_name("field"), self.content)
+            owner = node.child_by_field_name("object")
+            written = _text(owner, self.content)
+            if written == "this" or written in self._classes:
+                # this.x or Class.CONSTANT of a class in this file.
+                value = self._fields.get(field)
+                if value is None:
+                    return [PLACEHOLDER]
+                return self._fold(("field", field), value, None, depth)
+            qualified = self._qualified_class(written)
+            value = self._constants.get(qualified, {}).get(field)
+            return [PLACEHOLDER if value is None else value]
         if kind == "method_invocation":
             return self._call(node, env, depth)
         return [PLACEHOLDER]
+
+    def _qualified_class(self, written):
+        """The qualified name of a class this file names: written in full,
+        imported by name, or (when not imported) in the file's package."""
+        if "." in written:
+            return written
+        if self._imports is None:
+            return None
+        packages = self._imports.names.get(written, set())
+        if len(packages) == 1:
+            return f"{next(iter(packages))}.{written}"
+        if packages or self._imports.wildcards:
+            return None
+        return f"{self._package}.{written}" if self._package else written
 
     def alternatives(self, node):
         """Each text the expression may have, in source order, without repeats."""
@@ -497,6 +532,77 @@ class _Values:
         if node.type == "element_value_array_initializer":
             return [self.evaluate(c) for c in node.named_children]
         return [self.evaluate(node)]
+
+
+def _descendants(node):
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        yield current
+        stack.extend(current.named_children)
+
+
+def _package(root, content):
+    for node in root.named_children:
+        if node.type == "package_declaration":
+            name = next(
+                (
+                    c
+                    for c in node.named_children
+                    if c.type in ("scoped_identifier", "identifier")
+                ),
+                None,
+            )
+            return _dotted(name, content) if name is not None else None
+    return None
+
+
+def java_constants(tree, content):
+    """{qualified class: {field: text}} for the ``static final`` String fields
+    of a file's top-level classes whose value the file fixes."""
+    root = tree.root_node
+    package = _package(root, content)
+    values = _Values(root, content)
+    found = {}
+    for declaration in root.named_children:
+        if declaration.type not in (
+            "class_declaration",
+            "interface_declaration",
+            "enum_declaration",
+        ):
+            continue
+        name = _text(declaration.child_by_field_name("name"), content)
+        qualified = f"{package}.{name}" if package else name
+        body = declaration.child_by_field_name("body")
+        for field in body.named_children if body is not None else ():
+            if field.type not in ("field_declaration", "constant_declaration"):
+                continue
+            modifiers = next(
+                (c for c in field.named_children if c.type == "modifiers"), None
+            )
+            words = set(_text(modifiers, content).split()) if modifiers else set()
+            constant = (
+                field.type == "constant_declaration"
+                or {
+                    "static",
+                    "final",
+                }
+                <= words
+            )
+            type_node = field.child_by_field_name("type")
+            if (
+                not constant
+                or type_node is None
+                or _text(type_node, content) not in _STRING_TYPES
+            ):
+                continue
+            for declarator in field.children_by_field_name("declarator"):
+                value = values.evaluate(declarator.child_by_field_name("value"))
+                if PLACEHOLDER not in value:
+                    found.setdefault(qualified, {})[
+                        _text(declarator.child_by_field_name("name"), content)
+                    ] = value
+    return found
 
 
 def _methods(node, content, default):
@@ -587,13 +693,14 @@ def _properties_values(text, key):
     return found
 
 
-def _read_values(path, key):
+def _read_values(path, key, raw=False):
+    """Values of ``key`` in one config file; ``raw`` keeps ``${...}`` ones."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
     reader = _properties_values if path.suffix == ".properties" else _yaml_values
-    return [v for v in reader(text, key) if v and "${" not in v]
+    return [v for v in reader(text, key) if v and (raw or "${" not in v)]
 
 
 class SpringConfig:
@@ -669,6 +776,23 @@ class SpringConfig:
             self._modules[module] = (name, context)
         return self._modules[module]
 
+    def values(self, file, key):
+        """The distinct values of ``key`` in the file's module configuration
+        (the shared config-server files included), or None outside a module."""
+        module = _module_root(self.root, file)
+        if module is None:
+            return None
+        name, _ = self.service(file)
+        files = self._module_files(module)
+        if name is not None:
+            files += [
+                directory / f"{stem}.{suffix}"
+                for directory in self._shared_directories()
+                for stem in (name, "application")
+                for suffix in _CONFIG_SUFFIXES
+            ]
+        return sorted({v for f in files for v in _read_values(f, key, raw=True)})
+
 
 def _receivers(root, content, imports, kinds):
     """Names declared in the file with one of the Spring types ``kinds`` only."""
@@ -705,7 +829,15 @@ def _receivers(root, content, imports, kinds):
 
 
 def extract_spring(
-    tree, content, repository_id, file, definitions, *, service=None, context_path=None
+    tree,
+    content,
+    repository_id,
+    file,
+    definitions,
+    *,
+    service=None,
+    context_path=None,
+    constants=None,
 ):
     """Routes, requests and unread mappings of one Java file.
 
@@ -715,7 +847,7 @@ def extract_spring(
     """
     root = tree.root_node
     imports = _Imports(root, content)
-    values = _Values(root, content)
+    values = _Values(root, content, constants, imports)
     spans = {
         (d.line, d.column, d.end_line, d.end_column): d
         for d in definitions
