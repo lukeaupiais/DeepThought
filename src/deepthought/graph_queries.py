@@ -744,8 +744,10 @@ class GraphQueryService:
         """Declarations and files that depend on a declaration, transitively.
 
         The change set is the declaration and every declaration it CONTAINS.
-        Dependents are reached backwards over CALLS, INHERITS_FROM and
-        IMPLEMENTS edges, at most ``max_depth`` hops. Each dependent is listed
+        Dependents are reached backwards over CALLS, INHERITS_FROM,
+        IMPLEMENTS and REQUESTS edges, and forwards over HANDLES: a handler's
+        route depends on it, and the callers requesting that route depend on
+        the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
         """
@@ -754,7 +756,7 @@ class GraphQueryService:
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
             "WHERE part.repo_url=$repo_url AND part.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT part) AS parts ",
-            "CALLS|INHERITS_FROM|IMPLEMENTS",
+            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS",
             qname,
             repo_url,
             snapshot_id,
@@ -763,6 +765,7 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
+            reverse="HANDLES",
         )
 
     async def get_file_impact(
@@ -838,16 +841,28 @@ class GraphQueryService:
         limit,
         budget,
         timeout,
+        *,
+        reverse=None,
     ):
         _text(subject, "subject")
         if type(max_depth) is not int or not 1 <= max_depth <= 5:
             raise ValueError("max_depth must be an integer from 1 to 5")
         evidence = _evidence_filter(evidence)
+        step = "-[:RELATIONS*1..DEPTH]->"
+        if reverse is not None:
+            # A quantified path pattern (Neo4j 5.9+) checks each hop's
+            # direction while expanding: RELATIONS edges point from the
+            # dependent's side, REVERSE edges from the changed side.
+            step = (
+                " ((near)-[hop:RELATIONS|REVERSE]-(far) WHERE startNode(hop) = "
+                "CASE WHEN type(hop) IN $reverse THEN far ELSE near END)"
+                "{1,DEPTH} "
+            )
         statement = (
             (
                 seeds + "WITH [root] + parts AS changed "
                 "UNWIND changed AS target "
-                "MATCH path=(dependent)-[:RELATIONS*1..DEPTH]->(target) "
+                "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
@@ -869,12 +884,17 @@ class GraphQueryService:
                 "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
                 "ORDER BY depth, best.weakness, dependent.qualified_name LIMIT $fetch_limit"
             )
+            .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
         )
         response = await self._read(
             statement,
-            {"subject": subject, "evidence": evidence},
+            {
+                "subject": subject,
+                "evidence": evidence,
+                "reverse": (reverse or "").split("|") if reverse else [],
+            },
             repo_url,
             snapshot_id,
             limit=limit,
@@ -886,9 +906,16 @@ class GraphQueryService:
         response["max_depth"] = max_depth
         response["evidence_types"] = evidence
         response["relations"] = relations.split("|")
+        if reverse:
+            response["forward_relations"] = reverse.split("|")
         response["semantics"] = (
             "Dependents reachable backwards over observed "
             + ", ".join(relations.split("|"))
+            + (
+                " edges and forwards over " + ", ".join(reverse.split("|"))
+                if reverse
+                else ""
+            )
             + " edges; each path's evidence is its weakest edge. Absence does "
             "not prove that nothing else is affected: dynamic dispatch, "
             "reflection, unanalyzed files and unrecorded relations are not seen."
