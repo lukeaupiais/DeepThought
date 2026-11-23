@@ -364,23 +364,24 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             [row for row in rows if not row[0].endswith(".java")],
             [
                 ("StatsController.latest", 1, "name_matched", ["CALLS"]),
-                ("GET /stats/latest", 2, "name_matched", ["CALLS", "HANDLES"]),
+                ("GET /stats/latest", 2, "name_matched", ["HANDLES", "CALLS"]),
                 (
                     "StatsReader.read",
                     3,
                     "name_matched",
-                    ["CALLS", "HANDLES", "REQUESTS"],
+                    ["REQUESTS", "HANDLES", "CALLS"],
                 ),
                 (
                     "StatsReader.twice",
                     4,
                     "name_matched",
-                    ["CALLS", "HANDLES", "REQUESTS", "CALLS"],
+                    ["CALLS", "REQUESTS", "HANDLES", "CALLS"],
                 ),
             ],
         )
         self.assertEqual(impact["forward_relations"], ["HANDLES"])
         self.assertIn("forwards over HANDLES", impact["semantics"])
+        # Edges are listed from the dependent towards the change.
         # From the handler, the contract hops are pattern matched.
         handler = await self.service.get_impact(
             names["StatsController.latest"], repo, snapshot_id=snapshot
@@ -389,14 +390,14 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             self.rows(handler)[:2],
             [
                 ("GET /stats/latest", 1, "pattern_matched", ["HANDLES"]),
-                ("StatsReader.read", 2, "pattern_matched", ["HANDLES", "REQUESTS"]),
+                ("StatsReader.read", 2, "pattern_matched", ["REQUESTS", "HANDLES"]),
             ],
         )
         self.assertEqual(
             [e["rule_id"] for e in self.rows_edges(handler)[1]],
             [
-                "service-contracts.spring-route-mapping",
                 "service-contracts.http-service-path",
+                "service-contracts.spring-route-mapping",
             ],
         )
         # A requester depends on the route; the route does not depend on it,
