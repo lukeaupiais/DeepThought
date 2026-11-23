@@ -9,7 +9,12 @@ import unittest
 
 from deepthought import AnalysisResult, analyze_repository
 from deepthought.analysis_tools import TreeSitterTool
-from deepthought.calls import CALL_LEXICAL_NAME, CALL_PACKAGE_NAME, resolve_calls
+from deepthought.calls import (
+    CALL_LEXICAL_NAME,
+    CALL_MODULE_ATTRIBUTE,
+    CALL_PACKAGE_NAME,
+    resolve_calls,
+)
 from deepthought.imports import GO_MODULE_PACKAGE, resolve_imports
 from deepthought.syntax import extract_go_module
 
@@ -375,6 +380,59 @@ class GoTests(unittest.TestCase):
             )
             for r in resolve_imports(result)
         }
+
+    def test_package_qualified_calls_bind_the_declared_package_name(self):
+        result = analyze(
+            {
+                "go.mod": "module example.com/app\n",
+                "main.go": (
+                    "package main\n"
+                    "import (\n"
+                    '\t"example.com/app/lib"\n'
+                    '\tl2 "example.com/app/lib"\n'
+                    '\t"example.com/app/v2"\n'
+                    '\t"fmt"\n'
+                    ")\n"
+                    "func main() {\n"
+                    "\tlib.Make(); l2.Make(); lib.Missing()\n"
+                    "\tshiny.New(); v2.New(); fmt.Println()\n"
+                    "}\n"
+                ),
+                "lib/a.go": "package lib\nfunc Make() {}\n",
+                # The binding is the declared package name, not the directory.
+                "v2/v.go": "package shiny\nfunc New() {}\n",
+            }
+        )
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                r.status,
+                (
+                    (definitions[r.target_id].file, definitions[r.target_id].symbol)
+                    if r.target_id
+                    else r.reason
+                ),
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual(
+            found,
+            {
+                "lib.Make": ("linked", ("lib/a.go", "Make"), CALL_MODULE_ATTRIBUTE),
+                "l2.Make": ("linked", ("lib/a.go", "Make"), CALL_MODULE_ATTRIBUTE),
+                "lib.Missing": (
+                    "unresolved",
+                    "module_attribute_not_declared",
+                    None,
+                ),
+                "shiny.New": ("linked", ("v2/v.go", "New"), CALL_MODULE_ATTRIBUTE),
+                "v2.New": ("unresolved", "attribute_call", None),
+                # Unresolved imports bind nothing.
+                "fmt.Println": ("unresolved", "attribute_call", None),
+            },
+        )
 
     def test_go_is_opt_in_and_tool_projects_nesting(self):
         default = analyze({"server.go": SOURCE, "a.py": "x = 1\n"}, languages=None)

@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 import deepthought
@@ -75,7 +76,7 @@ def main():
         "scip_in_repo_targets": 0,
         "scip_targets_linked": 0,
     }
-    by_rule, contradicted = {}, []
+    by_rule, contradicted, unwitnessed = {}, [], []
     sites = {site.id: site for site in result.call_sites}
     for resolution in resolve_calls(result):
         site = sites[resolution.call_id]
@@ -91,6 +92,7 @@ def main():
         rule["linked"] += 1
         if scip_def is None:
             counts["linked_no_scip_target"] += 1
+            unwitnessed.append(site.file)
         elif contains(target, scip_def):
             counts["linked_confirmed"] += 1
             counts["scip_targets_linked"] += 1
@@ -102,7 +104,14 @@ def main():
             )
     print(
         json.dumps(
-            {**counts, "by_rule": by_rule, "contradicted": contradicted[:20]},
+            {
+                **counts,
+                "by_rule": by_rule,
+                "contradicted": contradicted[:20],
+                "unwitnessed_by_directory": dict(
+                    sorted(Counter(f.split("/")[0] for f in unwitnessed).items())
+                ),
+            },
             indent=2,
         )
     )

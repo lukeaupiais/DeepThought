@@ -334,23 +334,39 @@ are separate packages. A bare call `f()` links by
 `tree-sitter.call-package-name` to a function another file of the same package
 declares at top level. Build constraints are not evaluated: if
 `plat_linux.go` and `plat_darwin.go` both declare `plat`, the call is ambiguous
-and gets no edge. Method calls and package-qualified calls (`pkg.F()`) are not
-linked.
+and gets no edge.
+
+A package-qualified call `pkg.F()` links by `tree-sitter.call-module-attribute`
+when `pkg` is bound by a resolved import and a file of that package declares
+`F` at top level. An aliased import binds its alias; an import without one
+binds the imported package's declared name (from its `package` clause), not
+its directory name. Imports outside the module bind nothing, and local
+variables that shadow a package name are not checked (name_matched). Method
+calls (`x.M()`) and conversions are not linked.
 
 Checked against scip-go 0.1.26 indexes with
 `tools/compare_go_declarations_with_scip.py` and
 `tools/compare_calls_with_scip.py --language go`:
 
-| Corpus | Declarations matched by scip-go (same file, line and name) | scip-go only | Receiver mismatches | Linked calls confirmed (same file + package) | Contradicted |
-|---|---|---|---|---|---|
-| cobra 1.8.1 | 580 / 585 | 0 | 0 | 983 / 983 (438 + 545) | 0 |
-| gorilla/mux 1.8.1 | 235 / 238 | 0 | 0 | 398 / 398 (255 + 143) | 0 |
+| Corpus | Declarations matched by scip-go (same file, line and name) | scip-go only | Receiver mismatches |
+|---|---|---|---|
+| cobra 1.8.1 | 580 / 585 | 0 | 0 |
+| gorilla/mux 1.8.1 | 235 / 238 | 0 | 0 |
+
+| Corpus | Linked calls confirmed (same file + package + qualified) | Contradicted | Calls with an in-repo SCIP target that are linked |
+|---|---|---|---|
+| cobra 1.8.1 | 998 / 998 (438 + 545 + 15) | 0 | 998 / 2,096 |
+| gorilla/mux 1.8.1 | 404 / 404 (255 + 143 + 6) | 0 | 404 / 820 |
+| go-chi/chi v5.0.12 | 416 / 416 (150 + 227 + 39) | 0 | 416 / 948 |
+| spf13/viper 1.18.2 | 430 / 430 (113 + 286 + 31) | 0 | 430 / 1,061 |
+
+A further 35 chi links are in `_examples/`, which scip-go does not index, so
+nothing confirms or contradicts them.
 
 The eight declarations scip-go has no global symbol for are five types declared
 inside test functions, two interface method elements, and `preExecHook` in
-`command_win.go`, which a Linux build excludes. Recall of calls is 983 of
-2,096 and 398 of 820 calls with an in-repository SCIP target; the rest are
-method calls, conversions and package-qualified calls, which are not linked.
+`command_win.go`, which a Linux build excludes. The calls that stay unlinked
+are mostly method calls and conversions.
 
 Import links are compared per (file, package directory) pair across
 directories with `tools/compare_imports_with_scip.py --language go`, against
