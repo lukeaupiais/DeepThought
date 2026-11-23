@@ -20,6 +20,9 @@ the tools that own each manifest format:
   npm packages: each workspace's locked dependencies that resolve to
   ``workspace:`` entries (needs PyYAML). Name-matched links are counted as
   confirmed or refuted.
+- Compose: ``docker compose -f FILE --profile '*' config --format json`` gives each file's
+  services, build contexts and depends_on; every service, context and
+  compose-depends-on link must match (optional, ``--compose``).
 - Maven: ``mvn help:evaluate`` gives each pom.xml's artifactId (optional,
   ``--maven``; it may download the help plugin).
 
@@ -231,6 +234,8 @@ def check_dependencies(root, scan, tally):
     )
     ours = {}
     for link in links:
+        if link.source.kind == "compose_service":
+            continue  # Checked by check_compose.
         key = (link.source.kind, link.source.manifest, link.target.manifest)
         # A resolved rule wins over a name match for the same pair.
         if ours.get(key) != "resolved":
@@ -357,6 +362,77 @@ def check_dependencies(root, scan, tally):
         tally.add("deps.oracle-linked", key in ours, list(key))
 
 
+def check_compose(root, scan, tally):
+    from deepthought.component_dependencies import (
+        COMPOSE_DEPENDS_ON,
+        resolve_dependencies,
+    )
+
+    links, _ = resolve_dependencies(scan.components, scan.dependencies)
+    ours = {}
+    for link in links:
+        if link.rule == COMPOSE_DEPENDS_ON:
+            ours.setdefault((link.source.manifest, link.source.name), set()).add(
+                link.target.name
+            )
+    services = {}
+    for c in scan.components:
+        if c.kind == "compose_service":
+            services.setdefault(c.manifest, {})[c.name] = c
+    for manifest, declared in sorted(services.items()):
+        answer = run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                manifest,
+                "--profile",
+                "*",
+                "config",
+                "--format",
+                "json",
+            ],
+            root,
+        )
+        if answer.returncode:
+            tally.skip("compose.service", "docker compose config failed")
+            continue
+        config = json.loads(answer.stdout).get("services", {})
+        tally.add(
+            "compose.service",
+            sorted(config) == sorted(declared),
+            [manifest, sorted(declared), sorted(config)],
+        )
+        for name, service in sorted(config.items()):
+            component = declared.get(name)
+            if component is None:
+                continue
+            build = service.get("build")
+            context = None
+            if isinstance(build, dict) and build.get("context"):
+                try:
+                    context = (
+                        Path(build["context"]).resolve().relative_to(root).as_posix()
+                    )
+                    context = "" if context == "." else context
+                except ValueError:
+                    context = None
+            if component.context is None and context is not None:
+                tally.skip("compose.context", "context not resolved here")
+            else:
+                tally.add(
+                    "compose.context",
+                    component.context == context,
+                    [manifest, name, component.context, context],
+                )
+            depends = sorted(service.get("depends_on") or {})
+            tally.add(
+                "compose.depends-on",
+                sorted(ours.get((manifest, name), ())) == depends,
+                [manifest, name, sorted(ours.get((manifest, name), ())), depends],
+            )
+
+
 def check_maven(root, components, tally):
     for module in [c for c in components if c.kind == "maven_module"]:
         answer = run(
@@ -384,6 +460,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("repositories", nargs="+", type=Path)
     parser.add_argument("--maven", action="store_true")
+    parser.add_argument("--compose", action="store_true")
     parser.add_argument("--exclude", action="append", default=[])
     args = parser.parse_args(argv)
     report = {}
@@ -396,6 +473,8 @@ def main(argv=None):
         check_cargo(root, scan.components, tally)
         check_node(root, scan.components, tally, files)
         check_dependencies(root, scan, tally)
+        if args.compose:
+            check_compose(root, scan, tally)
         if args.maven:
             check_maven(root, scan.components, tally)
         kinds = {}

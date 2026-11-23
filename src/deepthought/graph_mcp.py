@@ -334,7 +334,7 @@ def create_server():
         kind: str | None = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """List components build manifests declare (Python projects, npm packages, Go modules, Cargo packages, Maven modules) with file counts."""
+        """List components build manifests declare (Python projects, npm packages, Go modules, Cargo packages, Maven modules, Compose services) with file counts."""
         return await ctx.request_context.lifespan_context.list_components(
             repository_id, snapshot_id=snapshot_id, kind=kind, limit=max_elements
         )

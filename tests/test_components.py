@@ -24,6 +24,7 @@ from deepthought.storage.graph.write_coordinator import (
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
 )
+YAML = importlib.util.find_spec("yaml")
 
 WORKSPACE = {
     "pyproject.toml": '[build-system]\nrequires = ["hatchling"]\n\n'
@@ -404,6 +405,117 @@ class DependencyTests(unittest.TestCase):
             output.metadata.custom_metrics["dependency_resolution"],
             {"linked": 0, "external": 1, "ambiguous": 1},
         )
+
+
+COMPOSE = {
+    "compose.yaml": "services:\n"
+    "  api:\n    build: ./api\n    depends_on: [db, cache]\n"
+    "  worker:\n    build:\n      context: api\n      dockerfile: Worker\n"
+    "    depends_on:\n      db:\n        condition: service_healthy\n"
+    "  web:\n    image: registry.example:5000/acme/web:1.2\n"
+    "  db:\n    image: postgres:16\n"
+    "  remote:\n    build: https://github.com/acme/x.git\n"
+    "  env:\n    build: ${CONTEXT}\n",
+    "api/pyproject.toml": '[project]\nname = "api"\n',
+    "api/app.py": "print(1)\n",
+    "frontend/package.json": '{"name": "@acme/web"}',
+    "ops/docker-compose.prod.yml": "services:\n  api:\n    build: ../api\n",
+    "notcompose.yaml": "services: {}\n",
+}
+
+
+@unittest.skipUnless(YAML, "Provision PyYAML")
+class ComposeTests(unittest.TestCase):
+    def analyze(self, files):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            return asyncio.run(ComponentsTool(directory).analyze("repo"))
+
+    def test_services_contexts_and_images(self):
+        found, _ = __import__(
+            "deepthought.deployments", fromlist=["extract_compose"]
+        ).extract_compose("compose.yaml", COMPOSE["compose.yaml"].encode())
+        self.assertEqual(
+            [(c.name, c.context, c.image) for c in found],
+            [
+                ("api", "api", None),
+                ("db", None, "postgres:16"),
+                ("env", None, None),
+                ("remote", None, None),
+                ("web", None, "registry.example:5000/acme/web:1.2"),
+                ("worker", "api", None),
+            ],
+        )
+
+    def test_edges(self):
+        output = self.analyze(COMPOSE)
+        edges = sorted(
+            (
+                r.type,
+                "::".join(r.source_match["qualified_name"].split("::")[1:-1]),
+                "::".join(r.target_match["qualified_name"].split("::")[1:-1]),
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type in {"REQUIRES", "DEPLOYS"}
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "DEPLOYS",
+                    "compose.yaml::compose_service::api",
+                    "api/pyproject.toml::python_project",
+                    "components.compose-build-context",
+                ),
+                (
+                    "DEPLOYS",
+                    "compose.yaml::compose_service::web",
+                    "frontend/package.json::node_package",
+                    "components.compose-image-name",
+                ),
+                (
+                    "DEPLOYS",
+                    "compose.yaml::compose_service::worker",
+                    "api/pyproject.toml::python_project",
+                    "components.compose-build-context",
+                ),
+                (
+                    "DEPLOYS",
+                    "ops/docker-compose.prod.yml::compose_service::api",
+                    "api/pyproject.toml::python_project",
+                    "components.compose-build-context",
+                ),
+                (
+                    "REQUIRES",
+                    "compose.yaml::compose_service::api",
+                    "compose.yaml::compose_service::db",
+                    "components.compose-depends-on",
+                ),
+                (
+                    "REQUIRES",
+                    "compose.yaml::compose_service::worker",
+                    "compose.yaml::compose_service::db",
+                    "components.compose-depends-on",
+                ),
+            ],
+        )
+        # depends_on naming no service of the file is external.
+        self.assertEqual(
+            output.metadata.custom_metrics["dependency_resolution"]["external"], 1
+        )
+        # Files under a build context belong to every service built from it.
+        part_of = sorted(
+            r.target_match["qualified_name"].split("::")[-2]
+            for r in output.relationships
+            if r.type == "PART_OF"
+            and r.source_match["qualified_name"] == "repo::api/pyproject.toml::file"
+        )
+        self.assertEqual(part_of, ["api", "api", "python_project", "worker"])
+
+    def test_invalid_compose_file(self):
+        output = self.analyze({"compose.yaml": "services: [\n"})
+        self.assertEqual(output.metadata.custom_metrics["analysis_status"], "partial")
 
 
 @unittest.skipUnless(

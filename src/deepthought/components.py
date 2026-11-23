@@ -28,7 +28,11 @@ MANIFESTS = {
     "Cargo.toml": "cargo_package",
     "pom.xml": "maven_module",
 }
-COMPONENT_KINDS = frozenset(MANIFESTS.values())
+# Compose files: compose.yaml, docker-compose.yml and their variants such as
+# compose.override.yaml or docker-compose.prod.yml; each declares services.
+COMPOSE_FILE = re.compile(r"^(?:docker-)?compose(?:\.[A-Za-z0-9_.-]+)?\.ya?ml$")
+PACKAGE_KINDS = frozenset(MANIFESTS.values())
+COMPONENT_KINDS = PACKAGE_KINDS | {"compose_service"}
 # Directories the source analyzer does not enter either.
 SKIPPED_DIRECTORIES = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 _MAVEN_NS = re.compile(r"^\{[^}]*\}")
@@ -44,14 +48,35 @@ class Component:
     # One-based line of the declaring table or directive, when the manifest
     # format gives one.
     line: int | None = None
+    # Compose services: the repository-relative build context directory
+    # ("" is the root), or None when the service builds nothing here.
+    context: str | None = None
+    # Compose services: the image the service names, as written.
+    image: str | None = None
 
     def __post_init__(self):
         if self.kind not in COMPONENT_KINDS:
             raise ValueError("Unsupported component kind")
         if not is_relative_file(self.manifest):
             raise ValueError("Manifest path must be canonical and relative")
-        if PurePosixPath(self.manifest).name not in MANIFESTS:
+        file_name = PurePosixPath(self.manifest).name
+        if (self.kind == "compose_service") != bool(COMPOSE_FILE.match(file_name)) or (
+            self.kind != "compose_service" and MANIFESTS.get(file_name) != self.kind
+        ):
             raise ValueError("Unsupported manifest file")
+        if self.kind == "compose_service" and self.name is None:
+            raise ValueError("Compose services are named")
+        if self.kind != "compose_service" and (self.context, self.image) != (
+            None,
+            None,
+        ):
+            raise ValueError("Only Compose services have a context or image")
+        if (
+            self.context is not None
+            and self.context != ""
+            and not is_relative_file(self.context)
+        ):
+            raise ValueError("Build contexts are canonical relative directories")
         if self.name is not None and (
             not isinstance(self.name, str) or not self.name.strip()
         ):
@@ -60,8 +85,12 @@ class Component:
             raise ValueError("Component lines are positive integers")
 
     @property
-    def root(self) -> str:
-        """The manifest's directory, repository-relative; "" is the root."""
+    def root(self) -> str | None:
+        """The directory whose files belong to the component, repository-
+        relative ("" is the root): a package's manifest directory, a Compose
+        service's build context, or None for a service that builds nothing."""
+        if self.kind == "compose_service":
+            return self.context
         parent = PurePosixPath(self.manifest).parent.as_posix()
         return "" if parent == "." else parent
 
@@ -70,7 +99,10 @@ def _toml(text):
     try:
         import tomllib
     except ModuleNotFoundError:  # Python 3.10
-        import tomli as tomllib
+        try:
+            import tomli as tomllib
+        except ImportError:
+            raise ImportError("Provision tomli to read TOML manifests") from None
     try:
         return tomllib.loads(text)
     except tomllib.TOMLDecodeError:
@@ -98,6 +130,11 @@ def extract_components(manifest: str, content: bytes) -> list[Component] | None:
     - ``Cargo.toml``: ``[package] name``; a virtual workspace declares nothing.
     - ``pom.xml``: the project's own ``artifactId``.
     """
+    if COMPOSE_FILE.match(PurePosixPath(manifest).name):
+        from .deployments import extract_compose
+
+        found = extract_compose(manifest, content)
+        return None if found is None else found[0]
     kind = MANIFESTS.get(PurePosixPath(manifest).name)
     if kind is None:
         raise ValueError("Unsupported manifest file")
@@ -189,7 +226,7 @@ def scan_components(
     ):
         dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRECTORIES)
         for name in sorted(names):
-            if name not in MANIFESTS:
+            if name not in MANIFESTS and not COMPOSE_FILE.match(name):
                 continue
             relative = (Path(directory) / name).relative_to(root).as_posix()
             if not any(fnmatchcase(relative, p) for p in include) or any(
@@ -218,8 +255,8 @@ def scan_components(
             manifests.append((relative, sha256(content).hexdigest()))
             try:
                 declared = extract_components(relative, content)
-            except ImportError:  # Python 3.10 without tomli
-                diagnostics.append((relative, "Provision tomli to read TOML manifests"))
+            except ImportError as exc:  # tomli on Python 3.10, or PyYAML
+                diagnostics.append((relative, str(exc)))
                 continue
             if declared is None:
                 diagnostics.append(
@@ -251,7 +288,7 @@ def enclosing_components(path: str, components) -> list[Component]:
     nearest = {}
     for component in components:
         root = component.root
-        if root and not path.startswith(root + "/"):
+        if root is None or (root and not path.startswith(root + "/")):
             continue
         depth = len(root.split("/")) if root else 0
         best = nearest.get(component.kind)

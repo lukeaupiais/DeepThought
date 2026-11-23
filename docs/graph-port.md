@@ -382,6 +382,37 @@ The dependencies of the `link:` package in babel are not installed by Yarn
 and stay unchecked; Maven name matches (guava: 5, plus 12 ambiguous between
 `guava` and `android/guava`) have no oracle here.
 
+### Compose services
+
+Compose files (`compose.yaml`, `docker-compose.yml` and variants such as
+`docker-compose.prod.yml`) declare `compose_service` components, one per
+`services` entry (needs PyYAML: the `components` or `languages` extra). Each
+file is read on its own, as `docker compose -f FILE` reads it: several `-f`
+files, `extends` and `include` are not merged, and `${VARIABLE}`
+interpolation is not performed. A service's root is its build context
+(`build: DIR` or `build.context`); one that only names an `image`, builds from
+a remote URL or needs interpolation has no root and no files. Files under a
+build context are PART_OF every service built from it.
+
+| Edge | Rule | Evidence |
+|------|------|----------|
+| service -> REQUIRES -> service | `components.compose-depends-on` (depends_on names a service of the same file) | resolved |
+| service -> DEPLOYS -> package component | `components.compose-build-context` (build context is the component's root) | resolved |
+| service -> DEPLOYS -> package component | `components.compose-image-name` (no build; the image's last path segment, without tag or digest, equals the name or last `/` segment of exactly one package component) | name_matched |
+
+The weighted detector's port-number service types (80 -> HTTP API, 6379 ->
+cache, and so on) are not ported.
+
+`--compose` adds `docker compose -f FILE --profile '*' config --format json`
+to the comparison tool: the services each file declares (all profiles), their
+build contexts and depends_on. No contradictions:
+
+| Repository | Compose files | Services, contexts and depends_on confirmed |
+|------------|---------------|---------------------------------------------|
+| docker/awesome-compose | 39 | 39/39 files' service sets, 81/81 contexts, 81/81 depends_on |
+| example-voting-app | 3 | 3/3, 17/17, 17/17 |
+| spring-petclinic-microservices | 1 | 1/1, 11/11, 11/11; its 8 image-only services DEPLOY their Maven modules by image name |
+
 ## Declared bases
 
 Tree-sitter extraction records each base a class or interface names as a
