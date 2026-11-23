@@ -307,6 +307,14 @@ CALL_RULES.update(
             call_rules.RUST_CALL_LOCAL_ITEM: "A Rust call's single name is a "
             "function or tuple struct declared in a function body around the "
             "call.",
+            call_rules.RUST_CALL_ASSOCIATED: "A Rust call 'Type::f' or "
+            "'Self::f' names a type (read as a call's path is, or the type of "
+            "the impl around the call) whose impls declare 'f': an inherent "
+            "impl's first, else a trait impl's or a provided method of a trait "
+            "it implements.",
+            call_rules.RUST_CALL_SELF_METHOD: "A Rust 'self.m()' in an impl "
+            "names 'm' as 'Self::m' does; in a trait body, the trait's own "
+            "method 'm'.",
         }.items()
     }
 )

@@ -900,11 +900,26 @@ the names the function bodies around it bind:
   child modules, declared items, uses and globs, re-exports and `#[cfg]`
   meanings, as for `use` declarations.
 
-Both are `resolved`: Rust has no overloading, so a path names one
-declaration in each configuration. A function declared once per `#[cfg]` is
-`ambiguous` (`multiple_declarations`). Other outcomes: `method_call`
-(receiver types are not inferred), `associated_item` (a name inside a type,
-such as `Type::new`, `Self::new` or an enum variant), `unbound_name` (a single
+Calls of functions declared in impls read the impl facts (see "Rust impls"):
+
+- `tree-sitter.rust-call-associated` when a path `Type::f` names a type (read
+  as a call's path is) or `Self::f` names the type of the impl around the
+  call, and the impls written for that type declare `f`: an inherent impl's
+  first, else a trait impl's, or a provided method of a trait the type
+  implements that the impl does not override;
+- `tree-sitter.rust-call-self-method` when `self.m()` is written in an impl
+  (read as `Self::m`), or in a trait body, where it names the trait's own
+  method `m` (supertraits are not read).
+
+All four are `resolved`: Rust has no overloading, so a path names one
+declaration in each configuration. A function declared once per `#[cfg]`, or
+by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
+alias are keyed by the alias, since the aliased type is not read: a call
+through an alias is `type_alias`, and so is a call that would otherwise take
+a trait's function when an impl for some alias declares the same name. Other
+outcomes: `method_call` (a receiver other than `self`: receiver types are not
+inferred), `associated_item` (a name inside a type that no impl declares, such
+as an enum variant or a derived method), `unbound_name` (a single
 name with no declaration or use in scope: the prelude, such as `Some`, or a
 local closure), `external_crate` (the first name is not in scope and names no
 workspace crate: a crate outside the repository, a standard type or a type
@@ -916,12 +931,12 @@ Checked with `tools/compare_rust_calls_with_scip.py`: rust-analyzer has an
 occurrence of the symbol the callee's last name refers to on the call's line,
 defined on the line of a declaration.
 
-| Corpus | Call sites | Linked: confirmed / contradicted / not indexed or outside | Ambiguous, rust-analyzer's among the candidates | Missed: method call / associated item / other |
+| Corpus | Call sites | Linked: confirmed / contradicted / not indexed or outside | Ambiguous, rust-analyzer's among the candidates | Missed: method call / associated item / type alias / other |
 |---|---|---|---|---|
-| ripgrep | 10,215 | 1,704 / 0 / 11 | 12 | 2,770 / 1,265 / 52 |
-| regex | 17,373 | 1,703 / 0 / 269 | 38 | 6,283 / 2,144 / 69 |
-| serde | 7,829 | 670 / 0 / 388 | 1 | 1,067 / 179 / 347 |
-| tokio | 30,100 | 3,697 / 0 / 1,167 | 92 | 5,840 / 2,238 / 459 |
+| ripgrep | 10,215 | 3,335 / 0 / 17 | 18 | 2,194 / 191 / 13 / 52 |
+| regex | 17,373 | 5,689 / 0 / 503 | 48 | 4,102 / 303 / 26 / 69 |
+| serde | 7,829 | 845 / 0 / 388 | 10 | 967 / 95 / 0 / 347 |
+| tokio | 30,100 | 6,317 / 0 / 2,026 | 101 | 5,136 / 294 / 19 / 459 |
 
 Seven tokio links differ from rust-analyzer's and are not counted as
 contradicted. In five, rust-analyzer's occurrence names a module of the same
@@ -929,8 +944,10 @@ name that a `pub use m::m;` re-export brings in with the function
 (`tokio_stream::once`), and a call cannot name a module. In one, its
 declaration is written in a macro that forwards to another macro, which is
 not read. In the last, it is another declaration of the same name in the same
-module under a different `#[cfg]`. Missed calls are mostly method calls and
-associated functions, which need receiver and impl types. The other missed
+module under a different `#[cfg]`. Missed calls are mostly method calls on
+receivers other than `self`, which need receiver types, and associated
+functions of types whose impls are generated (derives, `pin_project!`) or
+not read (impls for a type alias, in regex's `impl OwnedDFA`). The other missed
 calls are paths through a type parameter or a standard type that the
 occurrence's line shares with a repository function (`external_crate`),
 serde's files in no crate (`module_context_unknown`, 298), and enum variants
@@ -961,7 +978,8 @@ both resolve, an INHERITS_FROM edge runs from the type to the trait, with
 by the trait's outcome, or by the type's (`type_...`) when the type is not
 linked. `deepthought-graph bases|subtypes` and impact queries follow these
 edges; `get_class_hierarchy` follows classes and interfaces only. Inherent
-impls give no edge; they are the facts method resolution will read.
+impls give no edge; calls of the functions impls declare read them (see "Rust
+calls").
 
 Checked with `tools/compare_rust_impls_with_scip.py`: rust-analyzer has an
 occurrence of the symbol the last name of the type, and of the trait, refers

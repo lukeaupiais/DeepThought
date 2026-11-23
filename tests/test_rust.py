@@ -19,7 +19,13 @@ from deepthought.imports import (
     resolve_imports,
 )
 from deepthought.analysis_tools import TreeSitterTool
-from deepthought.calls import RUST_CALL_LOCAL_ITEM, RUST_CALL_PATH, resolve_calls
+from deepthought.calls import (
+    RUST_CALL_ASSOCIATED,
+    RUST_CALL_LOCAL_ITEM,
+    RUST_CALL_PATH,
+    RUST_CALL_SELF_METHOD,
+    resolve_calls,
+)
 from deepthought.inheritance import (
     RUST_IMPL_TRAIT,
     RUST_IMPL_TYPE,
@@ -1224,9 +1230,9 @@ class RustTests(unittest.TestCase):
                     "app/src/b.rs",
                     12,
                     "my_util::shapes::Unit::new",
-                    "unresolved",
-                    None,
-                    "associated_item",
+                    "linked",
+                    ("util/src/shapes.rs", "Unit.new"),
+                    RUST_CALL_ASSOCIATED,
                 ),
                 ("app/src/b.rs", 13, "::my_util", "unresolved", None, "not_declared"),
                 # From nested inline modules.
@@ -1320,9 +1326,9 @@ class RustTests(unittest.TestCase):
                     "app/src/lib.rs",
                     17,
                     "Unit::new",
-                    "unresolved",
-                    None,
-                    "associated_item",
+                    "linked",
+                    ("util/src/shapes.rs", "Unit.new"),
+                    RUST_CALL_ASSOCIATED,
                 ),
                 ("app/src/lib.rs", 18, "x.clone", "unresolved", None, "method_call"),
                 ("app/src/lib.rs", 19, "Some", "unresolved", None, "unbound_name"),
@@ -1616,6 +1622,132 @@ class RustTests(unittest.TestCase):
                 "type_unresolved:not_declared": 1,
                 "unresolved:external_crate": 1,
             },
+        )
+
+    def test_methods_and_associated_functions_resolve_through_impls(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "x"\n',
+                "src/lib.rs": (
+                    "mod shapes {\n"
+                    "    pub struct P;\n"
+                    "    pub enum K { A(u8) }\n"
+                    "    pub trait Speak { fn talk(&self) {} fn hush(&self); fn both(); type Kind; }\n"
+                    "    pub trait Loud { fn both(); }\n"
+                    "    impl P { pub fn new() -> Self { Self::make() } fn make() -> Self { P } fn talk(&self) {} }\n"
+                    "    impl Speak for P { fn hush(&self) { self.talk(); self.loud(); } fn both() {} }\n"
+                    "    impl Loud for P { fn both() {} }\n"
+                    "    impl K { fn run(&self) { self.go(); Self::stop(); } }\n"
+                    "    impl Speak for K { fn hush(&self) { self.talk(); Self::both(); } fn both() {} }\n"
+                    "}\n"
+                    "use shapes::{K, P};\n"
+                    "pub type Alias = P;\n"
+                    "impl Alias { fn alias_only() {} }\n"
+                    "struct Q;\n"
+                    "trait T2 { fn alias_only(); fn deflt(&self) { self.deflt(); self.other(); Self::deflt(); } }\n"
+                    "impl T2 for Q { fn alias_only() {} }\n"
+                    "impl<T> T2 for T { fn alias_only() {} }\n"
+                    "fn f(x: P) {\n"
+                    "    P::new();\n"
+                    "    P::talk(&x);\n"
+                    "    P::hush(&x);\n"
+                    "    P::both();\n"
+                    "    K::A(1);\n"
+                    "    K::hush(&K::A(1));\n"
+                    "    K::talk(&K::A(1));\n"
+                    "    K::missing();\n"
+                    "    Alias::new();\n"
+                    "    Q::alias_only();\n"
+                    "    Q::deflt(&Q);\n"
+                    "    x.talk();\n"
+                    "    self.a.b();\n"
+                    "    shapes::P::make();\n"
+                    "}\n"
+                    "impl P {\n"
+                    "    fn nested(&self, x: P) {\n"
+                    "        x.talk();\n"
+                    "        Self::make::x();\n"
+                    "        trait In { fn i(&self) { Self::make(); } }\n"
+                    "    }\n"
+                    "}\n"
+                    "trait T3 { fn d(&self) { struct Z; impl Z { fn z(&self) { self.zz(); } fn zz(&self) {} } } }\n"
+                    "#[cfg(a)]\nstruct D;\n#[cfg(b)]\nstruct D;\n"
+                    "fn g() { D::d(); P::Kind(); }\n"
+                ),
+            }
+        )
+        names = {d.id: (d.symbol, d.line) for d in result.definitions}
+        sites = {c.id: c for c in result.call_sites}
+        assoc, method = RUST_CALL_ASSOCIATED, RUST_CALL_SELF_METHOD
+        self.maxDiff = None
+        self.assertEqual(
+            sorted(
+                (
+                    sites[r.call_id].line,
+                    sites[r.call_id].column,
+                    sites[r.call_id].callee,
+                    names.get(r.target_id),
+                    r.rule_id or r.reason,
+                    [names[c] for c in r.candidates],
+                )
+                for r in resolve_calls(result)
+            ),
+            [
+                # Self is the type of the impl around the call.
+                (6, 36, "Self::make", ("shapes.P.make", 6), assoc, []),
+                # An inherent method before the trait's provided one.
+                (7, 40, "self.talk", ("shapes.P.talk", 6), method, []),
+                (7, 53, "self.loud", None, "associated_item", []),
+                (9, 29, "self.go", None, "associated_item", []),
+                (9, 40, "Self::stop", None, "associated_item", []),
+                # A provided method the impl does not override.
+                (10, 40, "self.talk", ("shapes.Speak.talk", 4), method, []),
+                (10, 53, "Self::both", ("shapes.K.both", 10), assoc, []),
+                # In a trait body: the trait's own methods.
+                (16, 46, "self.deflt", ("T2.deflt", 16), method, []),
+                (16, 60, "self.other", None, "method_call", []),
+                (16, 74, "Self::deflt", None, "associated_item", []),
+                (20, 4, "P::new", ("shapes.P.new", 6), assoc, []),
+                (21, 4, "P::talk", ("shapes.P.talk", 6), assoc, []),
+                # A trait impl's method.
+                (22, 4, "P::hush", ("shapes.P.hush", 7), assoc, []),
+                # Two traits' impls declare it.
+                (
+                    23,
+                    4,
+                    "P::both",
+                    None,
+                    "multiple_declarations",
+                    [("shapes.P.both", 7), ("shapes.P.both", 8)],
+                ),
+                # An enum variant is not a function.
+                (24, 4, "K::A", None, "associated_item", []),
+                (25, 4, "K::hush", ("shapes.K.hush", 10), assoc, []),
+                (25, 13, "K::A", None, "associated_item", []),
+                (26, 4, "K::talk", ("shapes.Speak.talk", 4), assoc, []),
+                (26, 13, "K::A", None, "associated_item", []),
+                (27, 4, "K::missing", None, "associated_item", []),
+                # The aliased type is not read; a name an impl for an alias
+                # declares is not taken from a trait.
+                (28, 4, "Alias::new", None, "type_alias", []),
+                (29, 4, "Q::alias_only", None, "type_alias", []),
+                (30, 4, "Q::deflt", ("T2.deflt", 16), assoc, []),
+                # Receiver types are not inferred.
+                (31, 4, "x.talk", None, "method_call", []),
+                (32, 4, "self.a.b", None, "method_call", []),
+                (33, 4, "shapes::P::make", ("shapes.P.make", 6), assoc, []),
+                # Only `self` has the impl's type.
+                (37, 8, "x.talk", None, "method_call", []),
+                (38, 8, "Self::make::x", None, "associated_item", []),
+                # Self inside a trait written in an impl is not the impl's.
+                (39, 33, "Self::make", None, "associated_item", []),
+                # An impl inside a trait's method body.
+                (42, 58, "self.zz", ("T3.d.Z.zz", 42), method, []),
+                # A type declared once per #[cfg] is not taken.
+                (47, 9, "D::d", None, "associated_item", []),
+                # A trait's associated type is not a function.
+                (47, 17, "P::Kind", None, "associated_item", []),
+            ],
         )
 
 
