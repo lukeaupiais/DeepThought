@@ -1,0 +1,166 @@
+{
+  "corpus": "msecend-ewolff-microservice-kafka",
+  "repo": "https://github.com/ewolff/microservice-kafka",
+  "commit": "6fd9cc6aba3109f0e9c031ce4555b1a144b7a0d0",
+  "license": "Apache-2.0",
+  "languages": [
+    "Java (Spring Boot, Spring Kafka)",
+    "Apache httpd config"
+  ],
+  "sources": [
+    "https://github.com/tuhh-softsec/microSecEnD (MSR 2023, Schneider et al.; dataset/ewolff_microservice-kafka/ewolff_microservice-kafka.json, *_traceability.json, *.py): commit 6fd9cc6 taken from the artifact URLs in ewolff_microservice-kafka.py; DFD flows order->kafka (Producer Topic order), kafka->invoicing and kafka->shipping (Consumer Topic order), apache->order/shipping/invoicing",
+    "manual reading of all Java sources and docker/apache/000-default.conf at the pinned commit (labels re-derived from source, DFD used only for service-pair cross-check)"
+  ],
+  "services": [
+    {
+      "name": "order",
+      "root": "microservice-kafka/microservice-kafka-order",
+      "dfd_name": "order"
+    },
+    {
+      "name": "invoicing",
+      "root": "microservice-kafka/microservice-kafka-invoicing",
+      "dfd_name": "invoicing"
+    },
+    {
+      "name": "shipping",
+      "root": "microservice-kafka/microservice-kafka-shipping",
+      "dfd_name": "shipping"
+    },
+    {
+      "name": "apache",
+      "root": "docker/apache",
+      "dfd_name": "apache"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 0,
+      "out_of_scope": 3
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 2,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "order",
+        "invoicing",
+        "messaging"
+      ],
+      [
+        "order",
+        "shipping",
+        "messaging"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "messaging",
+      "from_service": "order",
+      "to_service": "invoicing",
+      "contract": "kafka-topic:order",
+      "client": {
+        "file": "microservice-kafka/microservice-kafka-order/src/main/java/com/ewolff/microservice/order/logic/OrderService.java",
+        "line": 34
+      },
+      "server": {
+        "file": "microservice-kafka/microservice-kafka-invoicing/src/main/java/com/ewolff/microservice/invoicing/events/OrderKafkaListener.java",
+        "line": 24
+      },
+      "evidence": "KafkaTemplate.send(\"order\", key, order) -> @KafkaListener(topics = \"order\") consumer group invoicing",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-ewolff-microservice-kafka#1"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "order",
+      "to_service": "shipping",
+      "contract": "kafka-topic:order",
+      "client": {
+        "file": "microservice-kafka/microservice-kafka-order/src/main/java/com/ewolff/microservice/order/logic/OrderService.java",
+        "line": 34
+      },
+      "server": {
+        "file": "microservice-kafka/microservice-kafka-shipping/src/main/java/com/ewolff/microservice/shipping/events/OrderKafkaListener.java",
+        "line": 24
+      },
+      "evidence": "KafkaTemplate.send(\"order\", key, order) -> @KafkaListener(topics = \"order\") consumer group shipping",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-ewolff-microservice-kafka#2"
+    },
+    {
+      "kind": "http",
+      "from_service": "apache",
+      "to_service": "order",
+      "contract": "ANY /order/** -> /**",
+      "client": {
+        "file": "docker/apache/000-default.conf",
+        "line": 14
+      },
+      "server": null,
+      "evidence": "Apache ProxyPass /order http://order:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site)",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-ewolff-microservice-kafka#3"
+    },
+    {
+      "kind": "http",
+      "from_service": "apache",
+      "to_service": "shipping",
+      "contract": "ANY /shipping/** -> /**",
+      "client": {
+        "file": "docker/apache/000-default.conf",
+        "line": 17
+      },
+      "server": null,
+      "evidence": "Apache ProxyPass /shipping http://shipping:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site)",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-ewolff-microservice-kafka#4"
+    },
+    {
+      "kind": "http",
+      "from_service": "apache",
+      "to_service": "invoicing",
+      "contract": "ANY /invoicing/** -> /**",
+      "client": {
+        "file": "docker/apache/000-default.conf",
+        "line": 20
+      },
+      "server": null,
+      "evidence": "Apache ProxyPass /invoicing http://invoicing:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site)",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-ewolff-microservice-kafka#5"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "microservice-kafka/microservice-kafka-order/src/test/java/com/ewolff/microservice/order/kafka/KafkaListenerBean.java",
+      "line": null,
+      "reason": "test-only listener"
+    }
+  ],
+  "notes": [
+    "microSecEnD models brokers as nodes (order -> kafka -> invoicing); converted here to producer -> consumer per topic.",
+    "There is no service-to-service HTTP call in code; Apache ProxyPass routes are recorded as gateway_route links (out of scope for call-site scoring).",
+    "Label disagreements with microSecEnD: (1) the Kafka flows are stereotyped restful_http in addition to message_producer/consumer_kafka; (2) traceability URLs for the service nodes and postgres edges contain a doubled path segment (blob/master/master/...) and the kafka->invoicing/shipping edges give a bare file name, so 11 of 27 file references do not resolve; (3) apache->* edges point at line 13/16/19 of 000-default.conf, one line above the ProxyPass lines (14/17/20); (4) the order->kafka edge points at the method declaration (OrderService.java:33) rather than the send (line 34). Service pairs and topic agree with source.",
+    "Test-only Kafka listeners (src/test/.../KafkaListenerBean.java) are not labelled."
+  ]
+}

@@ -34,6 +34,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
 | libs/analysis/.../tools/scip/transformation/enhanced_relationship_mapper.py `is_implementation` | deepthought.analysis_tools.scip + GraphQueryService.get_implementations/get_supertypes | Symbol -> IMPLEMENTS -> Symbol under a registered `resolved` rule; the original's doc-keyword EXTENDS guess and TYPE_OF mapping are not ported (see below) |
+| libs/analysis/.../tools/api_contract (string-pattern endpoint detector with confidence tiers; client matching never implemented) | deepthought.service_contracts + deepthought.analysis_tools.service_contracts | HttpRoute nodes with HANDLES and REQUESTS edges from parsed Spring annotations and client calls, linked by declared path-template rules instead of confidence scores (see below) |
 | libs/analysis/.../tools/service_detector (weighted Dockerfile/compose/k8s/serialization/modularity score and `confidence`) | deepthought.components + deepthought.analysis_tools.components + GraphQueryService.list_components/get_file_components/get_component_files | Components that build manifests declare and File -> PART_OF -> Component by nearest root, all `resolved`; no score, port guess or clustering (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
@@ -1286,6 +1287,106 @@ and interfaces, TypeScript 6.0.3, scip-typescript 0.6.0):
 Every class-sourced pair matches and nothing is added; the 22 missing pairs
 are the interface case above. All 200 edges round-trip through Neo4j with
 their rule, and two runs produce identical edges.
+
+## Service contracts
+
+The `service-contracts` tool (`deepthought-graph index --tool tree-sitter
+--tool service-contracts --language java --snapshot REV`) links services
+through the HTTP contracts their code declares. The original `api_contract`
+tool scored string literals that looked like API paths (0.95 for `/api/v1/x`,
+0.75 for `/x/{id}`) and inferred the method from nearby words; it never matched
+clients to servers. None of it is carried over.
+
+Facts are read from Java sources outside test source sets (`src/test/`):
+
+- **Routes.** A method carrying `@GetMapping`, `@PostMapping`, `@PutMapping`,
+  `@DeleteMapping`, `@PatchMapping` or `@RequestMapping` imported from
+  `org.springframework.web.bind.annotation`, in a `@RestController`/`@Controller`,
+  a class with `@RequestMapping`, or an interface. Paths are joined with the
+  type's `@RequestMapping` path and the service's context path; each path and
+  type path gives its own route, and `@RequestMapping` without `method` accepts
+  any method. Each route is an `HttpRoute` node linked from its handler by
+  `HANDLES`.
+- **Requests.** Methods of a `@FeignClient` interface (its `name`, `path` and
+  `url`, then each method's mapping), `RestTemplate`/`RestOperations` calls
+  (`getForObject`, `postForEntity`, `exchange` with an `HttpMethod` argument,
+  and the rest) on a name the file declares with that type only, and WebClient
+  `.get()/.post()/.method(HttpMethod.X)...uri(...)` chains that start at a name
+  declared as `WebClient` or `WebClient.Builder`, or at `WebClient` itself.
+- **URL values.** String literals, `+`, `String.format` with `%s`/`%d`, String
+  fields of the file with an initializer, no `@Value` injection and no
+  assignment anywhere in the file, String locals declared once and never
+  assigned, and calls to a method of the file whose body is a single `return`
+  (arguments substituted). Everything else is unknown text. A route with
+  unknown text is not read; a request keeps it as a placeholder, and URI
+  template variables (`{id}`) are unknown text too.
+- **Services.** A file belongs to the build module of its nearest `pom.xml` or
+  `build.gradle`. The module's `spring.application.name` and
+  `server.servlet.context-path` (or `server.context-path`) come from
+  `src/main/resources/{bootstrap,application}.{yml,yaml,properties}`, plus the
+  `<name>.*` and `application.*` files in the `classpath:` native search
+  locations of any Spring Cloud Config server module in the repository. A key
+  with several values or a `${...}` value gives none. Profile files,
+  environment variables and remote config repositories are not read.
+
+Each request is resolved by `deepthought.service_contracts.resolve`:
+
+| Rule | Evidence | Links |
+|---|---|---|
+| `service-contracts.spring-route-mapping` | pattern_matched | handler -> HANDLES -> HttpRoute |
+| `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name`; only that service's routes are candidates |
+| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
+
+The URL's path is compared segment by segment with each candidate's
+template, and the method must be accepted. A literal segment equal to a route
+literal beats a route variable, unknown text fits a route variable better than
+a route literal, `**` matches any rest, and an exact method beats a route that
+accepts any method; ranks are compared from the left, as Spring orders its own
+routes. A single best route is linked by `REQUESTS` from the calling
+declaration (the Feign method, or the declaration around a call) or the file;
+a tie is ambiguous and a request with no route is unresolved. Neither gets an
+edge: File nodes list them in `ambiguous_http_requests` and
+`unresolved_http_requests`, and tool metadata counts resolutions and the
+mappings that could not be read. A URL that begins with unknown text (a base
+URL variable) is assumed to add no path segments; gateways, path rewriting and
+routes registered in code are not followed.
+
+Handlers and callers carry the tree-sitter declaration identities, so in one
+revision with tree-sitter output the routes join the code graph; run alone,
+the tool emits just the declarations and files its edges need.
+
+### Validation
+
+`tools/check_contracts_ground_truth.py CORPUS.json CHECKOUT` scores the tool
+against labelled corpora kept in `evals/fixtures/service_contracts/`. They were
+built independently of the extractor from each project's source, docs and the
+microSecEnD dataset (Schneider et al., MSR 2023), pinned by commit, with every
+client and server line checked against the checkout (see that README). A
+predicted link is a true positive when its client and server lines are within
+3 lines of a labelled link; predictions at labelled don't-care sites (tests,
+external APIs) count for neither side. Direct service-to-service calls:
+
+| Corpus | Labelled direct HTTP links | Predicted | Correct | Missed |
+|---|---|---|---|---|
+| piggymetrics (Feign, config-server context paths) | 3 | 3 | 3 | 0 |
+| apssouza22/java-microservice (Feign; one client has no server) | 3 | 3 | 3 | 0 |
+| spring-petclinic-microservices (WebClient) | 2 | 1 | 1 | 1: the base URL field has a setter, so its value is not fixed |
+
+No prediction was wrong. The remaining labelled HTTP links in these corpora go
+through a gateway or come from browser code, and the Python, JavaScript, Go
+and gRPC links of Online Boutique and robot-shop belong to languages this tool
+does not read yet; both are left for later.
+
+Train-ticket (FudanSELab, commit `313886e9`, 41 Spring services using
+RestTemplate) has no labelled corpus, so its predictions were audited instead:
+of 146 requests outside tests, 133 link, all by `http-service-path`. A
+reviewer who did not see the extractor checked a random sample of 40 links
+against the source by hand and found all 40 correct, then checked all 13
+unlinked requests (`evals/fixtures/service_contracts/train-ticket-audit/`).
+Ten of those build their URL in an `if`/`else` with a literal in each branch,
+which is not folded, so each would need two links. One calls an external host,
+one a path no service serves, and one posts to a route that accepts only
+GET and DELETE.
 
 ## Commit-linked snapshots
 

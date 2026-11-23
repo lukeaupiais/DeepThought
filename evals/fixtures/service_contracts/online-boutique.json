@@ -1,0 +1,860 @@
+{
+  "corpus": "online-boutique",
+  "repo": "https://github.com/GoogleCloudPlatform/microservices-demo",
+  "commit": "c7cb6d5bfd6ea3aed768634ebbcb98cb7a523712",
+  "license": "Apache-2.0",
+  "languages": [
+    "Go",
+    "C#",
+    "JavaScript (Node.js)",
+    "Python",
+    "Java"
+  ],
+  "sources": [
+    "protos/demo.proto: authoritative service/rpc definitions (package hipstershop)",
+    "README.md architecture table (which service talks to which) and kubernetes-manifests/*.yaml *_SERVICE_ADDR env vars: independent confirmation of every service pair",
+    "manual reading of every client stub construction/call and every server implementation at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "frontend",
+      "root": "src/frontend"
+    },
+    {
+      "name": "cartservice",
+      "root": "src/cartservice"
+    },
+    {
+      "name": "productcatalogservice",
+      "root": "src/productcatalogservice"
+    },
+    {
+      "name": "currencyservice",
+      "root": "src/currencyservice"
+    },
+    {
+      "name": "paymentservice",
+      "root": "src/paymentservice"
+    },
+    {
+      "name": "shippingservice",
+      "root": "src/shippingservice"
+    },
+    {
+      "name": "emailservice",
+      "root": "src/emailservice"
+    },
+    {
+      "name": "checkoutservice",
+      "root": "src/checkoutservice"
+    },
+    {
+      "name": "recommendationservice",
+      "root": "src/recommendationservice"
+    },
+    {
+      "name": "adservice",
+      "root": "src/adservice"
+    },
+    {
+      "name": "loadgenerator",
+      "root": "src/loadgenerator"
+    },
+    {
+      "name": "shoppingassistantservice",
+      "root": "src/shoppingassistantservice"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 9,
+      "out_of_scope": 1
+    },
+    "grpc": {
+      "in_scope": 20,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "checkoutservice",
+        "cartservice",
+        "grpc"
+      ],
+      [
+        "checkoutservice",
+        "currencyservice",
+        "grpc"
+      ],
+      [
+        "checkoutservice",
+        "emailservice",
+        "grpc"
+      ],
+      [
+        "checkoutservice",
+        "paymentservice",
+        "grpc"
+      ],
+      [
+        "checkoutservice",
+        "productcatalogservice",
+        "grpc"
+      ],
+      [
+        "checkoutservice",
+        "shippingservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "adservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "cartservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "checkoutservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "currencyservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "productcatalogservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "recommendationservice",
+        "grpc"
+      ],
+      [
+        "frontend",
+        "shippingservice",
+        "grpc"
+      ],
+      [
+        "loadgenerator",
+        "frontend",
+        "http"
+      ],
+      [
+        "recommendationservice",
+        "productcatalogservice",
+        "grpc"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "currencyservice",
+      "contract": "hipstershop.CurrencyService/GetSupportedCurrencies",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 32
+      },
+      "server": {
+        "file": "src/currencyservice/server.js",
+        "line": 128
+      },
+      "evidence": "pb.NewCurrencyServiceClient(fe.currencySvcConn) in getCurrencies",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 141
+      },
+      "id": "online-boutique#1"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "productcatalogservice",
+      "contract": "hipstershop.ProductCatalogService/ListProducts",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 47
+      },
+      "server": {
+        "file": "src/productcatalogservice/product_catalog.go",
+        "line": 41
+      },
+      "evidence": "pb.NewProductCatalogServiceClient in getProducts",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 72
+      },
+      "id": "online-boutique#2"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "productcatalogservice",
+      "contract": "hipstershop.ProductCatalogService/GetProduct",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 53
+      },
+      "server": {
+        "file": "src/productcatalogservice/product_catalog.go",
+        "line": 47
+      },
+      "evidence": "pb.NewProductCatalogServiceClient in getProduct",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 73
+      },
+      "id": "online-boutique#3"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "cartservice",
+      "contract": "hipstershop.CartService/GetCart",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 58
+      },
+      "server": {
+        "file": "src/cartservice/src/services/CartService.cs",
+        "line": 40
+      },
+      "evidence": "pb.NewCartServiceClient in getCart",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 25
+      },
+      "id": "online-boutique#4"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "cartservice",
+      "contract": "hipstershop.CartService/EmptyCart",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 63
+      },
+      "server": {
+        "file": "src/cartservice/src/services/CartService.cs",
+        "line": 45
+      },
+      "evidence": "pb.NewCartServiceClient in emptyCart",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 26
+      },
+      "id": "online-boutique#5"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "cartservice",
+      "contract": "hipstershop.CartService/AddItem",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 68
+      },
+      "server": {
+        "file": "src/cartservice/src/services/CartService.cs",
+        "line": 34
+      },
+      "evidence": "pb.NewCartServiceClient in insertCart",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 24
+      },
+      "id": "online-boutique#6"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "currencyservice",
+      "contract": "hipstershop.CurrencyService/Convert",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 82
+      },
+      "server": {
+        "file": "src/currencyservice/server.js",
+        "line": 138
+      },
+      "evidence": "pb.NewCurrencyServiceClient in convertCurrency",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 142
+      },
+      "id": "online-boutique#7"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "shippingservice",
+      "contract": "hipstershop.ShippingService/GetQuote",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 88
+      },
+      "server": {
+        "file": "src/shippingservice/main.go",
+        "line": 119
+      },
+      "evidence": "pb.NewShippingServiceClient in getShippingQuote",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 108
+      },
+      "id": "online-boutique#8"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "recommendationservice",
+      "contract": "hipstershop.RecommendationService/ListRecommendations",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 100
+      },
+      "server": {
+        "file": "src/recommendationservice/recommendation_server.py",
+        "line": 70
+      },
+      "evidence": "pb.NewRecommendationServiceClient in getRecommendations",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 57
+      },
+      "id": "online-boutique#9"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "adservice",
+      "contract": "hipstershop.AdService/GetAds",
+      "client": {
+        "file": "src/frontend/rpc.go",
+        "line": 123
+      },
+      "server": {
+        "file": "src/adservice/src/main/java/hipstershop/AdService.java",
+        "line": 94
+      },
+      "evidence": "pb.NewAdServiceClient in getAd",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 244
+      },
+      "id": "online-boutique#10"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "frontend",
+      "to_service": "checkoutservice",
+      "contract": "hipstershop.CheckoutService/PlaceOrder",
+      "client": {
+        "file": "src/frontend/handlers.go",
+        "line": 355
+      },
+      "server": {
+        "file": "src/checkoutservice/main.go",
+        "line": 230
+      },
+      "evidence": "pb.NewCheckoutServiceClient in placeOrderHandler",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 225
+      },
+      "id": "online-boutique#11"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "shippingservice",
+      "contract": "hipstershop.ShippingService/GetQuote",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 315
+      },
+      "server": {
+        "file": "src/shippingservice/main.go",
+        "line": 119
+      },
+      "evidence": "quoteShipping",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 108
+      },
+      "id": "online-boutique#12"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "cartservice",
+      "contract": "hipstershop.CartService/GetCart",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 325
+      },
+      "server": {
+        "file": "src/cartservice/src/services/CartService.cs",
+        "line": 40
+      },
+      "evidence": "getUserCart",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 25
+      },
+      "id": "online-boutique#13"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "cartservice",
+      "contract": "hipstershop.CartService/EmptyCart",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 333
+      },
+      "server": {
+        "file": "src/cartservice/src/services/CartService.cs",
+        "line": 45
+      },
+      "evidence": "emptyUserCart",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 26
+      },
+      "id": "online-boutique#14"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "productcatalogservice",
+      "contract": "hipstershop.ProductCatalogService/GetProduct",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 344
+      },
+      "server": {
+        "file": "src/productcatalogservice/product_catalog.go",
+        "line": 47
+      },
+      "evidence": "prepOrderItems; stub held in variable cl",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 73
+      },
+      "id": "online-boutique#15"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "currencyservice",
+      "contract": "hipstershop.CurrencyService/Convert",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 360
+      },
+      "server": {
+        "file": "src/currencyservice/server.js",
+        "line": 138
+      },
+      "evidence": "convertCurrency",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 142
+      },
+      "id": "online-boutique#16"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "paymentservice",
+      "contract": "hipstershop.PaymentService/Charge",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 370
+      },
+      "server": {
+        "file": "src/paymentservice/server.js",
+        "line": 41
+      },
+      "evidence": "chargeCard",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 178
+      },
+      "id": "online-boutique#17"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "emailservice",
+      "contract": "hipstershop.EmailService/SendOrderConfirmation",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 380
+      },
+      "server": {
+        "file": "src/emailservice/email_server.py",
+        "line": 109
+      },
+      "evidence": "sendOrderConfirmation",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 200
+      },
+      "server_alternatives": [
+        {
+          "file": "src/emailservice/email_server.py",
+          "line": 86
+        }
+      ],
+      "id": "online-boutique#18"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "checkoutservice",
+      "to_service": "shippingservice",
+      "contract": "hipstershop.ShippingService/ShipOrder",
+      "client": {
+        "file": "src/checkoutservice/main.go",
+        "line": 387
+      },
+      "server": {
+        "file": "src/shippingservice/main.go",
+        "line": 142
+      },
+      "evidence": "shipOrder",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 109
+      },
+      "id": "online-boutique#19"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "recommendationservice",
+      "to_service": "productcatalogservice",
+      "contract": "hipstershop.ProductCatalogService/ListProducts",
+      "client": {
+        "file": "src/recommendationservice/recommendation_server.py",
+        "line": 73
+      },
+      "server": {
+        "file": "src/productcatalogservice/product_catalog.go",
+        "line": 41
+      },
+      "evidence": "module-global demo_pb2_grpc.ProductCatalogServiceStub(channel) created in __main__",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "contract_def": {
+        "file": "protos/demo.proto",
+        "line": 72
+      },
+      "id": "online-boutique#20"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "GET /",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 35
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 150
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#21"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "POST /setCurrency",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 39
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 155
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#22"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "GET /product/{id}",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 43
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 151
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#23"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "GET /cart",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 46
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 152
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#24"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "GET /product/{id}",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 50
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 151
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#25"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "POST /cart",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 51
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 153
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#26"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "POST /cart/empty",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 56
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 154
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#27"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "POST /cart/checkout",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 61
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 157
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#28"
+    },
+    {
+      "kind": "http",
+      "from_service": "loadgenerator",
+      "to_service": "frontend",
+      "contract": "GET /logout",
+      "client": {
+        "file": "src/loadgenerator/locustfile.py",
+        "line": 75
+      },
+      "server": {
+        "file": "src/frontend/main.go",
+        "line": 156
+      },
+      "evidence": "Locust HttpUser l.client (requests.Session); host from FRONTEND_ADDR",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#29"
+    },
+    {
+      "kind": "http",
+      "from_service": "frontend",
+      "to_service": "shoppingassistantservice",
+      "contract": "POST /",
+      "client": {
+        "file": "src/frontend/handlers.go",
+        "line": 465
+      },
+      "server": {
+        "file": "src/shoppingassistantservice/shoppingassistantservice.py",
+        "line": 65
+      },
+      "evidence": "chatBotHandler: url := \"http://\" + fe.shoppingAssistantSvcAddr; Flask route \"/\" POST",
+      "in_scope_static": false,
+      "out_of_scope_reason": "target host is only the env var SHOPPING_ASSISTANT_SERVICE_ADDR (set in kubernetes manifests); URL path is just the host root",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "online-boutique#30"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "src/currencyservice/client.js",
+      "line": 54,
+      "reason": "developer test client inside currencyservice; not deployed, would be a self-link"
+    },
+    {
+      "file": "src/currencyservice/client.js",
+      "line": 62,
+      "reason": "developer test client inside currencyservice"
+    },
+    {
+      "file": "src/recommendationservice/client.py",
+      "line": 38,
+      "reason": "developer test client inside recommendationservice"
+    },
+    {
+      "file": "src/adservice/src/main/java/hipstershop/AdServiceClient.java",
+      "line": 60,
+      "reason": "developer test client inside adservice"
+    },
+    {
+      "file": "src/emailservice/email_client.py",
+      "line": null,
+      "reason": "developer test client inside emailservice (any line)"
+    },
+    {
+      "file": "src/frontend/templates/assistant.html",
+      "line": null,
+      "reason": "browser fetch() to the frontend itself"
+    }
+  ],
+  "notes": [
+    "client.line is the line holding the RPC method name of the stub call (Go calls are chained across lines: pb.NewXClient(conn).\\n Method(...)). Recommend +-3 line tolerance.",
+    "server.line is the line of the method implementing the rpc (Go/C#/Python/Java method def; Node: the handler function definition).",
+    "contract_def points to the rpc line in protos/demo.proto; each language keeps its own copy of the proto (src/cartservice/src/protos/Cart.proto, src/adservice/src/main/proto/demo.proto, src/currencyservice/proto/demo.proto, src/paymentservice/proto/demo.proto) and Go/Python use generated code (genproto/, demo_pb2_grpc.py).",
+    "hipstershop.ProductCatalogService/SearchProducts and the grpc.health.v1.Health/Check service are implemented but never called by another service: there is no link for them; a link to them is a false positive.",
+    "emailservice registers DummyEmailService (email_server.py) by default; the real EmailService.SendOrderConfirmation is an alternative implementation of the same rpc. Either server line should count as correct.",
+    "loadgenerator -> frontend: Locust HttpUser (requests-based) calls with literal paths; host comes from FRONTEND_ADDR at runtime but paths are literal, so they are in scope. frontend routes are prefixed with BASE_URL env (default \"\").",
+    "Browser fetch() calls in src/frontend/templates/assistant.html target the frontend itself (/bot, /product-meta): intra-service, not labelled.",
+    "shoppingassistantservice is an optional component (kustomize/components/shopping-assistant)."
+  ]
+}

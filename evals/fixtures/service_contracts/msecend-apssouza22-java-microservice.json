@@ -1,0 +1,322 @@
+{
+  "corpus": "msecend-apssouza22-java-microservice",
+  "repo": "https://github.com/apssouza22/java-microservice",
+  "commit": "9274eeb9189dfea0722ac0263814822b94b83ecc",
+  "license": "MIT",
+  "languages": [
+    "Java (Spring Boot, Spring Cloud Netflix Feign, Spring Cloud Stream Kafka binder)",
+    "properties config",
+    "nginx config"
+  ],
+  "sources": [
+    "https://github.com/tuhh-softsec/microSecEnD (MSR 2023, Schneider et al.; dataset/apssouza22_java-microservice/apssouza22_java-microservice.json, *_traceability.json, *.py): commit 9274eeb from the artifact URLs in the .py model; flows api_gateway -> user_service (feign), oauth -> user_service (feign), reminder -> kafka (Producer Topic todo-mail), kafka -> mailer (Consumer Topic todo-mail), proxy -> api_gateway",
+    "manual reading of Feign clients, controllers, Spring Cloud Stream bindings and config-server/src/main/resources/offline-repository/*.properties at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "api-gateway",
+      "root": "api-gateway",
+      "dfd_name": "api_gateway"
+    },
+    {
+      "name": "user",
+      "root": "user-service",
+      "dfd_name": "user_service"
+    },
+    {
+      "name": "reminder",
+      "root": "remainder-service",
+      "dfd_name": "reminder"
+    },
+    {
+      "name": "mailer",
+      "root": "mail-service",
+      "dfd_name": "mailer"
+    },
+    {
+      "name": "oauth",
+      "root": "oauth-server",
+      "dfd_name": "oauth"
+    },
+    {
+      "name": "proxy",
+      "root": "proxy",
+      "dfd_name": "proxy"
+    },
+    {
+      "name": "todo-infra (shared library, not a service)",
+      "root": "todo-infra"
+    },
+    {
+      "name": "config-server",
+      "root": "config-server",
+      "dfd_name": "config_server"
+    },
+    {
+      "name": "eureka-server",
+      "root": "eureka-server",
+      "dfd_name": "eureka_server"
+    },
+    {
+      "name": "admin",
+      "root": "admin-server",
+      "dfd_name": "admin"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 3,
+      "out_of_scope": 4
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 1,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "api-gateway",
+        "user",
+        "http"
+      ],
+      [
+        "oauth",
+        "user",
+        "http"
+      ],
+      [
+        "reminder",
+        "mailer",
+        "messaging"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "user",
+      "contract": "GET /accounts",
+      "client": {
+        "file": "api-gateway/src/main/java/com/apssouza/clients/UserClient.java",
+        "line": 19
+      },
+      "server": {
+        "file": "user-service/src/main/java/com/apssouza/controllers/AccountController.java",
+        "line": 42
+      },
+      "evidence": "@FeignClient(\"user\"); AccountController @RequestMapping(\"/accounts\") @GetMapping",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "api-gateway/src/main/java/com/apssouza/services/UserServiceImpl.java",
+          "line": 23
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#1"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "user",
+      "contract": "GET /accounts/search?email=",
+      "client": {
+        "file": "api-gateway/src/main/java/com/apssouza/clients/UserClient.java",
+        "line": 22
+      },
+      "server": {
+        "file": "user-service/src/main/java/com/apssouza/controllers/AccountController.java",
+        "line": 78
+      },
+      "evidence": "@FeignClient(\"user\")",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "api-gateway/src/main/java/com/apssouza/services/UserServiceImpl.java",
+          "line": 28
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#2"
+    },
+    {
+      "kind": "http",
+      "from_service": "oauth",
+      "to_service": "user",
+      "contract": "GET /accounts/search?email=",
+      "client": {
+        "file": "oauth-server/src/main/java/com/apssouza/clients/UserClient.java",
+        "line": 19
+      },
+      "server": {
+        "file": "user-service/src/main/java/com/apssouza/controllers/AccountController.java",
+        "line": 78
+      },
+      "evidence": "@FeignClient(\"user\") in oauth-server",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "oauth-server/src/main/java/com/apssouza/services/UserServiceImpl.java",
+          "line": 22
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#3"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "reminder",
+      "contract": "GET /todos",
+      "client": {
+        "file": "api-gateway/src/main/java/com/apssouza/clients/TodoClient.java",
+        "line": 19
+      },
+      "server": {
+        "file": "remainder-service/src/main/java/com/apssouza/controllers/TodoController.java",
+        "line": 45
+      },
+      "evidence": "@FeignClient(\"todo\") - path matches reminder TodoController @RequestMapping(\"/todos\")",
+      "in_scope_static": false,
+      "out_of_scope_reason": "Feign service id \"todo\" matches no spring.application.name (reminder registers as \"reminder\"); target only inferable by path, would fail at runtime",
+      "hop": "direct",
+      "label_confidence": "ambiguous",
+      "client_invocations": [
+        {
+          "file": "api-gateway/src/main/java/com/apssouza/services/TodoServiceImpl.java",
+          "line": 24
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#4"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "reminder",
+      "contract": "GET /todos/search?email=",
+      "client": {
+        "file": "api-gateway/src/main/java/com/apssouza/clients/TodoClient.java",
+        "line": 22
+      },
+      "server": {
+        "file": "remainder-service/src/main/java/com/apssouza/controllers/TodoController.java",
+        "line": 50
+      },
+      "evidence": "@FeignClient(\"todo\") - path matches reminder TodoController @RequestMapping(\"/todos\")",
+      "in_scope_static": false,
+      "out_of_scope_reason": "Feign service id \"todo\" matches no spring.application.name (reminder registers as \"reminder\"); target only inferable by path, would fail at runtime",
+      "hop": "direct",
+      "label_confidence": "ambiguous",
+      "client_invocations": [
+        {
+          "file": "api-gateway/src/main/java/com/apssouza/services/TodoServiceImpl.java",
+          "line": 30
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#5"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "reminder",
+      "contract": "POST /todos",
+      "client": {
+        "file": "api-gateway/src/main/java/com/apssouza/clients/TodoClient.java",
+        "line": 27
+      },
+      "server": {
+        "file": "remainder-service/src/main/java/com/apssouza/controllers/TodoController.java",
+        "line": 55
+      },
+      "evidence": "@FeignClient(\"todo\") - path matches reminder TodoController @RequestMapping(\"/todos\")",
+      "in_scope_static": false,
+      "out_of_scope_reason": "Feign service id \"todo\" matches no spring.application.name (reminder registers as \"reminder\"); target only inferable by path, would fail at runtime",
+      "hop": "direct",
+      "label_confidence": "ambiguous",
+      "client_invocations": [
+        {
+          "file": "api-gateway/src/main/java/com/apssouza/services/TodoServiceImpl.java",
+          "line": 35
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#6"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "reminder",
+      "to_service": "mailer",
+      "contract": "kafka-topic:todo-mail",
+      "client": {
+        "file": "todo-infra/src/main/java/com/apssouza/infra/EventPublisher.java",
+        "line": 46
+      },
+      "server": {
+        "file": "mail-service/src/main/java/com/apssouza/mailservice/integration/reminder/EventInput.java",
+        "line": 33
+      },
+      "evidence": "Spring Cloud Stream: Source.output() -> bindings.output.destination=todo-mail (reminder.properties); Sink.INPUT <- bindings.input.destination=todo-mail (mailer.properties); Kafka binder",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "remainder-service/src/main/java/com/apssouza/services/TodoServiceImpl.java",
+        "line": 49
+      },
+      "topic_config": [
+        {
+          "file": "config-server/src/main/resources/offline-repository/reminder.properties",
+          "line": 21
+        },
+        {
+          "file": "config-server/src/main/resources/offline-repository/mailer.properties",
+          "line": 16
+        }
+      ],
+      "id": "msecend-apssouza22-java-microservice#7"
+    },
+    {
+      "kind": "http",
+      "from_service": "proxy",
+      "to_service": "api-gateway",
+      "contract": "ANY /** (nginx upstream backend)",
+      "client": {
+        "file": "proxy/default.conf",
+        "line": 4
+      },
+      "server": null,
+      "evidence": "nginx upstream backend { server gateway:8018; } proxy_pass http://backend",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy route (config)",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-apssouza22-java-microservice#8"
+    }
+  ],
+  "dont_care_call_sites": [],
+  "notes": [
+    "Service names are spring.application.name values (user, reminder, mailer, oauth, api-gateway), which are what Feign/Eureka resolve.",
+    "Kafka producer code lives in the shared module todo-infra (EventPublisher.stream -> Source.output channel.send); it is a dependency of remainder-service and mail-service. Only reminder calls stream() (TodoServiceImpl). Destination todo-mail comes from spring.cloud.stream.bindings.output/input.destination in config-server offline-repository properties; mailer consumes with @StreamListener(Sink.INPUT, condition headers type==TodoCreatedEvent).",
+    "api-gateway TodoClient is @FeignClient(\"todo\") but no service registers as \"todo\" (the reminder service is spring.application.name=reminder). Paths match reminder TodoController (/todos, /todos/search). Recorded as out of scope / ambiguous: an extractor that links by service id should not produce it; one that links by path may. Score as dont-care.",
+    "api-gateway UserClient.createUser is POST /users on service \"user\", but user-service has no /users handler (only /accounts...). Listed under unmatched_clients: any link from it is a false positive.",
+    "Label disagreements with microSecEnD: (1) reminder -> kafka is traced to TodoSocketController.java:17 @SendTo(\"/topic/todos\"), a STOMP/WebSocket destination, not the Kafka producer; (2) the DFD omits api_gateway -> reminder (the \"todo\" Feign client) - defensible given the name mismatch, but undocumented; (3) 19 of 77 traceability URLs contain blob/master/master/ and do not resolve. Feign user links and topic todo-mail agree with source."
+  ],
+  "unmatched_clients": [
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "contract": "POST /users (service id \"user\")",
+      "client": {
+        "file": "api-gateway/src/main/java/com/apssouza/clients/UserClient.java",
+        "line": 25
+      },
+      "reason": "no handler for POST /users in user-service; any link produced from this client is a false positive"
+    }
+  ]
+}

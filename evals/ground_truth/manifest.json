@@ -1,0 +1,55 @@
+{
+  "description": "Pinned repositories with compiler-derived expected calls. Regenerate a truth file with the corpus's oracle command, then: python tools/ground_truth.py derive WORKSPACE WORKSPACE/index.scip > evals/ground_truth/calls/NAME.tsv",
+  "corpora": [
+    {
+      "name": "click",
+      "url": "https://github.com/pallets/click",
+      "commit": "08b803cf32ceb2ae6a772c62d5da42757a897d44",
+      "license": "BSD-3-Clause",
+      "languages": ["python"],
+      "truth": "calls/click.tsv",
+      "oracle": "scip-python 0.6.8",
+      "oracle_command": "python -m venv env && env/bin/pip install -e . && PATH=$PWD/env/bin:$PATH scip-python index --project-name click --output index.scip ."
+    },
+    {
+      "name": "ky",
+      "url": "https://github.com/sindresorhus/ky",
+      "commit": "3541888878c4d303a8bc2ad61815f4e048f55a5d",
+      "license": "MIT",
+      "languages": ["typescript"],
+      "truth": "calls/ky.tsv",
+      "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
+      "oracle_command": "npm install --ignore-scripts && scip-typescript index"
+    },
+    {
+      "name": "cobra",
+      "url": "https://github.com/spf13/cobra",
+      "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+      "license": "Apache-2.0",
+      "languages": ["go"],
+      "truth": "calls/cobra.tsv",
+      "oracle": "scip-go 0.1.26, go 1.24.7",
+      "oracle_command": "scip-go"
+    },
+    {
+      "name": "anyhow",
+      "url": "https://github.com/dtolnay/anyhow",
+      "commit": "c89c9b82b155f701a20eb4a9d3609ad09df5a62f",
+      "license": "MIT OR Apache-2.0",
+      "languages": ["rust"],
+      "truth": "calls/anyhow.tsv",
+      "oracle": "rust-analyzer 1.100.0 (0ef1bc3 2026-11-09)",
+      "oracle_command": "rust-analyzer scip ."
+    },
+    {
+      "name": "ripgrep",
+      "url": "https://github.com/BurntSushi/ripgrep",
+      "commit": "4a51093f78bfbef86d89275f4916fd6b6039fe9e",
+      "license": "MIT OR Unlicense",
+      "languages": ["rust"],
+      "truth": "calls/ripgrep.tsv",
+      "oracle": "rust-analyzer 1.100.0 (0ef1bc3 2026-11-09)",
+      "oracle_command": "rust-analyzer scip ."
+    }
+  ]
+}
