@@ -57,6 +57,17 @@ scored against a yardstick its own rules cannot move.
   oracle indexed.
 - `baseline.json` is the current score of each corpus.
 
+Java has no SCIP indexer in this setup, so `derive-java` takes the truth from
+javac's own attribution (`tools/JavaCallTruth.java`, JDK only): every method
+invocation and `new` expression javac binds, at the line of the called name,
+targeting the line of the declaration's name. A `new` expression accepts its
+constructor and its class. Calls javac cannot bind (a missing library) are left
+out.
+
+An engine link matches a target when it is on the target's line or is the
+innermost declaration whose span holds that line: the engine records a Java
+declaration at its first annotation or modifier, the oracles at its name.
+
 Every engine call resolution is judged at its source position:
 
 | Outcome | Meaning |
@@ -89,8 +100,7 @@ Scores are also broken down by the evidence rule that made each link, and
 contradiction, even if the totals hold. Its `rule_coverage` output lists, for
 every call rule, confirmed and contradicted links across all corpora, and
 names the rules with no confirmed link: breaking one of those would go
-unnoticed here. Today these are the five Java rules (there is no Java corpus
-yet). Every Python, TypeScript, Go and Rust call rule has at least 18
+unnoticed here. Today there are none; every call rule has at least 8
 confirmed links:
 
 | Rule | Confirmed | Contradicted |
@@ -98,12 +108,17 @@ confirmed links:
 | tree-sitter.call-lexical-name | 969 | 1 |
 | tree-sitter.call-imported-name | 484 | 0 |
 | tree-sitter.call-module-attribute | 18 | 0 |
-| tree-sitter.call-self-method | 159 | 0 |
+| tree-sitter.call-self-method | 165 | 0 |
 | tree-sitter.call-package-name | 566 | 0 |
 | tree-sitter.rust-call-path | 1,831 | 0 |
 | tree-sitter.rust-call-associated | 1,123 | 0 |
 | tree-sitter.rust-call-self-method | 580 | 0 |
 | tree-sitter.rust-call-local-item | 35 | 0 |
+| tree-sitter.java-enclosing-type-method | 1,529 | 0 |
+| tree-sitter.java-type-name | 2,379 | 0 |
+| tree-sitter.java-type-member | 391 | 0 |
+| tree-sitter.java-inherited-method | 19 | 0 |
+| tree-sitter.java-static-import | 8 | 0 |
 
 Before a contradiction is reported as an engine defect it is checked against
 the source: the oracle can be misconfigured too. For example, scip-python
@@ -120,6 +135,7 @@ Baseline (calls):
 | cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
+| gson | java | 11,139 | 4,332 | 0 | 1.0 | 0.3824 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
