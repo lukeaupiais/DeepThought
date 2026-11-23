@@ -32,7 +32,9 @@ MANIFESTS = {
 # compose.override.yaml or docker-compose.prod.yml; each declares services.
 COMPOSE_FILE = re.compile(r"^(?:docker-)?compose(?:\.[A-Za-z0-9_.-]+)?\.ya?ml$")
 PACKAGE_KINDS = frozenset(MANIFESTS.values())
-COMPONENT_KINDS = PACKAGE_KINDS | {"compose_service"}
+DEPLOYMENT_KINDS = frozenset({"compose_service", "k8s_workload", "k8s_service"})
+COMPONENT_KINDS = PACKAGE_KINDS | DEPLOYMENT_KINDS
+YAML_FILE = re.compile(r"\.ya?ml$")
 # Directories the source analyzer does not enter either.
 SKIPPED_DIRECTORIES = frozenset({".git", ".venv", "node_modules", "__pycache__"})
 _MAVEN_NS = re.compile(r"^\{[^}]*\}")
@@ -53,6 +55,13 @@ class Component:
     context: str | None = None
     # Compose services: the image the service names, as written.
     image: str | None = None
+    # Kubernetes objects: metadata.namespace as written (None when absent),
+    # the pod template's labels (workloads) or the selector (Services), and
+    # the container images (workloads), as sorted tuples.
+    namespace: str | None = None
+    labels: tuple = ()
+    selector: tuple = ()
+    images: tuple = ()
 
     def __post_init__(self):
         if self.kind not in COMPONENT_KINDS:
@@ -60,17 +69,29 @@ class Component:
         if not is_relative_file(self.manifest):
             raise ValueError("Manifest path must be canonical and relative")
         file_name = PurePosixPath(self.manifest).name
-        if (self.kind == "compose_service") != bool(COMPOSE_FILE.match(file_name)) or (
-            self.kind != "compose_service" and MANIFESTS.get(file_name) != self.kind
-        ):
+        if self.kind == "compose_service":
+            valid = bool(COMPOSE_FILE.match(file_name))
+        elif self.kind in DEPLOYMENT_KINDS:
+            valid = bool(YAML_FILE.search(file_name))
+        else:
+            valid = MANIFESTS.get(file_name) == self.kind
+        if not valid:
             raise ValueError("Unsupported manifest file")
-        if self.kind == "compose_service" and self.name is None:
-            raise ValueError("Compose services are named")
-        if self.kind != "compose_service" and (self.context, self.image) != (
-            None,
-            None,
+        if self.kind in DEPLOYMENT_KINDS and self.name is None:
+            raise ValueError("Deployment units are named")
+        if self.kind not in {"compose_service", "k8s_workload"} and (
+            self.context is not None
         ):
-            raise ValueError("Only Compose services have a context or image")
+            raise ValueError("Only Compose services and workloads have a context")
+        if self.kind != "compose_service" and self.image is not None:
+            raise ValueError("Only Compose services have an image")
+        if self.kind not in {"k8s_workload", "k8s_service"} and (
+            self.namespace,
+            self.labels,
+            self.selector,
+            self.images,
+        ) != (None, (), (), ()):
+            raise ValueError("Only Kubernetes objects have labels or images")
         if (
             self.context is not None
             and self.context != ""
@@ -88,8 +109,9 @@ class Component:
     def root(self) -> str | None:
         """The directory whose files belong to the component, repository-
         relative ("" is the root): a package's manifest directory, a Compose
-        service's build context, or None for a service that builds nothing."""
-        if self.kind == "compose_service":
+        service's build context, a workload's Skaffold artifact context, or
+        None for a unit that builds nothing here."""
+        if self.kind in DEPLOYMENT_KINDS:
             return self.context
         parent = PurePosixPath(self.manifest).parent.as_posix()
         return "" if parent == "." else parent
@@ -202,6 +224,10 @@ class ManifestScan:
     dependencies: tuple = ()
     # Maven module manifest -> "groupId:artifactId".
     coordinates: tuple[tuple[str, str], ...] = ()
+    # (image, context) for each Skaffold build artifact.
+    artifacts: tuple[tuple[str, str], ...] = ()
+    # Whether other YAML files were read for Kubernetes objects (PyYAML).
+    kubernetes: bool = True
 
 
 def scan_components(
@@ -215,8 +241,11 @@ def scan_components(
     root = Path(root).resolve(strict=True)
     from .component_dependencies import extract_dependencies, maven_coordinates
 
+    from . import deployments
+
     components, manifests, diagnostics = [], [], []
-    dependencies, coordinates = [], []
+    dependencies, coordinates, artifacts = [], [], []
+    kubernetes = deployments.yaml_available()
 
     def directory_error(exc):
         diagnostics.append(("", "Could not enumerate a selected directory"))
@@ -226,8 +255,15 @@ def scan_components(
     ):
         dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRECTORIES)
         for name in sorted(names):
+            other_yaml = (
+                kubernetes
+                and name not in MANIFESTS
+                and not COMPOSE_FILE.match(name)
+                and YAML_FILE.search(name)
+            )
             if name not in MANIFESTS and not COMPOSE_FILE.match(name):
-                continue
+                if not other_yaml:
+                    continue
             relative = (Path(directory) / name).relative_to(root).as_posix()
             if not any(fnmatchcase(relative, p) for p in include) or any(
                 fnmatchcase(relative, p) for p in exclude
@@ -249,6 +285,20 @@ def scan_components(
             except OSError:
                 diagnostics.append((relative, "Manifest could not be read"))
                 continue
+            if other_yaml:
+                # Any other YAML file may hold Kubernetes objects or a
+                # Skaffold config; one that does not, or does not parse
+                # (for example a Helm template), is not a manifest.
+                if len(content) > max_file_bytes:
+                    continue
+                found = deployments.extract_kubernetes(relative, content)
+                if found is None:
+                    continue
+                manifests.append((relative, sha256(content).hexdigest()))
+                objects, built = found
+                components.extend(objects)
+                artifacts.extend(built)
+                continue
             if len(content) > max_file_bytes:
                 diagnostics.append((relative, "Manifest exceeds max_file_bytes"))
                 continue
@@ -269,12 +319,15 @@ def scan_components(
                 group, artifact = maven_coordinates(ElementTree.fromstring(content))
                 if group and artifact:
                     coordinates.append((relative, group + ":" + artifact))
+    components = deployments.place_workloads(components, artifacts)
     return ManifestScan(
         tuple(components),
         tuple(manifests),
         tuple(diagnostics),
         tuple(dependencies),
         tuple(coordinates),
+        tuple(sorted(set(artifacts))),
+        kubernetes,
     )
 
 

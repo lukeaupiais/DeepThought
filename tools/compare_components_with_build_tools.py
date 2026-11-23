@@ -23,6 +23,11 @@ the tools that own each manifest format:
 - Compose: ``docker compose -f FILE --profile '*' config --format json`` gives each file's
   services, build contexts and depends_on; every service, context and
   compose-depends-on link must match (optional, ``--compose``).
+- Kubernetes: ``--kubernetes-oracle BINARY`` (build
+  tools/kubernetes_selector_oracle with ``go build``) decodes every YAML file
+  with the Kubernetes API types and matches Service selectors with
+  apimachinery's label selectors, in the same namespace and directory; every
+  SELECTS link must be one of its pairs and each of its pairs must be linked.
 - Maven: ``mvn help:evaluate`` gives each pom.xml's artifactId (optional,
   ``--maven``; it may download the help plugin).
 
@@ -433,6 +438,30 @@ def check_compose(root, scan, tally):
             )
 
 
+def check_kubernetes(root, scan, tally, oracle, files):
+    from deepthought.deployments import resolve_selectors
+
+    ours = {
+        (s.manifest, s.name, w.manifest, w.name)
+        for s, w in resolve_selectors(scan.components)
+    }
+    selected = [f for f in files if f.endswith((".yaml", ".yml"))]
+    answer = subprocess.run(
+        [oracle],
+        input="\n".join(selected),
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=600,
+    )
+    expected = {tuple(json.loads(line)) for line in answer.stdout.splitlines()}
+    for pair in sorted(ours):
+        tally.add("k8s.selects", pair in expected, list(pair))
+    for pair in sorted(expected):
+        tally.add("k8s.oracle-selects", pair in ours, list(pair))
+
+
 def check_maven(root, components, tally):
     for module in [c for c in components if c.kind == "maven_module"]:
         answer = run(
@@ -461,6 +490,7 @@ def main(argv=None):
     parser.add_argument("repositories", nargs="+", type=Path)
     parser.add_argument("--maven", action="store_true")
     parser.add_argument("--compose", action="store_true")
+    parser.add_argument("--kubernetes-oracle", type=Path)
     parser.add_argument("--exclude", action="append", default=[])
     args = parser.parse_args(argv)
     report = {}
@@ -473,6 +503,10 @@ def main(argv=None):
         check_cargo(root, scan.components, tally)
         check_node(root, scan.components, tally, files)
         check_dependencies(root, scan, tally)
+        if args.kubernetes_oracle:
+            check_kubernetes(
+                root, scan, tally, str(args.kubernetes_oracle.resolve()), files
+            )
         if args.compose:
             check_compose(root, scan, tally)
         if args.maven:
