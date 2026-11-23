@@ -457,14 +457,14 @@ JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
 )
 
 
-def contract_outputs(directory, repo):
+async def contract_outputs(directory, repo):
     from deepthought.analysis_tools.service_contracts import ServiceContractTool
 
     write(directory, CONTRACTS)
     return [
-        asyncio.run(TreeSitterTool(directory).analyze(repo, languages={"java"})),
-        asyncio.run(ComponentsTool(directory).analyze(repo)),
-        asyncio.run(ServiceContractTool(Path(directory)).analyze(repo)),
+        await TreeSitterTool(directory).analyze(repo, languages={"java"}),
+        await ComponentsTool(directory).analyze(repo),
+        await ServiceContractTool(Path(directory)).analyze(repo),
     ]
 
 
@@ -472,7 +472,7 @@ def contract_outputs(directory, repo):
 class ConsumerTests(unittest.TestCase):
     def test_packages_joined_by_a_route(self):
         with tempfile.TemporaryDirectory() as directory:
-            outputs = contract_outputs(directory, "repo")
+            outputs = asyncio.run(contract_outputs(directory, "repo"))
         combined, _ = _combine(outputs, "repo", "rev", WriteCoordinatorConfig())
         consumes = [r for r in combined.relationships if r.type == "USES_CONTRACT_OF"]
         # Two requests from web to one route make one edge; the request from
@@ -938,7 +938,7 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
         repo = self.repo + "-contracts"
         self.addAsyncCleanup(self.remove_repo, repo)
         with tempfile.TemporaryDirectory() as directory:
-            outputs = contract_outputs(directory, repo)
+            outputs = await contract_outputs(directory, repo)
         snapshot = "rev-" + uuid4().hex
         written = await WriteCoordinator(
             self.manager.driver, database=self.manager.database
