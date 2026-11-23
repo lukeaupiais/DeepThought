@@ -774,16 +774,21 @@ through resolved `mod` declarations has a module path, and inline modules
 extend it. A path starts at the crate root (`crate`), the declaring module
 (`self`, `super`), a module or type declared in the declaring module, or a
 workspace library by crate name (`name` or `::name`), and goes through
-modules one segment at a time. The link is to the file of the last module
-reached:
+modules one segment at a time. A name in a module can be a child module, a
+declared item, a name a use there binds, or, when nothing else, a name a glob
+use supplies; declarations behind different `#[cfg]`s can give it several
+meanings, and as every configuration is analyzed, each meaning is followed and
+linked (a module declared once per `#[cfg]` links both files). A path that
+continues past a name goes on only through modules and types. Each link is
+to the file of the last module reached:
 
 - `tree-sitter.rust-use-declared` when the path ends there or its next name
   is declared in that module (a function, type, trait, macro or module);
 - `tree-sitter.rust-use-reexport` when the module binds the name with a use
-  of its own (an `extern crate`, an explicit `use`, or exactly one glob
-  `use` that supplies it) and following those uses reaches the file that
-  declares it, or a module the rest of the path continues from. A chain of
-  uses in a cycle, or two globs that both supply the name, is not followed;
+  of its own (an `extern crate` or an explicit `use`, or the glob `use`s
+  that supply it when there is none) and following those uses reaches the
+  file that declares it, or a module the rest of the path continues from. A
+  chain of uses in a cycle is not followed;
 - `tree-sitter.rust-use-module` when the next name is neither declared nor
   bound there: a constant or static, or an item a macro generates. The link
   names the module the path goes through, not where the item is defined.
@@ -793,8 +798,7 @@ and an `extern crate x as y;` in a crate root lets paths start with `y`.
 A file in several crates is resolved in each and is ambiguous
 (`use_context_ambiguous`) when they differ. Other outcomes: `external_crate`
 (no workspace library has the name, as for `std`), `crate_ambiguous` (two
-workspace libraries share it), `module_file_ambiguous` (a module declared
-once per `#[cfg]` in two files), `module_missing` (a module whose file is
+workspace libraries share it), `module_missing` (a module whose file is
 unknown, or a module inside a function body), `super_outside_crate`, and
 `module_context_unknown` (a file no crate root reaches, usually because its
 `mod` declaration is written inside a macro invocation). A name that a `use`
@@ -810,7 +814,11 @@ in some file.
 | ripgrep | 1,083 | 505 / 0 / 20 | 73 / 0 / 5 | 21 / 0 / 0 | 6 | 429 / 23 | 1 |
 | regex | 1,808 | 900 / 0 / 135 | 183 / 0 / 27 | 28 / 1 / 6 | 0 | 491 / 37 | 0 |
 | serde | 981 | 187 / 0 / 20 | 7 / 0 / 0 | 29 / 49 / 7 | 1 | 316 / 13 | 159 |
-| tokio | 7,101 | 150 / 0 / 80 | 138 / 0 / 2 | 27 / 968 / 144 | 0 | 1,700 / 84 | 1,311 |
+| tokio | 7,101 | 150 / 0 / 80 | 139 / 0 / 2 | 50 / 944 / 144 | 0 | 1,700 / 84 | 1,311 |
+
+A use with several links (one per `#[cfg]` meaning) counts as confirmed when
+rust-analyzer's file, from the one configuration it indexes, is among them
+(regex 2, tokio 3).
 
 Uses whose file no crate reaches and for which rust-analyzer has no
 definition in the repository either are not counted above (serde 193, tokio

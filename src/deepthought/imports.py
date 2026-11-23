@@ -517,12 +517,15 @@ class _RustIndex:
         }
         # Names declared in each (file, inline modules) scope, those that can
         # start a path (modules and types), and the inline modules of each file.
-        self.items, self.types, inline = {}, {}, {}
+        self.items, self.types, self.kinds, inline = {}, {}, {}, {}
         for d in result.definitions:
             if languages.get(d.file) != "rust":
                 continue
             parts = tuple(d.symbol.split("."))
             self.items.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
+            if d.kind != "Module":
+                names = self.kinds.setdefault((d.file, parts[:-1]), {})
+                names.setdefault(parts[-1], set()).add(d.kind)
             if d.kind in _RUST_TYPE_KINDS:
                 self.types.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
             if d.kind == "Module" and (d.file, parts) not in bodyless:
@@ -629,89 +632,94 @@ class _RustIndex:
             root, module, rest = library, (), segments[1:]
         return root, module, rest
 
-    def _descend(self, root, module, rest):
-        """Follow modules down a path: (module, rest, (file, scope)) or the
-        failure outcome."""
-        while rest and (root, module + (rest[0],)) in self.modules:
-            module, rest = module + (rest[0],), rest[1:]
-        scopes = self.modules.get((root, module), set())
-        if len(scopes) > 1:
-            # One module in several files (one per #[cfg]).
-            files = tuple(sorted({file for file, _ in scopes}))
-            return "ambiguous", "module_file_ambiguous", (), files
-        if not scopes:
-            # A use in a module inside a function body.
-            return "unresolved", "module_missing", (), ()
-        file, scope = next(iter(scopes))
-        if rest and (file, scope, rest[0]) in self.unlinked:
-            return "unresolved", "module_missing", (), ()
-        return module, rest, (file, scope)
-
     def _follow(self, root, module, rest, visiting):
-        """Down a path from a module, through the uses that bind names: a
-        failure outcome, or (what, file, root, module, followed) where what
-        is "item" (the next name is declared in file), "module" (the path
-        names the module in file) or "undeclared" (file's module does not
-        declare or bind the next name). followed says whether a use was
-        followed on the way."""
-        followed = False
-        while True:
-            descended = self._descend(root, module, rest)
-            if len(descended) != 3:
-                return descended
-            module, rest, (file, scope) = descended
+        """Every meaning of a path from a module, in every configuration.
+
+        A name in a module can be a child module, a declared item, a name a
+        use there binds (followed), or, when none of these, a name a glob
+        use supplies. Declarations behind different ``#[cfg]``s can give a
+        name several meanings; all are kept. Returns (meanings, failures):
+        a meaning is (what, file, root, module, followed) where what is
+        "module" (the path names the module in file), "item" (file declares
+        the name) or "undeclared" (file's module neither declares nor binds
+        it); followed says whether a use was followed on the way.
+        """
+        meanings, failures = set(), []
+        # Each state has fewer names left than the one it came from.
+        states = [(root, module, tuple(rest), False)]
+        while states:
+            root, module, rest, followed = states.pop()
+            scopes = sorted(self.modules.get((root, module), ()))
+            if not scopes:
+                # A use in a module inside a function body.
+                failures.append(("unresolved", "module_missing", (), ()))
+                continue
             if not rest:
-                return "module", file, root, module, followed
-            if rest[0] in self.items.get((file, scope), ()):
-                # A name inside an item (a variant, an associated item) is
-                # declared with it.
-                return "item", file, root, module, followed
-            found = self._bound(root, module, (file, scope), rest[0], visiting)
-            if found is None:
-                return "undeclared", file, root, module, followed
-            followed = True
-            if found[0] == "item":
-                return found[:4] + (True,)
-            root, module, rest = found[2], found[3], rest[1:]
+                meanings.update(
+                    ("module", file, root, module, followed) for file, _ in scopes
+                )
+                continue
+            name, last = rest[0], len(rest) == 1
+            child = (root, module + (name,))
+            for where in scopes:
+                found = False
+                if child in self.modules:
+                    states.append((*child, rest[1:], followed))
+                    found = True
+                elif (*where, name) in self.unlinked:
+                    failures.append(("unresolved", "module_missing", (), ()))
+                    found = True
+                kinds = self.kinds.get(where, {}).get(name, set())
+                if kinds and (last or kinds & _RUST_TYPE_KINDS):
+                    # A name inside an item (a variant, an associated item)
+                    # is declared with it.
+                    meanings.add(("item", where[0], root, module, followed))
+                    found = True
+                for meaning in self._bound(root, module, where, name, visiting):
+                    found = True
+                    if meaning[0] == "module":
+                        states.append((meaning[2], meaning[3], rest[1:], True))
+                    else:
+                        meanings.add(meaning[:4] + (True,))
+                if not found:
+                    meanings.add(("undeclared", where[0], root, module, followed))
+        return meanings, failures
 
     def _bound(self, root, module, where, name, visiting):
-        """What a use in a module binds ``name`` to, as an "item" or
-        "module" outcome of _follow, or None. ``extern crate`` and explicit
-        uses come before globs, and several globs must agree."""
+        """The meanings uses in a module bind ``name`` to: ``extern crate``
+        and explicit uses, or, when there are none, globs of modules."""
         key = (root, module, name)
         if key in visiting:
-            return None
+            return set()
         visiting = visiting | {key}
         file, scope = where
         path = module[: len(module) - len(scope)]
+        found = set()
         for item in self.externs.get(where, {}).get(name, ()):
             library, failed = self._library(item.specifier)
             if library:
-                return "module", library, library, (), True
+                found.add(("module", library, library, (), True))
         for item in self.bindings.get(where, {}).get(name, ()):
             walked = self._walk(item, root, path)
             if len(walked) == 3:
-                found = self._follow(*walked, visiting)
-                if found[0] in {"item", "module"}:
-                    return found
-        found = set()
+                found |= self._follow(*walked, visiting)[0]
+        if found:
+            return found
         for item in self.globs.get(where, ()):
             walked = self._walk(item, root, path)
             if len(walked) != 3:
                 continue
-            descended = self._descend(*walked)
-            # Only a glob of a module: one of an enum's variants names no
-            # declaration here.
-            if len(descended) != 3 or descended[1]:
-                continue
-            target = self._follow(walked[0], descended[0], [name], visiting)
-            if target[0] in {"item", "module"}:
-                found.add(target[:4])
-        return found.pop() + (True,) if len(found) == 1 else None
+            for glob in self._follow(*walked, visiting)[0]:
+                # Only a glob of a module: one of an enum's variants names
+                # no declaration here.
+                if glob[0] == "module":
+                    supplied = self._follow(glob[2], glob[3], [name], visiting)[0]
+                    found |= {m for m in supplied if m[0] != "undeclared"}
+        return found
 
     def _resolve(self, item: Import, root, path):
         """(status, reason, links, candidates) of one use in one crate's
-        module."""
+        module: a link to each file the path can mean."""
         if item.kind == "extern_crate":
             library, failed = self._library(item.specifier)
             if failed:
@@ -720,15 +728,23 @@ class _RustIndex:
         walked = self._walk(item, root, path)
         if len(walked) != 3:
             return walked
-        found = self._follow(*walked, frozenset())
-        if found[0] not in {"item", "module", "undeclared"}:
-            return found
-        what, file, _, _, followed = found
-        if what == "undeclared":
-            rule = RUST_USE_MODULE
-        else:
-            rule = RUST_USE_REEXPORT if followed else RUST_USE_DECLARED
-        return "linked", None, (ImportLink(file, rule),), ()
+        meanings, failures = self._follow(*walked, frozenset())
+        strength = {RUST_USE_DECLARED: 0, RUST_USE_REEXPORT: 1, RUST_USE_MODULE: 2}
+        rules = {}
+        for what, file, _, _, followed in meanings:
+            rule = (
+                RUST_USE_MODULE
+                if what == "undeclared"
+                else RUST_USE_REEXPORT
+                if followed
+                else RUST_USE_DECLARED
+            )
+            if file not in rules or strength[rule] < strength[rules[file]]:
+                rules[file] = rule
+        if not rules:
+            return min(failures)
+        links = tuple(ImportLink(file, rules[file]) for file in sorted(rules))
+        return "linked", None, links, ()
 
 
 def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
