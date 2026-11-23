@@ -1262,6 +1262,76 @@ regions tree-sitter-c does not parse, mostly macros that wrap declarations
 be misread (Tree-sitter only, 161 in redis). Macro-generated declarations
 (clang only) are written by a macro invocation, as in jq's `LIBM_DD(...)`.
 
+## C++
+
+C++ sources (`.cc`, `.cpp`, `.cxx`, `.c++`, `.hh`, `.hpp`, `.hxx`, `.h++`,
+`.ipp`, `.inl`) are analyzed when `cpp` is selected (`--language cpp`) and the
+`cpp` extra is installed (tree-sitter-cpp 0.23.4); the language is opt-in. A
+`.h` header is read as C++ when `cpp` is selected, since C++ code includes it
+and the C++ grammar reads C declarations too, and as C otherwise.
+
+Declarations are those outside function bodies, in every preprocessor branch:
+namespaces (`Namespace`, both parts of `namespace a::b`), classes, structs,
+unions and enums that are named and have a body (`Class`, `Struct`, `Union`,
+`Enum`), functions (`Function`) and member functions (`Method`, including
+constructors, destructors, operators and conversion functions), definitions
+and prototypes alike, type aliases (`TypeAlias`, from `typedef` and `using`)
+and macros (`Macro`, wherever they are defined). Templates declare what they
+wrap, and a declaration's source text starts at its `template` line. Symbols
+join the enclosing namespaces and classes and any scope written before the
+name with `.` (`n.C.f`); anonymous namespaces and unnamed types add no scope,
+and operators are spelled as clang spells them (`operator==`,
+`operator new`). A function declared in a class body is a `Method`, and so is
+one defined out of line with a written scope (`void C::f() {}`), unless the
+scope's last part is a namespace the file opens (`void n::f() {}` in a file
+with `namespace n {`). The written scope is not looked up further. A friend
+function is declared in the namespace around its class. Variables, fields,
+enumerators, forward declarations and items in function bodies are not
+declarations. Imports, calls and other facts are not recorded for C++ yet.
+
+Before parsing, a word between a class key and the class's name (`class
+TINYXML2_LIB XMLNode {`, `struct LEVELDB_EXPORT Options :`), which C++ only
+allows when the word is a macro, is replaced with spaces; offsets and every
+other byte are kept, comments and literals are skipped, and `final` is not
+such a word. An elaborated type with a braced initializer (`struct S s{1};`)
+has the same shape and is misread as a definition of `s`. Three other shapes
+the grammar gives to code it does not fully read are read deterministically:
+a member function annotated with a macro (`void f() REQUIRES(mu);`) has its
+declarator in an error node, and that declarator is the one declared; a type
+after an export macro (`API Status Get();`) is in an error node and the
+declarator is kept, so a field annotated the same way (`int x
+GUARDED_BY(mu);`) reads as a function named after the macro; and a
+function's declarator standing alone in an error node declares a function,
+as in C.
+
+`tools/compare_c_declarations_with_clang.py --language cpp` checks this
+against clang (libclang 18.1.1, `-std=c++20`), as for C, with namespaces and
+class bodies visited, friend functions included and a class template's
+constructors named without its arguments. A conversion function is compared
+by kind and line only, since clang spells its type canonically. A matched
+declaration whose symbol is not clang's qualified name (its named semantic
+parents joined with `.`) is counted again by why: a namespace opened by a
+macro (`FMT_BEGIN_NAMESPACE`), or a grammar error in or before it. Because
+the scope of a C++ declaration depends on every brace before it, a function
+that one side calls a `Method` and the other a `Function` at the same name
+and line is put down to a grammar error when the grammar could not parse some
+text before it.
+
+| Corpus | Translation units (fatal) | clang | Matched (symbol differs: macro namespace / grammar error) | Tree-sitter only: inactive `#if` / file not reported / clang error / name is a macro / grammar error / kind after grammar error / namespace-qualified | clang only: macro-generated / in a function body / clang error / grammar error / kind after grammar error / namespace-qualified / read as an expression |
+|---|---|---|---|---|---|
+| leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
+| google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,449 (1,677 / 856) | 740 / 50 / 0 / 830 / 178 / 30 / 13 | 3,497 / 564 / 0 / 196 / 165 / 14 / 1 |
+
+No difference is unexplained. Most of fmt's macro-generated declarations
+and names that are macros come from its bundled GoogleTest (`TEST(...)`
+reads as a function named `TEST`). Namespace-qualified functions are fmt's
+`test::open` and similar, defined in a test file that never opens `test`.
+The expression is `int(fileno)(FILE*)`, which C++ allows to read either way.
+The grammar errors are mostly `#if` branches inside a class or function that
+leave braces unbalanced; from the first one on, the scope of later
+declarations in the file may be wrong.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
