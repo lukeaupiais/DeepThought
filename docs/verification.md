@@ -252,3 +252,41 @@ are equivalent. Six are gaps nothing checks:
 | 273 | `_JavaScope.type` | `and` to `or` | static member-type imports after a type was found |
 | 683 | `_RustPaths._declared` | `or` to `and` | a module path read in another crate root's context |
 | 864 | `_RustPaths.resolve` | `not declared` to `declared` | the `not_declared` reason of unresolved Rust paths |
+
+## Historical replay
+
+`tools/replay_history.py` asks whether impact analysis anticipates what real
+commits edited. For each recent non-merge commit that modifies 2 to 12 source
+files, it analyzes the parent revision. For each edited file it seeds an
+impact query with the innermost declarations the diff touches. That query
+follows CALLS, INHERITS_FROM and IMPLEMENTS backwards to depth 3, the way
+`get_impact` does. The files of the dependents it finds are the prediction,
+and the commit's other edited files are the outcome. The baseline is a plain
+text search: every file that contains one of the seed names as a whole word.
+
+```sh
+python tools/replay_history.py CLONE --language python --commits 30 --revision REV
+```
+
+Co-edited files are not the same as impacted files. A commit can touch
+unrelated files, edit a callee rather than a caller, or edit tests that name
+nothing it changed. A dependent may also need no edit. So the absolute numbers
+are low for both predictors. The replay compares the two predictors on the
+same edits; it does not judge whether a link is correct (the ground-truth
+corpus does that). A commit whose diff touches no declaration in a file, such
+as a test made of top-level calls, gives no case for that file.
+
+Results for the last 30 qualifying commits up to each corpus pin:
+
+| Repository | Language | Cases | Impact recall | Impact precision | Impact files per case | Search recall | Search precision | Search files per case |
+|---|---|---|---|---|---|---|---|---|
+| click | python | 76 | 0.020 | 0.263 | 0.25 | 0.052 | 0.117 | 1.46 |
+| cobra | go | 71 | 0.024 | 0.160 | 0.35 | 0.083 | 0.073 | 2.72 |
+| ky | typescript | 90 | 0.030 | 0.516 | 0.34 | 0.178 | 0.300 | 3.56 |
+| gson | java | 102 | 0.036 | 0.084 | 1.75 | 0.043 | 0.062 | 2.83 |
+
+In every repository impact analysis predicts fewer files at higher precision,
+and text search finds more of the co-edited files. Impact recall is bounded by
+call-resolution recall (0.26 to 0.48 on these corpora; see the baseline), so
+it should rise as more calls resolve. The replay is a trend to track per
+milestone, not a gate.
