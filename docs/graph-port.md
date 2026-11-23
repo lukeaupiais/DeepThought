@@ -22,6 +22,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | Original analyzer repository/file projection | deepthought.analysis_tools.tree_sitter | Repository -> CONTAINS -> File -> DEFINES -> declaration |
 | libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
+| libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -117,6 +118,35 @@ is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
 before, so their snapshot and graph identities do not change.
 
+## Calls
+
+Tree-sitter extraction records each call whose callee is a plain or dotted name
+(`f()`, `a.b.f()`, `self.m()`, `new Box()`) as a `CallSite` with its innermost
+enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
+chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
+so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
+inheritance and dynamic dispatch are not checked. Resolved call edges come from
+SCIP. The original builder's `confidence` floats and its `resolved_method` label
+for a bare `obj.method` match are not carried over, and `obj.method()` on an
+arbitrary object gets no edge.
+
+| Rule | Links |
+|---|---|
+| `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
+| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
+| `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
+| `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
+
+A name bound both by an import and a local declaration, or declared more than
+once, is ambiguous and gets no edge. CALLS edges start at the calling
+declaration, or at the File for module-level calls, and carry the call ID,
+callee text, line and column. Tool metadata counts call resolutions by status
+and reason. The `calls` capability is not advertised, so an empty callers or
+callees result still says the relation was unsupported or unobserved.
+
+`tools/compare_calls_with_scip.py` checks linked calls against SCIP references
+at the callee name.
+
 ## Provision and use
 
 ```sh
@@ -140,8 +170,8 @@ deepthought-graph structure --repository-id public-project --snapshot REVISION -
 ```
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
-with the chosen graph revision. This port ships TreeSitterTool (declarations and
-file imports); it does not pretend other original analyzers have already been
+with the chosen graph revision. This port ships TreeSitterTool (declarations,
+file imports and name-matched calls); it does not pretend other original analyzers have already been
 ported. The embedded Python API can
 register tools through the existing registry.
 

@@ -71,7 +71,7 @@ class PythonImportTests(unittest.TestCase):
             "python",
         )
         self.assertEqual(result.schema_version, "3")
-        self.assertEqual(result.capabilities, ("definitions", "imports"))
+        self.assertEqual(result.capabilities, ("call_sites", "definitions", "imports"))
         self.assertEqual(
             [
                 (i.specifier, i.kind, i.names, i.local_names, i.line)
@@ -289,7 +289,9 @@ class ImportSchemaTests(unittest.TestCase):
     def test_schema_three_round_trips_and_schema_two_stays_byte_identical(self):
         item = Import("i1", "a.py", "os", "import", 1, 0, 1, 9)
         current = self.base(
-            schema_version="3", capabilities=("definitions", "imports"), imports=(item,)
+            schema_version="3",
+            capabilities=("call_sites", "definitions", "imports"),
+            imports=(item,),
         )
         self.assertEqual(AnalysisResult.from_json(current.to_json()), current)
         legacy = self.base()
@@ -304,17 +306,17 @@ class ImportSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "capability"):
             self.base(schema_version="3", imports=(item,))
         with self.assertRaisesRegex(ValueError, "Schema 2"):
-            self.base(capabilities=("definitions", "imports"))
+            self.base(capabilities=("call_sites", "definitions", "imports"))
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             self.base(
                 schema_version="3",
-                capabilities=("definitions", "imports"),
+                capabilities=("call_sites", "definitions", "imports"),
                 imports=(item, item),
             )
         with self.assertRaisesRegex(ValueError, "coverage"):
             self.base(
                 schema_version="3",
-                capabilities=("definitions", "imports"),
+                capabilities=("call_sites", "definitions", "imports"),
                 imports=(Import("i2", "b.py", "os", "import", 1, 0, 1, 9),),
             )
         for bad in (

@@ -7,7 +7,7 @@ import importlib
 from hashlib import sha256
 import json
 
-from .models import Definition, Import
+from .models import CallSite, Definition, Import
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
@@ -211,3 +211,81 @@ def extract_imports(
             )
         stack.extend(reversed(node.named_children))
     return imports
+
+
+_CHAIN_PARTS = {"identifier", "property_identifier", "this"}
+
+
+def _dotted(node, content):
+    """'a.b.c' for a pure identifier chain; None for any other callee shape."""
+    if node.type in _CHAIN_PARTS:
+        return _text(node, content)
+    if node.type in {"attribute", "member_expression"}:
+        obj = node.child_by_field_name("object")
+        prop = node.child_by_field_name(
+            "attribute" if node.type == "attribute" else "property"
+        )
+        if obj is None or prop is None or prop.type not in _CHAIN_PARTS:
+            return None
+        if any(child.type == "optional_chain" for child in node.children):
+            return None
+        head = _dotted(obj, content)
+        return None if head is None else head + "." + _text(prop, content)
+    return None
+
+
+def _callee(node, content):
+    if node.type in {"call", "call_expression"}:
+        target = node.child_by_field_name("function")
+        return (_dotted(target, content), "call") if target is not None else None
+    if node.type == "new_expression":
+        target = node.child_by_field_name("constructor")
+        return (_dotted(target, content), "new") if target is not None else None
+    return None
+
+
+def extract_call_sites(
+    tree, content: bytes, repository_id: str, file: str, definitions
+) -> list[CallSite]:
+    """Named call sites with their innermost enclosing declaration.
+
+    Calls whose callee is not a plain or dotted name (for example ``f()()`` or
+    ``x[0]()``) are not recorded.
+    """
+    spans = sorted(
+        (
+            ((d.line, d.column), (d.end_line, d.end_column), d.id)
+            for d in definitions
+            if d.file == file
+        ),
+        reverse=True,
+    )
+    sites, ordinals = [], {}
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        found = _callee(node, content)
+        if found is not None:
+            callee, kind = found
+            if callee is not None:
+                start = (node.start_point.row + 1, node.start_point.column)
+                end = (node.end_point.row + 1, node.end_point.column)
+                # Latest-starting enclosing span is the innermost declaration.
+                caller = next((i for s, e, i in spans if s <= start and end <= e), None)
+                ordinal = ordinals.get(callee, 0)
+                ordinals[callee] = ordinal + 1
+                sites.append(
+                    CallSite(
+                        id=identifier(repository_id, file, callee, "Call", ordinal),
+                        file=file,
+                        callee=callee,
+                        kind=kind,
+                        line=start[0],
+                        column=start[1],
+                        end_line=end[0],
+                        end_column=end[1],
+                        caller_id=caller,
+                    )
+                )
+        stack.extend(reversed(node.named_children))
+    return sites

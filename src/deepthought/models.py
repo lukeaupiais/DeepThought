@@ -139,6 +139,43 @@ class Import:
                 raise ValueError("Imported names must be tuples of nonempty strings")
 
 
+CALL_KINDS = frozenset({"call", "new"})
+
+
+@dataclass(frozen=True)
+class CallSite:
+    """A call whose callee is a name or dotted name, as written; not a resolved call."""
+
+    id: str
+    file: str
+    callee: str
+    kind: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    caller_id: str | None = None
+    coordinate_encoding: str = "utf-8"
+
+    def __post_init__(self):
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
+        if not all(isinstance(v, str) and v for v in (self.id, self.callee)):
+            raise ValueError("Call identity and callee must be nonempty strings")
+        if self.kind not in CALL_KINDS:
+            raise ValueError("Unsupported call kind")
+        if self.caller_id is not None and (
+            not isinstance(self.caller_id, str) or not self.caller_id
+        ):
+            raise ValueError("Caller identity must be a nonempty string or None")
+
+
 @dataclass(frozen=True)
 class FileCoverage:
     file: str
@@ -176,11 +213,13 @@ class AnalysisResult:
     analyzer: str
     analyzer_versions: tuple[tuple[str, str], ...]
     capabilities: tuple[str, ...] = ("definitions",)
-    # Schema 3 adds import facts; producers without them keep emitting schema 2.
+    # Schema 3 adds import and call-site facts; producers without them keep
+    # emitting schema 2.
     schema_version: str = "2"
     coordinate_encoding: str = "utf-8"
     references: tuple[Reference, ...] = ()
     imports: tuple[Import, ...] = ()
+    call_sites: tuple[CallSite, ...] = ()
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
@@ -203,12 +242,29 @@ class AnalysisResult:
             raise ValueError("Duplicate import identities")
         if self.imports and "imports" not in self.capabilities:
             raise ValueError("Import facts require the imports capability")
-        if self.schema_version == "2" and "imports" in self.capabilities:
-            raise ValueError("Schema 2 cannot contain imports")
+        if len({c.id for c in self.call_sites}) != len(self.call_sites):
+            raise ValueError("Duplicate call-site identities")
+        if self.call_sites and "call_sites" not in self.capabilities:
+            raise ValueError("Call-site facts require the call_sites capability")
+        definitions = {d.id: d.file for d in self.definitions}
+        if any(
+            c.caller_id is not None and definitions.get(c.caller_id) != c.file
+            for c in self.call_sites
+        ):
+            raise ValueError("Call-site callers must be definitions in the same file")
+        if self.schema_version == "2" and {"imports", "call_sites"} & set(
+            self.capabilities
+        ):
+            raise ValueError("Schema 2 cannot contain imports or call sites")
         covered = {item.file for item in self.coverage}
         if any(
             item.file not in covered
-            for item in (*self.definitions, *self.references, *self.imports)
+            for item in (
+                *self.definitions,
+                *self.references,
+                *self.imports,
+                *self.call_sites,
+            )
         ):
             raise ValueError("Every fact requires source file coverage")
         if self.status == "succeeded" and (
@@ -221,8 +277,8 @@ class AnalysisResult:
     def to_dict(self) -> dict:
         data = json.loads(json.dumps(asdict(self)))
         if self.schema_version == "2":
-            # Schema 2 predates import facts; keep its serialized identity unchanged.
-            del data["imports"]
+            # Schema 2 predates these facts; keep its serialized identity unchanged.
+            del data["imports"], data["call_sites"]
         return data
 
     def to_json(self) -> str:
@@ -248,9 +304,10 @@ class AnalysisResult:
                 data["schema_version"] = "2"
                 data["references"] = []
             if data["schema_version"] == "2":
-                if "imports" in data:
-                    raise ValueError("Schema 2 cannot contain imports")
+                if "imports" in data or "call_sites" in data:
+                    raise ValueError("Schema 2 cannot contain imports or call sites")
                 data["imports"] = []
+                data["call_sites"] = []
             data["references"] = tuple(Reference(**item) for item in data["references"])
             data["imports"] = tuple(
                 Import(
@@ -261,6 +318,10 @@ class AnalysisResult:
                     }
                 )
                 for item in data["imports"]
+            )
+            # Schema 3 artifacts written before call sites existed have no key.
+            data["call_sites"] = tuple(
+                CallSite(**item) for item in data.get("call_sites", [])
             )
             data["definitions"] = tuple(
                 Definition(**item) for item in data["definitions"]

@@ -100,7 +100,9 @@ class DeclarationTests(unittest.TestCase):
                     directory, repository_id="fixture", languages=(language,)
                 )
                 self.assertEqual([d.symbol for d in result.definitions], ["consume"])
-                self.assertEqual(result.capabilities, ("definitions", "imports"))
+                self.assertEqual(
+                    result.capabilities, ("call_sites", "definitions", "imports")
+                )
                 self.assertEqual(
                     [i.specifier for i in result.imports],
                     ["helpers" if language == "python" else "./helpers"],
