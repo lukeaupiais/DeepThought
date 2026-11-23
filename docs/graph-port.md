@@ -1281,6 +1281,76 @@ regions tree-sitter-c does not parse, mostly macros that wrap declarations
 be misread (Tree-sitter only, 161 in redis). Macro-generated declarations
 (clang only) are written by a macro invocation, as in jq's `LIBM_DD(...)`.
 
+## C++
+
+C++ sources (`.cc`, `.cpp`, `.cxx`, `.c++`, `.hh`, `.hpp`, `.hxx`, `.h++`,
+`.ipp`, `.inl`) are analyzed when `cpp` is selected (`--language cpp`) and the
+`cpp` extra is installed (tree-sitter-cpp 0.23.4); the language is opt-in. A
+`.h` header is read as C++ when `cpp` is selected, since C++ code includes it
+and the C++ grammar reads C declarations too, and as C otherwise.
+
+Declarations are those outside function bodies, in every preprocessor branch:
+namespaces (`Namespace`, both parts of `namespace a::b`), classes, structs,
+unions and enums that are named and have a body (`Class`, `Struct`, `Union`,
+`Enum`), functions (`Function`) and member functions (`Method`, including
+constructors, destructors, operators and conversion functions), definitions
+and prototypes alike, type aliases (`TypeAlias`, from `typedef` and `using`)
+and macros (`Macro`, wherever they are defined). Templates declare what they
+wrap, and a declaration's source text starts at its `template` line. Symbols
+join the enclosing namespaces and classes and any scope written before the
+name with `.` (`n.C.f`); anonymous namespaces and unnamed types add no scope,
+and operators are spelled as clang spells them (`operator==`,
+`operator new`). A function declared in a class body is a `Method`, and so is
+one defined out of line with a written scope (`void C::f() {}`), unless the
+scope's last part is a namespace the file opens (`void n::f() {}` in a file
+with `namespace n {`). The written scope is not looked up further. A friend
+function is declared in the namespace around its class. Variables, fields,
+enumerators, forward declarations and items in function bodies are not
+declarations. Imports, calls and other facts are not recorded for C++ yet.
+
+Before parsing, a word between a class key and the class's name (`class
+TINYXML2_LIB XMLNode {`, `struct LEVELDB_EXPORT Options :`), which C++ only
+allows when the word is a macro, is replaced with spaces; offsets and every
+other byte are kept, comments and literals are skipped, and `final` is not
+such a word. An elaborated type with a braced initializer (`struct S s{1};`)
+has the same shape and is misread as a definition of `s`. Three other shapes
+the grammar gives to code it does not fully read are read deterministically:
+a member function annotated with a macro (`void f() REQUIRES(mu);`) has its
+declarator in an error node, and that declarator is the one declared; a type
+after an export macro (`API Status Get();`) is in an error node and the
+declarator is kept, so a field annotated the same way (`int x
+GUARDED_BY(mu);`) reads as a function named after the macro; and a
+function's declarator standing alone in an error node declares a function,
+as in C.
+
+`tools/compare_c_declarations_with_clang.py --language cpp` checks this
+against clang (libclang 18.1.1, `-std=c++20`), as for C, with namespaces and
+class bodies visited, friend functions included and a class template's
+constructors named without its arguments. A conversion function is compared
+by kind and line only, since clang spells its type canonically. A matched
+declaration whose symbol is not clang's qualified name (its named semantic
+parents joined with `.`) is counted again by why: a namespace opened by a
+macro (`FMT_BEGIN_NAMESPACE`), or a grammar error in or before it. Because
+the scope of a C++ declaration depends on every brace before it, a function
+that one side calls a `Method` and the other a `Function` at the same name
+and line is put down to a grammar error when the grammar could not parse some
+text before it.
+
+| Corpus | Translation units (fatal) | clang | Matched (symbol differs: macro namespace / grammar error) | Tree-sitter only: inactive `#if` / file not reported / clang error / name is a macro / grammar error / kind after grammar error / namespace-qualified | clang only: macro-generated / in a function body / clang error / grammar error / kind after grammar error / namespace-qualified / read as an expression |
+|---|---|---|---|---|---|
+| leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
+| google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,449 (1,677 / 856) | 740 / 50 / 0 / 830 / 178 / 30 / 13 | 3,497 / 564 / 0 / 196 / 165 / 14 / 1 |
+
+No difference is unexplained. Most of fmt's macro-generated declarations
+and names that are macros come from its bundled GoogleTest (`TEST(...)`
+reads as a function named `TEST`). Namespace-qualified functions are fmt's
+`test::open` and similar, defined in a test file that never opens `test`.
+The expression is `int(fileno)(FILE*)`, which C++ allows to read either way.
+The grammar errors are mostly `#if` branches inside a class or function that
+leave braces unbalanced; from the first one on, the scope of later
+declarations in the file may be wrong.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
@@ -1529,6 +1599,111 @@ Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
 
+### gRPC
+
+The same tool reads gRPC contracts from `.proto` files and from Go, Python,
+Java and JavaScript sources (`deepthought.service_contracts.grpc`). C# is not
+parsed, so C# servers and clients are out of scope.
+
+- **Methods.** Every `rpc` of a top-level `service` block in a `.proto` file
+  (comments removed, strings kept; directories `node_modules`, `vendor` and
+  hidden ones skipped) is a `GrpcMethod` node with labels
+  `["GrpcMethod", "Contract"]` and qualified name
+  `{repo}::grpc::{package}.{Service}/{Method}`. The identity is the fully
+  qualified protobuf name, which is what goes on the wire, so the copies of
+  one proto that each service vendors give one node; `declared_in` lists
+  every `file:line`, and `file_path`/`line` name the first. Proto files are
+  not part of the analysis coverage; their SHA-256 digests are recorded in
+  the `proto_files` metric.
+- **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
+
+  | Rule | Server |
+  |---|---|
+  | `service-contracts.grpc-go-register` | `pb.RegisterXServer(s, impl)` where `impl` is `&T{}`, `new(T)` or a name bound once to one of those; the methods of `T` named as X's rpcs, declared in the same package directory |
+  | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
+  | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
+  | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
+
+- **Clients.** `service-contracts.grpc-stub-call` links the calling
+  declaration (or the file) by `REQUESTS` when a method is called on a stub of
+  service X: built in place by its generated factory (`pb.NewXClient(conn)`,
+  `pkg_pb2_grpc.XStub(channel)`, `XGrpc.newStub/newBlockingStub/newFutureStub`,
+  `new pkg.X(addr, creds)`), or a name (local, field or attribute) bound in
+  the same file only to stubs of X. For JavaScript, where any `new a.B()`
+  looks the same, `B` must be a service some proto declares. The call is
+  placed at the method's name.
+
+A simple service name must belong to one proto package and the written
+method must be one of its rpcs (exactly, or as the only lowerCamel match);
+otherwise there is no edge, and File nodes list the call in
+`unresolved_grpc_calls` (metrics count `grpc_call_resolution` by reason:
+`no_proto_service`, `several_proto_packages`, `no_proto_method`). A server
+that cannot be tied to a declaration is counted in `unread` as
+`grpc_server:implementation_not_read`, `handler_not_declared` and so on.
+Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like), Go
+`_test.go` files, Python `test_*.py` files and `src/test/` are neither servers
+nor clients. The channel's target address is never read, so a stub links to
+the method wherever it is served; interceptors, reflection and dynamically
+loaded service definitions are not followed. Every edge is `pattern_matched`.
+
+On Online Boutique (`evals/fixtures/service_contracts/online-boutique.json`,
+20 labelled gRPC links, all direct; `--kind grpc` scores a call site by client
+location and contract, and servers separately):
+
+| Level | Predicted | Correct | Labelled | Precision | Recall |
+|---|---|---|---|---|---|
+| Call sites | 21 | 20 | 20 | 0.95 | 1.00 |
+| Service pairs | 12 | 12 | 14 | 1.00 | 0.86 |
+| Servers at labelled locations | | 15 | 20 | | 0.75 |
+
+The five missed servers and both missed service pairs are `cartservice`,
+written in C#. The one wrong call site is adservice's own developer client
+(`AdServiceClient.java:66`), which the corpus marks as a don't-care site at
+line 60, outside the 3-line tolerance. Four more
+calls at don't-care sites (test clients inside currencyservice,
+recommendationservice and emailservice) are linked and count for neither side.
+
+### Message destinations
+
+The same tool reads where code publishes messages and where it consumes them
+(`deepthought.service_contracts.messaging`). Each destination is one
+`MessageDestination` node (labels `MessageDestination`, `Contract`;
+`protocol` is `kafka` or `amqp`), and publishers link to it by `PUBLISHES`
+and consumers by `CONSUMES`, from the enclosing declaration (a listener
+method is its own) or the file. Publishers and consumers of one destination
+meet at its node: the link between them is the shared broker and name, not
+a traced value, and consumer groups, brokers and clusters are not checked.
+
+| Client | Publish | Consume |
+|---|---|---|
+| Spring Kafka | `KafkaTemplate.send(topic, ...)` or `send(new ProducerRecord<>(topic, ...))` on a name declared only as `KafkaTemplate` | `@KafkaListener(topics = ...)` |
+| Spring AMQP | `convertAndSend`/`send(exchange, key, ...)`, or `(key, ...)` with the template's exchange | `@RabbitListener(queues = ...)` |
+| kafka-python | `send(topic, ...)` on a name bound once to `KafkaProducer(...)` | `KafkaConsumer(topic, ...)` |
+| pika | `basic_publish(exchange, routing_key)` | `basic_consume(queue)` |
+| Go `amqp` (streadway, amqp091-go) | `Publish(exchange, key, ...)` | `Consume(queue, ...)` |
+
+Each publish rule is `service-contracts.<client>-send`/`-publish` and each
+consume rule `-listener`/`-consumer`/`-consume`; all are pattern_matched.
+
+An AMQP destination is `exchange/routing-key`. A consumed queue `q` receives
+`/q` (every broker binds each queue to the default exchange by its name) and
+`x/k` for each `queue_bind`/`QueueBind(q, k, x)` in the same file; a Go
+queue may be named by `q.Name` of a `q, err := ch.QueueDeclare("q", ...)`.
+Binding keys with `*` or `#` (topic exchange patterns) are counted as unread,
+not matched. A Spring template given only a routing key sends to
+`spring.rabbitmq.template.exchange` from the module's configuration, or to
+the default exchange when that key is not set; a module whose Java code calls
+`setExchange` has no fixed template exchange.
+
+Destinations are folded like URLs. In addition, Java names a constant of
+another class (`Queues.queueName`) through the file's imports or package
+when exactly one file declares that class with a `static final String` the
+file fixes, and Python reads `self.NAME` for a class attribute assigned
+once in the class body and never through an attribute assignment. A
+destination with unknown text is counted as unread. Spring Cloud Stream
+bindings (destinations set per service in configuration, used through
+library code) are not read yet.
+
 ### Validation
 
 `tools/check_contracts_ground_truth.py CORPUS.json CHECKOUT` scores the tool
@@ -1553,6 +1728,19 @@ through a gateway (robot-shop's Locust calls `/api/cart/...`, which nginx
 rewrites) or come from browser code; gRPC links are scored separately. Online
 Boutique's frontend calls the shopping assistant at `"http://" + addr`, which
 fixes no path, so it stays unresolved.
+
+Labelled message links (`--kind messaging`):
+
+| Corpus | Labelled direct links | Predicted | Correct | Missed |
+|---|---|---|---|---|
+| ewolff/microservice-kafka (Spring Kafka, two consumers) | 2 | 2 | 2 | 0 |
+| robot-shop (pika publish to Go `amqp` consumer) | 1 | 1 | 1 | 0 |
+| apssouza22/java-microservice (Spring Cloud Stream) | 1 | 0 | 0 | 1: Spring Cloud Stream is not read |
+
+Train-ticket has no labelled messages; its four publish-to-consume pairs
+(food to delivery on `food_delivery`, and preserve, preserve-other and
+notification itself on `email`, each through a `Queues` constant of its
+own service) were checked by hand against the constants and listeners.
 
 Train-ticket (FudanSELab, commit `313886e9`, 41 Spring services using
 RestTemplate) has no labelled corpus, so its predictions were audited instead
