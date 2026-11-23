@@ -156,6 +156,24 @@ nonnegative `model_tokens` preparation count; absent accounting remains unknown.
 Tree-sitter explicitly reports zero model tokens. These fields do not replace
 the tool's coverage, diagnostics or the independent outcome grader.
 
+### Combined-tool conditions
+
+`prepare_neo4j(..., additional_tools=("scip",))` runs each named tool on the
+same selected source, combines the outputs into one revision with the normal
+WriteCoordinator rules (including SCIP-to-declaration binding) and verifies the
+combined graph against Neo4j. Every contributing tool must see the same source
+inputs and may contribute once. The receipt lists the contributing tools.
+
+The [SCIP reference pilot](../evals/scenarios/scip/references/README.md) uses
+this to compare three conditions on two frozen GraphQL.js rename inventories:
+source and compiler tools only, plus a tree-sitter graph, and plus a
+tree-sitter and SCIP graph. The graph conditions differ only by the SCIP
+capabilities (`findReferences`, `getFileDependencies`). Its grader
+`scip-reference-locations-v1` scores exact UTF-16 reference ranges, and
+`tools/check_scip_eval.py` re-derives the frozen gold from a fresh compiler
+oracle and rejects five falsification controls. Run results are not stored in
+this repository.
+
 Future scenario packs should separate known development cases from genuinely
 held-out validation. Public contributions contain public inputs and independently
 reviewed expected facts; private experiments and credentials belong outside the
