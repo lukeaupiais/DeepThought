@@ -379,7 +379,9 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        self.assertEqual(impact["forward_relations"], ["HANDLES", "PUBLISHES"])
+        self.assertEqual(
+            impact["forward_relations"], ["HANDLES", "PUBLISHES", "WRITES"]
+        )
         self.assertIn("forwards over HANDLES", impact["semantics"])
         # Edges are listed from the dependent towards the change.
         # From the handler, the contract hops are pattern matched.
