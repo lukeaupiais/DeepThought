@@ -1,7 +1,7 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
-This bounded port supports Python and TypeScript/TSX declarations, static file
-imports and name-matched calls. It does not port the legacy confidence-scored
+This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX
+declarations, static file imports and name-matched calls. It does not port the legacy confidence-scored
 CALLS output, CFG/data-flow output or claim additional languages.
 """
 
@@ -13,6 +13,7 @@ from .._version import __version__
 from .. import calls as call_rules
 from .. import imports as import_rules
 from ..engine import analyze_repository
+from ..syntax import DEFAULT_LANGUAGES
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -70,7 +71,25 @@ IMPORT_RULES = {
                 import_rules.TYPESCRIPT_RELATIVE_MODULE,
                 "resolved",
                 "A relative specifier resolves to an analyzed file in TypeScript's "
-                "extension and index lookup order; package.json files are not read.",
+                "extension and index lookup order, then to JavaScript sources as "
+                "with allowJs; package.json files are not read.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.JAVASCRIPT_RELATIVE_FILE,
+                "resolved",
+                "A relative specifier with a JavaScript extension names an "
+                "analyzed file at exactly that path.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.JAVASCRIPT_EXTENSIONLESS_MODULE,
+                "pattern_matched",
+                "An extensionless relative specifier matches an analyzed file by "
+                "the bundler/CommonJS lookup (.js, .jsx, .mjs, .cjs, then index); "
+                "Node ES modules would not resolve it, and bundler config is not read.",
             )
         ),
     )
@@ -112,7 +131,7 @@ class TreeSitterTool(AnalysisTool):
                 ToolCapability.AST_EXTRACTION,
                 ToolCapability.SYMBOL_INDEXING,
             },
-            supported_languages={"python", "typescript"},
+            supported_languages={"javascript", "python", "typescript"},
             requires_binary=False,
             binary_name=None,
             performance_class="unmeasured",
@@ -121,7 +140,11 @@ class TreeSitterTool(AnalysisTool):
     async def check_availability(self):
         return importlib.util.find_spec("tree_sitter") is not None and any(
             importlib.util.find_spec(name) is not None
-            for name in ("tree_sitter_python", "tree_sitter_typescript")
+            for name in (
+                "tree_sitter_javascript",
+                "tree_sitter_python",
+                "tree_sitter_typescript",
+            )
         )
 
     async def analyze(
@@ -145,11 +168,7 @@ class TreeSitterTool(AnalysisTool):
             self.repo_path,
             repository_id=repo_url,
             languages=tuple(
-                sorted(
-                    self.metadata.supported_languages
-                    if languages is None
-                    else languages
-                )
+                sorted(DEFAULT_LANGUAGES if languages is None else languages)
             ),
             include=("*",) if file_patterns is None else tuple(file_patterns),
             exclude=() if skip_patterns is None else tuple(skip_patterns),

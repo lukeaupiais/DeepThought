@@ -35,7 +35,9 @@ class RegistryTests(unittest.TestCase):
     def test_builtin_is_discoverable_with_truthful_capabilities(self):
         metadata = tool_registry.list_tools()
         self.assertEqual([m.name for m in metadata], ["tree-sitter"])
-        self.assertEqual(metadata[0].supported_languages, {"python", "typescript"})
+        self.assertEqual(
+            metadata[0].supported_languages, {"javascript", "python", "typescript"}
+        )
         self.assertEqual(
             metadata[0].capabilities,
             {ToolCapability.AST_EXTRACTION, ToolCapability.SYMBOL_INDEXING},

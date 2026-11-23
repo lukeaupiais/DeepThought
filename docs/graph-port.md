@@ -27,6 +27,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 | libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
+| libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -97,8 +98,8 @@ revision with `--snapshot` or use a fresh database.
 ## File imports
 
 Tree-sitter extraction records each static import statement as an `Import` fact
-(analysis schema 3): Python `import` and `from ... import`, and TypeScript
-`import ... from` and `export ... from`. Dynamic loads such as `require()`,
+(analysis schema 3): Python `import` and `from ... import`, and TypeScript and
+JavaScript `import ... from` and `export ... from`. Dynamic loads such as `require()`,
 `import()` and `importlib` are not facts here. `deepthought.imports.resolve_imports`
 then matches specifiers against the analyzed files of the same result, without
 reading files, and TreeSitterTool writes File -> IMPORTS -> File for each link
@@ -109,9 +110,11 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.python-relative-module` | resolved | `.m`, `..m`, `.`: the package `__init__.py` (preferred) or module file at that path; climbing above the importing directory requires a package |
 | `tree-sitter.python-absolute-module-path` | name_matched | dotted name equals a file path under the repository root or `src/`; the runtime import path is not checked |
 | `tree-sitter.python-from-import-submodule` | name_matched | `from pkg import x` where `pkg/x.py` exists; the package may define `x` instead |
-| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; `package.json` is not read |
+| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
+| `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
+| `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
 
-Anything else gets no edge. Non-relative TypeScript specifiers (packages, `paths`
+Anything else gets no edge. Non-relative TypeScript and JavaScript specifiers (packages, `paths`
 aliases), Python imports matching several roots, imports beyond the repository
 root, self-imports and modules outside the analyzed files are reported instead:
 each File node lists its `unresolved_imports` and `ambiguous_imports`
@@ -150,6 +153,46 @@ callees result still says the relation was unsupported or unobserved.
 
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
 at the callee name.
+
+## JavaScript
+
+JavaScript and JSX sources (`.js`, `.jsx`, `.mjs`, `.cjs`) are analyzed when
+`javascript` is selected (`--language javascript`, or `languages=` in Python)
+and the `javascript` extra is installed. The language is opt-in, so analyses
+that select no language keep their Python/TypeScript output byte for byte, and
+TypeScript repositories that ship compiled `.js` next to their sources are not
+analyzed twice by default. Declarations, call sites and call rules are the same
+as for TypeScript. ES module `import ... from` and `export ... from` statements
+are import facts. CommonJS `require()` and dynamic `import()` are not, so a
+CommonJS module has declarations and calls but no IMPORTS edges.
+
+The original import processor returned `<specifier>.ts` for every relative
+JavaScript or TypeScript specifier without checking that the file existed. Here
+a specifier links only to an analyzed file, by the rules in the imports table
+above. An explicit extension names one file and is `resolved`. An extensionless
+specifier is `pattern_matched`, because whether it resolves depends on the
+bundler or on CommonJS, and Node ES modules reject it.
+
+Checked against scip-typescript 0.6.2 indexes (allowJs) of two public npm
+packages with `tools/compare_imports_with_scip.py` and
+`tools/compare_calls_with_scip.py`:
+
+| Corpus | Files | IMPORTS file pairs confirmed by SCIP | Linked calls confirmed by SCIP | Contradicted |
+|---|---|---|---|---|
+| execa 9.5.2 `index.js`, `lib/` (Node ES modules, `.js` specifiers) | 105 | 257 / 257 | 684 / 684 | 0 |
+| preact 10.25.4 `*src/` (bundler, extensionless specifiers) | 37 | 62 / 67 | 173 / 174 | 0 |
+
+Each of the five preact pairs SCIP does not confirm goes to a `.js` file with a
+`.d.ts` beside it. The compiler links to the declaration file, while the IMPORTS
+edge names the module that runs. The unconfirmed call is `suspended()` in
+`compat/src/suspense-list.js`. `suspense.d.ts` does not declare `suspended`, so
+SCIP has no target for it. The call links to the function in `suspense.js`. SCIP found no file pair that
+Tree-sitter missed in either corpus. Tarball sha256: execa
+`9629a8a1dfd74f7c7c7b3b1bbf3a0f6b20ae29bbfae8c25256ad6025b4e62a3b`, preact
+`93d4a374795c9b15b8b5edad9294a24cf210e99f3f0fb2b98d00bdb401e7c892`. The SCIP
+indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
+(execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
+and its committed index repeat the check in CI.
 
 ## Commit-linked snapshots
 

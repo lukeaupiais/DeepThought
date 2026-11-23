@@ -10,6 +10,7 @@ from threading import Event
 
 from .consistency import check_source_consistency
 from .engine import analyze_repository
+from .syntax import DEFAULT_LANGUAGES
 from .scip import ingest_scip
 from .graph import GraphSnapshot, compose_graph
 from .query import QueryRequest, query_graph
@@ -51,7 +52,7 @@ def main(argv=None) -> int:
     analyze.add_argument("workspace")
     analyze.add_argument("--repository-id", required=True)
     analyze.add_argument(
-        "--language", action="append", choices=("python", "typescript")
+        "--language", action="append", choices=("javascript", "python", "typescript")
     )
     analyze.add_argument("--include", action="append")
     analyze.add_argument("--exclude", action="append", default=[])
@@ -127,7 +128,7 @@ def main(argv=None) -> int:
             result = analyze_repository(
                 args.workspace,
                 repository_id=args.repository_id,
-                languages=tuple(args.language or ("python", "typescript")),
+                languages=tuple(args.language or DEFAULT_LANGUAGES),
                 include=tuple(args.include or ("*",)),
                 exclude=tuple(args.exclude),
                 max_files=args.max_files,
