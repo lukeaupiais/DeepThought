@@ -9,6 +9,7 @@ ambiguous, with a reason, and produces no link.
 
 from collections import defaultdict
 from dataclasses import dataclass
+import posixpath
 
 from .imports import PYTHON_FROM_IMPORT_SUBMODULE, resolve_imports
 from .models import AnalysisResult
@@ -17,6 +18,7 @@ CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
 CALL_IMPORTED_NAME = "tree-sitter.call-imported-name"
 CALL_MODULE_ATTRIBUTE = "tree-sitter.call-module-attribute"
 CALL_SELF_METHOD = "tree-sitter.call-self-method"
+CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
 
 _CALLABLE = {"Function", "Class"}
 _METHOD = {"Method", "Function"}
@@ -110,12 +112,26 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
     return NameBindings(by_symbol, names, modules)
 
 
+def package_peers(result: AnalysisResult) -> dict:
+    """The files of each file's package: same directory, same package clause.
+
+    This is Go's package scope; a file's external test package (``x_test``) is
+    a different package. Build constraints are not evaluated, so files for
+    different platforms are all peers.
+    """
+    groups = defaultdict(list)
+    for clause in result.packages:
+        groups[(posixpath.dirname(clause.file), clause.name)].append(clause.file)
+    return {file: tuple(sorted(files)) for files in groups.values() for file in files}
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
     bindings = name_bindings(result)
     by_symbol, names, modules = bindings.by_symbol, bindings.names, bindings.modules
     top_level = bindings.top_level
+    peers = package_peers(result)
 
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
@@ -136,6 +152,15 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             elif len(bound) > 1:
                 resolutions.append(
                     CallResolution(site.id, "ambiguous", reason="multiple_bindings")
+                )
+            elif not bound and site.file in peers:
+                resolutions.append(
+                    _pick(
+                        site.id,
+                        top_level(peers[site.file], site.callee, _CALLABLE),
+                        CALL_PACKAGE_NAME,
+                        "no_declaration",
+                    )
                 )
             elif bound and bound[0][0] not in (None, "default"):
                 name, targets = bound[0]

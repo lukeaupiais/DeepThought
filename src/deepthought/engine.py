@@ -18,6 +18,7 @@ from .models import (
     Diagnostic,
     FileCoverage,
     Import,
+    PackageClause,
     Supertype,
     is_relative_file,
 )
@@ -27,6 +28,7 @@ from .syntax import (
     extract,
     extract_call_sites,
     extract_imports,
+    extract_packages,
     extract_supertypes,
     make_parser,
 )
@@ -37,7 +39,7 @@ from ._version import __version__
 _PARSE_DIAGNOSTICS = {"syntax_error"}
 # Fact kinds this engine records; part of snapshot identity, and an earlier
 # analysis is reused only if it recorded all of them.
-CAPABILITIES = ("call_sites", "definitions", "imports", "supertypes")
+CAPABILITIES = ("call_sites", "definitions", "imports", "packages", "supertypes")
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,7 @@ class _FileFacts:
     call_sites: tuple[CallSite, ...]
     imports: tuple[Import, ...]
     supertypes: tuple[Supertype, ...]
+    packages: tuple[PackageClause, ...]
     versions: dict
 
     def matches(self, language, digest, versions):
@@ -91,6 +94,7 @@ def reusable_files(previous, repository_id):
         ("call_sites", previous.call_sites),
         ("imports", previous.imports),
         ("supertypes", previous.supertypes),
+        ("packages", previous.packages),
     ):
         for item in items:
             grouped.setdefault(item.file, {}).setdefault(kind, []).append(item)
@@ -115,6 +119,7 @@ def reusable_files(previous, repository_id):
             tuple(own.get("call_sites", ())),
             tuple(own.get("imports", ())),
             tuple(own.get("supertypes", ())),
+            tuple(own.get("packages", ())),
             {name: recorded[name] for name in packages},
         )
     return facts, None
@@ -157,6 +162,7 @@ def analyze_repository(
     definitions, imports, coverage, diagnostics = [], [], [], []
     call_sites = []
     supertypes = []
+    packages = []
     parsers, versions = {}, {"deepthought-analysis-engine": __version__}
     reusable, rejected = reusable_files(previous, repository_id)
     stats = {"reused": 0, "parsed": 0, "previous_rejected": rejected}
@@ -266,6 +272,7 @@ def analyze_repository(
                     call_sites.extend(facts.call_sites)
                     imports.extend(facts.imports)
                     supertypes.extend(facts.supertypes)
+                    packages.extend(facts.packages)
                     continue
                 stats["parsed"] += 1
                 tree = parsers[key].parse(content)
@@ -297,6 +304,10 @@ def analyze_repository(
                 supertypes.extend(
                     extract_supertypes(tree, content, repository_id, relative, declared)
                 )
+                if language == "go":
+                    packages.extend(
+                        extract_packages(tree, content, repository_id, relative)
+                    )
             except ImportError:
                 coverage.append(FileCoverage(relative, language, "unavailable", digest))
                 diagnostics.append(
@@ -349,4 +360,5 @@ def analyze_repository(
         imports=tuple(imports),
         call_sites=tuple(call_sites),
         supertypes=tuple(supertypes),
+        packages=tuple(packages),
     )
