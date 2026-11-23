@@ -92,12 +92,19 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
             for link in resolution.links
             if link.rule_id != PYTHON_FROM_IMPORT_SUBMODULE
         )
+    declared = {p.file: p.name for p in result.packages if p.kind == "package"}
     names = defaultdict(list)
     modules = defaultdict(list)
     for item in result.imports:
         targets = module_files.get(item.id, ())
+        local_names = item.local_names
+        if not local_names and not item.names and targets:
+            # A Go import without an alias binds the package's declared name.
+            local_names = tuple(
+                sorted({declared[f] for f in targets if f in declared})[:1]
+            )
         if item.kind == "import" and not item.names:
-            for local in item.local_names:
+            for local in local_names:
                 prefix = (
                     item.specifier if local == item.specifier.split(".")[0] else local
                 )
