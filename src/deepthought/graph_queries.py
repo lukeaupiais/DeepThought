@@ -664,6 +664,145 @@ class GraphQueryService:
             raise ValueError("Query response exceeds output byte budget")
         return response
 
+    async def get_impact(
+        self,
+        qname,
+        repo_url,
+        *,
+        snapshot_id,
+        max_depth=3,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Declarations and files that depend on a declaration, transitively.
+
+        The change set is the declaration and every declaration it CONTAINS.
+        Dependents are reached backwards over CALLS, INHERITS_FROM and
+        IMPLEMENTS edges, at most ``max_depth`` hops. Each dependent is listed
+        once, with its strongest path: the path whose weakest edge evidence is
+        strongest, then the shortest, then the first by edge identities.
+        """
+        return await self._impact(
+            "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
+            "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
+            "WHERE part.repo_url=$repo_url AND part.snapshot_id=$snapshot_id "
+            "WITH root, collect(DISTINCT part) AS parts ",
+            "CALLS|INHERITS_FROM|IMPLEMENTS",
+            qname,
+            repo_url,
+            snapshot_id,
+            max_depth,
+            evidence_types,
+            limit,
+            max_output_bytes,
+            timeout,
+        )
+
+    async def get_file_impact(
+        self,
+        file_path,
+        repo_url,
+        *,
+        snapshot_id,
+        max_depth=3,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Files that depend on a file, transitively, over IMPORTS and DEPENDS_ON."""
+        return await self._impact(
+            "MATCH (root:File {repo_url:$repo_url,snapshot_id:$snapshot_id,path:$subject}) "
+            "WITH root, [] AS parts ",
+            "IMPORTS|DEPENDS_ON",
+            file_path,
+            repo_url,
+            snapshot_id,
+            max_depth,
+            evidence_types,
+            limit,
+            max_output_bytes,
+            timeout,
+        )
+
+    async def _impact(
+        self,
+        seeds,
+        relations,
+        subject,
+        repo_url,
+        snapshot_id,
+        max_depth,
+        evidence,
+        limit,
+        budget,
+        timeout,
+    ):
+        _text(subject, "subject")
+        if type(max_depth) is not int or not 1 <= max_depth <= 5:
+            raise ValueError("max_depth must be an integer from 1 to 5")
+        evidence = _evidence_filter(evidence)
+        statement = (
+            (
+                seeds + "WITH [root] + parts AS changed "
+                "UNWIND changed AS target "
+                "MATCH path=(dependent)-[:RELATIONS*1..DEPTH]->(target) "
+                "WHERE NOT dependent IN changed "
+                "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
+                "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
+                "WITH dependent, target, path, "
+                "[r IN relationships(path) | r.evidence_type] AS kinds "
+                "WITH dependent, target, path, CASE "
+                "WHEN 'name_matched' IN kinds THEN 2 "
+                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness "
+                "ORDER BY dependent.qualified_name, weakness, length(path), "
+                "[r IN relationships(path) | r._dt_edge_id] "
+                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best "
+                "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
+                ".file_path,.start_line,"
+                "labels:labels(dependent)} AS element, "
+                "length(best.path) AS depth, "
+                "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
+                "best.target.qualified_name AS changed, "
+                "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
+                "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
+                "ORDER BY depth, best.weakness, dependent.qualified_name LIMIT $fetch_limit"
+            )
+            .replace("RELATIONS", relations)
+            .replace("DEPTH", str(max_depth))
+        )
+        response = await self._read(
+            statement,
+            {"subject": subject, "evidence": evidence},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=budget,
+            timeout=timeout,
+        )
+        if not response["items"]:
+            response["status"] = "unsupported_or_unobserved"
+        response["max_depth"] = max_depth
+        response["evidence_types"] = evidence
+        response["relations"] = relations.split("|")
+        response["semantics"] = (
+            "Dependents reachable backwards over observed "
+            + ", ".join(relations.split("|"))
+            + " edges; each path's evidence is its weakest edge. Absence does "
+            "not prove that nothing else is affected: dynamic dispatch, "
+            "reflection, unanalyzed files and unrecorded relations are not seen."
+        )
+        # The description fields count toward the budget too; drop whole items.
+        while response["items"] and len(_json(response).encode()) > budget:
+            response["items"].pop()
+            response["returned"] = len(response["items"])
+            response["truncated"] = True
+        if len(_json(response).encode()) > budget:
+            raise ValueError("Query response exceeds output byte budget")
+        return response
+
     async def get_members(
         self,
         qname,
