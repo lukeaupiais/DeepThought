@@ -382,6 +382,92 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
+def _rust_inline_modules(node, content):
+    """Names of the inline ``mod name { ... }`` around a node, outermost first."""
+    parents = []
+    outer = node.parent
+    while outer is not None and outer.type != "source_file":
+        if outer.type == "mod_item":
+            parents.append(_text(outer.child_by_field_name("name"), content))
+        outer = outer.parent
+    return [p.removeprefix("r#") for p in reversed(parents)]
+
+
+def _rust_path(node, content):
+    """Segments of a use path: ``crate::a::b`` -> ["crate", "a", "b"]; a
+    leading ``::`` is an empty first segment."""
+    if node is None:
+        return []
+    if node.type == "scoped_identifier":
+        path = node.child_by_field_name("path")
+        prefix = _rust_path(path, content) if path is not None else [""]
+        return prefix + _rust_path(node.child_by_field_name("name"), content)
+    return [_text(node, content).removeprefix("r#")]
+
+
+def _rust_use_tree(node, content, prefix):
+    """(path, kind, local name) for each leaf of a use tree."""
+    if node.type == "use_list":
+        for child in node.named_children:
+            yield from _rust_use_tree(child, content, prefix)
+    elif node.type == "scoped_use_list":
+        path = prefix + _rust_path(node.child_by_field_name("path"), content)
+        yield from _rust_use_tree(node.child_by_field_name("list"), content, path)
+    elif node.type == "use_wildcard":
+        inner = node.named_children[0] if node.named_children else None
+        yield prefix + _rust_path(inner, content), "use_glob", None
+    elif node.type == "use_as_clause":
+        path = prefix + _rust_path(node.child_by_field_name("path"), content)
+        alias = _text(node.child_by_field_name("alias"), content)
+        yield path, "use", alias.removeprefix("r#")
+    elif node.type in {"identifier", "scoped_identifier", "self", "crate", "super"}:
+        path = prefix + _rust_path(node, content)
+        if path[-1] == "self" and len(path) > 1:
+            # `a::{self}` names the module a itself.
+            path = path[:-1]
+        yield path, "use", path[-1]
+
+
+def _rust_imports(node, content):
+    """Rust ``mod name;``, ``use`` and ``extern crate`` declarations.
+
+    Each leaf of a ``use`` tree is one import of kind ``use`` (or
+    ``use_glob`` for ``path::*``): the specifier is the full path joined by
+    ``::`` (a leading ``::`` kept), ``names`` the inline modules around the
+    declaration, and ``local_names`` the name it binds (an alias applied).
+    ``extern crate name [as alias];`` is kind ``extern_crate``.
+    """
+    if node.type == "mod_item":
+        yield from _rust_modules(node, content)
+    elif node.type == "use_declaration":
+        parents = tuple(_rust_inline_modules(node, content))
+        argument = node.child_by_field_name("argument")
+        if argument is None:
+            return
+        for path, kind, local in _rust_use_tree(argument, content, []):
+            if not path or not all(path[1:]):
+                continue
+            yield (
+                "::".join(path),
+                kind,
+                parents,
+                () if local is None else (local,),
+            )
+    elif node.type == "extern_crate_declaration":
+        name = node.child_by_field_name("name")
+        alias = node.child_by_field_name("alias")
+        if name is None:
+            return
+        word = _text(name, content).removeprefix("r#")
+        local = _text(alias, content).removeprefix("r#") if alias else word
+        yield (
+            word,
+            "extern_crate",
+            tuple(_rust_inline_modules(node, content)),
+            (local,),
+        )
+
+
 def _rust_modules(node, content):
     """A Rust ``mod name;`` declaration, as the file module it includes.
 
@@ -396,13 +482,7 @@ def _rust_modules(node, content):
     if name is None:
         return
     word = _text(name, content).removeprefix("r#")
-    parents = []
-    outer = node.parent
-    while outer is not None and outer.type != "source_file":
-        if outer.type == "mod_item":
-            parents.append(_text(outer.child_by_field_name("name"), content))
-        outer = outer.parent
-    parents = [p.removeprefix("r#") for p in reversed(parents)]
+    parents = _rust_inline_modules(node, content)
     path = None
     sibling = node.prev_named_sibling
     while sibling is not None and sibling.type in {
@@ -438,7 +518,7 @@ def extract_imports(
         "python": _python_imports,
         "go": _go_imports,
         "java": _java_imports,
-        "rust": _rust_modules,
+        "rust": _rust_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     stack = [tree.root_node]

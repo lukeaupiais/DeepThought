@@ -7,7 +7,14 @@ import tempfile
 import unittest
 
 from deepthought import analyze_repository
-from deepthought.imports import RUST_CRATE_ROOT, RUST_MODULE_FILE, resolve_imports
+from deepthought.imports import (
+    RUST_CRATE_ROOT,
+    RUST_EXTERN_CRATE,
+    RUST_MODULE_FILE,
+    RUST_USE_DECLARED,
+    RUST_USE_MODULE,
+    resolve_imports,
+)
 from deepthought.analysis_tools import TreeSitterTool
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -413,6 +420,232 @@ class RustTests(unittest.TestCase):
         # Manifests are read only when Rust is selected.
         other = analyze({"Cargo.toml": '[package]\nname = "x"\n'}, ("python",))
         self.assertEqual((other.coverage, other.imports), ((), ()))
+
+    def test_use_declarations_resolve_through_module_trees(self):
+        result = analyze(
+            {
+                "util/Cargo.toml": '[package]\nname = "my-util"\n',
+                "util/src/lib.rs": "pub mod shapes;\n"
+                "pub struct Top;\n"
+                "pub use shapes::Circle;\n"
+                "mod inner { pub mod deeper { pub fn f() {} } }\n"
+                "pub fn regex() {}\n",
+                "util/src/shapes.rs": "pub struct Circle;\n"
+                "pub enum Kind { A }\n"
+                "pub const MAX: u8 = 1;\n",
+                "app/Cargo.toml": '[package]\nname = "app"\n'
+                '[[bin]]\nname = "tool"\npath = "src/bin/tool.rs"\n',
+                "app/src/bin/tool.rs": "pub struct Thing;\n",
+                "app/tests/it.rs": "use app::Mode;\n",
+                "dup1/Cargo.toml": '[package]\nname = "dup"\n',
+                "dup1/src/lib.rs": "",
+                "dup2/Cargo.toml": '[package]\nname = "dup"\n',
+                "dup2/src/lib.rs": "",
+                # A file that includes itself: module paths stop there.
+                "app/src/cyc.rs": '#[path = "cyc.rs"]\nmod again;\n',
+                "app/src/unix.rs": "",
+                "app/src/windows.rs": "",
+                "app/src/lib.rs": "mod a;\n"
+                "mod b { use super::a::Thing; pub mod c; }\n"
+                "mod gone;\n"
+                "mod shared;\n"
+                "use my_util::shapes::Circle;\n"
+                "use my_util::Circle as C2;\n"
+                "use my_util::shapes::Kind::A;\n"
+                "use my_util::shapes::MAX;\n"
+                "use ::my_util::Top;\n"
+                "use crate::a::{self, Thing};\n"
+                "use self::a::*;\n"
+                "use my_util::inner::deeper::f;\n"
+                "use std::fmt;\n"
+                "use a::Thing as T2;\n"
+                "use crate::gone::X;\n"
+                "extern crate my_util as u;\n"
+                "use super::Above;\n"
+                "fn regex() {}\n"
+                "use regex::Regex;\n"
+                "pub enum Mode { Fast }\n"
+                "use Mode::Fast;\n"
+                "use tool::Thing as T3;\n"
+                "use dup::X;\n"
+                '#[cfg(unix)]\n#[path = "unix.rs"]\nmod imp;\n'
+                '#[cfg(windows)]\n#[path = "windows.rs"]\nmod imp;\n'
+                "use imp::Sys;\n"
+                "fn body() { mod m { use self::Z; } }\n"
+                "mod cyc;\n"
+                "use cyc::again::again::Deeper;\n",
+                "app/src/a.rs": "pub struct Thing;\nuse super::b::c::Deep;\n",
+                "app/src/b/c.rs": "pub struct Deep;\nuse super::super::a::Thing;\n",
+                "app/src/main.rs": "mod shared;\nuse app::b::c::Deep;\n",
+                "app/src/shared.rs": "use crate::a::Thing;\n",
+                "app/src/orphan.rs": "use crate::a::Thing;\n",
+            }
+        )
+        imports = {i.id: i for i in result.imports}
+        self.assertEqual(
+            [
+                (i.line, i.specifier, i.kind, i.names, i.local_names)
+                for i in result.imports
+                if i.file == "app/src/lib.rs" and i.line < 3 and i.kind == "use"
+            ],
+            [(2, "super::a::Thing", "use", ("b",), ("Thing",))],
+        )
+        outcomes = {
+            (imports[r.import_id].file, imports[r.import_id].line): (
+                r.status,
+                r.reason,
+                [(link.target_file, link.rule_id) for link in r.links]
+                or list(r.candidates),
+            )
+            for r in resolve_imports(result)
+            if imports[r.import_id].kind in {"use", "use_glob", "extern_crate"}
+        }
+        declared, module = RUST_USE_DECLARED, RUST_USE_MODULE
+        self.maxDiff = None
+        self.assertEqual(
+            outcomes,
+            {
+                # super from an inline module, relative to it.
+                ("app/src/lib.rs", 2): (
+                    "linked",
+                    None,
+                    [("app/src/a.rs", declared)],
+                ),
+                # A workspace crate by its library name.
+                ("app/src/lib.rs", 5): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", declared)],
+                ),
+                # Not declared where the path names it (a re-export): the
+                # module the path goes through.
+                ("app/src/lib.rs", 6): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", module)],
+                ),
+                # A path through an enum: the enum is declared there.
+                ("app/src/lib.rs", 7): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", declared)],
+                ),
+                # Constants are not declarations here.
+                ("app/src/lib.rs", 8): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", module)],
+                ),
+                ("app/src/lib.rs", 9): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", declared)],
+                ),
+                # `crate::a::{self, Thing}` is two uses on one line; both
+                # name a.rs. The glob names the module.
+                ("app/src/lib.rs", 10): (
+                    "linked",
+                    None,
+                    [("app/src/a.rs", declared)],
+                ),
+                ("app/src/lib.rs", 11): (
+                    "linked",
+                    None,
+                    [("app/src/a.rs", declared)],
+                ),
+                # Inline modules are modules of their file.
+                ("app/src/lib.rs", 12): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", declared)],
+                ),
+                ("app/src/lib.rs", 13): ("unresolved", "external_crate", []),
+                # A first segment naming a local module.
+                ("app/src/lib.rs", 14): (
+                    "linked",
+                    None,
+                    [("app/src/a.rs", declared)],
+                ),
+                # A module whose file is missing.
+                ("app/src/lib.rs", 15): ("unresolved", "module_missing", []),
+                ("app/src/lib.rs", 16): (
+                    "linked",
+                    None,
+                    [("util/src/lib.rs", RUST_EXTERN_CRATE)],
+                ),
+                ("app/src/lib.rs", 17): ("unresolved", "super_outside_crate", []),
+                # A local function does not start a path: the crate does.
+                ("app/src/lib.rs", 19): ("unresolved", "external_crate", []),
+                # A local type starts a path.
+                ("app/src/lib.rs", 21): (
+                    "linked",
+                    None,
+                    [("app/src/lib.rs", declared)],
+                ),
+                # Binaries are not crates a path can name.
+                ("app/src/lib.rs", 22): ("unresolved", "external_crate", []),
+                # Two workspace libraries with one name.
+                ("app/src/lib.rs", 23): (
+                    "ambiguous",
+                    "crate_ambiguous",
+                    ["dup1/src/lib.rs", "dup2/src/lib.rs"],
+                ),
+                # A module declared once per #[cfg], in two files.
+                ("app/src/lib.rs", 30): (
+                    "ambiguous",
+                    "module_file_ambiguous",
+                    ["app/src/unix.rs", "app/src/windows.rs"],
+                ),
+                # Modules inside function bodies are not followed.
+                ("app/src/lib.rs", 31): ("unresolved", "module_missing", []),
+                # A file is visited once per crate: cyc's `again` (cyc.rs
+                # itself) is not followed, and is a name declared in cyc.rs.
+                ("app/src/lib.rs", 33): (
+                    "linked",
+                    None,
+                    [("app/src/cyc.rs", declared)],
+                ),
+                # A test file outside src is a crate root of its own.
+                ("app/tests/it.rs", 1): (
+                    "linked",
+                    None,
+                    [("app/src/lib.rs", declared)],
+                ),
+                ("app/src/a.rs", 2): (
+                    "linked",
+                    None,
+                    [("app/src/b/c.rs", declared)],
+                ),
+                ("app/src/b/c.rs", 2): (
+                    "linked",
+                    None,
+                    [("app/src/a.rs", declared)],
+                ),
+                # A binary uses its package's library by name.
+                ("app/src/main.rs", 2): (
+                    "linked",
+                    None,
+                    [("app/src/b/c.rs", declared)],
+                ),
+                # A file in two crates whose use resolves differently in each.
+                ("app/src/shared.rs", 1): (
+                    "ambiguous",
+                    "use_context_ambiguous",
+                    ["app/src/a.rs", "app/src/main.rs"],
+                ),
+                ("util/src/lib.rs", 3): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", declared)],
+                ),
+                # A file no crate includes.
+                ("app/src/orphan.rs", 1): (
+                    "unresolved",
+                    "module_context_unknown",
+                    [],
+                ),
+            },
+        )
 
 
 if __name__ == "__main__":

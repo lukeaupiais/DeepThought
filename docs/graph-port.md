@@ -645,8 +645,8 @@ the module name, as a file's items in the other languages are not. Constants,
 statics, fields, enum variants and closures are not declarations, and items
 written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed.
 A `mod name;` declaration is also an import fact: it includes a file as a
-module (see "Rust module files" below). Calls, `use` declarations and impl
-relationships are not facts for Rust yet.
+module (see "Rust module files" below), as are `Cargo.toml` crate roots and
+`use` declarations. Calls and impl relationships are not facts for Rust yet.
 
 Checked against rust-analyzer's SCIP index (`rust-analyzer scip`, rust-analyzer
 1.97.0) with `tools/compare_rust_declarations_with_scip.py`. A declaration
@@ -758,6 +758,68 @@ twice in one file under different `#[cfg]`s (tokio's `process::imp`, unix and
 `#[path = "windows.rs"]`) has one symbol for both declarations and is not
 compared. Resolutions are identical across repeated runs, and every rule
 above is covered by a test that fails when it is removed.
+
+### Rust use declarations
+
+Each leaf of a `use` tree is an import of kind `use` (a `path::*` glob is
+`use_glob`), and `extern crate name [as alias];` is `extern_crate`. The
+specifier is the full path joined by `::` (`a::{self}` is `a`, and a leading
+`::` is kept), `names` are the inline modules around the declaration, and
+`local_names` the name it binds, alias applied.
+
+Resolution builds each crate's module tree. Crate roots are the files
+`Cargo.toml` targets name, and `lib.rs`, `main.rs` and `build.rs` files and
+undeclared files in Cargo target directories; every file reached from a root
+through resolved `mod` declarations has a module path, and inline modules
+extend it. A path starts at the crate root (`crate`), the declaring module
+(`self`, `super`), a module or type declared in the declaring module, or a
+workspace library by crate name (`name` or `::name`), and goes through
+modules one segment at a time. The link is to the file of the last module
+reached:
+
+- `tree-sitter.rust-use-declared` when the path ends there or its next name
+  is declared in that module (a function, type, trait, macro or module);
+- `tree-sitter.rust-use-module` when the next name is not declared there: a
+  re-export, a constant or static, or an item a macro generates. The link
+  names the module the path goes through, not where the item is defined.
+
+`extern crate` links to the library root (`tree-sitter.rust-extern-crate`).
+A file in several crates is resolved in each and is ambiguous
+(`use_context_ambiguous`) when they differ. Other outcomes: `external_crate`
+(no workspace library has the name, as for `std`), `crate_ambiguous` (two
+workspace libraries share it), `module_file_ambiguous` (a module declared
+once per `#[cfg]` in two files), `module_missing` (a module whose file is
+unknown, or a module inside a function body), `super_outside_crate`, and
+`module_context_unknown` (a file no crate root reaches, usually because its
+`mod` declaration is written inside a macro invocation). A name that a `use`
+brings into scope does not start another path, and dependency renames in
+`Cargo.toml` are not read.
+
+Checked with `tools/compare_rust_uses_with_scip.py`: rust-analyzer has an
+occurrence of the symbol each leaf names on the declaration's lines, defined
+in some file.
+
+| Corpus | Uses | Declared: confirmed / contradicted / not indexed | Module: same file / defined elsewhere / not indexed or outside | External: outside the repository / no symbol | Missed |
+|---|---|---|---|---|---|
+| ripgrep | 1,083 | 505 / 0 / 20 | 21 / 73 / 11 | 429 / 23 | 1 |
+| regex | 1,808 | 900 / 0 / 135 | 29 / 183 / 33 | 491 / 37 | 0 |
+| serde | 981 | 187 / 0 / 20 | 29 / 56 / 8 | 316 / 13 | 159 |
+| tokio | 7,101 | 150 / 0 / 80 | 27 / 1,106 / 146 | 1,700 / 84 | 1,311 |
+
+Uses whose file no crate reaches and for which rust-analyzer has no
+definition in the repository either are not counted above (serde 193, tokio
+2,497).
+
+No declared link is contradicted. "Defined elsewhere" module links are
+re-exports (`pub use`), constants and `#[macro_export]` macros, which
+rust-analyzer resolves to their definition. Nearly all misses are
+`module_context_unknown`: serde and tokio declare most of their modules
+inside macro invocations (`cfg_rt! { mod runtime; }`, `crate_root!()`), which
+the parse tree does not expand, so those files have no crate. The rest are a
+`use` of a type declared in a function body (4, serde), a path through a name
+another `use` bound (1, tokio), a module chosen by `#[cfg_attr(..., path)]`
+(1, serde), and one leaf name imported twice in one declaration whose other
+occurrence the comparison matched (1, ripgrep).
 
 ## SCIP references
 
