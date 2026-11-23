@@ -1,6 +1,6 @@
 """Compare Tree-sitter INHERITS_FROM links with compiler-backed SCIP references.
 
-For each base a class or interface names, SCIP's resolved reference at the
+For each base a class, interface or Rust trait names, SCIP's resolved reference at the
 base's last identifier gives the declaration the compiler binds it to.
 Precision: linked bases whose target declaration starts at that SCIP
 definition's line. Recall: bases with an in-repository SCIP target that
@@ -15,6 +15,7 @@ import argparse
 from collections import Counter
 import json
 from pathlib import Path
+import re
 
 import deepthought
 from deepthought.inheritance import resolve_supertypes
@@ -27,7 +28,7 @@ def main():
     parser.add_argument(
         "--language",
         required=True,
-        choices=("go", "javascript", "python", "typescript"),
+        choices=("go", "javascript", "python", "rust", "typescript"),
     )
     parser.add_argument("--include", action="append")
     parser.add_argument("--path-prefix", default="")
@@ -56,7 +57,8 @@ def main():
         if item.file not in content:
             content[item.file] = (args.root / item.file).read_bytes().split(b"\n")
         line = content[item.file][item.line - 1]
-        start = line.find(item.name.split(".")[-1].encode(), item.column)
+        last = re.split(r"\.|::", item.name)[-1]
+        start = line.find(last.encode(), item.column)
         return None if start < 0 else at.get((item.file, item.line, start))
 
     counts = Counter()
