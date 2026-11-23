@@ -802,7 +802,8 @@ workspace libraries share it), `module_missing` (a module whose file is
 unknown, or a module inside a function body), `super_outside_crate`, and
 `module_context_unknown` (a file no crate root reaches, usually because its
 `mod` declaration is written inside a macro invocation). A name that a `use`
-brings into scope does not start another path, and dependency renames in
+brings into scope does not start another path, a `use` written in a function
+body binds its name in that body only, and dependency renames in
 `Cargo.toml` are not read.
 
 Checked with `tools/compare_rust_uses_with_scip.py`: rust-analyzer has an

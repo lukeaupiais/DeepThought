@@ -441,7 +441,9 @@ class RustTests(unittest.TestCase):
                 "pub use crate::Circle as Round;\n"
                 "pub use crate::shp::sub::S as S2;\n"
                 "pub use crate::shapes::MAX;\n",
-                "util/src/x.rs": "pub use crate::y::Loop;\n",
+                "util/src/x.rs": "pub use crate::y::Loop;\n"
+                "fn hidden() { use crate::Top as Hid; use crate::shapes::sub::*; }\n"
+                "struct P;\nimpl P { fn m() { use crate::Top as Hid2; extern crate app as Ext; } }\n",
                 "util/src/y.rs": "pub use crate::x::Loop;\n",
                 "util/src/both.rs": "pub use crate::a1::*;\npub use crate::a2::*;\n",
                 "util/src/one.rs": "pub use crate::a1::*;\n"
@@ -512,7 +514,11 @@ class RustTests(unittest.TestCase):
                 "mod dual;\n"
                 "fn dual() {}\n"
                 "use crate::dual::Bar;\n"
-                "use my_util::prelude::MAX as M2;\n",
+                "use my_util::prelude::MAX as M2;\n"
+                "use my_util::x::Hid;\n"
+                "use my_util::x::S;\n"
+                "use my_util::x::Hid2;\n"
+                "use my_util::x::Ext;\n",
                 "app/src/dual.rs": "pub struct Bar;\n",
                 "app/src/a.rs": "pub struct Thing;\nuse super::b::c::Deep;\n",
                 "app/src/b/c.rs": "pub struct Deep;\nuse super::super::a::Thing;\n",
@@ -743,6 +749,27 @@ class RustTests(unittest.TestCase):
                     "linked",
                     None,
                     [("util/src/shapes.rs", module)],
+                ),
+                # A use in a function body binds nothing in the module.
+                ("app/src/lib.rs", 52): (
+                    "linked",
+                    None,
+                    [("util/src/x.rs", module)],
+                ),
+                ("app/src/lib.rs", 53): (
+                    "linked",
+                    None,
+                    [("util/src/x.rs", module)],
+                ),
+                ("app/src/lib.rs", 54): (
+                    "linked",
+                    None,
+                    [("util/src/x.rs", module)],
+                ),
+                ("app/src/lib.rs", 55): (
+                    "linked",
+                    None,
+                    [("util/src/x.rs", module)],
                 ),
                 # A path goes on through the module, not the function, of a
                 # name that is both.
