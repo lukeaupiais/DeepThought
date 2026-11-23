@@ -301,6 +301,7 @@ class GraphTests(unittest.TestCase):
         del legacy["call_sites"]
         del legacy["supertypes"]
         del legacy["packages"]
+        del legacy["impls"]
         legacy["capabilities"] = ["definitions"]
         restored = AnalysisResult.from_json(json.dumps(legacy))
         graph = deepthought.compose_graph([restored])

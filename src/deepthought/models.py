@@ -322,6 +322,49 @@ class PackageClause:
 
 
 @dataclass(frozen=True)
+class ImplBlock:
+    """A Rust impl block, as written; not resolved.
+
+    ``type`` is the path of the type it implements for and ``trait`` the path
+    of the trait it implements (None for an inherent impl), each joined by
+    ``::`` without type arguments, references or pointers; a leading ``::``
+    is kept. ``generics`` are the impl's type parameter names. The location
+    spans the whole block.
+    """
+
+    id: str
+    file: str
+    type: str
+    trait: str | None
+    generics: tuple[str, ...]
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    coordinate_encoding: str = "utf-8"
+
+    def __post_init__(self):
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
+        if not all(isinstance(v, str) and v for v in (self.id, self.type)):
+            raise ValueError("Impl identity and type must be nonempty strings")
+        if self.trait is not None and (
+            not isinstance(self.trait, str) or not self.trait
+        ):
+            raise ValueError("Impl trait must be a nonempty string or None")
+        if type(self.generics) is not tuple or not all(
+            isinstance(v, str) and v for v in self.generics
+        ):
+            raise ValueError("Impl generics must be a tuple of nonempty strings")
+
+
+@dataclass(frozen=True)
 class FileCoverage:
     file: str
     language: str
@@ -367,6 +410,7 @@ class AnalysisResult:
     call_sites: tuple[CallSite, ...] = ()
     supertypes: tuple[Supertype, ...] = ()
     packages: tuple[PackageClause, ...] = ()
+    impls: tuple[ImplBlock, ...] = ()
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
@@ -411,14 +455,20 @@ class AnalysisResult:
             raise ValueError("A file declares at most one package")
         if self.packages and "packages" not in self.capabilities:
             raise ValueError("Package clauses require the packages capability")
+        if len({i.id for i in self.impls}) != len(self.impls):
+            raise ValueError("Duplicate impl identities")
+        if self.impls and "impls" not in self.capabilities:
+            raise ValueError("Impl facts require the impls capability")
         if self.schema_version == "2" and {
             "imports",
             "call_sites",
             "supertypes",
             "packages",
+            "impls",
         } & set(self.capabilities):
             raise ValueError(
-                "Schema 2 cannot contain imports, call sites, supertypes or packages"
+                "Schema 2 cannot contain imports, call sites, supertypes, "
+                "packages or impls"
             )
         covered = {item.file for item in self.coverage}
         if any(
@@ -430,6 +480,7 @@ class AnalysisResult:
                 *self.call_sites,
                 *self.supertypes,
                 *self.packages,
+                *self.impls,
             )
         ):
             raise ValueError("Every fact requires source file coverage")
@@ -462,6 +513,8 @@ class AnalysisResult:
             del data["supertypes"]
         if not self.packages and "packages" not in self.capabilities:
             del data["packages"]
+        if not self.impls and "impls" not in self.capabilities:
+            del data["impls"]
         if self.schema_version == "2":
             # Schema 2 predates these facts; keep its serialized identity unchanged.
             del data["imports"], data["call_sites"]
@@ -490,10 +543,16 @@ class AnalysisResult:
                 data["schema_version"] = "2"
                 data["references"] = []
             if data["schema_version"] == "2":
-                if {"imports", "call_sites", "supertypes", "packages"} & data.keys():
+                if {
+                    "imports",
+                    "call_sites",
+                    "supertypes",
+                    "packages",
+                    "impls",
+                } & data.keys():
                     raise ValueError(
-                        "Schema 2 cannot contain imports, call sites, supertypes "
-                        "or packages"
+                        "Schema 2 cannot contain imports, call sites, supertypes, "
+                        "packages or impls"
                     )
                 data["imports"] = []
                 data["call_sites"] = []
@@ -532,6 +591,17 @@ class AnalysisResult:
             )
             data["packages"] = tuple(
                 PackageClause(**item) for item in data.get("packages", [])
+            )
+            data["impls"] = tuple(
+                ImplBlock(
+                    **{
+                        **item,
+                        "generics": tuple(item["generics"])
+                        if isinstance(item.get("generics"), list)
+                        else item.get("generics"),
+                    }
+                )
+                for item in data.get("impls", [])
             )
             data["definitions"] = tuple(
                 Definition(**item) for item in data["definitions"]

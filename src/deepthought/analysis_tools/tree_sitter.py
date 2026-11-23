@@ -328,6 +328,16 @@ BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _BASE_RULE_TEXT.items()
 }
+BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
+    EvidenceRule(
+        base_rules.RUST_IMPL_TRAIT,
+        "resolved",
+        "A Rust 'impl Trait for Type' block: the type's path names a struct, "
+        "enum, union or type alias and the trait's path names a trait, each "
+        "read from the impl's module as a use path is (after the items and "
+        "uses of the function bodies around the impl).",
+    )
+)
 
 
 def _evidence(rule):
@@ -637,6 +647,42 @@ class TreeSitterTool(AnalysisTool):
                         "line": item.line,
                         "column": item.column,
                         **_evidence(BASE_RULES[resolution.rule_id]),
+                    },
+                )
+            )
+        impls = {item.id: item for item in result.impls}
+        for resolution in base_rules.resolve_rust_impls(result):
+            if resolution.trait is None:
+                continue
+            item = impls[resolution.impl_id]
+            if resolution.type.status != "linked":
+                key = (
+                    "type_"
+                    + resolution.type.status
+                    + (":" + resolution.type.reason if resolution.type.reason else "")
+                )
+            else:
+                key = resolution.trait.status + (
+                    ":" + resolution.trait.reason if resolution.trait.reason else ""
+                )
+            base_counts[key] = base_counts.get(key, 0) + 1
+            if key != "linked":
+                continue
+            owner, trait = resolution.type.target_id, resolution.trait.target_id
+            relationships.append(
+                RelationshipData(
+                    "INHERITS_FROM",
+                    [kinds[owner], "Symbol"],
+                    {"qualified_name": qualified[owner], "repo_url": repo_url},
+                    [kinds[trait], "Symbol"],
+                    {"qualified_name": qualified[trait], "repo_url": repo_url},
+                    {
+                        "impl_id": item.id,
+                        "base": item.trait,
+                        "heritage": "impl",
+                        "line": item.line,
+                        "column": item.column,
+                        **_evidence(BASE_RULES[base_rules.RUST_IMPL_TRAIT]),
                     },
                 )
             )

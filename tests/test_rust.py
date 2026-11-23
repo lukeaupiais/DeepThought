@@ -20,6 +20,12 @@ from deepthought.imports import (
 )
 from deepthought.analysis_tools import TreeSitterTool
 from deepthought.calls import RUST_CALL_LOCAL_ITEM, RUST_CALL_PATH, resolve_calls
+from deepthought.inheritance import (
+    RUST_IMPL_TRAIT,
+    RUST_IMPL_TYPE,
+    resolve_rust_impls,
+)
+from deepthought.models import AnalysisResult
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_rust"
@@ -106,8 +112,19 @@ class RustTests(unittest.TestCase):
             ],
         )
         # Constants, statics, fields, variants and closures are not
-        # declarations; impls are not facts for Rust yet.
+        # declarations; impls are their own facts, not supertypes.
         self.assertEqual(result.supertypes, ())
+        self.assertEqual(
+            [(i.line, i.type, i.trait, i.generics) for i in result.impls],
+            [
+                (12, "Point", None, ("T",)),
+                (15, "Point", "Draw", ()),
+                (16, "Shape", "crate::outer::Draw", ()),
+                # A tuple and a primitive type are not paths.
+                (18, "U", "Draw", ()),
+                (28, "outer::Shape", "outer::Draw", ()),
+            ],
+        )
         self.assertEqual(
             [(c.callee, c.line) for c in result.call_sites], [("helper", 26)]
         )
@@ -1414,6 +1431,192 @@ class RustTests(unittest.TestCase):
         self.assertEqual(type(result).from_json(result.to_json()), result)
         with self.assertRaises(ValueError):
             dataclasses.replace(result.imports[0], block=(1, 2, 3))
+
+    def test_impls_resolve_their_type_and_trait(self):
+        files = {
+            "util/Cargo.toml": '[package]\nname = "my-util"\n',
+            "util/src/lib.rs": "pub mod shapes;\npub trait Top {}\n",
+            "util/src/shapes.rs": "pub trait Speak {}\npub fn Speak() {}\n"
+            "pub struct Unit;\npub struct Pt {}\npub fn Pt() {}\n",
+            "app/Cargo.toml": '[package]\nname = "app"\n',
+            "app/src/lib.rs": "mod a;\n"
+            "use my_util::shapes::Speak;\n"
+            "pub struct S;\n"
+            "pub type Alias = S;\n"
+            "impl Speak for S {}\n"
+            "impl my_util::Top for Alias {}\n"
+            "impl<T> Speak for T {}\n"
+            "impl S { fn new() {} }\n"
+            "impl !Send for S {}\n"
+            "impl Speak for (S, S) {}\n"
+            "impl std::fmt::Debug for S {}\n"
+            "impl Speak for a::Missing {}\n"
+            "impl<'a> Speak for &'a mut a::B<u8> {}\n"
+            "fn f() {\n"
+            "    struct Local;\n"
+            "    use my_util::Top as T2;\n"
+            "    impl T2 for Local {}\n"
+            "    impl Speak for my_util::shapes::Unit {}\n"
+            "}\n"
+            "macro_rules! items { ($($i:item)*) => { $($i)* } }\n"
+            "items! { impl Speak for crate::a::B<u8> {} }\n"
+            "impl<T> <T as Speak>::Y for S {}\n"
+            "impl ::my_util::Top for r#S {}\n"
+            "impl<'a, U, const N: usize> Speak for my_util::shapes::Pt {}\n"
+            "impl Speak for ::S {}\n",
+            "app/src/a.rs": "pub struct B<T>(T);\n",
+        }
+        result = analyze(files)
+        names = {d.id: (d.file, d.symbol) for d in result.definitions}
+        impls = {i.id: i for i in result.impls}
+
+        def outcome(resolution):
+            if resolution is None:
+                return None
+            return (
+                resolution.status,
+                names.get(resolution.target_id),
+                resolution.rule_id or resolution.reason,
+            )
+
+        self.maxDiff = None
+        lib, a, shapes = "app/src/lib.rs", "app/src/a.rs", "util/src/shapes.rs"
+        kind, trait = RUST_IMPL_TYPE, RUST_IMPL_TRAIT
+        speak = ("linked", (shapes, "Speak"), trait)
+        self.assertEqual(
+            sorted(
+                (
+                    impls[r.impl_id].line,
+                    impls[r.impl_id].type,
+                    outcome(r.type),
+                    outcome(r.trait),
+                )
+                for r in resolve_rust_impls(result)
+            ),
+            [
+                # The trait, not the function of the same name.
+                (5, "S", ("linked", (lib, "S"), kind), speak),
+                (
+                    6,
+                    "Alias",
+                    ("linked", (lib, "Alias"), kind),
+                    ("linked", ("util/src/lib.rs", "Top"), trait),
+                ),
+                (7, "T", ("unresolved", None, "generic_parameter"), speak),
+                # An inherent impl names no trait; a negative impl and a
+                # tuple are not facts.
+                (8, "S", ("linked", (lib, "S"), kind), None),
+                (
+                    11,
+                    "S",
+                    ("linked", (lib, "S"), kind),
+                    ("unresolved", None, "external_crate"),
+                ),
+                (12, "a::Missing", ("unresolved", None, "not_declared"), speak),
+                (13, "a::B", ("linked", (a, "B"), kind), speak),
+                # Items and uses of the function body around the impl.
+                (
+                    17,
+                    "Local",
+                    ("linked", (lib, "f.Local"), kind),
+                    ("linked", ("util/src/lib.rs", "Top"), trait),
+                ),
+                (
+                    18,
+                    "my_util::shapes::Unit",
+                    ("linked", (shapes, "Unit"), kind),
+                    speak,
+                ),
+                # An impl a pass-through macro holds.
+                (21, "crate::a::B", ("linked", (a, "B"), kind), speak),
+                # A trait written as a qualified path is not a fact.
+                (
+                    23,
+                    "S",
+                    ("linked", (lib, "S"), kind),
+                    ("linked", ("util/src/lib.rs", "Top"), trait),
+                ),
+                # The struct, not the function of the same name.
+                (24, "my_util::shapes::Pt", ("linked", (shapes, "Pt"), kind), speak),
+                # A leading `::` names a crate.
+                (25, "::S", ("unresolved", None, "external_crate"), speak),
+            ],
+        )
+        self.assertEqual(
+            [i.generics for i in result.impls if i.line in {7, 24}],
+            [("T",), ("U",)],
+        )
+        self.assertEqual(AnalysisResult.from_json(result.to_json()).impls, result.impls)
+        self.assertIn("impls", result.capabilities)
+        item = result.impls[0]
+        for change in (
+            {"type": ""},
+            {"trait": ""},
+            {"generics": ["T"]},
+            {"generics": ("",)},
+        ):
+            with self.assertRaises(ValueError):
+                dataclasses.replace(item, **change)
+        with self.assertRaises(ValueError):
+            dataclasses.replace(
+                result,
+                capabilities=tuple(c for c in result.capabilities if c != "impls"),
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in files.items():
+                path = Path(directory) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            output = asyncio.run(
+                TreeSitterTool(directory).analyze("r", languages=("rust",))
+            )
+            reused = {}
+            again = analyze_repository(
+                directory,
+                repository_id="fixture",
+                languages=("rust",),
+                previous=result,
+                reuse=reused,
+            )
+        self.assertEqual(reused["parsed"], 0)
+        self.assertEqual(again.impls, result.impls)
+        nodes = {n.properties["qualified_name"]: n.properties for n in output.nodes}
+        self.assertEqual(
+            sorted(
+                (
+                    nodes[e.source_match["qualified_name"]]["name"],
+                    nodes[e.target_match["qualified_name"]]["name"],
+                    e.properties["line"],
+                    e.properties["base"],
+                    e.properties["heritage"],
+                    e.properties["evidence_type"],
+                    e.properties["rule_id"],
+                )
+                for e in output.relationships
+                if e.type == "INHERITS_FROM"
+            ),
+            [
+                ("Alias", "Top", 6, "my_util::Top", "impl", "resolved", trait),
+                ("B", "Speak", 13, "Speak", "impl", "resolved", trait),
+                ("B", "Speak", 21, "Speak", "impl", "resolved", trait),
+                ("Pt", "Speak", 24, "Speak", "impl", "resolved", trait),
+                ("S", "Speak", 5, "Speak", "impl", "resolved", trait),
+                ("S", "Top", 23, "::my_util::Top", "impl", "resolved", trait),
+                ("Unit", "Speak", 18, "Speak", "impl", "resolved", trait),
+                ("f.Local", "Top", 17, "T2", "impl", "resolved", trait),
+            ],
+        )
+        counts = output.metadata.custom_metrics["supertype_resolution"]
+        self.assertEqual(
+            counts,
+            {
+                "linked": 8,
+                "type_unresolved:external_crate": 1,
+                "type_unresolved:generic_parameter": 1,
+                "type_unresolved:not_declared": 1,
+                "unresolved:external_crate": 1,
+            },
+        )
 
 
 if __name__ == "__main__":

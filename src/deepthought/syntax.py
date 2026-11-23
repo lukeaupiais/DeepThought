@@ -8,7 +8,7 @@ from hashlib import sha256
 import json
 import re
 
-from .models import CallSite, Definition, Import, PackageClause, Supertype
+from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supertype
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
@@ -1086,6 +1086,79 @@ def extract_supertypes(
                     )
                 )
         stack.extend(reversed(node.named_children))
+    return found
+
+
+def _rust_type_path(node, content):
+    """A Rust type written as a path, joined by ``::``, without references,
+    pointers or type arguments; None for any other type (``dyn T``, ``[T]``,
+    tuples, primitive types)."""
+    while node is not None and node.type in {
+        "reference_type",
+        "pointer_type",
+        "generic_type",
+    }:
+        node = node.child_by_field_name("type")
+    if node is None:
+        return None
+    if node.type == "type_identifier":
+        return _text(node, content).removeprefix("r#")
+    if node.type != "scoped_type_identifier":
+        return None
+    path = node.child_by_field_name("path")
+    name = node.child_by_field_name("name")
+    prefix = [""] if path is None else _rust_call_path(path, content)
+    if prefix is None or name is None:
+        return None
+    return "::".join(prefix + [_text(name, content).removeprefix("r#")])
+
+
+def extract_impls(
+    tree, content: bytes, repository_id: str, file: str, *, expander
+) -> list[ImplBlock]:
+    """Rust impl blocks whose type is a path, in source order, with the items
+    pass-through macros hold (see RustExpander). A negative impl
+    (``impl !Send for T``) implements nothing and is left out."""
+    found, ordinals = [], {}
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(expander.children(node)))
+        if node.type != "impl_item" or any(c.type == "!" for c in node.children):
+            continue
+        kind = _rust_type_path(node.child_by_field_name("type"), content)
+        trait = node.child_by_field_name("trait")
+        if trait is not None:
+            trait = _rust_type_path(trait, content)
+            if trait is None:
+                continue
+        if kind is None:
+            continue
+        parameters = node.child_by_field_name("type_parameters")
+        generics = tuple(
+            _text(name, content)
+            for c in (parameters.named_children if parameters is not None else ())
+            if c.type == "type_parameter"
+            and (name := c.child_by_field_name("name")) is not None
+        )
+        key = (kind, trait)
+        ordinal = ordinals.get(key, 0)
+        ordinals[key] = ordinal + 1
+        found.append(
+            ImplBlock(
+                id=identifier(
+                    repository_id, file, f"{kind}:{trait or ''}", "impl", ordinal
+                ),
+                file=file,
+                type=kind,
+                trait=trait,
+                generics=generics,
+                line=node.start_point.row + 1,
+                column=node.start_point.column,
+                end_line=node.end_point.row + 1,
+                end_column=node.end_point.column,
+            )
+        )
     return found
 
 
