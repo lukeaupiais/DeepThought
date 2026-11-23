@@ -7,7 +7,7 @@ import importlib
 from hashlib import sha256
 import json
 
-from .models import Definition
+from .models import Definition, Import
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
@@ -94,3 +94,120 @@ def extract(tree, content: bytes, repository_id: str, file: str) -> list[Definit
             (child, scope, in_class) for child in reversed(node.named_children)
         )
     return definitions
+
+
+def _text(node, content: bytes) -> str:
+    return content[node.start_byte : node.end_byte].decode("utf-8")
+
+
+def _bound(node, content):
+    """(imported name, local name) for a possibly aliased import element."""
+    if node.type in {"aliased_import", "import_specifier", "export_specifier"}:
+        name = node.child_by_field_name("name")
+        alias = node.child_by_field_name("alias")
+        name = _text(name, content)
+        return name, _text(alias, content) if alias is not None else name
+    name = _text(node, content)
+    return name, name
+
+
+def _python_imports(node, content):
+    """Yield (specifier, kind, names, local names) for one Python import."""
+    if node.type == "import_statement":
+        for child in node.children_by_field_name("name"):
+            module, local = _bound(child, content)
+            # `import a.b` binds `a`; `import a.b as c` binds `c`.
+            if child.type != "aliased_import":
+                local = module.split(".")[0]
+            yield module, "import", (), (local,)
+    elif node.type == "import_from_statement":
+        module = node.child_by_field_name("module_name")
+        if module is None:
+            return
+        pairs = [_bound(c, content) for c in node.children_by_field_name("name")]
+        if any(child.type == "wildcard_import" for child in node.children):
+            pairs.append(("*", "*"))
+        yield (
+            _text(module, content),
+            "from_import",
+            tuple(name for name, _ in pairs),
+            tuple(local for _, local in pairs),
+        )
+
+
+def _typescript_imports(node, content):
+    """Yield (specifier, kind, names, local names) for an import or re-export."""
+    if node.type not in {"import_statement", "export_statement"}:
+        return
+    source = node.child_by_field_name("source")
+    if source is None or source.type != "string":
+        return
+    fragments = [c for c in source.named_children if c.type == "string_fragment"]
+    if len(fragments) != 1:
+        return
+    pairs = []
+    if node.type == "import_statement":
+        clause = next(
+            (c for c in node.named_children if c.type == "import_clause"), None
+        )
+        for child in clause.named_children if clause is not None else ():
+            if child.type == "identifier":
+                pairs.append(("default", _text(child, content)))
+            elif child.type == "namespace_import":
+                local = next(c for c in child.named_children if c.type == "identifier")
+                pairs.append(("*", _text(local, content)))
+            elif child.type == "named_imports":
+                pairs.extend(
+                    _bound(c, content)
+                    for c in child.named_children
+                    if c.type == "import_specifier"
+                )
+        names = tuple(name for name, _ in pairs)
+        yield (
+            _text(fragments[0], content),
+            "import",
+            names,
+            tuple(local for _, local in pairs),
+        )
+        return
+    clause = next((c for c in node.named_children if c.type == "export_clause"), None)
+    if clause is None:
+        names = ("*",)
+    else:
+        names = tuple(
+            _bound(c, content)[0]
+            for c in clause.named_children
+            if c.type == "export_specifier"
+        )
+    # A re-export binds no local name in the exporting module.
+    yield _text(fragments[0], content), "export_from", names, ()
+
+
+def extract_imports(
+    tree, content: bytes, repository_id: str, file: str, language: str
+) -> list[Import]:
+    """Static import statements in source order; dynamic loads are not facts here."""
+    visit = _python_imports if language == "python" else _typescript_imports
+    imports, ordinals = [], {}
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        for specifier, kind, names, local_names in visit(node, content):
+            ordinal = ordinals.get(specifier, 0)
+            ordinals[specifier] = ordinal + 1
+            imports.append(
+                Import(
+                    id=identifier(repository_id, file, specifier, "Import", ordinal),
+                    file=file,
+                    specifier=specifier,
+                    kind=kind,
+                    line=node.start_point.row + 1,
+                    column=node.start_point.column,
+                    end_line=node.end_point.row + 1,
+                    end_column=node.end_point.column,
+                    names=names,
+                    local_names=local_names,
+                )
+            )
+        stack.extend(reversed(node.named_children))
+    return imports

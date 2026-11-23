@@ -92,6 +92,8 @@ class GraphSnapshot:
                     "schema_version": "1",
                     "composer_version": COMPOSER_VERSION,
                     **asdict(self),
+                    # Each source keeps its own schema's serialized form.
+                    "sources": [source.to_dict() for source in self.sources],
                 }
             )
         )
