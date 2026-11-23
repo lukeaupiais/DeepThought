@@ -390,6 +390,18 @@ def extract_c(
                 # no parameters; its body holds file-scope items.
                 stack.extend(reversed(node.child_by_field_name("body").named_children))
                 continue
+        elif (
+            node.type in {"function_declarator", "pointer_declarator"}
+            and node.parent is not None
+            and node.parent.type == "ERROR"
+        ):
+            # A function's declarator standing alone in text the grammar
+            # could not parse: its type and body are siblings.
+            declared = _c_declared_name(node, {"identifier"})
+            if declared is not None and getattr(declared[1], "type", None) == (
+                "function_declarator"
+            ):
+                add(node, declared[0], "Function")
         elif node.type == "declaration":
             for declarator in node.children_by_field_name("declarator"):
                 declared = _c_declared_name(declarator, {"identifier"})

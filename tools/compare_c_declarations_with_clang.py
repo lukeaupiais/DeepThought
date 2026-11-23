@@ -273,8 +273,11 @@ def _kind(node):
 
 
 def _in_error(node):
+    """Whether the file-scope item holding a node (the node itself, or one
+    of its ancestors below the root) contains text the grammar could not
+    parse, or the node lies in an error node."""
     while node is not None:
-        if node.has_error or node.type == "ERROR":
+        if node.type == "ERROR" or (node.has_error and node.parent is not None):
             return True
         node = node.parent
     return False
@@ -295,7 +298,16 @@ def _error_at(tree, line, column):
     node = tree.root_node.descendant_for_point_range(
         (line - 1, column), (line - 1, column)
     )
-    return _in_error(node) if node is not None else False
+    if node is None:
+        return False
+    if _in_error(node):
+        return True
+    # The grammar may end the item before with a missing token and read
+    # the declaration as an expression: `A B *f(...);` with A a macro.
+    while node.parent is not None and node.parent.parent is not None:
+        node = node.parent
+    before = node.prev_named_sibling
+    return before is not None and before.has_error
 
 
 if __name__ == "__main__":

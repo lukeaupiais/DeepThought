@@ -139,6 +139,25 @@ class CTests(unittest.TestCase):
         self.assertEqual(result.status, "partial")
         self.assertEqual([d.symbol for d in result.definitions], ["after"])
 
+    def test_function_declarators_left_in_unparsed_text_are_functions(self):
+        # Braces opened in both branches of an `#if` leave the grammar
+        # unable to parse the file: a later definition's type, declarator
+        # and body are separate items of the error node.
+        result = analyze(
+            {
+                "a.c": "char *a(void) {\n#if A\n if (x) {\n#else\n if (y) {\n"
+                "#endif\n  return 1;\n }\n}\n"
+                "static double\nulp\n (struct c* C, U *x)\n{\n return 0;\n}\n",
+                # A pointer to a function is not one.
+                "b.c": "int (*p)(void) {\n#if A\n if (x) {\n#else\n if (y) {\n"
+                "#endif\n  return 1;\n }\n}\n",
+            }
+        )
+        self.assertEqual(
+            [(d.file, d.symbol, d.line) for d in result.definitions],
+            [("a.c", "a", 1), ("a.c", "ulp", 10)],
+        )
+
     def test_cplusplus_namespaces_hold_file_scope_items(self):
         # Without the C++ branch, `namespace n {` reads as a function
         # definition with no parameters.
