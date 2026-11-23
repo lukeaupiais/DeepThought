@@ -953,6 +953,7 @@ _TYPE_DECLARATIONS = {
     "interface_declaration",
     "enum_declaration",
     "record_declaration",
+    "trait_item",
 }
 # Java heritage clauses: the node holding each list, and its kind.
 _JAVA_HERITAGE = {
@@ -1036,20 +1037,50 @@ def _heritage(node):
     return entries
 
 
+def _rust_supertraits(node, content):
+    """(bound node, path) for each supertrait a Rust trait names: its bounds
+    and the bounds of ``where Self: ...``, without lifetimes, ``?Sized`` or
+    type arguments."""
+    lists = [node.child_by_field_name("bounds")]
+    for clause in node.named_children:
+        if clause.type == "where_clause":
+            lists.extend(
+                p.child_by_field_name("bounds")
+                for p in clause.named_children
+                if p.type == "where_predicate"
+                and (left := p.child_by_field_name("left")) is not None
+                and _text(left, content) == "Self"
+            )
+    entries = []
+    for bounds in lists:
+        for bound in bounds.named_children if bounds is not None else ():
+            if bound.type == "higher_ranked_trait_bound":
+                bound = bound.child_by_field_name("type")
+            path = None if bound is None else _rust_type_path(bound, content)
+            if path is not None:
+                entries.append((bound, path))
+    return entries
+
+
 def extract_supertypes(
-    tree, content: bytes, repository_id: str, file: str, definitions
+    tree, content: bytes, repository_id: str, file: str, definitions, *, expander=None
 ) -> list[Supertype]:
     """Bases named by each class and interface declaration, as written.
 
     Python bases, TypeScript ``extends`` and JavaScript ``extends`` are
     ``extends``; TypeScript ``implements`` entries are ``implements``. Only
-    plain or dotted names are recorded; type arguments are dropped.
+    plain or dotted names are recorded; type arguments are dropped. A Rust
+    trait's supertraits (its bounds and ``where Self:`` bounds) are
+    ``extends``, their paths joined by ``::``; an ``expander`` reads the
+    items of item macros.
     """
     owners = {
         (d.line, d.column, d.end_line, d.end_column): d.id
         for d in definitions
-        if d.file == file and d.kind in {"Class", "Interface", "Enum", "Record"}
+        if d.file == file
+        and d.kind in {"Class", "Interface", "Enum", "Record", "Trait"}
     }
+    children = expander.children if expander else (lambda node: node.named_children)
     found, ordinals = [], {}
     stack = [tree.root_node]
     while stack:
@@ -1063,8 +1094,13 @@ def extract_supertypes(
                     node.end_point.column,
                 )
             )
-            for entry, kind in _heritage(node) if owner else ():
-                name = _base_name(entry, content)
+            entries = (
+                [(e, "extends", name) for e, name in _rust_supertraits(node, content)]
+                if node.type == "trait_item"
+                else [(e, kind, None) for e, kind in _heritage(node)]
+            )
+            for entry, kind, name in entries if owner else ():
+                name = name or _base_name(entry, content)
                 if name is None:
                     continue
                 key = (owner, name, kind)
@@ -1085,7 +1121,7 @@ def extract_supertypes(
                         end_column=entry.end_point.column,
                     )
                 )
-        stack.extend(reversed(node.named_children))
+        stack.extend(reversed(children(node)))
     return found
 
 

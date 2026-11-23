@@ -336,6 +336,15 @@ BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _BASE_RULE_TEXT.items()
 }
+BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
+    EvidenceRule(
+        base_rules.RUST_SUPERTRAIT,
+        "resolved",
+        "A Rust trait's supertrait (a bound of the trait or of 'where Self:') "
+        "names a trait, its path read from the trait's module as a use path "
+        "is (after the items and uses of the function bodies around it).",
+    )
+)
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_IMPL_TRAIT,

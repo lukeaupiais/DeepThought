@@ -29,7 +29,9 @@ from deepthought.calls import (
 from deepthought.inheritance import (
     RUST_IMPL_TRAIT,
     RUST_IMPL_TYPE,
+    RUST_SUPERTRAIT,
     resolve_rust_impls,
+    resolve_supertypes,
 )
 from deepthought.models import AnalysisResult
 
@@ -1749,6 +1751,82 @@ class RustTests(unittest.TestCase):
                 (47, 17, "P::Kind", None, "associated_item", []),
             ],
         )
+
+    def test_supertraits_resolve_as_paths(self):
+        files = {
+            "Cargo.toml": '[package]\nname = "x"\n',
+            "src/lib.rs": (
+                "mod c { pub trait D<T> {} pub fn D() {} }\n"
+                "trait B {}\n"
+                "trait E<'x> {}\n"
+                "trait F {}\n"
+                "trait A<T>: B + c::D<T> + ?Sized + 'static + for<'x> E<'x> + Send\n"
+                "where\n"
+                "    Self: F,\n"
+                "    T: B,\n"
+                "{\n"
+                "}\n"
+                "trait G: Missing + c::Nope + std::fmt::Debug {}\n"
+                "macro_rules! items { ($($i:item)*) => { $($i)* } }\n"
+                "items! { trait H: crate::B {} }\n"
+                "fn f() { trait L {} trait M: L {} }\n"
+            ),
+        }
+        result = analyze(files)
+        names = {d.id: d.symbol for d in result.definitions}
+        bases = {s.id: s for s in result.supertypes}
+        rule = RUST_SUPERTRAIT
+        self.assertEqual(
+            sorted(
+                (
+                    bases[r.call_id].line,
+                    bases[r.call_id].column,
+                    names[bases[r.call_id].owner_id],
+                    bases[r.call_id].name,
+                    bases[r.call_id].kind,
+                    names.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_supertypes(result)
+            ),
+            [
+                # Bounds and `where Self:` bounds, not lifetimes, `?Sized` or
+                # other where predicates; the trait, not a function.
+                (5, 12, "A", "B", "extends", "B", rule),
+                (5, 16, "A", "c::D", "extends", "c.D", rule),
+                (5, 53, "A", "E", "extends", "E", rule),
+                (5, 61, "A", "Send", "extends", None, "unbound_name"),
+                (7, 10, "A", "F", "extends", "F", rule),
+                (11, 9, "G", "Missing", "extends", None, "unbound_name"),
+                (11, 19, "G", "c::Nope", "extends", None, "not_declared"),
+                (11, 29, "G", "std::fmt::Debug", "extends", None, "external_crate"),
+                # In an item macro and in a function body.
+                (13, 18, "H", "crate::B", "extends", "B", rule),
+                (14, 29, "f.M", "L", "extends", "f.L", rule),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in files.items():
+                path = Path(directory) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            output = asyncio.run(
+                TreeSitterTool(directory).analyze("r", languages=("rust",))
+            )
+        nodes = {n.properties["qualified_name"]: n.properties for n in output.nodes}
+        edges = [
+            (
+                nodes[e.source_match["qualified_name"]]["name"],
+                nodes[e.target_match["qualified_name"]]["name"],
+                e.properties["heritage"],
+                e.properties["evidence_type"],
+                e.properties["rule_id"],
+            )
+            for e in output.relationships
+            if e.type == "INHERITS_FROM"
+        ]
+        self.assertEqual(len(edges), 6)
+        self.assertIn(("A", "c.D", "extends", "resolved", rule), edges)
 
 
 if __name__ == "__main__":

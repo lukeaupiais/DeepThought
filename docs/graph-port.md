@@ -300,8 +300,8 @@ optional evidence filter, and `get_class_hierarchy` follows them through
 classes and interfaces. The original tool emitted the same relation for names
 its symbol resolver found; it is now limited to these rules and marked with
 its evidence. Compiler-backed subtype facts are the SCIP IMPLEMENTS edges.
-Rust impl blocks give `resolved` INHERITS_FROM edges of their own (see "Rust
-impls").
+Rust impl blocks and supertraits give `resolved` INHERITS_FROM edges of their
+own (see "Rust impls").
 
 `tools/compare_supertypes_with_scip.py` checks each base against the
 declaration SCIP references at its last identifier:
@@ -1004,6 +1004,19 @@ are written in `cfg_signal_internal_and_unix!`, which is not read as an item
 macro. Another 203 tokio types are declared inside `pin_project!`
 invocations, which are not read, so those impls stay unresolved
 (`unbound_name`). Impls and resolutions are identical across repeated runs.
+
+A Rust trait's supertraits are supertype facts of kind `extends`, owned by
+the trait: the bounds after its name and the bounds of a `where Self: ...`
+predicate, each a path joined by `::` without type arguments (a
+higher-ranked bound `for<'a> Tr<'a>` names `Tr`); lifetimes and `?Sized` are
+not. Each is resolved as an impl's trait is, from the trait's module, to a
+trait (`tree-sitter.rust-supertrait`, `resolved`), and gives an
+INHERITS_FROM edge with `heritage` `extends`. Checked with
+`tools/compare_supertypes_with_scip.py --language rust`: rust-analyzer's
+reference at the bound's last name confirms all 10 linked supertraits in
+tokio (37 named), and the other corpora's are outside the repository (7 in
+ripgrep, 28 in regex, 16 in serde, of which one, in a serde module that
+`crate_root!()` declares, is `module_context_unknown`).
 
 ## SCIP references
 

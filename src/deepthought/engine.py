@@ -438,7 +438,18 @@ def analyze_repository(
                     )
                 )
                 if language == "rust":
-                    # Rust: impls are their own facts, not supertypes.
+                    # Rust: a trait's supertraits are supertypes; impls are
+                    # their own facts.
+                    supertypes.extend(
+                        extract_supertypes(
+                            tree,
+                            content,
+                            repository_id,
+                            relative,
+                            declared,
+                            expander=expander,
+                        )
+                    )
                     impls.extend(
                         extract_impls(
                             tree, content, repository_id, relative, expander=expander

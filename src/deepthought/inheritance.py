@@ -24,6 +24,7 @@ BASE_LEXICAL_NAME = "tree-sitter.base-lexical-name"
 BASE_IMPORTED_NAME = "tree-sitter.base-imported-name"
 BASE_MODULE_ATTRIBUTE = "tree-sitter.base-module-attribute"
 JAVA_BASE_TYPE = "tree-sitter.java-base-type"
+RUST_SUPERTRAIT = "tree-sitter.rust-supertrait"
 
 _TYPES = {"Class", "Interface"}
 
@@ -37,11 +38,26 @@ def resolve_supertypes(result: AnalysisResult) -> tuple[CallResolution, ...]:
     bindings = name_bindings(result)
     languages = {item.file: item.language for item in result.coverage}
     java = _JavaScope(result, bindings.by_symbol)
+    rust = None
     resolutions = []
     for item in sorted(result.supertypes, key=lambda value: value.id):
         # A base is evaluated in the scope that encloses its declaration, and
         # that scope may be a class body (Python nested classes).
         scope = by_id[item.owner_id].symbol.split(".")[:-1]
+        if languages.get(item.file) == "rust":
+            # A supertrait is a path read as an impl's trait is.
+            rust = rust or _RustPaths(result, bindings.by_symbol)
+            resolutions.append(
+                rust.resolve(
+                    item.id,
+                    item,
+                    item.name.split("::"),
+                    {"Trait"},
+                    RUST_SUPERTRAIT,
+                    RUST_SUPERTRAIT,
+                )
+            )
+            continue
         if languages.get(item.file) == "java":
             resolutions.append(
                 _pick(
