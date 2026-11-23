@@ -49,7 +49,11 @@ def main():
             descriptor = r.native_id.split(" ", 4)[-1]
             name = descriptor.rstrip("/").rsplit("/", 1)[-1].strip("`")
             occurrences.setdefault((real(r.file), r.line, name), set()).add(r.native_id)
-    imports = {item.id: item for item in result.imports}
+    imports = {
+        item.id: item
+        for item in result.imports
+        if item.kind in {"module", "module_path"}
+    }
 
     def declaration(item):
         # The file, the inline modules around the declaration, and its name.
@@ -57,7 +61,7 @@ def main():
             return item.file, item.names, item.local_names[0]
         return item.file, tuple(item.specifier.split("/")[:-1]), item.local_names[0]
 
-    declared = Counter(declaration(item) for item in result.imports)
+    declared = Counter(declaration(item) for item in imports.values())
 
     def missed(item):
         lines = (root / item.file).read_text().split("\n")[: item.line - 1]
@@ -75,6 +79,8 @@ def main():
 
     outcomes, examples = Counter(), []
     for resolution in resolve_imports(result):
+        if resolution.import_id not in imports:
+            continue
         item = imports[resolution.import_id]
         symbols = set()
         for line in range(item.line, item.end_line + 1):
@@ -109,7 +115,7 @@ def main():
     print(
         json.dumps(
             {
-                "module_declarations": len(result.imports),
+                "module_declarations": len(imports),
                 **dict(sorted(outcomes.items())),
                 "examples": examples[:20],
             },

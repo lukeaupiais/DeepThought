@@ -23,6 +23,7 @@ GO_MODULE_PACKAGE = "tree-sitter.go-module-package"
 JAVA_PACKAGE_MEMBER = "tree-sitter.java-package-member"
 JAVA_SAME_SOURCE_ROOT = "tree-sitter.java-same-source-root"
 RUST_MODULE_FILE = "tree-sitter.rust-module-file"
+RUST_CRATE_ROOT = "tree-sitter.rust-crate-root"
 _JAVA_TYPES = frozenset({"Class", "Interface", "Enum", "Record", "Annotation"})
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
@@ -356,17 +357,16 @@ def _rust_candidates(item: Import, roots_of_crate: bool | None):
     """Files a Rust ``mod name;`` may name.
 
     A crate root or ``mod.rs`` declares its modules beside it; any other file
-    ``a.rs`` declares them in ``a/``. A file directly in a Cargo target
-    directory is a crate root when ``roots_of_crate`` is true, a module when
-    false, and either when None.
-    A module ``m`` is ``m.rs`` or ``m/mod.rs`` there; a ``#[path]`` names its
-    file from the declaring file's directory (inside inline modules, from the
-    module directory).
+    ``a.rs`` declares them in ``a/``. ``roots_of_crate`` says whether the
+    declaring file is a crate root; when None, a file directly in a Cargo
+    target directory may be either. A module ``m`` is ``m.rs`` or
+    ``m/mod.rs`` there; a ``#[path]`` names its file from the declaring
+    file's directory (inside inline modules, from the module directory).
     """
     directory, base = posixpath.split(item.file)
     stem = base.removesuffix(".rs")
     nested = posixpath.join(directory, stem)
-    if stem in {"lib", "main", "mod"} or base == "build.rs":
+    if stem in {"lib", "main", "mod"} or base == "build.rs" or roots_of_crate:
         bases = [directory]
     elif posixpath.basename(directory) in _RUST_TARGET_DIRS:
         bases = {True: [directory], False: [nested]}.get(
@@ -408,13 +408,31 @@ def _rust_declared(items, files):
     return {c for item in items for c in _rust_candidates(item, None) if c in files}
 
 
-def _rust(item: Import, files, declared, targets):
-    """A Rust ``mod name;``: the file Cargo's module layout gives it.
+def _rust_crate_root(item: Import):
+    """The file a Cargo.toml target names, from the manifest's directory."""
+    return posixpath.normpath(
+        posixpath.join(posixpath.dirname(item.file), item.specifier)
+    )
 
-    A file in a target directory that no ``mod`` declaration names is a crate
-    root; one that is named is read as the module it is declared as.
+
+def _rust(item: Import, files, declared, targets, crate_roots):
+    """A Rust ``mod name;``: the file Cargo's module layout gives it; a
+    Cargo.toml target: its crate root file.
+
+    A file a Cargo.toml target names is a crate root. A file in a target
+    directory that no ``mod`` declaration names is one too; one that is named
+    is read as the module it is declared as.
     """
-    root = item.file not in declared and posixpath.dirname(item.file) in targets
+    if item.kind in {"crate_library", "crate_target"}:
+        path = _rust_crate_root(item)
+        if path in files:
+            return ImportResolution(
+                item.id, "linked", (ImportLink(path, RUST_CRATE_ROOT),)
+            )
+        return ImportResolution(item.id, "unresolved", reason="crate_root_missing")
+    root = item.file in crate_roots or (
+        item.file not in declared and posixpath.dirname(item.file) in targets
+    )
     candidates = _rust_candidates(item, root)
     found = sorted({c for c in candidates if c in files})
     if len(found) == 1:
@@ -438,9 +456,15 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     roots = ("",) + (("src",) if any(f.startswith("src/") for f in files) else ())
     modules, packages = _go_modules(result), _go_packages(result)
     java = _java_index(result)
+    rust = [item for item in result.imports if languages[item.file] == "rust"]
     declared = _rust_declared(
-        [item for item in result.imports if languages[item.file] == "rust"], files
+        [item for item in rust if item.kind in {"module", "module_path"}], files
     )
+    crate_roots = {
+        _rust_crate_root(item)
+        for item in rust
+        if item.kind in {"crate_library", "crate_target"}
+    }
     targets = _rust_target_dirs({f for f, lang in languages.items() if lang == "rust"})
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
@@ -454,7 +478,7 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
         elif language == "java":
             resolutions.append(_java(item, *java))
         elif language == "rust":
-            resolutions.append(_rust(item, files, declared, targets))
+            resolutions.append(_rust(item, files, declared, targets, crate_roots))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)

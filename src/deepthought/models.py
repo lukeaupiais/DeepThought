@@ -110,9 +110,18 @@ class Reference:
 
 
 # "module" and "module_path": a Rust `mod name;`, which includes a file as a
-# module, by name or by a #[path] attribute.
+# module, by name or by a #[path] attribute. "crate_library" and
+# "crate_target": a Cargo.toml target, which names a crate root file.
 IMPORT_KINDS = frozenset(
-    {"import", "from_import", "export_from", "module", "module_path"}
+    {
+        "import",
+        "from_import",
+        "export_from",
+        "module",
+        "module_path",
+        "crate_library",
+        "crate_target",
+    }
 )
 
 
