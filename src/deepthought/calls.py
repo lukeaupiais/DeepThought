@@ -357,6 +357,43 @@ class _JavaScope:
             }
         return found + list(inherited.values())
 
+    def anonymous_members(self, file, anonymous, name):
+        """Methods ``name`` of an anonymous class: declared in its body, then
+        inherited from its base (unless a body method of the same parameter
+        count overrides them). A base outside the repository adds none."""
+        base, scope, first, last = anonymous
+        found = [
+            _Member(m, False)
+            for m in self._defs(file, f"{scope}.{name}", {"Method"})
+            if first <= m.line <= last
+        ]
+        shapes = {(m.parameters, m.variadic) for m in found}
+        inherited = {}
+        for t in self.type(file, scope.split("."), base):
+            for m in self.members(t.file, t.symbol, name):
+                if (m.parameters, m.variadic) not in shapes:
+                    inherited.setdefault(m.id, _Member(m.definition, True))
+        return found + list(inherited.values())
+
+    def enclosing_members(self, site, scope, name):
+        """Methods ``name`` of each class around a call, innermost first:
+        the named types of its scope and the anonymous classes it is in,
+        ordered by how their spans nest."""
+        classes = [
+            (
+                d.line,
+                d.end_line,
+                lambda owner=owner: self.members(site.file, owner, name),
+            )
+            for owner in self.enclosing_types(site.file, scope)
+            for d in self._defs(site.file, owner, _JAVA_TYPES)[:1]
+        ] + [
+            (a[2], a[3], lambda a=a: self.anonymous_members(site.file, a, name))
+            for a in site.anonymous or ()
+        ]
+        for _, _, methods in sorted(classes, key=lambda c: (-c[0], c[1])):
+            yield methods()
+
     def enclosing_types(self, file, scope):
         for depth in range(len(scope), 0, -1):
             prefix = ".".join(scope[:depth])
@@ -375,8 +412,7 @@ class _JavaScope:
             )
         name = parts[-1]
         if len(parts) == 1:
-            for owner in self.enclosing_types(file, scope):
-                methods = self.members(file, owner, name)
+            for methods in self.enclosing_members(site, scope, name):
                 if methods:
                     # Java stops at the innermost type with a method of that
                     # name, declared or inherited.
@@ -402,14 +438,11 @@ class _JavaScope:
             return CallResolution(site.id, "unresolved", reason="unbound_name")
         head = ".".join(parts[:-1])
         if head == "this":
-            owner = next(self.enclosing_types(file, scope), None)
-            if owner is None:
+            innermost = next(self.enclosing_members(site, scope, name), None)
+            if innermost is None:
                 return CallResolution(site.id, "unresolved", reason="outside_class")
             return self.methods(
-                site,
-                self.members(file, owner, name),
-                CALL_SELF_METHOD,
-                "not_declared_in_class",
+                site, innermost, CALL_SELF_METHOD, "not_declared_in_class"
             )
         owners = self.type(file, scope, head)
         if not owners:

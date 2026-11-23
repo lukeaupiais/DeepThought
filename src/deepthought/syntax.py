@@ -445,6 +445,37 @@ def _callee(node, content):
     return None
 
 
+def _java_anonymous(node, content, spans, symbols):
+    """Anonymous classes around a Java call, innermost first; None when
+    there are none or for other languages.
+
+    Each is (base as written, symbol of the scope its methods are named in,
+    first and last line): a class body's methods are named in the
+    declaration enclosing the ``new`` (an enum constant's body: the enum).
+    """
+    if node.type not in {"method_invocation", "object_creation_expression"}:
+        return None
+    found = []
+    child, parent = node, node.parent
+    while parent is not None:
+        if child.type == "class_body" and parent.type in {
+            "object_creation_expression",
+            "enum_constant",
+        }:
+            start = (parent.start_point.row + 1, parent.start_point.column)
+            end = (parent.end_point.row + 1, parent.end_point.column)
+            owner = next((i for s, e, i in spans if s <= start and end <= e), None)
+            if parent.type == "enum_constant":
+                base = owner and symbols[owner].rpartition(".")[2]
+            else:
+                target = parent.child_by_field_name("type")
+                base = _java_dotted(target, content) if target is not None else None
+            if base and owner is not None:
+                found.append((base, symbols[owner], start[0], end[0]))
+        child, parent = parent, parent.parent
+    return tuple(found) or None
+
+
 def extract_call_sites(
     tree, content: bytes, repository_id: str, file: str, definitions
 ) -> list[CallSite]:
@@ -461,6 +492,7 @@ def extract_call_sites(
         ),
         reverse=True,
     )
+    symbols = {d.id: d.symbol for d in definitions if d.file == file}
     sites, ordinals = [], {}
     stack = [tree.root_node]
     while stack:
@@ -487,6 +519,7 @@ def extract_call_sites(
                         end_column=end[1],
                         caller_id=caller,
                         arguments=_java_arguments(node),
+                        anonymous=_java_anonymous(node, content, spans, symbols),
                     )
                 )
         stack.extend(reversed(node.named_children))

@@ -168,12 +168,33 @@ class CallSite:
     coordinate_encoding: str = "utf-8"
     # Java calls: the number of arguments written. None elsewhere.
     arguments: int | None = None
+    # Java calls inside anonymous class bodies (an enum constant's body too):
+    # (base type name as written, symbol of the scope the class body's
+    # methods are named in, first line, last line) for each such class around
+    # the call, innermost first. None elsewhere.
+    anonymous: tuple[tuple[str, str, int, int], ...] | None = None
 
     def __post_init__(self):
         if self.arguments is not None and (
             type(self.arguments) is not int or self.arguments < 0
         ):
             raise ValueError("Argument count must be a nonnegative integer")
+        if self.anonymous is not None and (
+            type(self.anonymous) is not tuple
+            or not self.anonymous
+            or not all(
+                type(entry) is tuple
+                and len(entry) == 4
+                and all(isinstance(v, str) and v for v in entry[:2])
+                and all(type(v) is int and v >= 1 for v in entry[2:])
+                and entry[2] <= entry[3]
+                for entry in self.anonymous
+            )
+        ):
+            raise ValueError(
+                "Anonymous classes must be a nonempty tuple of "
+                "(base, scope, first line, last line)"
+            )
         validate_location(
             self.file,
             self.line,
@@ -396,6 +417,8 @@ class AnalysisResult:
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
+            if item["anonymous"] is None:
+                del item["anonymous"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
@@ -449,7 +472,17 @@ class AnalysisResult:
             )
             # Schema 3 artifacts written before call sites existed have no key.
             data["call_sites"] = tuple(
-                CallSite(**item) for item in data.get("call_sites", [])
+                CallSite(
+                    **{
+                        **item,
+                        **(
+                            {"anonymous": tuple(map(tuple, item["anonymous"]))}
+                            if isinstance(item.get("anonymous"), list)
+                            else {}
+                        ),
+                    }
+                )
+                for item in data.get("call_sites", [])
             )
             data["supertypes"] = tuple(
                 Supertype(**item) for item in data.get("supertypes", [])

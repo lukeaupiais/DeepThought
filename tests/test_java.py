@@ -641,6 +641,135 @@ class JavaTests(unittest.TestCase):
             ],
         )
 
+    def test_calls_in_anonymous_classes_look_there_first(self):
+        files = {
+            "src/p/Base.java": (
+                "package p;\n"
+                "abstract class Base {\n"
+                "  abstract void go();\n"
+                "  boolean isRunning() { return true; }\n"
+                "  Base() {}\n"
+                "  Base(Object o) {}\n"
+                "}\n"
+            ),
+            "src/p/A.java": (
+                "package p;\n"
+                "class A {\n"
+                "  boolean isRunning() { return false; }\n"
+                "  void rm(int x) {}\n"
+                "  void helper() {}\n"
+                "  Object make() {\n"
+                "    return new Base() {\n"
+                "      void rm(int x) {}\n"
+                "      void go() {\n"
+                "        rm(1); isRunning(); helper(); this.isRunning();\n"
+                "        new Runnable() { public void run() { rm(2); go(); this.go(); } };\n"
+                "        class L { void h() { rm(4); } }\n"
+                "      }\n"
+                "    };\n"
+                "  }\n"
+                "  Runnable field = new Runnable() {\n"
+                "    public void run() { helper(); }\n"
+                "  };\n"
+                "  void after() { rm(3); }\n"
+                "}\n"
+                "enum E {\n"
+                "  ONE { void f() { g(); } };\n"
+                "  void f() {}\n"
+                "  void g() {}\n"
+                "  void local() {\n"
+                "    enum L { TWO { void f() { g(); } };\n"
+                "      void f() {}\n"
+                "      void g() {} }\n"
+                "  }\n"
+                "}\n"
+                "class Z extends A { Object two = new Base(make()) { void go() {} }; }\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: (d.symbol, d.line) for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        a = "src/p/A.java"
+        base = ("Base", "A.make", 7, 14)
+        self.assertEqual(
+            {
+                (s.line, s.callee): s.anonymous
+                for s in result.call_sites
+                if s.file == a and s.kind == "call"
+            },
+            {
+                (10, "rm"): (base,),
+                (10, "isRunning"): (base,),
+                (10, "helper"): (base,),
+                (10, "this.isRunning"): (base,),
+                (11, "rm"): (("Runnable", "A.make.go", 11, 11), base),
+                (11, "go"): (("Runnable", "A.make.go", 11, 11), base),
+                (11, "this.go"): (("Runnable", "A.make.go", 11, 11), base),
+                (12, "rm"): (base,),
+                (17, "helper"): (("Runnable", "A", 16, 18),),
+                (19, "rm"): None,
+                (22, "g"): (("E", "E", 22, 22),),
+                (26, "g"): (("L", "E.local.L", 26, 26),),
+                # An argument of the new is outside the class body.
+                (31, "make"): None,
+            },
+        )
+        self.assertEqual(
+            sorted(
+                (
+                    sites[r.call_id].line,
+                    sites[r.call_id].callee,
+                    symbols.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_calls(result)
+                if sites[r.call_id].file == a and sites[r.call_id].kind == "call"
+            ),
+            [
+                (10, "helper", ("A.helper", 5), JAVA_ENCLOSING_METHOD),
+                (10, "isRunning", ("Base.isRunning", 4), JAVA_INHERITED_METHOD),
+                # The anonymous class's own rm, not A's.
+                (10, "rm", ("A.make.rm", 8), JAVA_ENCLOSING_METHOD),
+                (10, "this.isRunning", ("Base.isRunning", 4), JAVA_INHERITED_METHOD),
+                # Runnable is outside the repository: the next class out.
+                (11, "go", ("A.make.go", 9), JAVA_ENCLOSING_METHOD),
+                (11, "rm", ("A.make.rm", 8), JAVA_ENCLOSING_METHOD),
+                # this is the innermost anonymous class, which has no go here.
+                (11, "this.go", None, "not_declared_in_class"),
+                # A local class inside the anonymous class: then the
+                # anonymous class, before A.
+                (12, "rm", ("A.make.rm", 8), JAVA_ENCLOSING_METHOD),
+                (17, "helper", ("A.helper", 5), JAVA_ENCLOSING_METHOD),
+                (19, "rm", ("A.rm", 4), JAVA_ENCLOSING_METHOD),
+                # An enum constant's body inherits from its enum.
+                (22, "g", ("E.g", 24), JAVA_INHERITED_METHOD),
+                (26, "g", ("E.local.L.g", 28), JAVA_INHERITED_METHOD),
+                (31, "make", ("A.make", 6), JAVA_INHERITED_METHOD),
+            ],
+        )
+        data = result.to_dict()
+        self.assertNotIn(
+            "anonymous", next(c for c in data["call_sites"] if c["line"] == 19)
+        )
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        location = {
+            "file": "A.java",
+            "line": 1,
+            "column": 0,
+            "end_line": 1,
+            "end_column": 1,
+        }
+        for bad in (
+            (),
+            (("Base", "A"),),
+            (("", "A", 1, 2),),
+            (("Base", "A", 2, 1),),
+            (("Base", "A", 0, 1),),
+            [("Base", "A", 1, 2)],
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                CallSite(id="c", callee="f", kind="call", **location, anonymous=bad)
+
     def test_arity_is_serialized_for_java_only(self):
         java = analyze({"A.java": "class A { void f(int... xs) { f(1, 2); } }\n"})
         method = next(d for d in java.definitions if d.symbol == "A.f")

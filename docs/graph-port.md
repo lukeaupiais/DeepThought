@@ -509,6 +509,16 @@ package). A type found in the importer's own source root is chosen; one
 declared only in several other roots is ambiguous, since only the build
 says which is on the class path.
 
+A call inside an anonymous class body (`new T() {...}`, or an enum
+constant's body, whose base is the enum) looks in that class first: the
+methods its body declares, then those its base has. Anonymous and named
+classes around a call are searched innermost first, by how their spans nest,
+and `this.m()` means the innermost of them. An anonymous class whose base is
+outside the repository (`new Runnable() {...}`) contributes only its own
+methods, and the lookup goes on outward. Each Java call records the
+anonymous classes around it (`anonymous`: base, the scope its methods are
+named in, first and last line); other calls do not have the field.
+
 A type's methods named `m` are the ones it declares, then those its
 repository bases have, followed in source order (a class's superclass
 first) through every level. A nearer method with the same parameter count
@@ -577,9 +587,9 @@ line); a `new` binds the class it creates.
 
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
-| google/gson | 4,105 / 4,108 | 0 | 3 | 121 | 5,342 |
-| apache/commons-lang | 18,008 / 19,191 | 0 | 1,183 | 9,691 | 7,841 |
-| google/guava | 47,881 / 48,010 | 56 | 73 | 39,039 | 37,427 |
+| google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
+| apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
+| google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
 
 Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
 36,756) and methods inherited from library types (`unbound_name`). Most of guava's
@@ -589,12 +599,11 @@ in guava) leave out javac's method: an inherited overload, or a GWT
 super-source file javac binds elsewhere. javac binds none
 for 1,183 commons-lang links because those test calls pass lambdas to
 JUnit-typed parameters, and JUnit is not on javac's class path; the links go
-to the statically imported `LangAssertions` methods of the same name. Guava's
-56 contradictions (0.1% of its links) come from two things a name lookup does
-not see: a call inside an anonymous class can bind a method the anonymous
-class inherits rather than the enclosing type's (`isRunning()` inside `new
-AbstractService() {...}`), and an overload with the same arity elsewhere in
-the hierarchy can fit the argument types better (`putBytes`, `hashBytes`). junit5 is not reported: javac
+to the statically imported `LangAssertions` methods of the same name. The 37
+contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
+mostly overloads with the same arity elsewhere in the hierarchy that fit the
+argument types better (`putBytes`, `hashBytes`, `append`), which a count of
+arguments cannot tell apart. junit5 is not reported: javac
 stops attributing most of its roots without their libraries, leaving
 nothing to compare.
 
