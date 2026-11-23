@@ -36,7 +36,7 @@ class Segment:
 
 
 def _route_segment(text: str) -> Segment:
-    if text == "**" or re.fullmatch(r"\{\*[^{}]*\}", text):
+    if text == "**" or re.fullmatch(r"\{\*[^{}]*\}|\{[^{}]*\.\.\.\}", text):
         return Segment("rest", "**")
     if text == "*" or _ROUTE_VARIABLE.fullmatch(text):
         return Segment("variable", "{}")
@@ -106,11 +106,15 @@ def request_target(url: str) -> RequestTarget:
         authority, slash, path = rest.partition("/")
         if not authority:
             return RequestTarget(None, (), "no_host")
-        if PLACEHOLDER not in authority:
-            host = authority.split("@")[-1].split(":")[0].lower()
+        name = authority.split("@")[-1].split(":")[0]
+        if PLACEHOLDER not in name:
+            host = name.lower()
         # A host that is not literal ("http://" + host + "/path") leaves the
-        # path literal; the host stays unknown.
-        url = slash + path
+        # path literal; the host stays unknown. A literal host with no path
+        # is the root path; unknown text after the host may hold a path.
+        if not slash and PLACEHOLDER in authority:
+            return RequestTarget(None, (), "no_literal_path")
+        url = (slash + path) or "/"
     elif url.startswith(PLACEHOLDER):
         base, slash, path = url.lstrip(PLACEHOLDER).partition("/")
         if base:
@@ -122,6 +126,9 @@ def request_target(url: str) -> RequestTarget:
     segments = tuple(
         re.sub(f"{PLACEHOLDER}+", PLACEHOLDER, part) for part in _split(url)
     )
+    # A path with no literal text ("/" + path) fixes nothing to match.
+    if segments and all(s == PLACEHOLDER for s in segments):
+        return RequestTarget(None, (), "no_literal_path")
     return RequestTarget(host, segments)
 
 

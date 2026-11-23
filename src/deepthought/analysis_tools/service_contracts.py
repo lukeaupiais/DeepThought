@@ -1,8 +1,9 @@
 """ServiceContractTool: HTTP routes servers declare and the requests clients make.
 
-Routes and requests are read from Java/Spring sources (see
-``deepthought.service_contracts``). Each route is an HttpRoute node linked
-from its handler by HANDLES; each request that one rule ties to exactly one
+Routes and requests are read from Java/Spring, Python, JavaScript/TypeScript
+and Go sources (see ``deepthought.service_contracts``). Each route is an
+HttpRoute node linked from its handler by HANDLES (from its file when the
+handler is not a declaration); each request that one rule ties to exactly one
 route links its calling declaration to it by REQUESTS. The handlers and
 callers are the tree-sitter declarations of the same files, with the same
 identities, so a revision that also contains tree-sitter output joins them.
@@ -10,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from hashlib import sha256
 import importlib.util
+import re
 import time
 
 from .._version import __version__
@@ -17,6 +19,7 @@ from ..engine import analyze_repository
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.spring import SpringConfig, extract_spring
+from ..service_contracts.web import extract_web
 from ..syntax import make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -28,19 +31,59 @@ from .contracts import (
 from .evidence import EvidenceRule, register_rule
 from .registry import register_tool
 
-SUPPORTED_LANGUAGES = ("java",)
+SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "typescript")
 
-ROUTE_RULE = register_rule(
-    EvidenceRule(
-        "service-contracts.spring-route-mapping",
-        "pattern_matched",
-        "A method of a Spring controller (or an interface) carries a mapping "
-        "annotation imported from org.springframework.web.bind.annotation whose "
-        "method and literal path, joined with the type's @RequestMapping path, "
-        "give this route. The servlet context path, gateways and routes "
-        "registered in code are not read.",
-    )
-)
+ROUTE_RULES = {
+    "spring-mvc": register_rule(
+        EvidenceRule(
+            "service-contracts.spring-route-mapping",
+            "pattern_matched",
+            "A method of a Spring controller (or an interface) carries a mapping "
+            "annotation imported from org.springframework.web.bind.annotation whose "
+            "method and literal path, joined with the type's @RequestMapping path, "
+            "give this route. The servlet context path, gateways and routes "
+            "registered in code are not read.",
+        )
+    ),
+    "flask": register_rule(
+        EvidenceRule(
+            "service-contracts.flask-route",
+            "pattern_matched",
+            "A function carries a route decorator of a Flask app or Blueprint "
+            "bound once in the file to flask.Flask or flask.Blueprint; the "
+            "Blueprint's url_prefix is joined, but not the prefix given when it "
+            "is registered.",
+        )
+    ),
+    "fastapi": register_rule(
+        EvidenceRule(
+            "service-contracts.fastapi-route",
+            "pattern_matched",
+            "A function carries a route decorator of a FastAPI app or APIRouter "
+            "bound once in the file; the APIRouter's own prefix is joined, but not "
+            "the prefix given to include_router.",
+        )
+    ),
+    "express": register_rule(
+        EvidenceRule(
+            "service-contracts.express-route",
+            "pattern_matched",
+            "A method call (get, post, ..., all) on an Express app or Router bound "
+            "once in the file from the express module declares this path; a "
+            "prefix given to app.use is not read.",
+        )
+    ),
+    "go-net-http": register_rule(
+        EvidenceRule(
+            "service-contracts.go-handle-func",
+            "pattern_matched",
+            "A HandleFunc or Handle call in a file importing net/http or "
+            "gorilla/mux declares this path, with methods from a chained "
+            ".Methods(...) or a Go 1.22 'METHOD /path' pattern; a base path "
+            "variable before the path is assumed to add no segments.",
+        )
+    ),
+}
 REQUEST_RULES = {
     contract_rules.HTTP_SERVICE_PATH: register_rule(
         EvidenceRule(
@@ -66,8 +109,31 @@ REQUEST_RULES = {
 
 
 def _is_test_source(path):
-    """A file of a Maven or Gradle test source set (``src/test/``)."""
-    return path.startswith("src/test/") or "/src/test/" in path
+    """A file of a Maven or Gradle test source set (``src/test/``), or a test
+    file by its language's naming convention."""
+    name = path.rpartition("/")[2]
+    return (
+        path.startswith("src/test/")
+        or "/src/test/" in path
+        or name.endswith("_test.go")
+        or (name.startswith("test_") and name.endswith(".py"))
+        or name.endswith("_test.py")
+        or re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", name) is not None
+    )
+
+
+def _go_packages(definitions):
+    """Go directory -> (functions, methods) by name, for handler anchoring."""
+    packages = {}
+    for d in definitions:
+        if not d.file.endswith(".go") or d.kind not in ("Function", "Method"):
+            continue
+        functions, methods = packages.setdefault(d.file.rpartition("/")[0], ({}, {}))
+        if d.kind == "Function":
+            functions.setdefault(d.symbol, []).append(d.id)
+        else:
+            methods.setdefault(d.symbol.rpartition(".")[2], []).append(d.id)
+    return packages
 
 
 def _evidence(rule):
@@ -92,9 +158,9 @@ class ServiceContractTool(AnalysisTool):
         )
 
     async def check_availability(self):
-        return (
-            importlib.util.find_spec("tree_sitter") is not None
-            and importlib.util.find_spec("tree_sitter_java") is not None
+        return importlib.util.find_spec("tree_sitter") is not None and any(
+            importlib.util.find_spec(f"tree_sitter_{name}") is not None
+            for name in ("go", "java", "javascript", "python", "typescript")
         )
 
     async def analyze(
@@ -122,7 +188,8 @@ class ServiceContractTool(AnalysisTool):
         routes, requests, unread = [], [], []
         changed = []
         config = SpringConfig(root)
-        parser = None
+        parsers = {}
+        packages = _go_packages(result.definitions)
         test_files = 0
         for coverage in result.coverage:
             if coverage.status != "analyzed":
@@ -138,18 +205,32 @@ class ServiceContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
-            if parser is None:
-                parser = make_parser("java", ".java")
-            service, context_path = config.service(coverage.file)
-            found = extract_spring(
-                parser.parse(content),
-                content,
-                repo_url,
-                coverage.file,
-                result.definitions,
-                service=service,
-                context_path=context_path,
-            )
+            suffix = "." + coverage.file.rsplit(".", 1)[-1]
+            key = (coverage.language, suffix if suffix == ".tsx" else "")
+            if key not in parsers:
+                parsers[key] = make_parser(coverage.language, suffix)
+            tree = parsers[key].parse(content)
+            if coverage.language == "java":
+                service, context_path = config.service(coverage.file)
+                found = extract_spring(
+                    tree,
+                    content,
+                    repo_url,
+                    coverage.file,
+                    result.definitions,
+                    service=service,
+                    context_path=context_path,
+                )
+            else:
+                found = extract_web(
+                    tree,
+                    content,
+                    repo_url,
+                    coverage.file,
+                    result.definitions,
+                    coverage.language,
+                    package=packages.get(coverage.file.rpartition("/")[0]),
+                )
             routes.extend(found[0])
             requests.extend(found[1])
             unread.extend(found[2])
@@ -225,10 +306,14 @@ class ServiceContractTool(AnalysisTool):
                         "file_path": route.file,
                         "line": route.line,
                         **({"service": route.service} if route.service else {}),
+                        **({"base_unknown": True} if route.base_unknown else {}),
                     },
                 )
             )
-            labels, handler = symbol_node(route.handler_id)
+            if route.handler_id is None:
+                labels, handler = file_node(route.file)
+            else:
+                labels, handler = symbol_node(route.handler_id)
             relationships.append(
                 RelationshipData(
                     "HANDLES",
@@ -240,7 +325,7 @@ class ServiceContractTool(AnalysisTool):
                         "route_id": route.id,
                         "line": route.line,
                         "column": route.column,
-                        **_evidence(ROUTE_RULE),
+                        **_evidence(ROUTE_RULES[route.framework]),
                     },
                 )
             )
@@ -337,9 +422,11 @@ class ServiceContractTool(AnalysisTool):
                 "http_request_resolution": dict(sorted(counts.items())),
                 "unread": dict(sorted(unread_counts.items())),
                 "test_source_files_skipped": test_files,
-                "scope": "Spring MVC routes, Feign clients and RestTemplate "
-                "requests with folded paths outside test source sets; requests linked to routes by "
-                "service name and path template, never by traced values",
+                "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
+                "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
+                "fetch, axios, request and Go net/http requests with folded URLs, "
+                "outside test source sets; requests linked to routes by service "
+                "name and path template, never by traced values",
             },
         )
         return StandardizedOutput(

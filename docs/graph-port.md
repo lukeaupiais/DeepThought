@@ -34,7 +34,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
 | libs/analysis/.../tools/scip/transformation/enhanced_relationship_mapper.py `is_implementation` | deepthought.analysis_tools.scip + GraphQueryService.get_implementations/get_supertypes | Symbol -> IMPLEMENTS -> Symbol under a registered `resolved` rule; the original's doc-keyword EXTENDS guess and TYPE_OF mapping are not ported (see below) |
-| libs/analysis/.../tools/api_contract (string-pattern endpoint detector with confidence tiers; client matching never implemented) | deepthought.service_contracts + deepthought.analysis_tools.service_contracts | HttpRoute nodes with HANDLES and REQUESTS edges from parsed Spring annotations and client calls, linked by declared path-template rules instead of confidence scores (see below) |
+| libs/analysis/.../tools/api_contract (string-pattern endpoint detector with confidence tiers; client matching never implemented) | deepthought.service_contracts + deepthought.analysis_tools.service_contracts | HttpRoute nodes with HANDLES and REQUESTS edges from parsed Spring, Flask, FastAPI, Express and Go routes and client calls, linked by declared path-template rules instead of confidence scores (see below) |
 | libs/analysis/.../tools/service_detector (weighted Dockerfile/compose/k8s/serialization/modularity score and `confidence`) | deepthought.components + deepthought.analysis_tools.components + GraphQueryService.list_components/get_file_components/get_component_files | Components that build manifests declare and File -> PART_OF -> Component by nearest root, all `resolved`; no score, port guess or clustering (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
@@ -1391,7 +1391,7 @@ their rule, and two runs produce identical edges.
 ## Service contracts
 
 The `service-contracts` tool (`deepthought-graph index --tool tree-sitter
---tool service-contracts --language java --snapshot REV`) links services
+--tool service-contracts --language java --language go --snapshot REV`) links services
 through the HTTP contracts their code declares. The original `api_contract`
 tool scored string literals that looked like API paths (0.95 for `/api/v1/x`,
 0.75 for `/x/{id}`) and inferred the method from nearby words; it never matched
@@ -1436,11 +1436,49 @@ Facts are read from Java sources outside test source sets (`src/test/`):
   with several values or a `${...}` value gives none. Profile files,
   environment variables and remote config repositories are not read.
 
+Python, JavaScript/TypeScript and Go sources are read too
+(`deepthought.service_contracts.web`), outside test files (`test_*.py`,
+`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like):
+
+- **Routes.** Flask and FastAPI route decorators (`route`, `api_route`, `get`,
+  `post`, ...) on a `Flask`, `Blueprint`, `FastAPI` or `APIRouter` object
+  imported from `flask` or `fastapi` and bound once in its scope, joined with a
+  Blueprint's `url_prefix` or an APIRouter's `prefix` (Flask's `route` without
+  `methods` is GET); Express `get`/`post`/.../`all` calls on an app or Router
+  made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
+  file importing `net/http` or `gorilla/mux`, with the methods of a chained
+  `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Flask `<id>`, Express
+  `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
+  `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
+  path variable (`baseUrl + "/cart"`) is matched as if the base added no
+  segments, as for requests, and its route records `base_unknown`. A handler
+  that is a named function (or, in Go, a method name unique in the package
+  directory) is linked by `HANDLES`; a closure's route hangs off its file.
+  Prefixes given when a router is mounted (`register_blueprint`,
+  `include_router`, `app.use`) are not read.
+- **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
+  `request(method, url)`) and Locust `self.client` calls in files importing
+  `locust`; JavaScript `fetch` (with `options.method`), `axios`, `request` and
+  `superagent` (`.get(url)`, or `request({uri, method})`); Go `http.Get`,
+  `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
+- **URL values.** String literals, `+`, template strings and f-strings,
+  `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names
+  bound once in their function, else at module level, before the use (Python
+  assignments, `const`/`let`/`var`, Go `var`/`const`/`:=`). A name bound more
+  than once, assigned in another function, or declared `global` and assigned
+  there is unknown text.
+
+These services have no `spring.application.name`, so their requests resolve
+by path alone (`service-contracts.http-path`). A request path with no literal
+text at all (`base + "/" + path`, or `"http://" + addr` with nothing after it)
+is unresolved rather than matched against every route.
+
 Each request is resolved by `deepthought.service_contracts.resolve`:
 
 | Rule | Evidence | Links |
 |---|---|---|
 | `service-contracts.spring-route-mapping` | pattern_matched | handler -> HANDLES -> HttpRoute |
+| `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
 | `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name`; only that service's routes are candidates |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
 
@@ -1478,11 +1516,14 @@ external APIs) count for neither side. Direct service-to-service calls:
 | piggymetrics (Feign, config-server context paths) | 3 | 3 | 3 | 0 |
 | apssouza22/java-microservice (Feign; one client has no server) | 3 | 3 | 3 | 0 |
 | spring-petclinic-microservices (WebClient) | 2 | 1 | 1 | 1: the base URL field has a setter, so its value is not fixed |
+| Online Boutique (Locust to Go gorilla/mux under a `baseUrl` variable) | 9 | 9 | 9 | 0 |
+| robot-shop (Express `request`, Python `requests` with `.format`) | 6 | 4 | 4 | 2: shipping's Apache HttpClient call takes its whole URL from a constructor argument, and ratings is PHP |
 
 No prediction was wrong. The remaining labelled HTTP links in these corpora go
-through a gateway or come from browser code, and the Python, JavaScript, Go
-and gRPC links of Online Boutique and robot-shop belong to languages this tool
-does not read yet; both are left for later.
+through a gateway (robot-shop's Locust calls `/api/cart/...`, which nginx
+rewrites) or come from browser code; gRPC links are scored separately. Online
+Boutique's frontend calls the shopping assistant at `"http://" + addr`, which
+fixes no path, so it stays unresolved.
 
 Train-ticket (FudanSELab, commit `313886e9`, 41 Spring services using
 RestTemplate) has no labelled corpus, so its predictions were audited instead
