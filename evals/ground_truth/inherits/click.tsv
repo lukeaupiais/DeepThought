@@ -1,0 +1,222 @@
+# file	line	name	target_file	target_line	kind
+# indexed	docs/conf.py
+# indexed	examples/aliases/aliases.py
+# indexed	examples/colors/colors.py
+# indexed	examples/completion/completion.py
+# indexed	examples/complex/complex/__init__.py
+# indexed	examples/complex/complex/cli.py
+# indexed	examples/complex/complex/commands/__init__.py
+# indexed	examples/complex/complex/commands/cmd_init.py
+# indexed	examples/complex/complex/commands/cmd_status.py
+# indexed	examples/imagepipe/imagepipe.py
+# indexed	examples/inout/inout.py
+# indexed	examples/naval/naval.py
+# indexed	examples/repo/repo.py
+# indexed	examples/termui/termui.py
+# indexed	examples/validation/validation.py
+# indexed	src/click/__init__.py
+# indexed	src/click/_compat.py
+# indexed	src/click/_termui_impl.py
+# indexed	src/click/_textwrap.py
+# indexed	src/click/_utils.py
+# indexed	src/click/_winconsole.py
+# indexed	src/click/core.py
+# indexed	src/click/decorators.py
+# indexed	src/click/exceptions.py
+# indexed	src/click/formatting.py
+# indexed	src/click/globals.py
+# indexed	src/click/parser.py
+# indexed	src/click/shell_completion.py
+# indexed	src/click/termui.py
+# indexed	src/click/testing.py
+# indexed	src/click/types.py
+# indexed	src/click/utils.py
+# indexed	tests/conftest.py
+# indexed	tests/test_abort_interrupt.py
+# indexed	tests/test_arguments.py
+# indexed	tests/test_basic.py
+# indexed	tests/test_chain.py
+# indexed	tests/test_command_decorators.py
+# indexed	tests/test_commands.py
+# indexed	tests/test_compat.py
+# indexed	tests/test_context.py
+# indexed	tests/test_custom_classes.py
+# indexed	tests/test_defaults.py
+# indexed	tests/test_deprecations.py
+# indexed	tests/test_exceptions/__init__.py
+# indexed	tests/test_exceptions/test_FileError.py
+# indexed	tests/test_formatting.py
+# indexed	tests/test_imports.py
+# indexed	tests/test_info_dict.py
+# indexed	tests/test_normalization.py
+# indexed	tests/test_options.py
+# indexed	tests/test_parser.py
+# indexed	tests/test_shell_completion.py
+# indexed	tests/test_stream_lifecycle.py
+# indexed	tests/test_termui.py
+# indexed	tests/test_testing.py
+# indexed	tests/test_types/__init__.py
+# indexed	tests/test_types/test_Choice.py
+# indexed	tests/test_types/test_File.py
+# indexed	tests/test_types/test_FloatRange.py
+# indexed	tests/test_types/test_FuncParamType.py
+# indexed	tests/test_types/test_IntRange.py
+# indexed	tests/test_types/test_ParamType.py
+# indexed	tests/test_types/test_Path.py
+# indexed	tests/test_types/test_convert_type.py
+# indexed	tests/test_utils/__init__.py
+# indexed	tests/test_utils/test_KeepOpenFile.py
+# indexed	tests/test_utils/test_LazyFile.py
+# indexed	tests/test_utils/test__detect_program_name.py
+# indexed	tests/test_utils/test__expand_args.py
+# indexed	tests/test_utils/test_confirm.py
+# indexed	tests/test_utils/test_echo.py
+# indexed	tests/test_utils/test_echo_via_pager.py
+# indexed	tests/test_utils/test_format_filename.py
+# indexed	tests/test_utils/test_make_default_short_help.py
+# indexed	tests/test_utils/test_open_file.py
+# indexed	tests/test_utils/test_prompt.py
+# indexed	tests/test_utils/test_sentinel.py
+# indexed	tests/test_utils/test_style.py
+# indexed	tests/typing/typing_aliased_group.py
+# indexed	tests/typing/typing_confirmation_option.py
+# indexed	tests/typing/typing_edit.py
+# indexed	tests/typing/typing_group_kw_options.py
+# indexed	tests/typing/typing_help_option.py
+# indexed	tests/typing/typing_options.py
+# indexed	tests/typing/typing_password_option.py
+# indexed	tests/typing/typing_path.py
+# indexed	tests/typing/typing_progressbar.py
+# indexed	tests/typing/typing_prompt.py
+# indexed	tests/typing/typing_simple_example.py
+# indexed	tests/typing/typing_version_option.py
+examples/aliases/aliases.py	37	AliasedGroup	src/click/core.py	1694	type
+examples/complex/complex/cli.py	31	ComplexCLI	src/click/core.py	1694	type
+examples/validation/validation.py	12	URL	src/click/types.py	65	type
+src/click/_termui_impl.py	43	ProgressBar	-	0	external
+src/click/_textwrap.py	10	TextWrapper	-	0	external
+src/click/_utils.py	7	Sentinel	-	0	external
+src/click/_winconsole.py	83	Py_buffer	-	0	external
+src/click/_winconsole.py	114	_WindowsConsoleRawIOBase	-	0	external
+src/click/_winconsole.py	123	_WindowsConsoleReader	src/click/_winconsole.py	114	type
+src/click/_winconsole.py	158	_WindowsConsoleWriter	src/click/_winconsole.py	114	type
+src/click/core.py	197	ParameterSource	-	0	external
+src/click/core.py	1679	_FakeSubclassCheck	-	0	external
+src/click/core.py	1687	_BaseCommand	src/click/core.py	983	type
+src/click/core.py	2157	_MultiCommand	src/click/core.py	1694	type
+src/click/core.py	2164	CommandCollection	src/click/core.py	1694	type
+src/click/exceptions.py	35	ClickException	-	0	external
+src/click/exceptions.py	68	UsageError	src/click/exceptions.py	35	type
+src/click/exceptions.py	159	MissingParameter	src/click/exceptions.py	114	type
+src/click/exceptions.py	232	NoSuchOption	src/click/exceptions.py	68	type
+src/click/exceptions.py	268	NoSuchCommand	src/click/exceptions.py	68	type
+src/click/exceptions.py	304	BadOptionUsage	src/click/exceptions.py	68	type
+src/click/exceptions.py	323	BadArgumentUsage	src/click/exceptions.py	68	type
+src/click/exceptions.py	332	NoArgsIsHelpError	src/click/exceptions.py	68	type
+src/click/exceptions.py	342	FileError	src/click/exceptions.py	35	type
+src/click/exceptions.py	362	Abort	-	0	external
+src/click/exceptions.py	366	Exit	-	0	external
+src/click/shell_completion.py	67	CompletionItem	-	0	external
+src/click/shell_completion.py	271	_SourceVarsDict	-	0	external
+src/click/shell_completion.py	388	BashComplete	src/click/shell_completion.py	277	type
+src/click/shell_completion.py	447	ZshComplete	src/click/shell_completion.py	277	type
+src/click/shell_completion.py	479	FishComplete	src/click/shell_completion.py	277	type
+src/click/shell_completion.py	516	PowerShellComplete	src/click/shell_completion.py	277	type
+src/click/testing.py	141	BytesIOCopy	-	0	external
+src/click/testing.py	180	_NamedTextIOWrapper	-	0	external
+src/click/types.py	60	ParamTypeInfoDict	-	0	external
+src/click/types.py	242	CompositeParamType	src/click/types.py	65	type
+src/click/types.py	250	FuncParamTypeInfoDict	-	0	external
+src/click/types.py	250	FuncParamTypeInfoDict	src/click/types.py	60	type
+src/click/types.py	254	FuncParamType	-	0	external
+src/click/types.py	254	FuncParamType	src/click/types.py	65	type
+src/click/types.py	282	UnprocessedParamType	src/click/types.py	65	type
+src/click/types.py	294	StringParamType	src/click/types.py	65	type
+src/click/types.py	319	ChoiceInfoDict	-	0	external
+src/click/types.py	319	ChoiceInfoDict	src/click/types.py	60	type
+src/click/types.py	324	Choice	-	0	external
+src/click/types.py	324	Choice	src/click/types.py	65	type
+src/click/types.py	500	DateTimeInfoDict	src/click/types.py	60	type
+src/click/types.py	504	DateTime	src/click/types.py	65	type
+src/click/types.py	575	_NumberParamTypeBase	-	0	external
+src/click/types.py	575	_NumberParamTypeBase	src/click/types.py	65	type
+src/click/types.py	595	NumberRangeInfoDict	-	0	external
+src/click/types.py	595	NumberRangeInfoDict	src/click/types.py	60	type
+src/click/types.py	603	_NumberRangeBase	src/click/types.py	575	type
+src/click/types.py	707	IntParamType	src/click/types.py	575	type
+src/click/types.py	739	FloatParamType	src/click/types.py	575	type
+src/click/types.py	747	FloatRange	src/click/types.py	603	type
+src/click/types.py	747	FloatRange	src/click/types.py	739	type
+src/click/types.py	790	BoolParamType	src/click/types.py	65	type
+src/click/types.py	859	UUIDParameterType	src/click/types.py	65	type
+src/click/types.py	881	FileInfoDict	src/click/types.py	60	type
+src/click/types.py	1021	PathInfoDict	src/click/types.py	60	type
+src/click/types.py	1225	TupleInfoDict	src/click/types.py	60	type
+src/click/types.py	1229	Tuple	src/click/types.py	242	type
+src/click/types.py	1404	OptionHelpExtra	-	0	external
+tests/test_abort_interrupt.py	116	InterruptedReport	src/click/exceptions.py	35	type
+tests/test_abort_interrupt.py	137	InterruptedAbort	src/click/exceptions.py	362	type
+tests/test_arguments.py	1153	CustomArgument	src/click/core.py	3874	type
+tests/test_arguments.py	1214	CustomArgument	src/click/core.py	3874	type
+tests/test_basic.py	558	MyEnum	-	0	external
+tests/test_command_decorators.py	17	CustomCommand	src/click/core.py	983	type
+tests/test_command_decorators.py	20	CustomGroup	src/click/core.py	1694	type
+tests/test_commands.py	151	OptParseCommand	src/click/core.py	983	type
+tests/test_commands.py	330	AliasedGroup	src/click/core.py	1694	type
+tests/test_context.py	197	ParameterInternalCheck	src/click/core.py	3041	type
+tests/test_context.py	402	NonExitingOption	src/click/core.py	3041	type
+tests/test_context.py	415	ExitingOption	-	0	unknown
+tests/test_context.py	443	DebugLoggerOption	src/click/core.py	3041	type
+tests/test_context.py	537	TestContext	-	0	external
+tests/test_context.py	563	TestException	-	0	external
+tests/test_context.py	591	TestContext	-	0	external
+tests/test_context.py	617	TestException	-	0	external
+tests/test_custom_classes.py	9	CustomContext	src/click/core.py	236	type
+tests/test_custom_classes.py	12	CustomCommand	src/click/core.py	983	type
+tests/test_custom_classes.py	25	CustomContext	src/click/core.py	236	type
+tests/test_custom_classes.py	28	CustomCommand	src/click/core.py	983	type
+tests/test_custom_classes.py	52	CustomFormatter	src/click/formatting.py	119	type
+tests/test_custom_classes.py	57	CustomContext	src/click/core.py	236	type
+tests/test_custom_classes.py	71	CustomCommand	src/click/core.py	983	type
+tests/test_custom_classes.py	74	CustomGroup	src/click/core.py	1694	type
+tests/test_custom_classes.py	89	CustomSubGroup	src/click/core.py	1694	type
+tests/test_custom_classes.py	92	CustomGroup	src/click/core.py	1694	type
+tests/test_custom_classes.py	107	CustomGroup	src/click/core.py	1694	type
+tests/test_defaults.py	277	Source	src/click/types.py	65	type
+tests/test_defaults.py	422	CustomContext	src/click/core.py	236	type
+tests/test_formatting.py	317	MyType	src/click/types.py	65	type
+tests/test_info_dict.py	273	TestType	src/click/types.py	65	type
+tests/test_options.py	1274	CustomArgument	src/click/core.py	3874	type
+tests/test_options.py	1290	CustomOption	src/click/core.py	3041	type
+tests/test_options.py	1326	CustomOption	src/click/core.py	3041	type
+tests/test_options.py	1344	CustomOption	src/click/core.py	3041	type
+tests/test_options.py	1389	CustomHelpOption	src/click/core.py	3041	type
+tests/test_options.py	2176	HashType	-	0	external
+tests/test_options.py	2182	Number	-	0	external
+tests/test_options.py	2187	Letter	-	0	external
+tests/test_options.py	2193	Color	-	0	external
+tests/test_options.py	2199	ColorInt	-	0	external
+tests/test_options.py	2352	EnumSentinel	-	0	external
+tests/test_options.py	2433	ConfigParamType	src/click/types.py	65	type
+tests/test_shell_completion.py	520	MyshComplete	src/click/shell_completion.py	277	type
+tests/test_shell_completion.py	541	MyshComplete	src/click/shell_completion.py	277	type
+tests/test_shell_completion.py	567	MyshComplete	src/click/shell_completion.py	277	type
+tests/test_termui.py	932	RecordingStream	-	0	external
+tests/test_termui.py	1108	FlushableTextStream	-	0	external
+tests/test_termui.py	1726	_CustomTypeNoValue	src/click/types.py	65	type
+tests/test_termui.py	1735	_CustomTypeWithRawValue	src/click/types.py	65	type
+tests/test_termui.py	1744	_PasswordLengthType	src/click/types.py	65	type
+tests/test_termui.py	1757	_MixedQuotedAndRawType	src/click/types.py	65	type
+tests/test_termui.py	1768	_StaticMessageType	src/click/types.py	65	type
+tests/test_termui.py	1777	_RejectAllRawType	src/click/types.py	65	type
+tests/test_termui.py	1786	_MultiRawType	src/click/types.py	65	type
+tests/test_termui.py	1795	_MultiReprType	src/click/types.py	65	type
+tests/test_termui.py	1804	_ApostropheReprType	src/click/types.py	65	type
+tests/test_testing.py	212	CustomError	-	0	external
+tests/test_testing.py	239	CustomError	-	0	external
+tests/test_testing.py	274	CLIError	src/click/exceptions.py	35	type
+tests/test_types/test_ParamType.py	16	DoublingType	src/click/types.py	65	type
+tests/test_utils/test_prompt.py	22	DoublingType	src/click/types.py	65	type
+tests/typing/typing_aliased_group.py	10	AliasedGroup	src/click/core.py	1694	type
+tests/typing/typing_prompt.py	32	DoublingType	src/click/types.py	65	type
+tests/typing/typing_prompt.py	46	SimpleType	src/click/types.py	65	type
