@@ -179,6 +179,7 @@ def score(result, truth, examples=10):
     by_id = {d.id: d for d in result.definitions}
     sites = {s.id: s for s in result.call_sites}
     outcomes = Counter()
+    by_rule = {}
     found = set()
     samples = {}
     # Why each expected call has no confirmed link, by engine outcome.
@@ -219,6 +220,8 @@ def score(result, truth, examples=10):
                 "unresolved_expected" if set(keys) & expected else "unresolved_unjudged"
             )
         outcomes[outcome] += 1
+        if resolution.status == "linked":
+            by_rule.setdefault(resolution.rule_id, Counter())[outcome] += 1
         for key in set(keys) & expected:
             near.setdefault(key, f"{resolution.status}:{resolution.reason or 'linked'}")
         if outcome in {"contradicted", "ambiguous_excludes", "unjudged"}:
@@ -236,6 +239,7 @@ def score(result, truth, examples=10):
         "missed_by_engine_outcome": dict(sorted(why.items())),
         "precision": round(outcomes["confirmed"] / judged, 4) if judged else None,
         "recall": round(len(found) / len(expected), 4) if expected else None,
+        "by_rule": {r: dict(sorted(c.items())) for r, c in sorted(by_rule.items())},
     }
     samples["missed"] = [[*k, near.get(k, "no_call_site")] for k in missed]
     return report, {k: v[:examples] for k, v in sorted(samples.items())}
@@ -294,6 +298,12 @@ def regressions(report, baseline):
         )
     if report["confirmed"] < baseline["confirmed"]:
         problems.append(f"confirmed {baseline['confirmed']} -> {report['confirmed']}")
+    for rule, counts in sorted(baseline.get("by_rule", {}).items()):
+        now = report.get("by_rule", {}).get(rule, {})
+        for outcome, worse in (("contradicted", int.__gt__), ("confirmed", int.__lt__)):
+            before, after = counts.get(outcome, 0), now.get(outcome, 0)
+            if worse(after, before):
+                problems.append(f"{rule} {outcome} {before} -> {after}")
     if report["expected"] != baseline["expected"]:
         problems.append(
             f"expected {baseline['expected']} -> {report['expected']} "
@@ -333,6 +343,46 @@ def check(names, cache, update=False, examples=10):
     return reports, failed
 
 
+def call_rules():
+    """The evidence rules call resolution can name."""
+    from deepthought import calls
+    from deepthought.analysis_tools.evidence import registered_rules
+
+    rules = registered_rules()
+    return sorted(
+        {
+            value
+            for name, value in vars(calls).items()
+            if name.isupper() and isinstance(value, str) and value in rules
+        }
+        # Imported for use, or rules of impls, not of calls.
+        - {
+            calls.PYTHON_FROM_IMPORT_SUBMODULE,
+            calls.RUST_IMPL_TYPE,
+            calls.RUST_IMPL_TRAIT,
+        }
+    )
+
+
+def rule_coverage(reports):
+    """Confirmed and contradicted links per call rule across all corpora.
+
+    A rule with no confirmed link is not verified by the corpus: breaking it
+    would go unnoticed here.
+    """
+    totals = {rule: Counter() for rule in call_rules()}
+    for report in reports.values():
+        for rule, counts in report.get("by_rule", {}).items():
+            totals.setdefault(rule, Counter()).update(counts)
+    return {
+        "rules": {
+            rule: {k: c.get(k, 0) for k in ("confirmed", "contradicted")}
+            for rule, c in sorted(totals.items())
+        },
+        "unverified": sorted(r for r, c in totals.items() if not c.get("confirmed")),
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -365,7 +415,8 @@ def main(argv=None):
     reports, failed = check(
         set(args.corpus), args.cache, args.update_baseline, args.examples
     )
-    print(json.dumps(reports, indent=2))
+    coverage = rule_coverage(reports)
+    print(json.dumps({"corpora": reports, "rule_coverage": coverage}, indent=2))
     return 1 if failed else 0
 
 
