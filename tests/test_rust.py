@@ -1,6 +1,7 @@
 """Rust declarations (opt-in language)."""
 
 import asyncio
+import dataclasses
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -12,6 +13,7 @@ from deepthought.imports import (
     RUST_EXTERN_CRATE,
     RUST_MODULE_FILE,
     RUST_USE_DECLARED,
+    RUST_USE_EXPORTED_MACRO,
     RUST_USE_MODULE,
     RUST_USE_REEXPORT,
     resolve_imports,
@@ -976,6 +978,92 @@ class RustTests(unittest.TestCase):
         # Files that are not Rust, excluded, not included or oversized define
         # no macros.
         self.assertEqual(dict(result.analyzer_versions)["rust-item-macros"], "m")
+
+    def test_exported_macros_belong_to_the_crate_root(self):
+        result = analyze(
+            {
+                "util/Cargo.toml": '[package]\nname = "my-util"\n',
+                "util/src/lib.rs": "mod macros;\n"
+                "mod inner { #[macro_export] macro_rules! deep { () => {} } }\n"
+                "pub use crate::shout as again;\n",
+                "util/src/macros.rs": "#[macro_export]\n/// Doc.\n"
+                "macro_rules! shout { () => {} }\n"
+                "#[allow(unused)]\nmacro_rules! quiet { () => {} }\n"
+                "#[macro_export(local_inner_macros)]\n"
+                "#[doc(hidden)]\n"
+                "macro_rules! loud { () => {} }\n",
+                "app/Cargo.toml": '[package]\nname = "app"\n',
+                "app/src/lib.rs": "mod m;\n"
+                "use my_util::shout;\n"
+                "use my_util::quiet;\n"
+                "use my_util::deep;\n"
+                "use my_util::loud;\n"
+                "use crate::local;\n"
+                "use my_util::again;\n"
+                "use crate::m::local as l2;\n"
+                "use my_util::shout::nope;\n"
+                "use my_util::inner::shout as s3;\n",
+                "app/src/m.rs": "#[macro_export]\nmacro_rules! local { () => {} }\n",
+            }
+        )
+        self.assertEqual(
+            sorted(
+                (d.file, d.symbol, d.macro_export)
+                for d in result.definitions
+                if d.kind == "Macro"
+            ),
+            [
+                ("app/src/m.rs", "local", True),
+                ("util/src/lib.rs", "inner.deep", True),
+                ("util/src/macros.rs", "loud", True),
+                ("util/src/macros.rs", "quiet", False),
+                ("util/src/macros.rs", "shout", True),
+            ],
+        )
+        # Only Rust macros record the attribute.
+        self.assertEqual(
+            {d.macro_export is None for d in result.definitions if d.kind != "Macro"},
+            {True},
+        )
+        imports = {i.id: i for i in result.imports}
+        exported = RUST_USE_EXPORTED_MACRO
+        self.assertEqual(
+            sorted(
+                (
+                    imports[r.import_id].line,
+                    [(link.target_file, link.rule_id) for link in r.links],
+                )
+                for r in resolve_imports(result)
+                if imports[r.import_id].file == "app/src/lib.rs"
+                and imports[r.import_id].kind == "use"
+            ),
+            [
+                (2, [("util/src/macros.rs", exported)]),
+                # A macro without the attribute is not at the root.
+                (3, [("util/src/lib.rs", RUST_USE_MODULE)]),
+                # Exported from inside an inline module.
+                (4, [("util/src/lib.rs", exported)]),
+                (5, [("util/src/macros.rs", exported)]),
+                (6, [("app/src/m.rs", exported)]),
+                (7, [("util/src/macros.rs", RUST_USE_REEXPORT)]),
+                # Where it is written, it is declared as before.
+                (8, [("app/src/m.rs", RUST_USE_DECLARED)]),
+                # Only the last name of a path, and only at the root.
+                (9, [("util/src/lib.rs", RUST_USE_MODULE)]),
+                (10, [("util/src/lib.rs", RUST_USE_MODULE)]),
+            ],
+        )
+        # The attribute is serialized for Rust macros only.
+        data = result.to_dict()["definitions"]
+        self.assertEqual(
+            sorted(d["symbol"] for d in data if "macro_export" in d),
+            ["inner.deep", "local", "loud", "quiet", "shout"],
+        )
+        self.assertEqual(
+            type(result).from_json(result.to_json()).definitions, result.definitions
+        )
+        with self.assertRaises(ValueError):
+            dataclasses.replace(result.definitions[0], macro_export="yes")
 
 
 if __name__ == "__main__":

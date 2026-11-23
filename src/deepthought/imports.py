@@ -28,6 +28,7 @@ RUST_USE_DECLARED = "tree-sitter.rust-use-declared"
 RUST_USE_MODULE = "tree-sitter.rust-use-module"
 RUST_EXTERN_CRATE = "tree-sitter.rust-extern-crate"
 RUST_USE_REEXPORT = "tree-sitter.rust-use-reexport"
+RUST_USE_EXPORTED_MACRO = "tree-sitter.rust-use-exported-macro"
 _RUST_MODULE_KINDS = frozenset({"module", "module_path"})
 _RUST_CRATE_KINDS = frozenset({"crate_library", "crate_target"})
 # Declarations a use path can go through: modules and types.
@@ -578,6 +579,14 @@ class _RustIndex:
                     )
                 for relative, child in children.get(file, ()):
                     stack.append((child, path + relative))
+        # crate root -> macro name -> files: `#[macro_export]` macros belong
+        # to the root of each crate their file is in.
+        self.exported = {}
+        for d in result.definitions:
+            if d.macro_export:
+                for root, _ in self.contexts.get(d.file, ()):
+                    names = self.exported.setdefault(root, {})
+                    names.setdefault(d.symbol.split(".")[-1], set()).add(d.file)
 
     def resolve(self, item: Import):
         if item.kind not in {"use", "use_glob", "extern_crate"}:
@@ -657,8 +666,10 @@ class _RustIndex:
         name several meanings; all are kept. Returns (meanings, failures):
         a meaning is (what, file, root, module, followed) where what is
         "module" (the path names the module in file), "item" (file declares
-        the name) or "undeclared" (file's module neither declares nor binds
-        it); followed says whether a use was followed on the way.
+        the name), "exported" (file defines a ``#[macro_export]`` macro of
+        that name, which the crate root holds) or "undeclared" (file's module
+        neither declares nor binds it); followed says whether a use was
+        followed on the way.
         """
         meanings, failures = set(), []
         # Each state has fewer names left than the one it came from.
@@ -677,8 +688,13 @@ class _RustIndex:
                 continue
             name, last = rest[0], len(rest) == 1
             child = (root, module + (name,))
+            exported = self.exported.get(root, {}).get(name, ()) if last else ()
+            if not module:
+                meanings.update(
+                    ("exported", file, root, module, followed) for file in exported
+                )
             for where in scopes:
-                found = False
+                found = bool(exported) and not module
                 if child in self.modules:
                     states.append((*child, rest[1:], followed))
                     found = True
@@ -745,7 +761,12 @@ class _RustIndex:
         if len(walked) != 3:
             return walked
         meanings, failures = self._follow(*walked, frozenset())
-        strength = {RUST_USE_DECLARED: 0, RUST_USE_REEXPORT: 1, RUST_USE_MODULE: 2}
+        strength = {
+            RUST_USE_DECLARED: 0,
+            RUST_USE_EXPORTED_MACRO: 1,
+            RUST_USE_REEXPORT: 2,
+            RUST_USE_MODULE: 3,
+        }
         rules = {}
         for what, file, _, _, followed in meanings:
             rule = (
@@ -753,6 +774,8 @@ class _RustIndex:
                 if what == "undeclared"
                 else RUST_USE_REEXPORT
                 if followed
+                else RUST_USE_EXPORTED_MACRO
+                if what == "exported"
                 else RUST_USE_DECLARED
             )
             if file not in rules or strength[rule] < strength[rules[file]]:

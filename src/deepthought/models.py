@@ -47,8 +47,13 @@ class Definition:
     # the last one is variable-arity (``T...``). None elsewhere.
     parameters: int | None = None
     variadic: bool = False
+    # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
+    # its crate's root. None elsewhere.
+    macro_export: bool | None = None
 
     def __post_init__(self):
+        if self.macro_export is not None and type(self.macro_export) is not bool:
+            raise ValueError("macro_export must be a boolean or None")
         if self.parameters is not None and (
             type(self.parameters) is not int or self.parameters < 0
         ):
@@ -432,6 +437,8 @@ class AnalysisResult:
         for item in data["definitions"]:
             if item["parameters"] is None:
                 del item["parameters"], item["variadic"]
+            if item["macro_export"] is None:
+                del item["macro_export"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]

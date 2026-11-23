@@ -5,7 +5,8 @@ index has an occurrence of the symbol it names on the declaration's lines,
 and defines that symbol in some file. A link the analysis marks
 ``rust-use-declared`` (the name is declared in the linked module, or is the
 module) or ``rust-use-reexport`` (the declaration a chain of re-exports
-reaches) is confirmed when that is the file. A ``rust-use-module`` link names
+reaches) or ``rust-use-exported-macro`` (a ``#[macro_export]`` macro at the
+crate root) is confirmed when that is the file. A ``rust-use-module`` link names
 the module the path goes through when the name is not declared there (a
 re-export, a constant, a variant or a macro-generated item), so it is counted
 as such when rust-analyzer's definition is elsewhere.
@@ -24,6 +25,7 @@ import re
 import deepthought
 from deepthought.imports import (
     RUST_USE_DECLARED,
+    RUST_USE_EXPORTED_MACRO,
     RUST_USE_MODULE,
     RUST_USE_REEXPORT,
     resolve_imports,
@@ -90,6 +92,7 @@ def main():
         else:
             kind = {
                 RUST_USE_DECLARED: "declared",
+                RUST_USE_EXPORTED_MACRO: "exported_macro",
                 RUST_USE_REEXPORT: "reexport",
                 RUST_USE_MODULE: "module",
             }.get(link.rule_id, "extern_crate")
