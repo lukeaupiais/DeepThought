@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass, field
 from hashlib import sha256
 
+from ...analysis_tools.evidence import validate_edge_evidence
 from .encoding import encode_properties
 
 
@@ -113,6 +114,8 @@ def _prepare(output, repo_url, snapshot_id):
                 raise ValueError("Relationship endpoint match does not match its node")
             endpoints.append(qname)
         props = dict(rel.properties)
+        # Re-check at the storage boundary: records are mutable after construction.
+        validate_edge_evidence(props)
         encoded = encode_properties(props)
         identity = _canonical([kind, endpoints, props])
         if identity in seen:

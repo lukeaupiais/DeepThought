@@ -24,6 +24,8 @@ from deepthought.storage.graph.write_coordinator import (
 )
 from deepthought.storage.graph.writer import _prepare
 
+from evidence_fixtures import FIXTURE_EVIDENCE
+
 
 def contributions(repo):
     nodes = [
@@ -52,7 +54,7 @@ def contributions(repo):
                     source_match,
                     ["Symbol"],
                     {"qualified_name": "g"},
-                    {"line": 1},
+                    {"line": 1, **FIXTURE_EVIDENCE},
                 )
             ],
             ToolExecutionMetadata(

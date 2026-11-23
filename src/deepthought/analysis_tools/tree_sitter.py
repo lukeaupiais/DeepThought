@@ -17,7 +17,27 @@ from .contracts import (
     StandardizedOutput,
     ToolExecutionMetadata,
 )
+from .evidence import EvidenceRule, register_rule
 from .registry import register_tool
+
+CONTAINS_RULE = register_rule(
+    EvidenceRule(
+        "tree-sitter.repository-contains-file",
+        "resolved",
+        "The file was selected and analyzed under the repository root.",
+    )
+)
+DEFINES_RULE = register_rule(
+    EvidenceRule(
+        "tree-sitter.file-defines-declaration",
+        "resolved",
+        "The parse tree of the file contains this named declaration.",
+    )
+)
+
+
+def _evidence(rule):
+    return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
 @register_tool
@@ -104,6 +124,7 @@ class TreeSitterTool(AnalysisTool):
                     {"qualified_name": repository_name, "repo_url": repo_url},
                     ["File"],
                     {"qualified_name": file_name, "repo_url": repo_url},
+                    _evidence(CONTAINS_RULE),
                 )
             )
         for definition in result.definitions:
@@ -134,6 +155,7 @@ class TreeSitterTool(AnalysisTool):
                     {"qualified_name": files[definition.file], "repo_url": repo_url},
                     [definition.kind, "Symbol"],
                     {"qualified_name": qualified_name, "repo_url": repo_url},
+                    _evidence(DEFINES_RULE),
                 )
             )
         artifact = result.to_dict()

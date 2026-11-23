@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .evidence import validate_edge_evidence
+
 
 def _text(value, field_name):
     if not isinstance(value, str) or not value.strip():
@@ -85,6 +87,7 @@ class RelationshipData:
         if type(self.create_missing_nodes) is not bool:
             raise ValueError("create_missing_nodes must be boolean")
         _json(self.properties)
+        validate_edge_evidence(self.properties)
 
 
 @dataclass
