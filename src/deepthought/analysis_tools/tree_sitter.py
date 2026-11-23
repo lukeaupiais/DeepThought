@@ -255,6 +255,7 @@ def _declaration_sources(root, result):
                 expander=RustExpander(content, item_macros)
                 if item.language == "rust"
                 else None,
+                language=item.language,
             )
         )
     return sources, sorted(changed)
@@ -378,6 +379,7 @@ class TreeSitterTool(AnalysisTool):
                 ToolCapability.SYMBOL_INDEXING,
             },
             supported_languages={
+                "c",
                 "go",
                 "java",
                 "javascript",

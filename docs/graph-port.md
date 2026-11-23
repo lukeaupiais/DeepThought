@@ -376,6 +376,37 @@ The dependencies of the `link:` package in babel are not installed by Yarn
 and stay unchecked; Maven name matches (guava: 5, plus 12 ambiguous between
 `guava` and `android/guava`) have no oracle here.
 
+### Compose services
+
+Compose files (`compose.yaml`, `docker-compose.yml` and variants such as
+`docker-compose.prod.yml`) declare `compose_service` components, one per
+`services` entry (needs PyYAML: the `components` or `languages` extra). Each
+file is read on its own, as `docker compose -f FILE` reads it: several `-f`
+files, `extends` and `include` are not merged, and `${VARIABLE}`
+interpolation is not performed. A service's root is its build context
+(`build: DIR` or `build.context`); one that only names an `image`, builds from
+a remote URL or needs interpolation has no root and no files. Files under a
+build context are PART_OF every service built from it.
+
+| Edge | Rule | Evidence |
+|------|------|----------|
+| service -> REQUIRES -> service | `components.compose-depends-on` (depends_on names a service of the same file) | resolved |
+| service -> DEPLOYS -> package component | `components.compose-build-context` (build context is the component's root) | resolved |
+| service -> DEPLOYS -> package component | `components.compose-image-name` (no build; the image's last path segment, without tag or digest, equals the name or last `/` segment of exactly one package component) | name_matched |
+
+The weighted detector's port-number service types (80 -> HTTP API, 6379 ->
+cache, and so on) are not ported.
+
+`--compose` adds `docker compose -f FILE --profile '*' config --format json`
+to the comparison tool: the services each file declares (all profiles), their
+build contexts and depends_on. No contradictions:
+
+| Repository | Compose files | Services, contexts and depends_on confirmed |
+|------------|---------------|---------------------------------------------|
+| docker/awesome-compose | 39 | 39/39 files' service sets, 81/81 contexts, 81/81 depends_on |
+| example-voting-app | 3 | 3/3, 17/17, 17/17 |
+| spring-petclinic-microservices | 1 | 1/1, 11/11, 11/11; its 8 image-only services DEPLOY their Maven modules by image name |
+
 ## Declared bases
 
 Tree-sitter extraction records each base a class or interface names as a
@@ -1121,6 +1152,65 @@ tokio (37 named), and the other corpora's are outside the repository (7 in
 ripgrep, 28 in regex, 16 in serde, of which one, in a serde module that
 `crate_root!()` declares, is `module_context_unknown`).
 
+## C
+
+C sources (`.c` and `.h`) are analyzed when `c` is selected (`--language c`)
+and the `c` extra is installed (tree-sitter-c 0.24.1); the language is
+opt-in. Declarations are those at file scope, in every preprocessor branch:
+functions (`Function`, definitions and prototypes alike), structs, unions and
+enums that are named and have a body (`Struct`, `Union`, `Enum`, including
+those declared inside a struct's members, which C does not scope), typedef
+names (`TypeAlias`) and macros (`Macro`, wherever they are defined, since a
+macro holds for the rest of the file). Names are not qualified. Variables,
+enumerators, fields, forward declarations, unnamed types and types and
+prototypes declared in a function body are not declarations. Imports, calls
+and other facts are not recorded for C yet.
+
+Four shapes the grammar gives to code it does not fully read are read
+deterministically. A function declared after a macro the grammar does not
+know (`API T f(...)`) has its name in an error node before the parameters.
+`API int (f)(...)` parses as a function declarator applied to `int(f)`, which
+C does not allow without parentheses, so the name is that inner list's one
+type name. `namespace n {` in a C++ branch parses as a definition with no
+parameters, and its body is read as file scope, as is text in an error node.
+When the grammar cannot parse a stretch (braces opened in both branches of an
+`#if`), a function's declarator can stand alone in the error node, with its
+type and body as separate items: a function declarator found there declares a
+function, while one inside a pointer (a pointer to a function) does not.
+A macro that contains an error node (a comment in a continued line can make
+the grammar take a later word as the name) is left out.
+
+Checked against clang with `tools/compare_c_declarations_with_clang.py`
+(libclang 18.1.1): every `.c` and `.h` file is parsed by clang as a
+translation unit, with each directory holding a header, and each one above
+it, on the include path. A translation unit with a fatal error (an include
+not found, usually a header generated at build time) is left out, since what
+clang recovers after one is not the program. A declaration matches when
+clang reports one of the same kind and name at its name's line in the same
+file, and every difference is classified. A difference is put down to a
+grammar error only when the file-scope item holding it contains an error,
+when it lies in an error node, or (clang only) when the item before it does,
+since the grammar can end that item with a missing token and read the
+declaration as an expression:
+
+| Corpus | Translation units (fatal) | clang | Matched | Tree-sitter only: inactive `#if` / file not reported / clang error / name is a macro / grammar error | clang only: macro-generated / type in a function body / clang error / grammar error |
+|---|---|---|---|---|---|
+| lua/lua `c42d820` | 68 (0) | 2,909 | 2,904 | 322 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 5 |
+| jqlang/jq `5c001b1` | 79 (2) | 3,017 | 2,671 | 502 / 191 / 4 / 122 / 0 | 171 / 5 / 130 / 40 |
+| redis/redis `f1d498b` | 848 (278) | 19,610 | 18,284 | 1,723 / 6,564 / 12 / 3 / 161 | 1,024 / 19 / 182 / 101 |
+
+Inactive `#if` branches are those clang skipped in every translation unit;
+the declarations here cover every branch. A file is not reported when every
+translation unit that reaches it has a fatal error (most of redis's vendored
+jemalloc, which needs generated headers). A clang error on the line means the
+translation unit is missing a type from such a header. A name that is a macro
+(`#define yyrestart jq_yyrestart` before `void yyrestart(...)`, written by
+flex) is declared by clang under the macro's expansion. Grammar errors are
+regions tree-sitter-c does not parse, mostly macros that wrap declarations
+(`JEMALLOC_ALWAYS_INLINE`); those declarations are missed (clang only) or may
+be misread (Tree-sitter only, 161 in redis). Macro-generated declarations
+(clang only) are written by a macro invocation, as in jq's `LIBM_DD(...)`.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
@@ -1286,7 +1376,14 @@ Facts are read from Java sources outside test source sets (`src/test/`):
   fields of the file with an initializer, no `@Value` injection and no
   assignment anywhere in the file, String locals declared once and never
   assigned, and calls to a method of the file whose body is a single `return`
-  (arguments substituted). Everything else is unknown text. A route with
+  (arguments substituted). A local may also take its value from `=`
+  assignments that come before the use: one statement in the declaration's own
+  block replaces the value, and assignments in different branches of an `if`
+  that ends before the use each give one alternative URL, plus the initializer
+  when the branches do not cover every path (a `null` initializer gives none).
+  Each alternative is its own request, and its edge records
+  `url_alternatives`; more than 8 alternatives are unknown text. Everything
+  else is unknown text. A route with
   unknown text is not read; a request keeps it as a placeholder, and URI
   template variables (`{id}`) are unknown text too.
 - **Services.** A file belongs to the build module of its nearest `pom.xml` or
@@ -1347,15 +1444,16 @@ and gRPC links of Online Boutique and robot-shop belong to languages this tool
 does not read yet; both are left for later.
 
 Train-ticket (FudanSELab, commit `313886e9`, 41 Spring services using
-RestTemplate) has no labelled corpus, so its predictions were audited instead:
-of 146 requests outside tests, 133 link, all by `http-service-path`. A
-reviewer who did not see the extractor checked a random sample of 40 links
-against the source by hand and found all 40 correct, then checked all 13
-unlinked requests (`evals/fixtures/service_contracts/train-ticket-audit/`).
-Ten of those build their URL in an `if`/`else` with a literal in each branch,
-which is not folded, so each would need two links. One calls an external host,
-one a path no service serves, and one posts to a route that accepts only
-GET and DELETE.
+RestTemplate) has no labelled corpus, so its predictions were audited instead
+(`evals/fixtures/service_contracts/train-ticket-audit/`). A reviewer who did
+not see the extractor checked a random sample of 40 links against the source by
+hand and found all 40 correct, then checked every unlinked request. Ten build
+their URL in an `if`/`else` with a literal in each branch; with branch
+alternatives all ten now link to exactly the two handlers the reviewer named
+(20 links). Of 157 requests outside tests, 153 link. The other four are rightly
+unlinked: one calls an external host, one a path no service serves, and one
+call site posts to `.../order/{id}` in two services that accept only GET and
+DELETE there, which leaves the request ambiguous among POST routes.
 
 ## Commit-linked snapshots
 

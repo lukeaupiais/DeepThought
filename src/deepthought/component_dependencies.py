@@ -27,6 +27,7 @@ WORKSPACE = {
     "python_project": "python-workspace-source",
 }
 NAME = "dependency-name"
+COMPOSE_DEPENDS_ON = "compose-depends-on"
 
 _CARGO_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
 _NPM_SECTIONS = (
@@ -49,6 +50,8 @@ class Dependency:
     path: str | None = None
     # True when the declaration defers to its workspace.
     workspace: bool = False
+    # Compose depends_on: the service that declares it.
+    service: str | None = None
 
 
 def normalize_python(name):
@@ -267,6 +270,13 @@ def extract_dependencies(manifest: str, content: bytes) -> list[Dependency]:
     """Dependencies one manifest declares; an unreadable manifest has none
     (extract_components reports it)."""
     name = PurePosixPath(manifest).name
+    from .components import COMPOSE_FILE
+
+    if COMPOSE_FILE.match(name):
+        from .deployments import extract_compose
+
+        found = extract_compose(manifest, content)
+        return [] if found is None else found[1]
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -300,7 +310,7 @@ def _is_table(dependency):
     )
 
 
-def _join(root, path):
+def join_directory(root, path):
     """A manifest-relative directory as a repository-relative one, or None
     when it leaves the repository or is absolute."""
     if path.startswith("/") or "\\" in path:
@@ -354,7 +364,7 @@ def resolve_dependencies(components, dependencies, coordinates=None):
             continue
         root = str(PurePosixPath(dependency.manifest).parent)
         root = "" if root == "." else root
-        target = _join(root, dependency.path)
+        target = join_directory(root, dependency.path)
         if target is not None:
             paths = (
                 workspace_paths
@@ -376,9 +386,27 @@ def resolve_dependencies(components, dependencies, coordinates=None):
         if _is_table(dependency):
             continue
         for source in by_manifest.get(dependency.manifest, []):
+            if source.kind == "compose_service":
+                if source.name != dependency.service:
+                    continue
+                # depends_on names a service of the same file.
+                target = next(
+                    (
+                        c
+                        for c in by_manifest[dependency.manifest]
+                        if c.name == dependency.name
+                    ),
+                    None,
+                )
+                if target is None or target == source:
+                    counts["external"] += 1
+                else:
+                    counts["linked"] += 1
+                    links.append(Link(source, target, dependency, COMPOSE_DEPENDS_ON))
+                continue
             target, rule = None, None
             if dependency.path is not None:
-                directory = _join(source.root, dependency.path)
+                directory = join_directory(source.root, dependency.path)
                 target = by_root.get((source.kind, directory))
                 rule = PATH[source.kind] if target else None
             elif dependency.workspace and source.kind == "cargo_package":
