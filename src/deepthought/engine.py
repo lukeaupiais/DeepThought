@@ -29,6 +29,7 @@ from .syntax import (
     extract,
     extract_c,
     extract_cpp,
+    extract_ruby,
     extract_call_sites,
     extract_cargo_manifest,
     extract_go_module,
@@ -218,7 +219,8 @@ def analyze_repository(
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
         raise ValueError(
-            "Supported languages: c, cpp, go, java, javascript, python, rust, typescript"
+            "Supported languages: c, cpp, go, java, javascript, python, ruby, rust, "
+            "typescript"
         )
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
@@ -427,6 +429,12 @@ def analyze_repository(
                     # C++: declarations only so far.
                     definitions.extend(
                         extract_cpp(tree, content, repository_id, relative)
+                    )
+                    continue
+                if language == "ruby":
+                    # Ruby: declarations only so far.
+                    definitions.extend(
+                        extract_ruby(tree, content, repository_id, relative)
                     )
                     continue
                 expander = (
