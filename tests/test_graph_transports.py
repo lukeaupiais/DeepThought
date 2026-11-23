@@ -238,7 +238,9 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                         expected = {
                             "diffSnapshots",
                             "explainEdge",
+                            "findImplementations",
                             "findReferences",
+                            "getSupertypes",
                             "getFileDependencies",
                             "getFileDependents",
                             "getCodeContext",
