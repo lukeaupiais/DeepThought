@@ -182,6 +182,32 @@ interface `extends`).
 The 49 bases missed on click are all `class X(click.Group)`-style bases named
 through the package's `__init__.py` re-exports, the same gap as for calls.
 
+### Service contracts
+
+The `contracts` entries in the manifest gate cross-service links the same way.
+Their labels are the hand-labelled corpora in `evals/fixtures/service_contracts`
+(see its README), built from the source without looking at the extractor.
+`check` fetches each pinned repository, scores every link kind the labels use
+with `tools/check_contracts_ground_truth.py` (all hops, call sites and service
+pairs), and fails when a kind has fewer correct links or more wrong ones than
+`baseline.json` records, or when its labels changed without a baseline update.
+
+| Corpus | Kind | Call sites correct / predicted / labelled | Service pairs correct / predicted / labelled |
+|---|---|---|---|
+| apssouza22 java-microservice | http | 3 / 3 / 3 | 2 / 2 / 2 |
+| apssouza22 java-microservice | messaging | 0 / 0 / 1 | 0 / 0 / 1 |
+| ewolff microservice-kafka | messaging | 2 / 2 / 2 | 2 / 2 / 2 |
+| piggymetrics | http | 3 / 3 / 3 | 3 / 3 / 3 |
+| spring-petclinic-microservices | http | 1 / 1 / 14 | 1 / 1 / 3 |
+| online-boutique | grpc | 20 / 21 / 20 | 12 / 12 / 14 |
+| online-boutique | http | 9 / 9 / 9 | 1 / 1 / 1 |
+| robot-shop | http | 4 / 4 / 42 | 3 / 3 / 17 |
+| robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
+
+Most unmatched labels are browser or load-generator calls that reach a backend
+through a gateway route. The one wrong call site is the developer test client
+`AdServiceClient.java` inside adservice, which calls its own service.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

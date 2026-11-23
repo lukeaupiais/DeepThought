@@ -109,6 +109,152 @@
     "unresolved_expected": 1133,
     "unresolved_unjudged": 1934
   },
+  "contracts": {
+    "contracts-msecend-apssouza22-java-microservice": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 3,
+          "true_positive": 3
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 2,
+          "true_positive": 2
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
+    "contracts-msecend-ewolff-microservice-kafka": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 0,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 0,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 2,
+          "predicted": 2,
+          "true_positive": 2
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 2,
+          "true_positive": 2
+        }
+      }
+    },
+    "contracts-msecend-piggymetrics": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 3,
+          "true_positive": 3
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 3,
+          "true_positive": 3
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 0,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 0,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
+    "contracts-msecend-spring-petclinic-microservices": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 14,
+          "predicted": 1,
+          "true_positive": 1
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 1,
+          "true_positive": 1
+        }
+      }
+    },
+    "contracts-online-boutique": {
+      "grpc": {
+        "call_sites": {
+          "labelled_in_scope": 20,
+          "predicted": 21,
+          "true_positive": 20
+        },
+        "service_pairs": {
+          "labelled_in_scope": 14,
+          "predicted": 12,
+          "true_positive": 12
+        }
+      },
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 9,
+          "predicted": 9,
+          "true_positive": 9
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        }
+      }
+    },
+    "contracts-robot-shop": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 42,
+          "predicted": 4,
+          "true_positive": 4
+        },
+        "service_pairs": {
+          "labelled_in_scope": 17,
+          "predicted": 3,
+          "true_positive": 3
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        }
+      }
+    }
+  },
   "gson": {
     "ambiguous_includes": 138,
     "by_rule": {

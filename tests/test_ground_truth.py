@@ -249,6 +249,67 @@ class CorpusFilesTest(unittest.TestCase):
             )
             self.assertEqual(callable_keys, baseline[entry["name"]]["expected"])
 
+    def test_every_contract_corpus_matches_its_labels_and_baseline(self):
+        corpus = ROOT / "evals" / "ground_truth"
+        manifest = json.loads((corpus / "manifest.json").read_text())
+        baseline = json.loads((corpus / "baseline.json").read_text())["contracts"]
+        self.assertTrue(manifest["contracts"])
+        for entry in manifest["contracts"]:
+            labels = json.loads((corpus / entry["labels"]).read_text())
+            self.assertEqual(
+                (labels["repo"], labels["commit"]), (entry["url"], entry["commit"])
+            )
+            self.assertEqual(
+                entry["kinds"], sorted({link["kind"] for link in labels["links"]})
+            )
+            for kind in entry["kinds"]:
+                in_scope = sum(
+                    link["kind"] == kind and link.get("in_scope_static", True)
+                    for link in labels["links"]
+                )
+                counts = baseline[entry["name"]][kind]["call_sites"]
+                self.assertEqual(counts["labelled_in_scope"], in_scope)
+
+
+class ContractRegressionTests(unittest.TestCase):
+    BASE = {
+        "http": {
+            "call_sites": {
+                "true_positive": 3,
+                "predicted": 4,
+                "labelled_in_scope": 5,
+            }
+        }
+    }
+
+    def report(self, **counts):
+        site = {**self.BASE["http"]["call_sites"], **counts}
+        return {"http": {"call_sites": site}}
+
+    def test_no_change_and_improvement_pass(self):
+        regressions = ground_truth.contract_regressions
+        self.assertEqual(regressions(self.report(), self.BASE), [])
+        better = self.report(true_positive=4, predicted=4)
+        self.assertEqual(regressions(better, self.BASE), [])
+
+    def test_fewer_correct_or_more_wrong_links_fail(self):
+        regressions = ground_truth.contract_regressions
+        self.assertEqual(
+            regressions(self.report(true_positive=2, predicted=3), self.BASE),
+            ["http call_sites correct 3 -> 2"],
+        )
+        self.assertEqual(
+            regressions(self.report(predicted=5), self.BASE),
+            ["http call_sites wrong 1 -> 2"],
+        )
+        self.assertIn(
+            "labelled 5 -> 6",
+            regressions(self.report(labelled_in_scope=6), self.BASE)[0],
+        )
+        self.assertEqual(
+            regressions({}, self.BASE), ["http call_sites: no longer scored"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
