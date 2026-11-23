@@ -325,6 +325,50 @@ def create_server():
         )
 
     @server.tool()
+    async def listComponents(
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        kind: str | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """List components build manifests declare (Python projects, npm packages, Go modules, Cargo packages, Maven modules) with file counts."""
+        return await ctx.request_context.lifespan_context.list_components(
+            repository_id, snapshot_id=snapshot_id, kind=kind, limit=max_elements
+        )
+
+    @server.tool()
+    async def getFileComponents(
+        file_path: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get the nearest enclosing component of each kind for a file, with evidence and rule."""
+        return await ctx.request_context.lifespan_context.get_file_components(
+            file_path, repository_id, snapshot_id=snapshot_id, limit=max_elements
+        )
+
+    @server.tool()
+    async def getComponentFiles(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        after_path: str = "",
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Page through the files of a component, by path."""
+        return await ctx.request_context.lifespan_context.get_component_files(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            after_path=after_path,
+            limit=max_elements,
+        )
+
+    @server.tool()
     async def findReferences(
         native_symbol: str,
         repository_id: str,

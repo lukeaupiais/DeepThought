@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import json
 
 from ...analysis_tools.declaration_binding import bind_declarations
+from ...analysis_tools.components import bind_components
 from ...analysis_tools.contracts import (
     NodeData,
     StandardizedOutput,
@@ -205,6 +206,24 @@ def _combine(outputs, repo_url, snapshot_id, config):
                 rel.target_match["qualified_name"],
             )
         ] = rel
+    # Files from every tool belong to their enclosing components (resolved).
+    part_of, membership = bind_components(nodes.values(), repo_url)
+    for rel in part_of:
+        for match in (rel.source_match, rel.target_match):
+            match["snapshot_id"] = revision
+        edges.setdefault(
+            json.dumps(
+                [
+                    rel.type,
+                    rel.source_match["qualified_name"],
+                    rel.target_match["qualified_name"],
+                    rel.properties,
+                ],
+                sort_keys=True,
+                allow_nan=False,
+            ),
+            rel,
+        )
     contributions = [_semantic(output.metadata) for output in outputs]
     capabilities = sorted(
         {
@@ -233,6 +252,7 @@ def _combine(outputs, repo_url, snapshot_id, config):
             "tool_outputs": contributions,
             "source_binding": "caller_selected_graph_revision",
             "declaration_binding": binding_counts,
+            **({"component_membership": membership} if part_of else {}),
             "model_tokens": sum(
                 output.metadata.custom_metrics["model_tokens"] for output in outputs
             )

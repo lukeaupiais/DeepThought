@@ -21,6 +21,7 @@ A provider-neutral evaluation framework prepares separate baseline and
 tool-assisted inputs, grades structured answers against reviewed scenario packs,
 and compares caller-reported measurements. Public Tree-sitter packs include a
 synthetic calibration case and a revision-pinned investigation on DeepAgents.
+Determinism and oracle checks are described in [verification](docs/verification.md).
 See [evaluation usage and limits](docs/evaluation.md) and the
 [independent validation cases](docs/evaluation-validation.md). Neo4j evaluation uses a caller-configured database; model calls, repository
 downloads, target builds and database provisioning remain caller-controlled.

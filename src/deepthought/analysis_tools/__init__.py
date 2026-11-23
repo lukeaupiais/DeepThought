@@ -10,6 +10,7 @@ from .contracts import (
 from .registry import ToolRegistry, register_tool, tool_registry
 from .tree_sitter import TreeSitterTool
 from .scip import ScipAnalysisTool
+from .components import ComponentsTool
 from .service_contracts import ServiceContractTool
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "ToolRegistry",
     "TreeSitterTool",
     "ScipAnalysisTool",
+    "ComponentsTool",
     "ServiceContractTool",
     "register_tool",
     "tool_registry",
