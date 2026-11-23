@@ -11,18 +11,23 @@ class HttpRoute:
     ``methods`` are HTTP methods or ``("*",)`` for any. ``handler_id`` is the
     declaration that handles it. ``service`` is the logical service name the
     file's build module declares (Spring's ``spring.application.name``), if
-    exactly one.
+    exactly one. ``handler_id`` is None when the handler is not a declaration
+    of the file (a closure, or a name that is not unique), and the route is
+    then anchored to its file. ``base_unknown`` marks a path declared after
+    unknown text (Go's ``baseUrl + "/cart"``); it is matched as if that base
+    added no segments, as a request's unknown base is.
     """
 
     id: str
     file: str
     line: int
     column: int
-    handler_id: str
+    handler_id: str | None
     methods: tuple[str, ...]
     path: str
     framework: str
     service: str | None = None
+    base_unknown: bool = False
 
 
 @dataclass(frozen=True)

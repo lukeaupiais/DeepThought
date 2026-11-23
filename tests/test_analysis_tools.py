@@ -50,7 +50,10 @@ class RegistryTests(unittest.TestCase):
                 ToolCapability.DEPENDENCY_ANALYSIS,
             },
         )
-        self.assertEqual(metadata[1].supported_languages, {"java"})
+        self.assertEqual(
+            metadata[1].supported_languages,
+            {"go", "java", "javascript", "python", "typescript"},
+        )
         self.assertEqual(metadata[1].capabilities, {ToolCapability.DEPENDENCY_ANALYSIS})
         metadata = metadata[2:]
         self.assertEqual(

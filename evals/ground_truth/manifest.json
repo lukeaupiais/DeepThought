@@ -11,7 +11,9 @@
       ],
       "truth": "calls/click.tsv",
       "oracle": "scip-python 0.6.8",
-      "oracle_command": "python -m venv env && env/bin/pip install -e . && PATH=$PWD/env/bin:$PATH scip-python index --project-name click --output index.scip ."
+      "oracle_command": "python -m venv env && env/bin/pip install -e . && PATH=$PWD/env/bin:$PATH scip-python index --project-name click --output index.scip .",
+      "inherits": "inherits/click.tsv",
+      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip"
     },
     {
       "name": "ky",
@@ -23,7 +25,9 @@
       ],
       "truth": "calls/ky.tsv",
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
-      "oracle_command": "npm install --ignore-scripts && scip-typescript index"
+      "oracle_command": "npm install --ignore-scripts && scip-typescript index",
+      "inherits": "inherits/ky.tsv",
+      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip"
     },
     {
       "name": "cobra",
@@ -71,7 +75,9 @@
       ],
       "truth": "calls/gson.tsv",
       "oracle": "javac (OpenJDK 21.0.13) through tools/JavaCallTruth.java",
-      "oracle_command": "python tools/ground_truth.py derive-java ."
+      "oracle_command": "python tools/ground_truth.py derive-java .",
+      "inherits": "inherits/gson.tsv",
+      "inherits_command": "python tools/ground_truth.py derive-java . --bases"
     }
   ]
 }

@@ -1,0 +1,40 @@
+# file	line	name	target_file	target_line	kind
+# indexed	source/core/Ky.ts
+# indexed	source/core/constants.ts
+# indexed	source/core/retry-timing.ts
+# indexed	source/errors/ForceRetryError.ts
+# indexed	source/errors/HTTPError.ts
+# indexed	source/errors/KyError.ts
+# indexed	source/errors/NetworkError.ts
+# indexed	source/errors/NonError.ts
+# indexed	source/errors/ResponseSizeError.ts
+# indexed	source/errors/SchemaValidationError.ts
+# indexed	source/errors/TimeoutError.ts
+# indexed	source/index.ts
+# indexed	source/types/ResponsePromise.ts
+# indexed	source/types/common.ts
+# indexed	source/types/hooks.ts
+# indexed	source/types/ky.ts
+# indexed	source/types/options.ts
+# indexed	source/types/request.ts
+# indexed	source/types/response.ts
+# indexed	source/types/retry.ts
+# indexed	source/types/standard-schema.ts
+# indexed	source/utils/body.ts
+# indexed	source/utils/delay.ts
+# indexed	source/utils/is-network-error.ts
+# indexed	source/utils/is.ts
+# indexed	source/utils/merge.ts
+# indexed	source/utils/normalize.ts
+# indexed	source/utils/options.ts
+# indexed	source/utils/timeout.ts
+# indexed	source/utils/type-guards.ts
+# indexed	source/utils/types.ts
+source/errors/ForceRetryError.ts	11	ForceRetryError	source/errors/KyError.ts	8	type
+source/errors/HTTPError.ts	15	HTTPError	source/errors/KyError.ts	8	type
+source/errors/KyError.ts	8	KyError	-	0	external
+source/errors/NetworkError.ts	11	NetworkError	source/errors/KyError.ts	8	type
+source/errors/NonError.ts	8	NonError	-	0	external
+source/errors/ResponseSizeError.ts	20	ResponseSizeError	source/errors/KyError.ts	8	type
+source/errors/SchemaValidationError.ts	25	SchemaValidationError	-	0	external
+source/errors/TimeoutError.ts	7	TimeoutError	source/errors/KyError.ts	8	type

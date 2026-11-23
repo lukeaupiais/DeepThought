@@ -160,6 +160,59 @@ class JavaTruthTest(unittest.TestCase):
         self.assertEqual((report["contradicted"], report["expected"]), (0, 3))
         self.assertEqual(report["confirmed"], 3)
 
+    def test_javac_binds_declared_bases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in JAVA_SOURCES.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            truth = ground_truth.derive_java(directory, bases=True)
+            result = ground_truth.analyze(directory, ("java",))
+        self.assertEqual(
+            truth[0],
+            {("src/b/Square.java", 3, "Square"): {("src/a/Base.java", 2, "type")}},
+        )
+        report, _ = ground_truth.score_inherits(result, truth)
+        self.assertEqual((report["confirmed"], report["recall"]), (1, 1.0))
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_typescript")
+    and importlib.util.find_spec("google.protobuf"),
+    "TypeScript grammar and protobuf are required",
+)
+class InheritsTruthTest(unittest.TestCase):
+    WORKSPACE = FIXTURES / "scip_implementations"
+
+    def test_direct_supertypes_from_relationships(self):
+        expected, _ = ground_truth.derive_inherits(
+            self.WORKSPACE, self.WORKSPACE / "index.scip"
+        )
+        self.assertEqual(expected[("a.ts", 11, "Square")], {("a.ts", 10, "type")})
+        # scip-typescript records no interface `extends`, so Animal looks
+        # like a direct supertype of Dog; the engine reaches it through Pet.
+        self.assertEqual({t[1] for t in expected[("a.ts", 4, "Dog")]}, {1, 2, 3})
+        result = ground_truth.analyze(self.WORKSPACE, ("typescript",))
+        report, _ = ground_truth.score_inherits(result, (expected, set()))
+        self.assertEqual(
+            (report["confirmed"], report["contradicted"], report["recall"]),
+            (4, 0, 1.0),
+        )
+
+    def test_a_wrong_supertype_is_contradicted(self):
+        expected, indexed = ground_truth.derive_inherits(
+            self.WORKSPACE, self.WORKSPACE / "index.scip"
+        )
+        expected[("a.ts", 11, "Square")] = {("a.ts", 3, "type")}
+        result = ground_truth.analyze(self.WORKSPACE, ("typescript",))
+        report, samples = ground_truth.score_inherits(result, (expected, indexed))
+        self.assertEqual(report["contradicted"], 1)
+        self.assertEqual(samples["contradicted"][0][2], "Shape")
+        # An own-package supertype the index never defines is not judged.
+        expected[("a.ts", 11, "Square")] = {("-", 0, "unknown")}
+        report, _ = ground_truth.score_inherits(result, (expected, indexed))
+        self.assertEqual(report["contradicted"], 0)
+
 
 class AppliedTest(unittest.TestCase):
     def test_argument_lists_after_generics(self):

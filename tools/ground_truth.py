@@ -162,8 +162,9 @@ def java_source_roots(workspace):
     return sorted(roots)
 
 
-def derive_java(workspace, java="java"):
-    """Expected calls from javac, attributing one source root at a time."""
+def derive_java(workspace, java="java", bases=False):
+    """Expected calls (or, with ``bases``, declared supertypes) from javac,
+    attributing one source root at a time."""
     workspace = Path(workspace).resolve()
     roots = java_source_roots(workspace)
     oracle = Path(__file__).with_name("JavaCallTruth.java")
@@ -180,6 +181,7 @@ def derive_java(workspace, java="java"):
                 "--add-exports",
                 "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
                 str(oracle),
+                *(["--bases"] if bases else []),
                 str(workspace),
                 root,
                 *others,
@@ -196,6 +198,59 @@ def derive_java(workspace, java="java"):
     for root in roots:
         for path in (workspace / root).rglob("*.java"):
             indexed.add(path.relative_to(workspace).as_posix())
+    return expected, indexed
+
+
+def _package(symbol):
+    """A SCIP symbol's scheme, manager, package name and version."""
+    return tuple(symbol.split(" ", 4)[:4])
+
+
+def derive_inherits(workspace, index):
+    """Expected direct supertypes from an index's implementation relationships.
+
+    Returns truth in the calls format, keyed by each subtype's defining
+    position and name: ``{(file, line, name): {(file, line, kind)}}`` with
+    kind ``type`` (an in-repository supertype, at each defining line),
+    ``external``, or ``unknown`` (a symbol of the repository's own package
+    the index never defines, such as a class local to a function: the
+    oracle names no line, so a link to it is not judged). Indexers differ in whether they list every ancestor or only
+    direct ones, so the relation is reduced to its direct edges first: a
+    supertype also reachable through another listed supertype is dropped.
+    """
+    from deepthought._scip import scip_pb2
+
+    index_data = scip_pb2.Index()
+    index_data.ParseFromString(Path(index).read_bytes())
+    defined, supers = {}, {}
+    for document in index_data.documents:
+        for occurrence in document.occurrences:
+            if occurrence.symbol_roles & 1 and occurrence.symbol.endswith("#"):
+                defined.setdefault(occurrence.symbol, set()).add(
+                    (document.relative_path, occurrence.range[0] + 1)
+                )
+        for info in document.symbols:
+            if not info.symbol.endswith("#"):
+                continue
+            for relation in info.relationships:
+                if relation.is_implementation and relation.symbol.endswith("#"):
+                    supers.setdefault(info.symbol, set()).add(relation.symbol)
+    expected = {}
+    for sub, targets in supers.items():
+        indirect = {
+            far for near in targets for far in supers.get(near, ()) if far != near
+        }
+        name = _descriptor_name(sub)
+        for file, line in defined.get(sub, ()):
+            for target in sorted(targets - indirect):
+                expected.setdefault((file, line, name), set()).update(
+                    {(f, n, "type") for f, n in defined[target]}
+                    if target in defined
+                    else {("-", 0, "unknown")}
+                    if _package(target) == _package(sub)
+                    else {("-", 0, "external")}
+                )
+    indexed = {document.relative_path for document in index_data.documents}
     return expected, indexed
 
 
@@ -411,6 +466,17 @@ def check(names, cache, update=False, examples=10):
             if (corpus["name"] in baseline and not update)
             else []
         )
+        if "inherits" in corpus:
+            inherits, inherit_samples = score_inherits(
+                result, read_truth(CORPUS / corpus["inherits"]), examples
+            )
+            report["inherits"] = inherits
+            samples["inherits"] = inherit_samples
+            if not update and "inherits" in baseline.get(corpus["name"], {}):
+                problems += [
+                    "inherits: " + p
+                    for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
+                ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
             "commit": corpus["commit"],
@@ -423,6 +489,104 @@ def check(names, cache, update=False, examples=10):
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
+
+
+def score_inherits(result, truth, examples=10):
+    """Judge every INHERITS_FROM link (declared bases; not Rust impls).
+
+    A link is judged when its subtype is a subtype in the truth: confirmed
+    when its target is one of the truth's supertypes, contradicted
+    otherwise. Recall is the share of in-repository truth edges the links
+    reach.
+    """
+    from deepthought.inheritance import resolve_supertypes
+
+    positions, _ = truth
+    by_id = {d.id: d for d in result.definitions}
+    in_file = {}
+    for d in result.definitions:
+        in_file.setdefault(d.file, []).append(d)
+
+    def innermost(file, line, name=None):
+        """The narrowest declaration spanning the line, preferring ``name``."""
+        spans = [d for d in in_file.get(file, ()) if d.line <= line <= d.end_line]
+        named = [d for d in spans if d.symbol.split(".")[-1] == name]
+        return min(
+            named or spans,
+            key=lambda d: (d.end_line - d.line, -d.line, d.id),
+            default=None,
+        )
+
+    def matches(definition, file, line):
+        return (definition.file, definition.line) == (file, line) or (
+            innermost(file, line) is definition
+        )
+
+    subtype_key = {}
+    for key in positions:
+        owner = innermost(*key)
+        if owner is not None:
+            subtype_key[owner.id] = key
+    expected = {
+        (key, target[:2])
+        for key, targets in positions.items()
+        for target in targets
+        if target[2] == "type"
+    }
+    bases = {b.id: b for b in result.supertypes}
+    outcomes, found, samples = Counter(), set(), {}
+    for resolution in resolve_supertypes(result):
+        if resolution.status != "linked":
+            outcomes[f"{resolution.status}"] += 1
+            continue
+        item = bases[resolution.call_id]
+        key = subtype_key.get(item.owner_id)
+        target = by_id[resolution.target_id]
+        hits = [
+            t
+            for t in positions.get(key, ())
+            if t[2] == "type" and matches(target, *t[:2])
+        ]
+        if key is None or (not hits and any(t[2] == "unknown" for t in positions[key])):
+            outcome = "unjudged"
+        elif hits:
+            outcome = "confirmed"
+            found.update((key, t[:2]) for t in hits)
+        else:
+            outcome = "contradicted"
+            samples.setdefault(outcome, []).append(
+                [item.file, item.line, item.name, [target.file, target.line]]
+            )
+        outcomes[outcome] += 1
+    # An indexer may omit an intermediate edge (scip-typescript records no
+    # interface `extends`), leaving an ancestor that looks direct: it counts
+    # as found when the engine's own links reach it.
+    links = {}
+    for resolution in resolve_supertypes(result):
+        if resolution.status == "linked":
+            owner = bases[resolution.call_id].owner_id
+            links.setdefault(owner, set()).add(resolution.target_id)
+    owners = {key: owner for owner, key in subtype_key.items()}
+    for key, target in expected - found:
+        reached, frontier = set(), [owners.get(key)]
+        while frontier:
+            for nxt in links.get(frontier.pop(), ()):
+                if nxt not in reached:
+                    reached.add(nxt)
+                    frontier.append(nxt)
+        if any(matches(by_id[d], *target) for d in reached):
+            found.add((key, target))
+    judged = outcomes["confirmed"] + outcomes["contradicted"]
+    missed = sorted(expected - found)
+    samples["missed"] = [[*k, list(t)] for k, t in missed]
+    report = {
+        "expected": len(expected),
+        **{k: outcomes[k] for k in sorted({"confirmed", "contradicted", *outcomes})},
+        "missed": len(missed),
+        "precision": round(outcomes["confirmed"] / judged, 4) if judged else None,
+        "recall": round(len(found) / len(expected), 4) if expected else None,
+    }
+    return report, {k: v[:examples] for k, v in sorted(samples.items())}
 
 
 def call_rules():
@@ -471,9 +635,13 @@ def main(argv=None):
     d = sub.add_parser("derive")
     d.add_argument("workspace", type=Path)
     d.add_argument("index", type=Path)
+    i = sub.add_parser("derive-inherits")
+    i.add_argument("workspace", type=Path)
+    i.add_argument("index", type=Path)
     j = sub.add_parser("derive-java")
     j.add_argument("workspace", type=Path)
     j.add_argument("--java", default="java")
+    j.add_argument("--bases", action="store_true")
     s = sub.add_parser("score")
     s.add_argument("workspace", type=Path)
     s.add_argument("truth", type=Path)
@@ -489,8 +657,11 @@ def main(argv=None):
     if args.command == "derive":
         write_truth(*derive(args.workspace, args.index), sys.stdout)
         return 0
+    if args.command == "derive-inherits":
+        write_truth(*derive_inherits(args.workspace, args.index), sys.stdout)
+        return 0
     if args.command == "derive-java":
-        write_truth(*derive_java(args.workspace, args.java), sys.stdout)
+        write_truth(*derive_java(args.workspace, args.java, args.bases), sys.stdout)
         return 0
     if args.command == "score":
         report, samples = score(
