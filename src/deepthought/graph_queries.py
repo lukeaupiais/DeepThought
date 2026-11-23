@@ -36,6 +36,25 @@ def _bounds(limit, max_output_bytes, timeout):
         raise ValueError("timeout must be finite, positive and at most 30 seconds")
 
 
+def _evidence_filter(evidence_types):
+    """None keeps every edge; otherwise a nonempty subset of the evidence types."""
+    from .analysis_tools.evidence import EVIDENCE_TYPES
+
+    if evidence_types is None:
+        return None
+    if isinstance(evidence_types, str) or not isinstance(
+        evidence_types, (list, tuple, set, frozenset)
+    ):
+        raise ValueError("evidence_types must be a list of evidence types or None")
+    selected = sorted(set(evidence_types))
+    if not selected or not set(selected) <= EVIDENCE_TYPES:
+        raise ValueError(
+            "evidence_types must be a nonempty subset of "
+            + ", ".join(sorted(EVIDENCE_TYPES))
+        )
+    return selected
+
+
 def _value(value):
     """Preserve actual graph properties and paths rather than discarding scalars."""
     from neo4j.graph import Node, Path, Relationship
@@ -50,6 +69,9 @@ def _value(value):
     if isinstance(value, Relationship):
         return {
             "element_id": value.element_id,
+            # Stable content identity of the edge within its snapshot; the
+            # element_id is Neo4j-internal and may be reused across databases.
+            "edge_id": value.get("_dt_edge_id"),
             "type": value.type,
             "source": value.start_node.element_id,
             "target": value.end_node.element_id,
@@ -335,6 +357,7 @@ class GraphQueryService:
         repo_url,
         *,
         snapshot_id,
+        evidence_types=None,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
@@ -344,6 +367,7 @@ class GraphQueryService:
             repo_url,
             snapshot_id,
             False,
+            evidence_types,
             limit,
             max_output_bytes,
             timeout,
@@ -355,6 +379,7 @@ class GraphQueryService:
         repo_url,
         *,
         snapshot_id,
+        evidence_types=None,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
@@ -364,15 +389,17 @@ class GraphQueryService:
             repo_url,
             snapshot_id,
             True,
+            evidence_types,
             limit,
             max_output_bytes,
             timeout,
         )
 
     async def _calls(
-        self, qname, repo_url, snapshot_id, incoming, limit, budget, timeout
+        self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "function_qname")
+        evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:CALLS]->(func)" if incoming else "(func)-[r:CALLS]->(other)"
         )
@@ -381,9 +408,10 @@ class GraphQueryService:
             "MATCH "
             + pattern
             + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
+            "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
             "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
-            "ORDER BY other.qualified_name LIMIT $fetch_limit",
-            {"qname": qname},
+            "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
+            {"qname": qname, "evidence": evidence},
             repo_url,
             snapshot_id,
             limit=limit,
@@ -392,6 +420,7 @@ class GraphQueryService:
         )
         if not response["items"] and "calls" not in response["capabilities"]:
             response["status"] = "unsupported_or_unobserved"
+        response["evidence_types"] = evidence
         response["semantics"] = (
             "Observed CALLS edges only; absence does not prove that no calls exist."
         )
@@ -405,10 +434,12 @@ class GraphQueryService:
         repo_url,
         *,
         snapshot_id,
+        evidence_types=None,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
     ):
+        """Files that this file's import statements were linked to."""
         return await self._file_links(
             "IMPORTS",
             file_path,
@@ -417,6 +448,31 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
+            evidence=evidence_types,
+        )
+
+    async def get_file_importers(
+        self,
+        file_path,
+        repo_url,
+        *,
+        snapshot_id,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Files whose import statements were linked to this file."""
+        return await self._file_links(
+            "IMPORTS",
+            file_path,
+            repo_url,
+            snapshot_id,
+            limit,
+            max_output_bytes,
+            timeout,
+            evidence=evidence_types,
+            incoming=True,
         )
 
     async def get_file_exports(
@@ -440,23 +496,39 @@ class GraphQueryService:
         )
 
     async def _file_links(
-        self, relation, path, repo_url, snapshot_id, limit, budget, timeout
+        self,
+        relation,
+        path,
+        repo_url,
+        snapshot_id,
+        limit,
+        budget,
+        timeout,
+        *,
+        evidence=None,
+        incoming=False,
     ):
         _text(path, "file_path")
+        evidence = _evidence_filter(evidence)
+        pattern = "<-[r:" + relation + "]-" if incoming else "-[r:" + relation + "]->"
         response = await self._read(
-            "MATCH (f:File {path:$path,repo_url:$repo_url,snapshot_id:$snapshot_id}) "
-            "-[r:"
-            + relation
-            + "]->(other {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
-            "RETURN other AS element,r AS relationship ORDER BY other.qualified_name LIMIT $fetch_limit",
-            {"path": path},
+            "MATCH (f:File {path:$path,repo_url:$repo_url,snapshot_id:$snapshot_id})"
+            + pattern
+            + "(other {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE $evidence IS NULL OR r.evidence_type IN $evidence "
+            "RETURN other AS element,r AS relationship "
+            "ORDER BY other.qualified_name,r.line,r._dt_edge_id LIMIT $fetch_limit",
+            {"path": path, "evidence": evidence},
             repo_url,
             snapshot_id,
             limit=limit,
             max_output_bytes=budget,
             timeout=timeout,
         )
-        return self._observed(response, relation, budget)
+        response["evidence_types"] = evidence
+        return self._observed(
+            response, ("incoming " if incoming else "") + relation, budget
+        )
 
     @staticmethod
     def _observed(response, relation, budget):
@@ -468,6 +540,118 @@ class GraphQueryService:
             + " evidence only; absence does not establish completeness."
         )
         if len(_json(response).encode()) > budget:
+            raise ValueError("Query response exceeds output byte budget")
+        return response
+
+    async def explain_edge(
+        self,
+        edge_id,
+        repo_url,
+        *,
+        snapshot_id,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Explain one stored edge: its endpoints, location, evidence and rule.
+
+        edge_id is the stable ``edge_id`` that edge query results return. The
+        stored edge carries its evidence type and rule ID; the rule's description
+        comes from the rules registered by this installed version.
+        """
+        if not isinstance(edge_id, str) or not re.fullmatch(r"[0-9a-f]{64}", edge_id):
+            raise ValueError("edge_id must be a 64-character lowercase hex identity")
+        # Importing the tools registers their rules in this process.
+        from . import analysis_tools  # noqa: F401
+        from .analysis_tools.evidence import EVIDENCE_MEANINGS, registered_rules
+
+        summary = (
+            "{.qualified_name,.name,.kind,.path,.file_path,.start_line,.end_line,"
+            "labels:labels(NODE)}"
+        )
+        response = await self._read(
+            "MATCH (source:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})"
+            "-[r]->(target:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE r._dt_edge_id=$edge_id "
+            "RETURN source " + summary.replace("NODE", "source") + " AS source,"
+            "r AS relationship,"
+            "target " + summary.replace("NODE", "target") + " AS target "
+            "LIMIT $fetch_limit",
+            {"edge_id": edge_id},
+            repo_url,
+            snapshot_id,
+            limit=1,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        rules = registered_rules()
+        items = []
+        for row in response["items"]:
+            source = {k: v for k, v in row["source"].items() if v is not None}
+            target = {k: v for k, v in row["target"].items() if v is not None}
+            relationship = row["relationship"]
+            properties = relationship["properties"]
+            evidence_type = properties.get("evidence_type")
+            rule_id = properties.get("rule_id")
+            rule = rules.get(rule_id)
+            if rule is None:
+                rule_status = "unregistered"
+            elif rule.evidence_type != evidence_type:
+                rule_status = "conflicts_with_registry"
+            else:
+                rule_status = "registered"
+            location = {
+                "file": source.get("file_path")
+                or source.get("path")
+                or target.get("file_path")
+                or target.get("path"),
+                "line": properties.get(
+                    "line",
+                    target.get("start_line")
+                    if relationship["type"] == "DEFINES"
+                    else None,
+                ),
+                "column": properties.get("column"),
+            }
+            place = location["file"] or ""
+            if location["line"] is not None:
+                place += ":" + str(location["line"])
+                if location["column"] is not None:
+                    place += ":" + str(location["column"])
+            statement = (
+                f"{relationship['type']} from "
+                f"{source.get('name') or source['qualified_name']} to "
+                f"{target.get('name') or target['qualified_name']}"
+                + (f" at {place}" if place else "")
+                + f". Evidence: {evidence_type}, by rule {rule_id}"
+                + (f": {rule.description}" if rule_status == "registered" else "")
+                + "."
+            )
+            items.append(
+                {
+                    "edge_id": relationship["edge_id"],
+                    "type": relationship["type"],
+                    "source": source,
+                    "target": target,
+                    "properties": properties,
+                    "location": location,
+                    "evidence": {
+                        "evidence_type": evidence_type,
+                        "meaning": EVIDENCE_MEANINGS.get(evidence_type),
+                        "rule_id": rule_id,
+                        "rule_description": rule.description if rule else None,
+                        "rule_status": rule_status,
+                    },
+                    "statement": statement,
+                }
+            )
+        response["items"] = items
+        if not items:
+            response["status"] = "not_found"
+        response["semantics"] = (
+            "Rule descriptions come from the rules registered by this installed "
+            "version; the stored edge records only its evidence type and rule ID."
+        )
+        if len(_json(response).encode()) > max_output_bytes:
             raise ValueError("Query response exceeds output byte budget")
         return response
 

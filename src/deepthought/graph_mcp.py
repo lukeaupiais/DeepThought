@@ -2,13 +2,14 @@
 
 The optional MCP transport contains no Cypher construction or extraction logic.
 The three original tool names are preserved; queryGraph adapts the original
-HTTP Cypher capability. It runs on stdio; raw Cypher is opt-in and
+HTTP Cypher capability. The call, import and explainEdge tools expose the
+ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
 requires a dedicated snapshot database and database-enforced read-only access.
 """
 
 from contextlib import asynccontextmanager
 import os
-from typing import Annotated
+from typing import Annotated, Literal
 
 from .graph_cli import connection_settings, query_observer
 
@@ -83,6 +84,94 @@ def create_server():
             repository_id,
             snapshot_id=snapshot_id,
             limit=max_elements,
+        )
+
+    Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
+
+    @server.tool()
+    async def getFunctionCallers(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get stored CALLS edges into a declaration, each with evidence and rule."""
+        return await ctx.request_context.lifespan_context.get_function_callers(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getFunctionCalls(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get stored CALLS edges out of a declaration, each with evidence and rule."""
+        return await ctx.request_context.lifespan_context.get_function_calls(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getFileImports(
+        file_path: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get files this file's imports were linked to, with evidence and rule."""
+        return await ctx.request_context.lifespan_context.get_file_imports(
+            file_path,
+            repository_id,
+            snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getFileImporters(
+        file_path: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get files whose imports were linked to this file, with evidence and rule."""
+        return await ctx.request_context.lifespan_context.get_file_importers(
+            file_path,
+            repository_id,
+            snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def explainEdge(
+        edge_id: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+    ) -> dict:
+        """Explain one stored edge: endpoints, location, evidence type and rule."""
+        return await ctx.request_context.lifespan_context.explain_edge(
+            edge_id,
+            repository_id,
+            snapshot_id=snapshot_id,
         )
 
     if os.environ.get("DEEPTHOUGHT_ALLOW_DATABASE_SCOPE_CYPHER") == "1":
