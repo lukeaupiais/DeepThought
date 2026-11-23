@@ -160,6 +160,9 @@ def parser():
             )
         if name == "context":
             q.add_argument("--line", type=int)
+            q.add_argument("--definition-id")
+            q.add_argument("--source-offset", type=int, default=0)
+            q.add_argument("--max-source-characters", type=int, default=1200)
         if name in {
             "callers",
             "callees",
@@ -348,7 +351,13 @@ async def execute(args):
             )
         if args.command == "context":
             return await service.get_code_context(
-                args.file, args.repository_id, line_number=args.line, **kwargs
+                args.file,
+                args.repository_id,
+                line_number=args.line,
+                definition_id=args.definition_id,
+                source_offset=args.source_offset,
+                max_source_characters=args.max_source_characters,
+                **kwargs,
             )
         if args.command == "structure":
             return await service.get_file_structure(

@@ -44,14 +44,24 @@ def create_server():
         snapshot_id: str,
         ctx: Context,
         line_number: int | None = None,
+        definition_id: str | None = None,
+        source_offset: Annotated[int, Field(ge=0, le=2_000_000)] = 0,
+        max_source_characters: Annotated[int, Field(ge=0, le=8192)] = 1200,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get bounded stored declarations and relationships at a file/line."""
+        """Get stored declarations at a file/line with their source and relationships.
+
+        Each declaration's source is paged: max_source_characters code points
+        from source_offset, out of source_characters.
+        """
         return await ctx.request_context.lifespan_context.get_code_context(
             file_path,
             repository_id,
             snapshot_id=snapshot_id,
             line_number=line_number,
+            definition_id=definition_id,
+            source_offset=source_offset,
+            max_source_characters=max_source_characters,
             limit=max_elements,
         )
 

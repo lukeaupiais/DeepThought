@@ -55,16 +55,33 @@ def _evidence_filter(evidence_types):
     return selected
 
 
+_SOURCE_DETAIL = (
+    "source_code",
+    "source_sha256",
+    "source_start_line",
+    "source_start_column",
+    "source_end_line",
+    "source_end_column",
+    "name_range_utf8",
+    "name_range_utf16",
+    "name_range_utf32",
+)
+
+
 def _value(value):
     """Preserve actual graph properties and paths rather than discarding scalars."""
     from neo4j.graph import Node, Path, Relationship
     from .storage.graph.encoding import decode_properties
 
     if isinstance(value, Node):
+        properties = decode_properties(dict(value))
+        # Declaration text and positions are returned by get_code_context.
+        for key in _SOURCE_DETAIL:
+            properties.pop(key, None)
         return {
             "element_id": value.element_id,
             "labels": sorted(value.labels),
-            "properties": decode_properties(dict(value)),
+            "properties": properties,
         }
     if isinstance(value, Relationship):
         return {
@@ -404,9 +421,11 @@ class GraphQueryService:
                         + " RETURN "
                         + self._NODE
                         + " AS node,"
-                        "[k IN keys(n) WHERE k<>'snapshot_id' AND NOT k STARTS WITH '_dt_' "
+                        "[k IN keys(n) WHERE NOT k IN ['snapshot_id','source_code'] "
+                        "AND NOT k STARTS WITH '_dt_' "
                         "AND (NOT k IN keys(o) OR n[k]<>o[k]) | {key:k,base:o[k],head:n[k]}]"
-                        "+[k IN keys(o) WHERE NOT k IN keys(n) AND NOT k STARTS WITH '_dt_' "
+                        "+[k IN keys(o) WHERE NOT k IN keys(n) AND k<>'source_code' "
+                        "AND NOT k STARTS WITH '_dt_' "
                         "| {key:k,base:o[k],head:null}] AS properties,"
                         "CASE WHEN size(labels(n))<>size(labels(o)) OR any(l IN labels(n) "
                         "WHERE NOT l IN labels(o)) THEN {base:labels(o),head:labels(n)} "
@@ -502,26 +521,56 @@ class GraphQueryService:
         *,
         snapshot_id,
         line_number=None,
+        definition_id=None,
+        source_offset=0,
+        max_source_characters=1200,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
         include_relationships=True,
     ):
-        """Port File -> DEFINES context lookup; innermost containing scope first."""
+        """Port File -> DEFINES context lookup; innermost containing scope first.
+
+        Each declaration carries a page of its stored source text:
+        ``max_source_characters`` Unicode code points from ``source_offset``,
+        with ``source_characters`` giving the full length to page through.
+        """
         _text(file_path, "file_path")
         if line_number is not None and (
             type(line_number) is not int or line_number < 1
         ):
             raise ValueError("line_number must be a positive integer or None")
+        if definition_id is not None:
+            _text(definition_id, "definition_id")
+        if type(source_offset) is not int or not 0 <= source_offset <= 2_000_000:
+            raise ValueError("source_offset must be from 0 to 2000000")
+        if (
+            type(max_source_characters) is not int
+            or not 0 <= max_source_characters <= 8192
+        ):
+            raise ValueError("max_source_characters must be from 0 to 8192")
         response = await self._read(
             """MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id,path:$file_path})
             -[:DEFINES]->(elem:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
-            WHERE $line_number IS NULL OR (elem.start_line <= $line_number AND elem.end_line >= $line_number)
+            WHERE ($line_number IS NULL OR (elem.start_line <= $line_number AND elem.end_line >= $line_number))
+              AND ($definition_id IS NULL OR elem.definition_id = $definition_id)
             RETURN elem {.qualified_name,.definition_id,.name,.display_name,.kind,
-                .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element
+                .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                .source_sha256,.source_start_line,.source_start_column,
+                .source_end_line,.source_end_column,
+                .name_range_utf8,.name_range_utf16,.name_range_utf32,
+                source_characters:size(elem.source_code),
+                source_offset:CASE WHEN elem.source_code IS NULL THEN null ELSE $source_offset END,
+                source_code:substring(elem.source_code,$source_offset,$max_source_characters)} AS element
             ORDER BY CASE WHEN $line_number IS NULL THEN elem.start_line ELSE elem.end_line-elem.start_line END,
                 elem.start_line,elem.qualified_name LIMIT $fetch_limit""",
-            {"file_path": file_path, "line_number": line_number},
+            {
+                "file_path": file_path,
+                "line_number": line_number,
+                "definition_id": definition_id,
+                "source_offset": source_offset,
+                "max_source_characters": max_source_characters,
+            },
             repo_url,
             snapshot_id,
             limit=limit,

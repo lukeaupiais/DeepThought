@@ -6,7 +6,9 @@ It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
 
+from hashlib import sha256
 import importlib.util
+from pathlib import Path
 import time
 from copy import deepcopy
 
@@ -15,7 +17,7 @@ from .. import calls as call_rules
 from .. import imports as import_rules
 from .. import inheritance as base_rules
 from ..engine import analyze_repository
-from ..syntax import DEFAULT_LANGUAGES
+from ..syntax import DEFAULT_LANGUAGES, LANGUAGES, declaration_sources, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -114,6 +116,40 @@ IMPORT_RULES = {
         ),
     )
 }
+
+
+def _declaration_sources(root, result):
+    """Declaration source text from the analyzed bytes, and files that changed.
+
+    Each analyzed file is read again; it contributes only if its digest equals
+    the one the analysis recorded, so stored text always matches the facts.
+    """
+    sources, changed, parsers = {}, [], {}
+    for item in result.coverage:
+        suffix = Path(item.file).suffix
+        if (
+            item.status not in {"analyzed", "partial"}
+            or item.digest is None
+            or suffix not in LANGUAGES.get(item.language, ((),))[0]
+        ):
+            continue
+        try:
+            content = (Path(root) / item.file).read_bytes()
+        except OSError:
+            content = None
+        if content is None or sha256(content).hexdigest() != item.digest:
+            changed.append(item.file)
+            continue
+        key = (item.language, suffix)
+        if key not in parsers:
+            parsers[key] = make_parser(item.language, suffix)
+        sources.update(
+            declaration_sources(
+                parsers[key].parse(content), content, result.repository_id, item.file
+            )
+        )
+    return sources, sorted(changed)
+
 
 _CALL_RULE_TEXT = {
     call_rules.CALL_LEXICAL_NAME: "A bare callee name equals a function or class "
@@ -277,6 +313,7 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(CONTAINS_RULE),
                 )
             )
+        sources, changed = _declaration_sources(self.repo_path, result)
         for definition in result.definitions:
             qualified_name = (
                 f"{repo_url}::{definition.file}::{definition.symbol}::{definition.id}"
@@ -294,6 +331,7 @@ class TreeSitterTool(AnalysisTool):
                 "column": definition.column,
                 "end_column": definition.end_column,
                 "coordinate_encoding": definition.coordinate_encoding,
+                **sources.get(definition.id, {}),
             }
             nodes.append(
                 NodeData(labels=[definition.kind, "Symbol"], properties=properties)
@@ -474,6 +512,10 @@ class TreeSitterTool(AnalysisTool):
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "source_context": {
+                    "declarations": len(sources),
+                    "files_changed_since_analysis": changed,
+                },
                 "scope": "named declarations, static file imports, and "
                 "name-matched calls and declared bases; no control or data-flow "
                 "inference",
