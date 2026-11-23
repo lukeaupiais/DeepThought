@@ -59,7 +59,9 @@ def parser():
         "--snapshot", help="Explicit graph revision, required for multiple tools"
     )
     index.add_argument("--repository-id", required=True)
-    index.add_argument("--language", action="append", choices=("python", "typescript"))
+    index.add_argument(
+        "--language", action="append", choices=("javascript", "python", "typescript")
+    )
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
     index.add_argument(

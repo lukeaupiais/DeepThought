@@ -21,6 +21,7 @@ from .models import (
     is_relative_file,
 )
 from .syntax import (
+    DEFAULT_LANGUAGES,
     LANGUAGES,
     extract,
     extract_call_sites,
@@ -113,7 +114,7 @@ def analyze_repository(
     path: str | Path,
     *,
     repository_id: str,
-    languages: tuple[str, ...] = ("python", "typescript"),
+    languages: tuple[str, ...] = DEFAULT_LANGUAGES,
     max_file_bytes: int = 2_000_000,
     cancel_event: Event | None = None,
     max_files: int = 10_000,
@@ -137,7 +138,7 @@ def analyze_repository(
     if not repository_id.strip():
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
-        raise ValueError("Supported languages: python, typescript")
+        raise ValueError("Supported languages: javascript, python, typescript")
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
     if max_files < 1 or max_total_bytes < 1:

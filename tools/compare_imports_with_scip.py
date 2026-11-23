@@ -24,7 +24,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
     parser.add_argument("index", type=Path)
-    parser.add_argument("--language", required=True, choices=("python", "typescript"))
+    parser.add_argument(
+        "--language", required=True, choices=("javascript", "python", "typescript")
+    )
     parser.add_argument("--include", action="append")
     parser.add_argument("--path-prefix", default="")
     args = parser.parse_args()

@@ -12,7 +12,16 @@ from .models import CallSite, Definition, Import
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
     "typescript": ((".ts", ".tsx"), "tree_sitter_typescript", "language_typescript"),
+    "javascript": (
+        (".js", ".jsx", ".mjs", ".cjs"),
+        "tree_sitter_javascript",
+        "language",
+    ),
 }
+# Languages analyzed when none are selected. JavaScript is opt-in so that
+# existing Python/TypeScript analyses keep their output and do not need its
+# grammar; select it with languages=("javascript", ...) or --language.
+DEFAULT_LANGUAGES = ("python", "typescript")
 KINDS = {
     "function_definition": "Function",
     "function_declaration": "Function",
@@ -136,7 +145,10 @@ def _python_imports(node, content):
 
 
 def _typescript_imports(node, content):
-    """Yield (specifier, kind, names, local names) for an import or re-export."""
+    """Yield (specifier, kind, names, local names) for an import or re-export.
+
+    JavaScript ES modules share this syntax; CommonJS require() is not recorded.
+    """
     if node.type not in {"import_statement", "export_statement"}:
         return
     source = node.child_by_field_name("source")

@@ -16,10 +16,17 @@ PYTHON_RELATIVE_MODULE = "tree-sitter.python-relative-module"
 PYTHON_ABSOLUTE_MODULE = "tree-sitter.python-absolute-module-path"
 PYTHON_FROM_IMPORT_SUBMODULE = "tree-sitter.python-from-import-submodule"
 TYPESCRIPT_RELATIVE_MODULE = "tree-sitter.typescript-relative-module"
+JAVASCRIPT_RELATIVE_FILE = "tree-sitter.javascript-relative-file"
+JAVASCRIPT_EXTENSIONLESS_MODULE = "tree-sitter.javascript-extensionless-module"
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
 _TS_INDEX = ("/index.ts", "/index.tsx", "/index.d.ts")
 _TS_JS_EXTENSIONS = {".js": (".ts", ".tsx", ".d.ts"), ".jsx": (".tsx",)}
+# JavaScript sources a TypeScript import may reach (as with allowJs), tried
+# after every TypeScript candidate.
+_JS_EXTENSIONLESS = (".js", ".jsx")
+_JS_INDEX = ("/index.js", "/index.jsx")
+_JS_EXTENSIONS = (".js", ".jsx", ".mjs", ".cjs")
 
 
 @dataclass(frozen=True)
@@ -110,33 +117,68 @@ def _python(item: Import, files, roots):
     return ImportResolution(item.id, "linked", tuple(links))
 
 
-def _typescript(item: Import, files):
+def _relative_target(item: Import):
+    """The repository path a relative specifier names, or an unresolved result."""
     specifier = item.specifier
     if not (
         specifier in {".", ".."}
         or specifier.startswith("./")
         or specifier.startswith("../")
     ):
-        return ImportResolution(item.id, "unresolved", reason="non_relative_specifier")
+        return None, ImportResolution(
+            item.id, "unresolved", reason="non_relative_specifier"
+        )
     joined = posixpath.normpath(posixpath.join(posixpath.dirname(item.file), specifier))
     if joined == ".." or joined.startswith("../"):
-        return ImportResolution(item.id, "unresolved", reason="beyond_repository_root")
+        return None, ImportResolution(
+            item.id, "unresolved", reason="beyond_repository_root"
+        )
+    return joined, None
+
+
+def _first(item: Import, candidates, files, rule):
+    target = next((c for c in candidates if c in files), None)
+    if target is None or target == item.file:
+        return ImportResolution(item.id, "unresolved", reason="no_analyzed_file")
+    return ImportResolution(item.id, "linked", (ImportLink(target, rule),))
+
+
+def _typescript(item: Import, files):
+    joined, unresolved = _relative_target(item)
+    if unresolved:
+        return unresolved
     stem, extension = posixpath.splitext(joined)
     if extension in _TS_JS_EXTENSIONS:
+        # A ".js" specifier names the TypeScript source first, then the file.
         candidates = [stem + suffix for suffix in _TS_JS_EXTENSIONS[extension]]
+        candidates.append(joined)
     elif joined.endswith((".ts", ".tsx")):
         candidates = [joined]
     else:
         base = "" if joined == "." else joined
-        candidates = [base + suffix for suffix in _TS_EXTENSIONLESS] + [
-            (base + suffix).lstrip("/") for suffix in _TS_INDEX
+        candidates = [
+            *(base + suffix for suffix in _TS_EXTENSIONLESS),
+            *((base + suffix).lstrip("/") for suffix in _TS_INDEX),
+            *(base + suffix for suffix in _JS_EXTENSIONLESS),
+            *((base + suffix).lstrip("/") for suffix in _JS_INDEX),
         ]
-    target = next((c for c in candidates if c in files), None)
-    if target is None or target == item.file:
-        return ImportResolution(item.id, "unresolved", reason="no_analyzed_file")
-    return ImportResolution(
-        item.id, "linked", (ImportLink(target, TYPESCRIPT_RELATIVE_MODULE),)
-    )
+    return _first(item, candidates, files, TYPESCRIPT_RELATIVE_MODULE)
+
+
+def _javascript(item: Import, files):
+    joined, unresolved = _relative_target(item)
+    if unresolved:
+        return unresolved
+    if posixpath.splitext(joined)[1] in _JS_EXTENSIONS:
+        return _first(item, [joined], files, JAVASCRIPT_RELATIVE_FILE)
+    # Extensionless specifiers follow the bundler/CommonJS convention; Node ES
+    # modules require the extension, so the link is a convention match.
+    base = "" if joined == "." else joined
+    candidates = [
+        *(base + suffix for suffix in _JS_EXTENSIONS),
+        *((base + suffix).lstrip("/") for suffix in _JS_INDEX),
+    ]
+    return _first(item, candidates, files, JAVASCRIPT_EXTENSIONLESS_MODULE)
 
 
 def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
@@ -146,8 +188,11 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     roots = ("",) + (("src",) if any(f.startswith("src/") for f in files) else ())
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
-        if languages[item.file] == "python":
+        language = languages[item.file]
+        if language == "python":
             resolutions.append(_python(item, files, roots))
+        elif language == "javascript":
+            resolutions.append(_javascript(item, files))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)

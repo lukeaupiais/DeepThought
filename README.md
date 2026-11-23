@@ -3,7 +3,7 @@ Standalone code intelligence and analysis engine for IDEs, development tools, an
 
 The existing SDK is also available through a portable `AnalysisTool` interface
 and registry. The first registered plugin is `TreeSitterTool`, scoped to the
-same Python/TypeScript/TSX declarations, static file imports and named call
+same Python/TypeScript/TSX and opt-in JavaScript/JSX declarations, static file imports and named call
 sites as the SDK. Its call edges are name matches, labelled `name_matched`; it
 does not advertise the legacy analyzer's broader language and flow capabilities.
 
@@ -28,7 +28,8 @@ The [first completed real-agent calibration](evals/results/tree_sitter_deepagent
 found equal declaration accuracy and increased token use with raw tool output.
 
 This local alpha extracts named declarations, static import statements and named
-call sites from Python and TypeScript/TSX, preserves namespace and quoted ambient-module owners in declaration names,
+call sites from Python and TypeScript/TSX, and from JavaScript/JSX
+(`.js`, `.jsx`, `.mjs`, `.cjs`) when `--language javascript` is selected, preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. It retains ranges, native symbol identities, role
 flags, coverage, diagnostics and source snapshots. It does not infer calls,
@@ -37,7 +38,7 @@ instantiations, inheritance or architectural roles from reference occurrences.
 Provision dependencies separately:
 
 ```sh
-pip install '.[python,typescript,scip]'
+pip install '.[python,typescript,scip]'  # add javascript for JavaScript sources
 deepthought analyze ./workspace --repository-id my-project --language python
 deepthought ingest-scip ./index.scip --repository-id my-project
 deepthought compose ./analysis.json ./dependency-analysis.json
