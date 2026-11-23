@@ -9,7 +9,17 @@ from pathlib import Path
 import stat
 from threading import Event
 
-from .models import AnalysisResult, Diagnostic, FileCoverage, is_relative_file
+from dataclasses import dataclass
+
+from .models import (
+    AnalysisResult,
+    CallSite,
+    Definition,
+    Diagnostic,
+    FileCoverage,
+    Import,
+    is_relative_file,
+)
 from .syntax import (
     LANGUAGES,
     extract,
@@ -18,6 +28,85 @@ from .syntax import (
     make_parser,
 )
 from ._version import __version__
+
+# Diagnostics a parsed file can produce; any other diagnostic for a recorded
+# file means the file was not fully parsed, so its facts are not reused.
+_PARSE_DIAGNOSTICS = {"syntax_error"}
+
+
+@dataclass(frozen=True)
+class _FileFacts:
+    coverage: FileCoverage
+    diagnostics: tuple[Diagnostic, ...]
+    definitions: tuple[Definition, ...]
+    call_sites: tuple[CallSite, ...]
+    imports: tuple[Import, ...]
+    versions: dict
+
+    def matches(self, language, digest, versions):
+        """Same bytes, language and grammar packages as the recorded parse."""
+        return (
+            self.coverage.language == language
+            and self.coverage.digest == digest
+            and all(
+                versions.get(name) == value for name, value in self.versions.items()
+            )
+        )
+
+
+def reusable_files(previous, repository_id):
+    """Per-file facts of ``previous`` that may stand in for parsing a file.
+
+    Facts are reused only from a schema 3 tree-sitter analysis of the same
+    repository identity by this engine version (identities include both), and
+    only for files that were fully parsed. Returns (facts by file, reason the
+    whole analysis was rejected or None).
+    """
+    if previous is None:
+        return {}, None
+    if not isinstance(previous, AnalysisResult):
+        raise ValueError("previous must be an AnalysisResult")
+    recorded = dict(previous.analyzer_versions)
+    if previous.analyzer != "tree-sitter" or previous.schema_version != "3":
+        return {}, "not_a_tree_sitter_schema_3_analysis"
+    if previous.repository_id != repository_id:
+        return {}, "different_repository_id"
+    if recorded.get("deepthought-analysis-engine") != __version__:
+        return {}, "different_engine_version"
+    if previous.coordinate_encoding != "utf-8":
+        return {}, "different_coordinate_encoding"
+    grouped = {}
+    for kind, items in (
+        ("diagnostics", previous.diagnostics),
+        ("definitions", previous.definitions),
+        ("call_sites", previous.call_sites),
+        ("imports", previous.imports),
+    ):
+        for item in items:
+            grouped.setdefault(item.file, {}).setdefault(kind, []).append(item)
+    facts = {}
+    for item in previous.coverage:
+        own = grouped.get(item.file, {})
+        diagnostics = tuple(own.get("diagnostics", ()))
+        if item.status not in {"analyzed", "partial"} or item.digest is None:
+            continue
+        if any(d.code not in _PARSE_DIAGNOSTICS for d in diagnostics):
+            continue
+        language = LANGUAGES.get(item.language)
+        if language is None:
+            continue
+        packages = ("tree-sitter", language[1].replace("_", "-"))
+        if any(name not in recorded for name in packages):
+            continue
+        facts[item.file] = _FileFacts(
+            item,
+            diagnostics,
+            tuple(own.get("definitions", ())),
+            tuple(own.get("call_sites", ())),
+            tuple(own.get("imports", ())),
+            {name: recorded[name] for name in packages},
+        )
+    return facts, None
 
 
 def analyze_repository(
@@ -31,8 +120,17 @@ def analyze_repository(
     max_total_bytes: int = 100_000_000,
     include: tuple[str, ...] = ("*",),
     exclude: tuple[str, ...] = (),
+    previous: AnalysisResult | None = None,
+    reuse: dict | None = None,
 ) -> AnalysisResult:
-    """Extract named declarations; cancellation is cooperative between files."""
+    """Extract named declarations; cancellation is cooperative between files.
+
+    With ``previous``, a file whose bytes equal a file that analysis recorded
+    keeps that analysis's facts instead of being parsed again. Every file is
+    still read and checked against the limits, so the result equals a full run
+    (see reusable_files). ``reuse``, when given, receives the counts of reused
+    and parsed files and why ``previous`` was rejected, if it was.
+    """
     root = Path(path).resolve(strict=True)
     if not root.is_dir():
         raise ValueError("Workspace must be a directory")
@@ -47,7 +145,9 @@ def analyze_repository(
     languages = tuple(sorted(set(languages)))
     definitions, imports, coverage, diagnostics = [], [], [], []
     call_sites = []
-    parsers, versions = {}, {}
+    parsers, versions = {}, {"deepthought-analysis-engine": __version__}
+    reusable, rejected = reusable_files(previous, repository_id)
+    stats = {"reused": 0, "parsed": 0, "previous_rejected": rejected}
     cancelled = False
     stop = False
     processed = total_bytes = 0
@@ -145,6 +245,16 @@ def analyze_repository(
                         LANGUAGES[language][1].replace("_", "-"),
                     ):
                         versions[package] = version(package)
+                facts = reusable.get(relative)
+                if facts is not None and facts.matches(language, digest, versions):
+                    stats["reused"] += 1
+                    coverage.append(facts.coverage)
+                    diagnostics.extend(facts.diagnostics)
+                    definitions.extend(facts.definitions)
+                    call_sites.extend(facts.call_sites)
+                    imports.extend(facts.imports)
+                    continue
+                stats["parsed"] += 1
                 tree = parsers[key].parse(content)
                 if tree.root_node.has_error:
                     coverage.append(
@@ -206,6 +316,8 @@ def analyze_repository(
         "exclude": exclude,
     }
     snapshot = sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+    if reuse is not None:
+        reuse.update(stats)
     return AnalysisResult(
         repository_id,
         snapshot,

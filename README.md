@@ -43,6 +43,11 @@ deepthought ingest-scip ./index.scip --repository-id my-project
 deepthought compose ./analysis.json ./dependency-analysis.json
 ```
 
+Re-analysis can reuse an earlier artifact for files whose bytes did not change:
+`deepthought analyze ./workspace --repository-id my-project --previous analysis.json`.
+The output is identical to a full analysis; see
+[incremental re-indexing](docs/graph-port.md#incremental-re-indexing).
+
 For an index rooted below the repository root, use `--path-prefix src/package`
 on `ingest-scip` (SDK: `path_prefix="src/package"`). Paths in index metadata
 are never used to locate source files.

@@ -19,6 +19,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/core/.../context/context_service.py | deepthought.graph_queries | File/line context, neighbouring relationships, fulltext search and file navigation |
 | applications/unified-server/src/main.py MCP tools | deepthought.graph_mcp | getCodeContext, getFileStructure and searchCodeElements |
 | libs/storage/.../graph/updater.py and utils/git_utils.py `Repository.last_commit` | deepthought.revisions + WriteCoordinator.link_commit + GraphQueryService.list_snapshots | Each immutable snapshot lists the commits it was analyzed at, instead of one mutable last commit per repository (see below) |
+| libs/storage/.../graph/updater.py file-level incremental update (`get_changed_files`, file hashes) | deepthought.engine `previous=` + `deepthought analyze --previous` + `deepthought-graph index --previous-artifact` | Unchanged files reuse an earlier analysis's facts; the result is a new snapshot equal to a full run, not an in-place update (see below) |
 | libs/storage/.../graph/updater.py AST change detection (`apply_ast_diff`) | GraphQueryService.diff_snapshots | Read-only comparison of two immutable snapshots instead of mutating one graph (see below) |
 | libs/analysis/.../engine/data_access/graph_repository.py calls/imports (not exposed to agents in the original) | deepthought.graph_mcp + graph_cli | getFunctionCallers, getFunctionCalls, getFileImports, getFileImporters and explainEdge (see below) |
 | applications/unified-server/src/main.py /api/v1/graph/query | deepthought.graph_queries + graph_cli/graph_mcp | Cypher execution, adapted to CLI and optional queryGraph MCP transport |
@@ -177,6 +178,56 @@ unlinked snapshot may still equal some commit; it is just not claimed.
 complete snapshots, newest first, with their content hash, tool, counts and
 commits; with a commit, only snapshots linked to it. Commit names must be full
 lowercase hex. Queries still select one snapshot explicitly.
+
+## Incremental re-indexing
+
+The original updater found changed files from Git history and patched one graph
+in place. Here a re-index produces a complete new snapshot, but files whose bytes
+have not changed keep the facts an earlier analysis recorded instead of being
+parsed again. The result is byte-identical to a full analysis, so it has the same
+snapshot ID and an unchanged re-index is reused at publication.
+
+A file's facts are reused only when the earlier analysis:
+
+- is a schema 3 tree-sitter analysis of the same repository identity by the same
+  engine version (`deepthought-analysis-engine` is now recorded in
+  `analyzer_versions`);
+- recorded the same SHA-256 for the file, in the same language, parsed by the same
+  tree-sitter and grammar package versions;
+- fully parsed the file (`analyzed`, or `partial` with only syntax errors).
+
+Every file is still read, hashed and checked against the limits. Import and call
+resolution and the graph projection always run over the whole result, because
+they cross files. The earlier artifact is trusted input, like a SCIP index: a
+matching hash proves the file is unchanged, not that the recorded facts are right.
+
+```sh
+deepthought analyze . --repository-id public-project > before.json
+deepthought analyze . --repository-id public-project --previous before.json > after.json
+deepthought-graph index . --repository-id public-project --write-artifact before.json
+deepthought-graph index . --repository-id public-project --previous-artifact before.json
+```
+
+`analyze --previous` prints reuse counts on stderr; `index` reports them under
+`reuse`, with `previous_rejected` naming why a whole earlier analysis was not used.
+
+`tools/benchmark_incremental.py WORKSPACE` times full against incremental analysis
+on a copy of a workspace and fails if any artifact differs. Medians of 5 runs on a
+4-CPU cloud container (Python 3.13), extraction only:
+
+| Corpus | Parsed files | Changed | Full | Incremental |
+|---|---|---|---|---|
+| Django 5.1.4 sdist (Python) | 2,788 | none | 11.59 s | 0.47 s |
+| | | 1 file | 11.23 s | 0.40 s |
+| | | 279 files (10%) | 11.51 s | 1.55 s |
+| rxjs 7.8.1 `src/` (TypeScript) | 251 | none | 0.31 s | 0.02 s |
+| | | 1 file | 0.30 s | 0.02 s |
+| | | 26 files (10%) | 0.27 s | 0.05 s |
+
+End to end, indexing Django's `django/` package (879 files) took 4.0 s to analyze
+and 5.8 s to publish to Neo4j; an incremental analysis took 1.3 s, and publishing
+is unchanged because a snapshot is always written whole. These are single-machine
+measurements, not a performance guarantee.
 
 ## Graph diff
 
