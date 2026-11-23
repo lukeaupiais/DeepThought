@@ -22,6 +22,23 @@ LANGUAGES = {
     "java": ((".java",), "tree_sitter_java", "language"),
     "rust": ((".rs",), "tree_sitter_rust", "language"),
     "c": ((".c", ".h"), "tree_sitter_c", "language"),
+    "cpp": (
+        (
+            ".cc",
+            ".cpp",
+            ".cxx",
+            ".c++",
+            ".hh",
+            ".hpp",
+            ".hxx",
+            ".h++",
+            ".ipp",
+            ".inl",
+            ".h",
+        ),
+        "tree_sitter_cpp",
+        "language",
+    ),
 }
 # Languages analyzed when none are selected. JavaScript, Go, Java, Rust and C are opt-in
 # so that existing Python/TypeScript analyses keep their output and do not need
@@ -428,6 +445,329 @@ def extract_c(
                 macro(current)
             else:
                 inner.extend(reversed(current.named_children))
+    return found
+
+
+# `class API Name {` and `class API Name : Base {`: C++ allows no word
+# between a class key and the class's name, so the first word is a macro
+# (an export or visibility attribute). Comments and literals are skipped.
+_CPP_CLASS_MACRO = re.compile(
+    rb"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'"
+    rb"|\b(?:class|struct|union)\s+(?P<macro>[A-Za-z_]\w*)"
+    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])",
+    re.DOTALL,
+)
+
+
+def prepare_source(language: str, content: bytes) -> bytes:
+    """The text the grammar parses. For C++, a macro between a class key
+    and the class's name (``class API Name {``) is replaced with spaces, so
+    offsets, lines and every other byte are kept; other languages are
+    parsed as written."""
+    if language != "cpp":
+        return content
+
+    def blank(match):
+        # A comment or literal has no macro: its span is empty.
+        start, end = match.span("macro")
+        whole = match.group(0)
+        offset = start - match.start()
+        return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
+
+    return _CPP_CLASS_MACRO.sub(blank, content)
+
+
+# C++: declarators that wrap the declared name, beyond C's.
+_CPP_WRAPPERS = _C_WRAPPERS | {"reference_declarator"}
+_CPP_CLASSES = {
+    "class_specifier": "Class",
+    "struct_specifier": "Struct",
+    "union_specifier": "Union",
+    "enum_specifier": "Enum",
+}
+_CPP_NAMES = {
+    "identifier",
+    "field_identifier",
+    "type_identifier",
+    "namespace_identifier",
+    "destructor_name",
+    "operator_name",
+    "operator_cast",
+    "qualified_identifier",
+    "template_function",
+    "template_type",
+}
+
+
+def _cpp_name(node, content):
+    """The scope written before a C++ name and the name's last part, as
+    (scope parts, name text, name node): ``n::C<int>::C`` gives
+    (["n", "C"], "C", node of the last ``C``). Operators are spelled as clang
+    spells them (``operator==``, ``operator new``)."""
+    scope = []
+    while node.type == "qualified_identifier":
+        written = node.child_by_field_name("scope")
+        if written is not None:
+            if written.type in {"template_type", "template_function"}:
+                written = written.child_by_field_name("name")
+            scope.append(_text(written, content))
+        node = node.child_by_field_name("name")
+        if node is None:
+            return None
+    if node.type in {"template_type", "template_function"}:
+        node = node.child_by_field_name("name")
+    if node is None:
+        return None
+    text = _text(node, content)
+    if node.type == "destructor_name":
+        text = "~" + text.lstrip("~").strip()
+    elif node.type == "operator_name":
+        text = re.sub(r"\s+", "", text)
+        text = re.sub(r"^operator(?=[A-Za-z_])", "operator ", text)
+    elif node.type == "operator_cast":
+        # `operator const char*() const`: the type runs to the parameters.
+        end, stack = node.end_byte, [node]
+        while stack:
+            current = stack.pop()
+            if current.type == "parameter_list":
+                end = min(end, current.start_byte)
+            else:
+                stack.extend(current.named_children)
+        cast = content[node.start_byte : end].decode("utf-8")
+        text = "operator " + re.sub(r"\s+", " ", cast.removeprefix("operator")).strip()
+    return scope, text, node
+
+
+def _cpp_function(declarator):
+    """The name a C++ function declarator declares, when the declarator is a
+    function's (not a pointer to one); else None."""
+    node, holder = declarator, None
+    while node is not None and node.type in _CPP_WRAPPERS:
+        if node.type == "parenthesized_declarator":
+            node = next(iter(node.named_children), None)
+            continue
+        if node.type == "function_declarator":
+            recovered = _c_prefixed_name(node)
+            if recovered is not None:
+                return recovered
+        error = next((c for c in node.named_children if c.type == "ERROR"), None)
+        if error is not None and len(error.named_children) == 1:
+            # `int *f() LOCKS(m)` and `int *x GUARDED_BY(m)`: what is
+            # declared is in an error node and the macro reads as the
+            # declarator (see _cpp_declarators).
+            node = error.named_children[0]
+            continue
+        holder, node = (
+            node,
+            node.child_by_field_name("declarator")
+            or next(
+                # `T& f()` holds its declarator in no field.
+                (c for c in node.named_children if c.type in _CPP_WRAPPERS),
+                None,
+            ),
+        )
+    if node is not None and node.type == "operator_cast":
+        return node
+    if (
+        node is None
+        or node.type not in _CPP_NAMES
+        or getattr(holder, "type", None) != "function_declarator"
+    ):
+        return None
+    return node
+
+
+def _cpp_declarators(node):
+    """The declarators of a declaration. ``void f() LOCKS(m);`` parses with
+    the function's declarator in an error node and the macro as the
+    declarator: when an error node holds one declarator, that is the one
+    declared. ``API T f();`` puts the type ``T`` in the error node and keeps
+    ``f``, so ``int x GUARDED_BY(m);``, which has the same shape, reads as a
+    function ``GUARDED_BY``."""
+    declarators = node.children_by_field_name("declarator")
+    errors = [c for c in node.children if c.type == "ERROR"]
+    if (
+        len(declarators) == 1
+        and len(errors) == 1
+        and [c.type in _CPP_WRAPPERS for c in errors[0].named_children] == [True]
+    ):
+        return [errors[0].named_children[0]]
+    return declarators
+
+
+def extract_cpp(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """C++ declarations outside function bodies, in source order, in every
+    preprocessor branch: namespaces, classes, structs, unions and enums with
+    a body, functions and methods (definitions and prototypes), type aliases
+    (``typedef`` and ``using``), and macros wherever they are defined.
+
+    Symbols join the enclosing namespaces and classes and the scope written
+    before a name with ``.``. A function is a Method when it is declared in
+    a class body or its name is written with a scope (``C::f``) whose last
+    part is not a namespace the file opens; the written scope is not looked
+    up further, so ``n::f`` in a file that never opens ``n`` is a Method. A friend function is declared in the namespace around
+    its class. Anonymous namespaces and unnamed types add no scope.
+    ``nodes`` receives id -> (node, name).
+    """
+    found, ordinals = [], {}
+
+    def add(node, name_node, scope, name, kind):
+        symbol = ".".join((*scope, name))
+        ordinal = ordinals.get((symbol, kind), 0)
+        ordinals[(symbol, kind)] = ordinal + 1
+        definition = Definition(
+            id=identifier(repository_id, file, symbol, kind, ordinal),
+            file=file,
+            symbol=symbol,
+            kind=kind,
+            line=node.start_point.row + 1,
+            column=node.start_point.column,
+            end_line=node.end_point.row + 1,
+            end_column=node.end_point.column,
+        )
+        found.append(definition)
+        if nodes is not None:
+            nodes[definition.id] = (node, name_node)
+
+    def macros(node):
+        # A macro defined inside an item is defined for the rest of the file.
+        inner = [node]
+        while inner:
+            current = inner.pop()
+            if current.type in {"preproc_def", "preproc_function_def"}:
+                if not current.has_error:
+                    name = current.child_by_field_name("name")
+                    add(current, name, (), _text(name, content), "Macro")
+            else:
+                inner.extend(reversed(current.named_children))
+
+    def function(node, declarator, scope, in_class):
+        name = _cpp_function(declarator)
+        if name is None:
+            return False
+        parts = _cpp_name(name, content)
+        if parts is None:
+            return False
+        written, text, name_node = parts
+        method = in_class or (written and written[-1] not in namespaces)
+        add(
+            node,
+            name_node,
+            (*scope, *written),
+            text,
+            "Method" if method else "Function",
+        )
+        return True
+
+    # Namespaces this file opens: `void n::f() {}` with `n` one of them is
+    # a function, any other written scope is taken to be a class.
+    namespaces, pending = set(), [tree.root_node]
+    while pending:
+        current = pending.pop()
+        if current.type == "namespace_identifier" and (
+            current.parent.type
+            in {"namespace_definition", "nested_namespace_specifier"}
+        ):
+            namespaces.add(_text(current, content))
+        pending.extend(current.named_children)
+
+    # (node, scope, in a class body, scope of the innermost namespace)
+    stack = [(tree.root_node, (), False, ())]
+    while stack:
+        node, scope, in_class, outer = stack.pop()
+        kind = node.type
+        if kind in {
+            "translation_unit",
+            "linkage_specification",
+            "ERROR",
+            "declaration_list",
+            "template_declaration",
+        } or (
+            kind.startswith("preproc_")
+            and kind not in {"preproc_def", "preproc_function_def"}
+        ):
+            stack.extend(
+                (c, scope, in_class, outer) for c in reversed(node.named_children)
+            )
+            continue
+        if kind == "friend_declaration":
+            stack.extend(
+                (c, outer, False, outer) for c in reversed(node.named_children)
+            )
+            continue
+        if kind in {"preproc_def", "preproc_function_def"}:
+            macros(node)
+            continue
+        if kind == "namespace_definition":
+            name = node.child_by_field_name("name")
+            inner = scope
+            parts = (
+                name.named_children
+                if name is not None and name.type == "nested_namespace_specifier"
+                else [name]
+                if name is not None
+                else []
+            )
+            for part in parts:
+                add(node, part, inner, _text(part, content), "Namespace")
+                inner = (*inner, _text(part, content))
+            body = node.child_by_field_name("body")
+            if body is not None:
+                stack.extend(
+                    (c, inner, False, inner) for c in reversed(body.named_children)
+                )
+            continue
+        if kind in _CPP_CLASSES:
+            body = node.child_by_field_name("body")
+            if body is None:
+                continue
+            name = node.child_by_field_name("name")
+            parts = _cpp_name(name, content) if name is not None else None
+            inner = scope
+            if parts is not None:
+                written, text, name_node = parts
+                add(node, name_node, (*scope, *written), text, _CPP_CLASSES[kind])
+                inner = (*scope, *written, text)
+            # An enum's body holds enumerators, which are not declarations.
+            stack.extend((c, inner, True, outer) for c in reversed(body.named_children))
+            continue
+        written = node.child_by_field_name("type")
+        if written is not None and written.type in _CPP_CLASSES:
+            # A type defined where it is used: `struct S {...} s;`.
+            stack.append((written, scope, in_class, outer))
+        if kind == "function_definition":
+            function(node, node.child_by_field_name("declarator"), scope, in_class)
+        elif (
+            kind
+            in {"function_declarator", "pointer_declarator", "reference_declarator"}
+            and node.parent is not None
+            and node.parent.type == "ERROR"
+        ):
+            # A function's declarator standing alone in text the grammar
+            # could not parse (see extract_c).
+            function(node, node, scope, in_class)
+        elif kind in {"declaration", "field_declaration"}:
+            for declarator in _cpp_declarators(node):
+                function(node, declarator, scope, in_class)
+        elif kind == "type_definition":
+            for declarator in node.children_by_field_name("declarator"):
+                declared = _c_declared_name(declarator, {"type_identifier"})
+                if declared is not None:
+                    add(
+                        node,
+                        declared[0],
+                        scope,
+                        _text(declared[0], content),
+                        "TypeAlias",
+                    )
+        elif kind == "alias_declaration":
+            name = node.child_by_field_name("name")
+            add(node, name, scope, _text(name, content), "TypeAlias")
+        macros_in = [c for c in node.named_children if c is not written]
+        for child in macros_in:
+            macros(child)
     return found
 
 
@@ -1585,7 +1925,7 @@ def extract_cargo_manifest(
 
 # Wrappers whose text belongs to the declaration they hold: decorators and
 # the export keyword.
-_SOURCE_WRAPPERS = {"decorated_definition", "export_statement"}
+_SOURCE_WRAPPERS = {"decorated_definition", "export_statement", "template_declaration"}
 
 
 def _columns(line: bytes, column: int):
@@ -1616,6 +1956,8 @@ def declaration_sources(
     nodes = {}
     if language == "c":
         extract_c(tree, content, repository_id, file, nodes=nodes)
+    elif language == "cpp":
+        extract_cpp(tree, content, repository_id, file, nodes=nodes)
     else:
         extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")

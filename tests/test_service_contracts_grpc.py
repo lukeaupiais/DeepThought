@@ -1,0 +1,435 @@
+"""gRPC contracts: .proto services, their servers and stub calls."""
+
+import asyncio
+import importlib.util
+from pathlib import Path
+import tempfile
+import unittest
+
+from deepthought.analysis_tools import ServiceContractTool
+from deepthought.analysis_tools.evidence import get_rule
+from deepthought.service_contracts.grpc import (
+    GO_REGISTER,
+    JAVA_IMPL_BASE,
+    NODE_ADD_SERVICE,
+    PYTHON_SERVICER,
+    STUB_CALL,
+    ProtoIndex,
+    ProtoMethod,
+    read_proto,
+)
+
+READY = all(
+    importlib.util.find_spec(m)
+    for m in (
+        "tree_sitter",
+        "tree_sitter_go",
+        "tree_sitter_java",
+        "tree_sitter_javascript",
+        "tree_sitter_python",
+    )
+)
+
+PROTO = """\
+syntax = "proto3";
+// service Fake { rpc Nope (A) returns (B) {} }
+package shop;
+option go_package = "x/y;pb"; /* service Hidden { rpc No(A) returns (B); } */
+
+service CartService {
+    rpc AddItem(AddItemRequest) returns (Empty) {}
+    rpc GetCart (GetCartRequest) returns (Cart) {
+        option (google.api.http) = { get: "/v1/cart" };
+    }
+}
+
+message Empty {}
+
+service CurrencyService {
+  rpc GetSupportedCurrencies(Empty) returns (Currencies) {}
+  rpc Convert(ConversionRequest) returns (Money) {}
+}
+
+service EmailService { rpc SendOrderConfirmation(Req) returns (Empty) {} }
+service AdService { rpc GetAds(AdRequest) returns (AdResponse) {} }
+"""
+
+OTHER_PROTO = """\
+package other;
+service CartService { rpc GetCart(A) returns (B); }
+service PingService { rpc Ping(A) returns (B); }
+"""
+
+GO_SERVER = """\
+package main
+
+func main() {
+\tsvc := &cartServer{}
+\tpb.RegisterCartServiceServer(srv, svc)
+\thealthpb.RegisterHealthServer(srv, health.NewServer())
+}
+"""
+
+GO_METHODS = """\
+package main
+
+type cartServer struct{}
+
+func (c *cartServer) AddItem(ctx context.Context, r *pb.AddItemRequest) (*pb.Empty, error) {
+\treturn nil, nil
+}
+
+func (c *cartServer) helper() {}
+"""
+
+GO_CLIENT = """\
+package main
+
+type frontend struct {
+\tcurrency pb.CurrencyServiceClient
+}
+
+func (f *frontend) currencies(ctx context.Context) {
+\tcurrs, _ := pb.NewCurrencyServiceClient(f.conn).
+\t\tGetSupportedCurrencies(ctx, &pb.Empty{})
+\t_ = currs
+\tf.currency = pb.NewCurrencyServiceClient(f.conn)
+\tf.currency.Convert(ctx, nil)
+\tpb.NewCurrencyServiceClient(f.conn).Refund(ctx, nil)
+\tother := pb.NewCurrencyServiceClient(f.conn)
+\tother = wrap(other)
+\tother.Convert(ctx, nil)
+}
+"""
+
+GO_GENERATED = """\
+package pb
+
+func (c *cartServiceClient) GetCart(ctx context.Context) {
+\tc.cc.Invoke(ctx)
+}
+
+func f() { NewCartServiceClient(cc).GetCart(nil) }
+"""
+
+PY_SERVER = """\
+import demo_pb2_grpc
+
+
+class BaseEmail(demo_pb2_grpc.EmailServiceServicer):
+    def Check(self, request, context):
+        pass
+
+
+class RealEmail(BaseEmail):
+    def SendOrderConfirmation(self, request, context):
+        pass
+
+
+stub = demo_pb2_grpc.CurrencyServiceStub(channel)
+
+
+def convert():
+    return stub.Convert(None)
+"""
+
+JAVA = """\
+package shop;
+
+public final class Ads {
+  private static class AdServiceImpl extends shop.AdServiceGrpc.AdServiceImplBase {
+    @Override
+    public void getAds(AdRequest req, StreamObserver<AdResponse> out) {}
+  }
+
+  private CartServiceGrpc.CartServiceBlockingStub cart;
+
+  void call() {
+    cart = CartServiceGrpc.newBlockingStub(channel);
+    cart.getCart(null);
+  }
+}
+"""
+
+NODE = """\
+function getSupportedCurrencies(call, callback) {}
+
+class Server {
+  static ConvertHandler(call, callback) {}
+
+  listen() {
+    this.server.addService(shopProto.CurrencyService.service, {
+      getSupportedCurrencies,
+      convert: Server.ConvertHandler.bind(this),
+    });
+    this.server.addService(shopProto.CartService.service, { getCart: () => {} });
+  }
+}
+
+const sdk = new opentelemetry.NodeSDK({});
+sdk.start();
+const client = new shopProto.CurrencyService('localhost:7000', creds);
+client.convert({}, () => {});
+"""
+
+
+def _write(root, files):
+    for name, text in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+class ProtoReaderTests(unittest.TestCase):
+    def test_services_and_rpcs_with_lines(self):
+        package, methods = read_proto(PROTO, "demo.proto")
+        self.assertEqual(package, "shop")
+        self.assertEqual(
+            [(m.full_name, m.line) for m in methods],
+            [
+                ("shop.CartService/AddItem", 7),
+                ("shop.CartService/GetCart", 8),
+                ("shop.CurrencyService/GetSupportedCurrencies", 16),
+                ("shop.CurrencyService/Convert", 17),
+                ("shop.EmailService/SendOrderConfirmation", 20),
+                ("shop.AdService/GetAds", 21),
+            ],
+        )
+
+    def test_comment_markers_inside_strings_are_kept(self):
+        text = 'package a;\noption x = "//no";\nservice S { rpc M(A) returns (B); }\n'
+        self.assertEqual(
+            [m.full_name for m in read_proto(text, "a.proto")[1]], ["a.S/M"]
+        )
+
+    def test_index_needs_one_package_per_simple_name(self):
+        index = ProtoIndex(
+            read_proto(PROTO, "a.proto")[1]
+            + read_proto(PROTO, "copy/a.proto")[1]
+            + read_proto(OTHER_PROTO, "b.proto")[1]
+        )
+        self.assertEqual(
+            index.service("CurrencyService"), ("shop.CurrencyService", None)
+        )
+        self.assertEqual(index.service("CartService"), (None, "several_proto_packages"))
+        self.assertEqual(index.service("Nope"), (None, "no_proto_service"))
+        self.assertEqual(len(index.methods[("shop.CurrencyService", "Convert")]), 2)
+        self.assertEqual(index.method("shop.CurrencyService", "convert"), "Convert")
+        self.assertIsNone(index.method("shop.CurrencyService", "refund"))
+
+    def test_lower_camel_must_be_unique(self):
+        index = ProtoIndex(
+            [ProtoMethod("p.S", "Get", "a", 1), ProtoMethod("p.S", "get", "a", 2)]
+        )
+        self.assertEqual(index.method("p.S", "get"), "get")
+        self.assertEqual(index.method("p.S", "Get"), "Get")
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class GrpcContractTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        _write(
+            self.root,
+            {
+                "protos/demo.proto": PROTO,
+                "cart/demo.proto": PROTO,
+                "node_modules/x/demo.proto": OTHER_PROTO,
+                "cart/main.go": GO_SERVER,
+                "cart/server.go": GO_METHODS,
+                "cart/server_test.go": GO_CLIENT,
+                "frontend/rpc.go": GO_CLIENT,
+                "frontend/genproto/demo.pb.go": GO_GENERATED,
+                "email/server.py": PY_SERVER,
+                "email/demo_pb2_grpc.py": "class CartServiceStub:\n    pass\n",
+                "ads/src/main/java/shop/Ads.java": JAVA,
+                "currency/server.js": NODE,
+            },
+        )
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def analyze(self):
+        tool = ServiceContractTool(self.root)
+        output = asyncio.run(tool.analyze("r"))
+        return tool, output
+
+    def edges(self, output, kind):
+        def name(qualified):
+            parts = qualified.split("::")
+            return parts[1] if parts[2] == "file" else parts[2]
+
+        return sorted(
+            (
+                name(r.source_match["qualified_name"]),
+                r.target_match["qualified_name"].rpartition("::")[2],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type == kind and r.target_labels == ["GrpcMethod", "Contract"]
+        )
+
+    def test_methods_are_merged_across_proto_copies(self):
+        _, output = self.analyze()
+        methods = {
+            n.properties["name"]: n.properties
+            for n in output.nodes
+            if "GrpcMethod" in n.labels
+        }
+        self.assertEqual(len(methods), 6)  # node_modules is not read
+        convert = methods["shop.CurrencyService/Convert"]
+        self.assertEqual(
+            convert["qualified_name"], "r::grpc::shop.CurrencyService/Convert"
+        )
+        self.assertEqual(
+            convert["declared_in"], ["cart/demo.proto:17", "protos/demo.proto:17"]
+        )
+        self.assertEqual(
+            (convert["file_path"], convert["line"]), ("cart/demo.proto", 17)
+        )
+
+    def test_servers(self):
+        _, output = self.analyze()
+        self.assertEqual(
+            self.edges(output, "HANDLES"),
+            [
+                ("Ads.AdServiceImpl.getAds", "shop.AdService/GetAds", JAVA_IMPL_BASE),
+                (
+                    "RealEmail.SendOrderConfirmation",
+                    "shop.EmailService/SendOrderConfirmation",
+                    PYTHON_SERVICER,
+                ),
+                (
+                    "Server.ConvertHandler",
+                    "shop.CurrencyService/Convert",
+                    NODE_ADD_SERVICE,
+                ),
+                ("cartServer.AddItem", "shop.CartService/AddItem", GO_REGISTER),
+                (
+                    "getSupportedCurrencies",
+                    "shop.CurrencyService/GetSupportedCurrencies",
+                    NODE_ADD_SERVICE,
+                ),
+            ],
+        )
+
+    def test_stub_calls(self):
+        tool, output = self.analyze()
+        self.assertEqual(
+            self.edges(output, "REQUESTS"),
+            [
+                ("Ads.call", "shop.CartService/GetCart", STUB_CALL),
+                ("convert", "shop.CurrencyService/Convert", STUB_CALL),
+                ("currency/server.js", "shop.CurrencyService/Convert", STUB_CALL),
+                ("frontend.currencies", "shop.CurrencyService/Convert", STUB_CALL),
+                (
+                    "frontend.currencies",
+                    "shop.CurrencyService/GetSupportedCurrencies",
+                    STUB_CALL,
+                ),
+            ],
+        )
+        chained = [
+            r
+            for r in output.relationships
+            if r.properties.get("request") == "CurrencyService.GetSupportedCurrencies"
+        ]
+        self.assertEqual(chained[0].properties["line"], 9)  # the method's name
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            metrics["grpc_call_resolution"],
+            {"linked": 5, "unresolved:no_proto_method": 1},
+        )
+        # RegisterHealthServer(srv, health.NewServer()) names no declared type;
+        # an inline arrow function handler has no declaration to link.
+        self.assertEqual(
+            metrics["unread"],
+            {
+                "grpc_server:handler_not_declared": 1,
+                "grpc_server:implementation_not_read": 1,
+            },
+        )
+        self.assertEqual(
+            sorted(metrics["proto_files"]), ["cart/demo.proto", "protos/demo.proto"]
+        )
+        files = {
+            n.properties["path"]: n.properties
+            for n in output.nodes
+            if "File" in n.labels
+        }
+        self.assertEqual(
+            files["frontend/rpc.go"]["unresolved_grpc_calls"],
+            ["CurrencyService.Refund"],
+        )
+        # Generated code and Go tests are neither servers nor clients.
+        called = {c.file for c in tool.last_grpc.calls}
+        self.assertEqual(
+            called,
+            {
+                "ads/src/main/java/shop/Ads.java",
+                "currency/server.js",
+                "email/server.py",
+                "frontend/rpc.go",
+            },
+        )
+
+    def test_ambiguous_service_links_nothing(self):
+        _write(self.root, {"other/other.proto": OTHER_PROTO})
+        tool, output = self.analyze()
+        targets = {
+            e[1] for e in self.edges(output, "REQUESTS") + self.edges(output, "HANDLES")
+        }
+        self.assertFalse(any("CartService" in t for t in targets))
+        self.assertEqual(
+            output.metadata.custom_metrics["grpc_call_resolution"][
+                "unresolved:several_proto_packages"
+            ],
+            1,
+        )
+
+    def test_edges_carry_registered_evidence_only(self):
+        _, output = self.analyze()
+        grpc = [
+            r
+            for r in output.relationships
+            if r.target_labels == ["GrpcMethod", "Contract"]
+        ]
+        self.assertTrue(grpc)
+        for relationship in grpc:
+            rule = get_rule(relationship.properties["rule_id"])
+            self.assertEqual(
+                relationship.properties["evidence_type"], rule.evidence_type
+            )
+            self.assertEqual(rule.evidence_type, "pattern_matched")
+            self.assertNotIn("confidence", relationship.properties)
+        anchors = {n.properties["qualified_name"] for n in output.nodes}
+        for relationship in grpc:
+            self.assertIn(relationship.source_match["qualified_name"], anchors)
+            self.assertIn(relationship.target_match["qualified_name"], anchors)
+
+    def test_deterministic(self):
+        def run():
+            _, output = self.analyze()
+            return (
+                [
+                    (n.labels, sorted(n.properties.items(), key=str))
+                    for n in output.nodes
+                ],
+                [
+                    (
+                        r.type,
+                        r.source_match,
+                        r.target_match,
+                        r.properties,
+                    )
+                    for r in output.relationships
+                ],
+            )
+
+        self.assertEqual(run(), run())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -12,10 +12,16 @@ Two levels are scored:
   the client file is the same and the client and server lines are at most
   --line-tolerance apart (see _score_sites).
 
+For kind ``grpc`` a call site matches on the client location and the
+contract (``package.Service/Method``) instead of the server line, since a
+method may have several servers or one in a language not read; servers are
+scored apart, as HANDLES edges found at labelled server locations.
+
 Labelled links marked ``in_scope_static: false`` are reported but left out of
 recall. Usage:
 
-    python tools/check_contracts_ground_truth.py CORPUS.json WORKSPACE [--json OUT]
+    python tools/check_contracts_ground_truth.py CORPUS.json WORKSPACE \
+        [--kind http|grpc] [--json OUT]
 """
 
 import argparse
@@ -78,7 +84,10 @@ def _score_sites(predicted, labelled, corpus, tolerance):
             ):
                 continue
             servers = [link.get("server")] + link.get("server_alternatives", [])
-            if not any(
+            if "contract" in item:
+                if item["contract"] != link.get("contract"):
+                    continue
+            elif not any(
                 _near(server, item["server_file"], item["server_line"], tolerance)
                 for server in servers
             ):
@@ -139,7 +148,7 @@ def _score_pairs(sites, labelled):
     found = {
         (i["from_service"], i["to_service"])
         for i in sites["_tp_items"] + sites["false_positive"]
-        if i["from_service"] != i["to_service"]
+        if i["from_service"] != i["to_service"] and i["to_service"] is not None
     }
     correct = found & {pair(link) for link in labelled}
     return {
@@ -150,6 +159,63 @@ def _score_pairs(sites, labelled):
         "recall": _ratio(len(expected & found), len(expected)),
         "false_positive": sorted(found - correct),
         "false_negative": sorted(expected - found),
+    }
+
+
+def _grpc_predictions(tool, roots):
+    """One item per linked stub call; ``to_service`` is the service of the
+    method's servers when they all lie in one service, else None."""
+    facts = tool.last_grpc
+    calls = {c.id: c for c in facts.calls}
+    servers = {}
+    for handler in facts.handlers:
+        servers.setdefault((handler.service, handler.method), []).append(handler)
+    predicted = []
+    for resolution in facts.resolutions:
+        if resolution.status != "linked":
+            continue
+        call = calls[resolution.call_id]
+        handlers = servers.get((resolution.service, resolution.method), [])
+        targets = {_service_of(h.file, roots) for h in handlers}
+        contract = f"{resolution.service}/{resolution.method}"
+        predicted.append(
+            {
+                "kind": "grpc",
+                "from_service": _service_of(call.file, roots),
+                "to_service": next(iter(targets)) if len(targets) == 1 else None,
+                "file": call.file,
+                "line": call.line,
+                "contract": contract,
+                "route": contract,
+                "rule_id": "service-contracts.grpc-stub-call",
+            }
+        )
+    return predicted
+
+
+def _grpc_servers(tool, labelled, tolerance):
+    """Labelled links whose server location carries a HANDLES edge."""
+    handlers = tool.last_grpc.handlers
+    found, missed = 0, []
+    for link in labelled:
+        if not link.get("in_scope_static", True):
+            continue
+        servers = [link.get("server")] + link.get("server_alternatives", [])
+        contract = link.get("contract", "")
+        if any(
+            f"{h.service}/{h.method}" == contract
+            and _near(server, h.file, h.line, tolerance)
+            for h in handlers
+            for server in servers
+        ):
+            found += 1
+        else:
+            missed.append({"id": link.get("id"), "server": link.get("server")})
+    return {
+        "labelled_in_scope": found + len(missed),
+        "true_positive": found,
+        "recall": _ratio(found, found + len(missed)),
+        "false_negative": missed,
     }
 
 
@@ -189,6 +255,8 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
     output = asyncio.run(tool.analyze("corpus"))
     _, routes, requests, unread, resolutions = tool.last_facts
     roots = [(s["name"], s["root"]) for s in corpus["services"]]
+    if kind == "grpc":
+        return _score_grpc(tool, output, corpus, roots, line_tolerance)
     route_by_id = {r.id: r for r in routes}
     request_by_id = {r.id: r for r in requests}
     predicted = []
@@ -221,6 +289,28 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
         "requests": len(requests),
         "unread": len(unread),
     }
+    _score_levels(report, predicted, labelled, corpus, line_tolerance)
+    return report
+
+
+def _score_grpc(tool, output, corpus, roots, line_tolerance):
+    metrics = output.metadata.custom_metrics
+    labelled = [link for link in corpus["links"] if link["kind"] == "grpc"]
+    report = {
+        "corpus": corpus.get("corpus"),
+        "commit": corpus.get("commit"),
+        "resolution": metrics["grpc_call_resolution"],
+        "methods": metrics["grpc_methods"],
+        "calls": metrics["grpc_calls"],
+        "handlers": metrics["grpc_handlers"],
+        "servers": _grpc_servers(tool, labelled, line_tolerance),
+    }
+    predicted = _grpc_predictions(tool, roots)
+    _score_levels(report, predicted, labelled, corpus, line_tolerance)
+    return report
+
+
+def _score_levels(report, predicted, labelled, corpus, line_tolerance):
     for name, subset in (
         (
             "direct",
@@ -247,7 +337,6 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
         pairs = _score_pairs(sites, subset)
         del sites["_tp_items"]
         report[name] = {"call_sites": sites, "service_pairs": pairs}
-    return report
 
 
 def main(argv=None):
@@ -256,7 +345,7 @@ def main(argv=None):
     parser.add_argument("workspace", type=Path)
     parser.add_argument("--line-tolerance", type=int, default=3)
     parser.add_argument("--json", type=Path)
-    parser.add_argument("--kind", default="http", choices=("http", "messaging"))
+    parser.add_argument("--kind", default="http", choices=("http", "grpc", "messaging"))
     args = parser.parse_args(argv)
     corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
     report = score(corpus, args.workspace, args.line_tolerance, args.kind)
