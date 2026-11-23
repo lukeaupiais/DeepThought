@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from deepthought import analyze_repository
+from deepthought.imports import RUST_MODULE_FILE, resolve_imports
 from deepthought.analysis_tools import TreeSitterTool
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -94,9 +95,11 @@ class RustTests(unittest.TestCase):
             ],
         )
         # Constants, statics, fields, variants and closures are not
-        # declarations; calls and uses are not facts for Rust yet.
+        # declarations; calls, uses and impls are not facts for Rust yet.
+        self.assertEqual((result.call_sites, result.supertypes), ((), ()))
         self.assertEqual(
-            (result.call_sites, result.imports, result.supertypes), ((), (), ())
+            [(i.line, i.specifier, i.kind) for i in result.imports],
+            [(23, "outer/file_module", "module")],
         )
 
     def test_rust_is_opt_in_and_tool_projects_nesting(self):
@@ -124,6 +127,147 @@ class RustTests(unittest.TestCase):
         result = analyze({"src/lib.rs": "fn ok() {}\nfn broken( {\n"})
         self.assertEqual(result.coverage[0].status, "partial")
         self.assertIn("ok", [d.symbol for d in result.definitions])
+
+    def test_module_declarations_name_their_files(self):
+        result = analyze(
+            {
+                "src/lib.rs": '#[doc = "elsewhere.rs"]\nmod a;\nmod b;\nmod gone;\nmod both;\n'
+                "mod outer {\n    mod inner;\n"
+                '    #[path = "x.rs"]\n    mod in_path;\n}\n'
+                '#[cfg(unix)]\n#[path = "sys/unix.rs"]\nmod sys;\n'
+                "mod r#type;\nmod body {}\n",
+                "src/a.rs": 'mod child;\n#[path = "../up.rs"]\nmod up;\n',
+                "up.rs": "",
+                "src/a/child.rs": "",
+                "src/b/mod.rs": "mod grand;\n",
+                "src/b/grand.rs": "",
+                "src/both.rs": "",
+                "src/both/mod.rs": "",
+                "src/outer/inner.rs": "",
+                "src/outer/x.rs": "",
+                "src/sys/unix.rs": "",
+                "src/type.rs": "",
+                "src/bin/tool.rs": "mod helper;\n",
+                "src/bin/helper.rs": "",
+                "build.rs": '#[path = "src/a.rs"]\nmod shared;\nmod generated;\n',
+                "generated.rs": "",
+                "tests/it.rs": "mod common;\n",
+                "tests/common.rs": "mod data;\n",
+                "tests/common/data.rs": "",
+                "src/runtime/mod.rs": "mod tests;\n",
+                "src/runtime/tests/mod.rs": "mod loom;\n",
+                "src/runtime/tests/loom.rs": "mod queue;\n",
+                "src/runtime/tests/loom/queue.rs": "",
+                "src/runtime/tests/queue.rs": "",
+                "src/deep.rs": 'mod p {\n    mod q {\n        #[path = "first.rs"]\n        #[path = "second.rs"]\n        mod r;\n    }\n}\n',
+                "src/deep/p/q/first.rs": "",
+                "src/deep/p/q/second.rs": "",
+            }
+        )
+        facts = {
+            (i.file, i.line): (i.specifier, i.kind, i.names, i.local_names)
+            for i in result.imports
+        }
+        self.assertEqual(
+            facts[("src/lib.rs", 7)], ("outer/inner", "module", (), ("inner",))
+        )
+        self.assertEqual(
+            facts[("src/lib.rs", 9)], ("x.rs", "module_path", ("outer",), ("in_path",))
+        )
+        self.assertEqual(
+            facts[("src/lib.rs", 13)], ("sys/unix.rs", "module_path", (), ("sys",))
+        )
+        self.assertEqual(facts[("src/lib.rs", 14)], ("type", "module", (), ("type",)))
+        # A module with a body includes no file.
+        self.assertNotIn(("src/lib.rs", 15), facts)
+        imports = {i.id: i for i in result.imports}
+        outcomes = {
+            (imports[r.import_id].file, imports[r.import_id].local_names[0]): (
+                r.status,
+                r.reason,
+                [link.target_file for link in r.links] or list(r.candidates),
+                {link.rule_id for link in r.links},
+            )
+            for r in resolve_imports(result)
+        }
+        linked = {
+            key: value[2][0]
+            for key, value in outcomes.items()
+            if value[0] == "linked" and value[3] == {RUST_MODULE_FILE}
+        }
+        self.assertEqual(
+            linked,
+            {
+                ("src/lib.rs", "a"): "src/a.rs",
+                ("src/lib.rs", "b"): "src/b/mod.rs",
+                # Another file's modules are in the directory named after it;
+                # mod.rs is the module's directory itself.
+                ("src/a.rs", "child"): "src/a/child.rs",
+                ("src/b/mod.rs", "grand"): "src/b/grand.rs",
+                # Inline modules are directories; #[path] inside them is read
+                # from there, outside them from the declaring file's directory.
+                ("src/lib.rs", "inner"): "src/outer/inner.rs",
+                ("src/lib.rs", "in_path"): "src/outer/x.rs",
+                ("src/lib.rs", "sys"): "src/sys/unix.rs",
+                ("src/lib.rs", "type"): "src/type.rs",
+                ("build.rs", "shared"): "src/a.rs",
+                ("build.rs", "generated"): "generated.rs",
+                # A path may leave the directory; the first #[path] counts.
+                ("src/a.rs", "up"): "up.rs",
+                ("src/deep.rs", "r"): "src/deep/p/q/first.rs",
+                # Files in src/bin and in tests outside src are crate roots;
+                # a test file another declares is that module instead.
+                ("src/bin/tool.rs", "helper"): "src/bin/helper.rs",
+                ("tests/it.rs", "common"): "tests/common.rs",
+                ("tests/common.rs", "data"): "tests/common/data.rs",
+                # A tests directory inside src is an ordinary module.
+                ("src/runtime/mod.rs", "tests"): "src/runtime/tests/mod.rs",
+                ("src/runtime/tests/mod.rs", "loom"): "src/runtime/tests/loom.rs",
+                ("src/runtime/tests/loom.rs", "queue"): (
+                    "src/runtime/tests/loom/queue.rs"
+                ),
+            },
+        )
+        self.assertEqual(
+            outcomes[("src/lib.rs", "both")][:3],
+            ("ambiguous", "module_file_ambiguous", ["src/both.rs", "src/both/mod.rs"]),
+        )
+        self.assertEqual(
+            outcomes[("src/lib.rs", "gone")][:3],
+            ("unresolved", "module_file_missing", []),
+        )
+        self.assertEqual(len(outcomes), len(linked) + 2)
+
+    def test_undeclared_test_file_is_a_crate_root(self):
+        # Without the declaring file, tests/common.rs is its own crate root.
+        result = analyze(
+            {
+                "tests/common.rs": "mod data;\n",
+                "tests/data.rs": "",
+                "tests/common/data.rs": "",
+                "examples/demo.rs": "mod part;\n",
+                "examples/part.rs": "",
+                "examples/demo/part.rs": "",
+                # A tests directory inside src holds modules, not crates.
+                "src/x/tests/orphan.rs": "mod q;\n",
+                "src/x/tests/q.rs": "",
+                "src/x/tests/orphan/q.rs": "",
+                "src/bin/tool.rs": "mod helper;\n",
+                "src/bin/helper.rs": "",
+                "src/bin/tool/helper.rs": "",
+            }
+        )
+        self.assertEqual(
+            sorted(
+                link.target_file for r in resolve_imports(result) for link in r.links
+            ),
+            [
+                "examples/part.rs",
+                "src/bin/helper.rs",
+                "src/x/tests/orphan/q.rs",
+                "tests/data.rs",
+            ],
+        )
 
 
 if __name__ == "__main__":

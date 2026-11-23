@@ -321,15 +321,15 @@ def analyze_repository(
                     )
                 declared = extract(tree, content, repository_id, relative)
                 definitions.extend(declared)
+                imports.extend(
+                    extract_imports(tree, content, repository_id, relative, language)
+                )
                 if language == "rust":
-                    # Rust: declarations only so far; calls, uses and impls
-                    # are not facts yet.
+                    # Rust: declarations and file modules so far; calls, uses
+                    # and impls are not facts yet.
                     continue
                 call_sites.extend(
                     extract_call_sites(tree, content, repository_id, relative, declared)
-                )
-                imports.extend(
-                    extract_imports(tree, content, repository_id, relative, language)
                 )
                 supertypes.extend(
                     extract_supertypes(tree, content, repository_id, relative, declared)

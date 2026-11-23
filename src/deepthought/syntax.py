@@ -382,13 +382,64 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
+def _rust_modules(node, content):
+    """A Rust ``mod name;`` declaration, as the file module it includes.
+
+    The specifier is the module's path from the declaring file's module
+    directory (``a/b`` for ``mod a { mod b; }``). With a ``#[path]``
+    attribute (kind ``module_path``) it is the file path the attribute gives,
+    and ``names`` are the inline modules around the declaration.
+    """
+    if node.type != "mod_item" or node.child_by_field_name("body") is not None:
+        return
+    name = node.child_by_field_name("name")
+    if name is None:
+        return
+    word = _text(name, content).removeprefix("r#")
+    parents = []
+    outer = node.parent
+    while outer is not None and outer.type != "source_file":
+        if outer.type == "mod_item":
+            parents.append(_text(outer.child_by_field_name("name"), content))
+        outer = outer.parent
+    parents = [p.removeprefix("r#") for p in reversed(parents)]
+    path = None
+    sibling = node.prev_named_sibling
+    while sibling is not None and sibling.type in {
+        "attribute_item",
+        "line_comment",
+        "block_comment",
+    }:
+        attribute = sibling.named_children[0] if sibling.named_children else None
+        if (
+            sibling.type == "attribute_item"
+            and attribute is not None
+            and attribute.type == "attribute"
+            and _text(attribute.named_children[0], content) == "path"
+        ):
+            value = next(
+                (c for c in attribute.named_children if c.type == "string_literal"),
+                None,
+            )
+            if value is not None:
+                path = _text(value, content)[1:-1]
+        sibling = sibling.prev_named_sibling
+    if path is not None:
+        yield path, "module_path", tuple(parents), (word,)
+    else:
+        yield "/".join((*parents, word)), "module", (), (word,)
+
+
 def extract_imports(
     tree, content: bytes, repository_id: str, file: str, language: str
 ) -> list[Import]:
     """Static import statements in source order; dynamic loads are not facts here."""
-    visit = {"python": _python_imports, "go": _go_imports, "java": _java_imports}.get(
-        language, _typescript_imports
-    )
+    visit = {
+        "python": _python_imports,
+        "go": _go_imports,
+        "java": _java_imports,
+        "rust": _rust_modules,
+    }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     stack = [tree.root_node]
     while stack:

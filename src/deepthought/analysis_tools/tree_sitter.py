@@ -127,6 +127,19 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.RUST_MODULE_FILE,
+                "resolved",
+                "A Rust 'mod name;' includes the file Cargo's module layout "
+                "gives: name.rs or name/mod.rs beside a crate root (lib.rs, "
+                "main.rs, build.rs, or an undeclared file in src/bin or in "
+                "tests, benches or examples outside src) or mod.rs, and in "
+                "the directory named after any other declaring file; a "
+                "#[path] attribute names the file from the declaring file's "
+                "directory. Exactly one such file exists.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.JAVA_SAME_SOURCE_ROOT,
                 "name_matched",
                 "Several source roots declare the imported package or type; "
