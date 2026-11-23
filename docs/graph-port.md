@@ -407,6 +407,47 @@ build contexts and depends_on. No contradictions:
 | example-voting-app | 3 | 3/3, 17/17, 17/17 |
 | spring-petclinic-microservices | 1 | 1/1, 11/11, 11/11; its 8 image-only services DEPLOY their Maven modules by image name |
 
+### Kubernetes workloads
+
+With PyYAML, every other `.yaml`/`.yml` file is read for Kubernetes objects
+(including `List` items) and Skaffold configs; a file that holds neither, or
+does not parse (an unrendered Helm template, for instance), is not a manifest
+and is skipped without a diagnostic. Each file is read as written: Helm charts
+and Kustomize overlays are not rendered, so render them first when their
+output is what should be analyzed.
+
+- `k8s_workload`: Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob
+  and Pod, named `Kind/namespace/name` (or `Kind/name`), with the pod
+  template's labels and the container images. Its root is the build context
+  of the Skaffold artifacts its images name, when they name exactly one
+  context; otherwise it has no files.
+- `k8s_service`: Service, with its selector.
+
+| Edge | Rule | Evidence |
+|------|------|----------|
+| Service -> SELECTS -> workload | `components.k8s-service-selector`: the nonempty selector is a subset of the pod template labels, same namespace as written, same directory | resolved |
+| workload -> DEPLOYS -> package component | `components.k8s-skaffold-context`: the Skaffold context is the component's root | resolved |
+| workload -> DEPLOYS -> package component | `components.k8s-image-name`: one image and no Skaffold context; the image's last path segment equals exactly one package name | name_matched |
+
+Selection is limited to one directory because repositories often keep
+alternative manifest sets (raw, release bundle, Kustomize base) for the same
+application; mixing them would link every Service to every copy.
+
+`tools/kubernetes_selector_oracle` is a Go program that decodes every YAML
+file with the Kubernetes API types (client-go scheme) and matches selectors
+with apimachinery's `labels.SelectorFromSet`, under the same namespace and
+directory scope. With `--kubernetes-oracle BINARY` the comparison tool checks
+SELECTS in both directions. No contradictions:
+
+| Repository | Workloads / Services | SELECTS confirmed | Oracle pairs linked |
+|------------|----------------------|-------------------|---------------------|
+| GoogleCloudPlatform/microservices-demo | 39 / 39 | 38/38 | 38/38 |
+| kubernetes/examples | 89 / 56 | 39/39 | 39/39 |
+
+In microservices-demo, 12 workloads take their root from `skaffold.yaml`, and
+the one Service whose workload lives in another directory
+(`.github/release-cluster`) is not linked.
+
 ## Declared bases
 
 Tree-sitter extraction records each base a class or interface names as a

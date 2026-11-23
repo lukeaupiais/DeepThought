@@ -42,8 +42,9 @@ DECLARES_RULE = register_rule(
         "resolved",
         "The manifest declares the component: pyproject.toml [project] or "
         "[tool.poetry] name, a package.json object, the go.mod module "
-        "directive, Cargo.toml [package], the pom.xml project artifactId, or a "
-        "Compose file's services entry.",
+        "directive, Cargo.toml [package], the pom.xml project artifactId, a "
+        "Compose file's services entry, or a Kubernetes workload or Service "
+        "object.",
     )
 )
 PART_OF_RULE = register_rule(
@@ -123,14 +124,45 @@ DEPLOYS_RULES = {
     ),
 }
 
+DEPLOYS_RULES[deployments.SKAFFOLD_CONTEXT] = register_rule(
+    EvidenceRule(
+        "components." + deployments.SKAFFOLD_CONTEXT,
+        "resolved",
+        "The workload's container images name Skaffold build artifacts with one "
+        "build context, and that context is this component's root directory.",
+    )
+)
+DEPLOYS_RULES[deployments.K8S_IMAGE_NAME] = register_rule(
+    EvidenceRule(
+        "components." + deployments.K8S_IMAGE_NAME,
+        "name_matched",
+        "The workload has one container image and no Skaffold context; the "
+        "image's last path segment, without tag or digest, equals the name (or "
+        "the last /-segment of the name) of exactly one package component. The "
+        "image may be built from other sources.",
+    )
+)
+SELECTS_RULE = register_rule(
+    EvidenceRule(
+        "components." + deployments.SERVICE_SELECTOR,
+        "resolved",
+        "The Kubernetes Service's nonempty spec.selector is a subset of the "
+        "workload's pod template labels, both declare the same namespace (or "
+        "neither does), and both are declared in the same directory. This is "
+        "the selection Kubernetes applies when that directory's objects are "
+        "applied as written; overlays or charts that change them are not "
+        "rendered, and objects in other directories are not matched.",
+    )
+)
+
 
 def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
 def component_name(repo_url, component):
-    if component.kind == "compose_service":
-        # A Compose file declares several services.
+    if component.kind in {"compose_service", "k8s_workload", "k8s_service"}:
+        # These files declare several units.
         return (
             f"{repo_url}::{component.manifest}::{component.kind}::"
             f"{component.name}::component"
@@ -155,6 +187,14 @@ def _component_node(repo_url, component, coordinates=None):
         properties["root"] = component.root
     if component.image is not None:
         properties["image"] = component.image
+    if component.kind in {"k8s_workload", "k8s_service"}:
+        if component.namespace is not None:
+            properties["namespace"] = component.namespace
+        for key in ("labels", "selector"):
+            if getattr(component, key):
+                properties[key] = [k + "=" + v for k, v in getattr(component, key)]
+        if component.images:
+            properties["images"] = list(component.images)
     if component.name is not None:
         properties["name"] = component.name
     if component.line is not None:
@@ -174,7 +214,7 @@ def bind_components(nodes, repo_url):
     for node in nodes:
         p = node.properties
         if "Component" in node.labels and p.get("kind") in COMPONENT_KINDS:
-            compose = p["kind"] == "compose_service"
+            compose = p["kind"] in {"compose_service", "k8s_workload"}
             components.append(
                 (
                     Component(
@@ -268,7 +308,18 @@ class ComponentsTool(AnalysisTool):
             "manifests": scan.manifests,
             "diagnostics": scan.diagnostics,
             "components": [
-                [c.kind, c.manifest, c.name, c.line, c.context, c.image]
+                [
+                    c.kind,
+                    c.manifest,
+                    c.name,
+                    c.line,
+                    c.context,
+                    c.image,
+                    c.namespace,
+                    c.labels,
+                    c.selector,
+                    c.images,
+                ]
                 for c in scan.components
             ],
             "dependencies": [
@@ -276,6 +327,8 @@ class ComponentsTool(AnalysisTool):
                 for d in scan.dependencies
             ],
             "coordinates": scan.coordinates,
+            "artifacts": scan.artifacts,
+            "kubernetes": scan.kubernetes,
         }
         snapshot_id = sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         repository = f"{repo_url}::repository"
@@ -375,6 +428,42 @@ class ComponentsTool(AnalysisTool):
                     ["Component"],
                     {
                         "qualified_name": component_name(repo_url, service),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, target),
+                        "repo_url": repo_url,
+                    },
+                    _evidence(DEPLOYS_RULES[rule]),
+                )
+            )
+        for service, workload in deployments.resolve_selectors(scan.components):
+            relationships.append(
+                RelationshipData(
+                    "SELECTS",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, service),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, workload),
+                        "repo_url": repo_url,
+                    },
+                    _evidence(SELECTS_RULE),
+                )
+            )
+        for workload, target, rule in deployments.resolve_workload_deployments(
+            scan.components
+        ):
+            relationships.append(
+                RelationshipData(
+                    "DEPLOYS",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, workload),
                         "repo_url": repo_url,
                     },
                     ["Component"],

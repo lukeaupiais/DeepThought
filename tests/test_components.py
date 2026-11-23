@@ -518,6 +518,105 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(output.metadata.custom_metrics["analysis_status"], "partial")
 
 
+KUBERNETES = {
+    "src/api/go.mod": "module example.com/shop/api\n",
+    "src/api/main.go": "package main\n",
+    "src/web/package.json": '{"name": "web"}',
+    "skaffold.yaml": "apiVersion: skaffold/v4beta6\nkind: Config\n"
+    "build:\n  artifacts:\n  - image: api\n    context: src/api\n",
+    "deploy/app.yaml": "apiVersion: apps/v1\nkind: Deployment\n"
+    "metadata: {name: api, namespace: shop}\n"
+    "spec:\n  template:\n    metadata:\n      labels: {app: api, tier: be}\n"
+    "    spec:\n      containers:\n      - {name: server, image: api}\n"
+    "---\napiVersion: v1\nkind: Service\n"
+    "metadata: {name: api, namespace: shop}\nspec:\n  selector: {app: api}\n"
+    "---\napiVersion: v1\nkind: Service\n"
+    "metadata: {name: other-namespace}\nspec:\n  selector: {app: api}\n"
+    "---\napiVersion: v1\nkind: Service\n"
+    "metadata: {name: headless, namespace: shop}\nspec: {}\n",
+    "deploy/web.yaml": "apiVersion: v1\nkind: List\nitems:\n"
+    "- apiVersion: batch/v1\n  kind: CronJob\n"
+    "  metadata: {name: web-job, namespace: shop}\n"
+    "  spec:\n    jobTemplate:\n      spec:\n        template:\n"
+    "          metadata: {labels: {app: web}}\n"
+    "          spec: {containers: [{name: c, image: 'gcr.io/x/web:1'}]}\n",
+    "elsewhere/svc.yaml": "apiVersion: v1\nkind: Service\n"
+    "metadata: {name: api, namespace: shop}\nspec:\n  selector: {app: api}\n",
+    "chart/templates/deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\n"
+    "metadata:\n  name: {{ .Release.Name }}\n",
+    "ci.yml": "on: push\njobs: {}\n",
+}
+
+
+@unittest.skipUnless(YAML, "Provision PyYAML")
+class KubernetesTests(unittest.TestCase):
+    def test_objects_selectors_and_skaffold_contexts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, KUBERNETES)
+            output = asyncio.run(ComponentsTool(directory).analyze("repo"))
+        self.assertEqual(output.metadata.custom_metrics["analysis_status"], "succeeded")
+        units = {
+            n.properties["name"]: n.properties
+            for n in output.nodes
+            if n.properties.get("kind") in {"k8s_workload", "k8s_service"}
+        }
+        self.assertEqual(
+            sorted(units),
+            [
+                "CronJob/shop/web-job",
+                "Deployment/shop/api",
+                "Service/other-namespace",
+                "Service/shop/api",
+                "Service/shop/headless",
+            ],
+        )
+        api = units["Deployment/shop/api"]
+        self.assertEqual(api["root"], "src/api")
+        self.assertEqual(api["labels"], ["app=api", "tier=be"])
+        self.assertEqual(api["images"], ["api"])
+        self.assertNotIn("root", units["CronJob/shop/web-job"])
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].split("::")[-2],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type in {"SELECTS", "DEPLOYS"}
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "DEPLOYS",
+                    "CronJob/shop/web-job",
+                    "node_package",
+                    "components.k8s-image-name",
+                ),
+                (
+                    "DEPLOYS",
+                    "Deployment/shop/api",
+                    "go_module",
+                    "components.k8s-skaffold-context",
+                ),
+                (
+                    "SELECTS",
+                    "Service/shop/api",
+                    "Deployment/shop/api",
+                    "components.k8s-service-selector",
+                ),
+            ],
+        )
+        part_of = sorted(
+            r.target_match["qualified_name"].split("::")[-2]
+            for r in output.relationships
+            if r.type == "PART_OF"
+            and r.source_match["qualified_name"] == "repo::src/api/go.mod::file"
+        )
+        self.assertEqual(part_of, ["Deployment/shop/api", "go_module"])
+
+
 @unittest.skipUnless(
     READY and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
     "Provision isolated Neo4j and the python extra",
