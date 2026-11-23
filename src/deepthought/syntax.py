@@ -1392,6 +1392,128 @@ def _callee(node, content, rust=False):
     return None
 
 
+_PYTHON_COMPREHENSIONS = {
+    "list_comprehension",
+    "set_comprehension",
+    "dictionary_comprehension",
+    "generator_expression",
+}
+_PYTHON_SCOPES = {"function_definition", "lambda", "class_definition"}
+_PYTHON_PATTERNS = {
+    "pattern_list",
+    "tuple_pattern",
+    "list_pattern",
+    "tuple",
+    "list",
+    "parenthesized_expression",
+    "list_splat_pattern",
+    "dictionary_splat_pattern",
+    "as_pattern_target",
+}
+
+
+def _python_targets(node, content, found):
+    """Add the names a binding target binds (``a``, ``a, *b``); an attribute
+    or subscript target binds no name."""
+    if node is None:
+        return
+    if node.type == "identifier":
+        found.add(_text(node, content))
+    elif node.type in _PYTHON_PATTERNS:
+        for child in node.named_children:
+            _python_targets(child, content, found)
+
+
+def _python_parameters(parameters, content, found):
+    for item in parameters.named_children if parameters is not None else ():
+        name = item.child_by_field_name("name")
+        if name is not None:
+            found.add(_text(name, content))
+        elif item.type == "typed_parameter":
+            _python_targets(item.named_children[0], content, found)
+        else:
+            _python_targets(item, content, found)
+
+
+def _python_bindings(scope, content):
+    """(names bound in a function, lambda or comprehension scope, names it
+    declares ``global`` or with a nested ``def`` or ``class``, which the
+    lexical rule resolves as before even when also assigned). A function binds its parameters and every name it
+    assigns, iterates into, catches, opens with ``as``, deletes, captures
+    in a ``case`` or assigns with ``:=``, wherever in its body (a
+    ``nonlocal`` name is bound in an enclosing function already); nested
+    functions, classes, lambdas and comprehensions are scopes of their own
+    (an ``:=`` in a comprehension still binds in the function). Imports and
+    nested ``def``/``class`` names are declarations, resolved as before."""
+    bound, declared = set(), set()
+    if scope.type in _PYTHON_COMPREHENSIONS:
+        for clause in scope.named_children:
+            if clause.type == "for_in_clause":
+                _python_targets(clause.child_by_field_name("left"), content, bound)
+        return bound, declared
+    _python_parameters(scope.child_by_field_name("parameters"), content, bound)
+    # A comprehension's body is walked: only `:=` binds there.
+    stack = [scope.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        if node.type == "named_expression":
+            _python_targets(node.child_by_field_name("name"), content, bound)
+        elif node.type in {"assignment", "augmented_assignment", "for_statement"}:
+            _python_targets(node.child_by_field_name("left"), content, bound)
+        elif node.type == "as_pattern":
+            _python_targets(node.child_by_field_name("alias"), content, bound)
+        elif node.type == "delete_statement":
+            for child in node.named_children:
+                _python_targets(child, content, bound)
+        elif node.type == "global_statement":
+            declared |= {_text(c, content) for c in node.named_children}
+        elif (
+            node.type == "dotted_name"
+            and node.parent.type == "case_pattern"
+            and len(node.named_children) == 1
+        ):
+            # `case f:` and `case [f]:` capture; `case C.x:` compares.
+            bound.add(_text(node, content))
+        if node.type not in _PYTHON_SCOPES:
+            stack.extend(node.named_children)
+        elif node.type != "lambda":
+            # A nested `def` or `class` declares its name in this scope.
+            declared.add(_text(node.child_by_field_name("name"), content))
+    return bound, declared
+
+
+def _python_shadowed(node, content, callee, cache):
+    """Whether the first name of a Python call's callee is bound in a
+    function, lambda or comprehension around the call, so that it does not
+    name a module-level declaration or import. True or None."""
+    head = callee.split(".")[0]
+    child, scope = node, node.parent
+    while scope is not None:
+        inside = False
+        if scope.type in {"function_definition", "lambda"}:
+            inside = child == scope.child_by_field_name("body")
+        elif scope.type in _PYTHON_COMPREHENSIONS:
+            # The first iterable is evaluated in the enclosing scope.
+            first = next(
+                (c for c in scope.named_children if c.type == "for_in_clause"), None
+            )
+            inside = first is None or child != first
+        elif scope.type == "class_definition":
+            # Names a class body binds are not seen in its methods.
+            pass
+        if inside:
+            key = (scope.start_byte, scope.end_byte, scope.type)
+            if key not in cache:
+                cache[key] = _python_bindings(scope, content)
+            bound, declared = cache[key]
+            if head in declared:
+                return None
+            if head in bound:
+                return True
+        child, scope = scope, scope.parent
+    return None
+
+
 def _java_anonymous(node, content, spans, symbols):
     """Anonymous classes around a Java call, innermost first; None when
     there are none or for other languages.
@@ -1450,7 +1572,8 @@ def extract_call_sites(
         reverse=True,
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
-    sites, ordinals = [], {}
+    python = tree.root_node.type == "module"
+    sites, ordinals, bindings = [], {}, {}
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
@@ -1477,6 +1600,9 @@ def extract_call_sites(
                         caller_id=caller,
                         arguments=_java_arguments(node),
                         anonymous=_java_anonymous(node, content, spans, symbols),
+                        shadowed=_python_shadowed(node, content, callee, bindings)
+                        if python
+                        else None,
                     )
                 )
         stack.extend(reversed(children(node)))
