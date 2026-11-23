@@ -19,6 +19,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/core/.../context/context_service.py | deepthought.graph_queries | File/line context, neighbouring relationships, fulltext search and file navigation |
 | applications/unified-server/src/main.py MCP tools | deepthought.graph_mcp | getCodeContext, getFileStructure and searchCodeElements |
 | libs/storage/.../graph/updater.py and utils/git_utils.py `Repository.last_commit` | deepthought.revisions + WriteCoordinator.link_commit + GraphQueryService.list_snapshots | Each immutable snapshot lists the commits it was analyzed at, instead of one mutable last commit per repository (see below) |
+| libs/storage/.../graph/updater.py AST change detection (`apply_ast_diff`) | GraphQueryService.diff_snapshots | Read-only comparison of two immutable snapshots instead of mutating one graph (see below) |
 | libs/analysis/.../engine/data_access/graph_repository.py calls/imports (not exposed to agents in the original) | deepthought.graph_mcp + graph_cli | getFunctionCallers, getFunctionCalls, getFileImports, getFileImporters and explainEdge (see below) |
 | applications/unified-server/src/main.py /api/v1/graph/query | deepthought.graph_queries + graph_cli/graph_mcp | Cypher execution, adapted to CLI and optional queryGraph MCP transport |
 | Original analyzer repository/file projection | deepthought.analysis_tools.tree_sitter | Repository -> CONTAINS -> File -> DEFINES -> declaration |
@@ -177,6 +178,26 @@ complete snapshots, newest first, with their content hash, tool, counts and
 commits; with a commit, only snapshots linked to it. Commit names must be full
 lowercase hex. Queries still select one snapshot explicitly.
 
+## Graph diff
+
+`diff_snapshots(repo, base_snapshot_id=..., head_snapshot_id=...)` (CLI `diff`,
+MCP `diffSnapshots`) compares two complete snapshots of one repository:
+
+- Nodes are matched by qualified name. Declaration identities do not depend on
+  source positions, so a declaration that only moved is `changed` (for example its
+  `start_line`), not removed and added. A node is changed when its labels or any
+  stored property differ; each changed node lists the differing properties with
+  their base and head values.
+- Edges are matched by `edge_id`, the content hash of their type, endpoints and
+  properties. An edge whose properties changed, such as a call that moved to
+  another line, is listed as removed and added.
+
+Every category (`nodes.added`, `nodes.removed`, `nodes.changed`, `edges.added`,
+`edges.removed`) is always counted in `summary`; `changes` (CLI: repeat
+`--change`) selects which categories list items. Listings are ordered and bounded
+by `limit` and the output byte budget; counts are not. Together with
+`list_snapshots(commit=...)`, this compares the graphs of two commits.
+
 ## Edge queries
 
 Callers, callees, imports and importers return each stored edge with its
@@ -235,6 +256,7 @@ deepthought-graph callers --repository-id public-project --snapshot REVISION \
   --symbol QUALIFIED_NAME --evidence resolved
 deepthought-graph explain-edge --repository-id public-project --snapshot REVISION --edge-id EDGE_ID
 deepthought-graph snapshots --repository-id public-project --commit FULL_COMMIT_HASH
+deepthought-graph diff --repository-id public-project --base BASE_REVISION --head HEAD_REVISION
 ```
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
@@ -246,7 +268,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getFileImports`, `getFileImporters`,
-`explainEdge`) and `listSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access

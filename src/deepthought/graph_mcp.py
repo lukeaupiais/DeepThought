@@ -98,6 +98,33 @@ def create_server():
             repository_id, commit=commit, limit=max_elements
         )
 
+    @server.tool()
+    async def diffSnapshots(
+        repository_id: str,
+        base_snapshot_id: str,
+        head_snapshot_id: str,
+        ctx: Context,
+        changes: list[
+            Literal[
+                "nodes.added",
+                "nodes.removed",
+                "nodes.changed",
+                "edges.added",
+                "edges.removed",
+            ]
+        ]
+        | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Count and list nodes and edges added, removed or changed between snapshots."""
+        return await ctx.request_context.lifespan_context.diff_snapshots(
+            repository_id,
+            base_snapshot_id=base_snapshot_id,
+            head_snapshot_id=head_snapshot_id,
+            changes=changes,
+            limit=max_elements,
+        )
+
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
 
     @server.tool()

@@ -279,6 +279,174 @@ class GraphQueryService:
             raise ValueError("Query response exceeds output byte budget")
         return response
 
+    _DIFF_CATEGORIES = (
+        "nodes.added",
+        "nodes.removed",
+        "nodes.changed",
+        "edges.added",
+        "edges.removed",
+    )
+    # A node in both snapshots changed when its labels or any stored property
+    # (other than its snapshot) differ. Stored properties are never null.
+    _NODE_CHANGED = (
+        "(size(labels(n))<>size(labels(o)) OR any(l IN labels(n) WHERE NOT l IN labels(o)) "
+        "OR size(keys(n))<>size(keys(o)) OR any(k IN keys(n) WHERE k<>'snapshot_id' "
+        "AND (NOT k IN keys(o) OR n[k]<>o[k])))"
+    )
+    _NODE = (
+        "n {.qualified_name,.name,.kind,.file_path,.path,.start_line,.end_line,"
+        "labels:labels(n)}"
+    )
+
+    async def diff_snapshots(
+        self,
+        repo_url,
+        *,
+        base_snapshot_id,
+        head_snapshot_id,
+        changes=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=10,
+    ):
+        """Compare two complete snapshots of one repository.
+
+        Nodes are matched by qualified name, which does not depend on source
+        positions. Edges are matched by edge_id, the content hash of their type,
+        endpoints and properties, so an edge whose properties change (for example
+        a call moved to another line) is reported removed and added. ``changes``
+        selects which categories list items; every category is always counted.
+        """
+        _text(base_snapshot_id, "base_snapshot_id")
+        _text(head_snapshot_id, "head_snapshot_id")
+        if changes is None:
+            changes = self._DIFF_CATEGORIES
+        if (
+            isinstance(changes, str)
+            or not isinstance(changes, (list, tuple, set, frozenset))
+            or not changes
+            or not set(changes) <= set(self._DIFF_CATEGORIES)
+        ):
+            raise ValueError(
+                "changes must be a nonempty subset of "
+                + ", ".join(self._DIFF_CATEGORIES)
+            )
+        bounds = dict(max_output_bytes=max_output_bytes, timeout=timeout)
+        counts = []
+        for scope, other in (
+            (head_snapshot_id, base_snapshot_id),
+            (base_snapshot_id, head_snapshot_id),
+        ):
+            # Reading in each scope also checks that both snapshots are complete.
+            row = {}
+            for statement in (
+                """MATCH (n:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})
+                OPTIONAL MATCH (o:GraphNode {repo_url:$repo_url,snapshot_id:$other,
+                    qualified_name:n.qualified_name})
+                RETURN count(n) AS nodes,count(n)-count(o) AS nodes_only,
+                    sum(CASE WHEN o IS NOT NULL AND """
+                + self._NODE_CHANGED
+                + " THEN 1 ELSE 0 END) AS nodes_changed",
+                """MATCH (s:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})-[r]->
+                    (:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})
+                OPTIONAL MATCH (os:GraphNode {repo_url:$repo_url,snapshot_id:$other,
+                    qualified_name:s.qualified_name})
+                RETURN count(r) AS edges,sum(CASE WHEN os IS NOT NULL AND EXISTS {
+                    MATCH (os)-[r2]->() WHERE r2._dt_edge_id=r._dt_edge_id
+                } THEN 0 ELSE 1 END) AS edges_only""",
+            ):
+                result = await self._read(
+                    statement, {"other": other}, repo_url, scope, limit=1, **bounds
+                )
+                row.update(result["items"][0])
+            counts.append(row)
+        head, base = counts
+        summary = {
+            "nodes": {
+                "added": head["nodes_only"],
+                "removed": base["nodes_only"],
+                "changed": head["nodes_changed"],
+                "unchanged": head["nodes"] - head["nodes_only"] - head["nodes_changed"],
+            },
+            "edges": {
+                "added": head["edges_only"],
+                "removed": base["edges_only"],
+                "unchanged": head["edges"] - head["edges_only"],
+            },
+        }
+        listed = {}
+        for category in self._DIFF_CATEGORIES:
+            if category not in changes:
+                continue
+            element, change = category.split(".")
+            scope, other = (
+                (base_snapshot_id, head_snapshot_id)
+                if change == "removed"
+                else (head_snapshot_id, base_snapshot_id)
+            )
+            if element == "nodes":
+                statement = (
+                    "MATCH (n:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+                    "OPTIONAL MATCH (o:GraphNode {repo_url:$repo_url,snapshot_id:$other,"
+                    "qualified_name:n.qualified_name}) "
+                    + (
+                        "WITH n,o WHERE o IS NULL RETURN " + self._NODE + " AS node "
+                        if change != "changed"
+                        else "WITH n,o WHERE o IS NOT NULL AND "
+                        + self._NODE_CHANGED
+                        + " RETURN "
+                        + self._NODE
+                        + " AS node,"
+                        "[k IN keys(n) WHERE k<>'snapshot_id' AND NOT k STARTS WITH '_dt_' "
+                        "AND (NOT k IN keys(o) OR n[k]<>o[k]) | {key:k,base:o[k],head:n[k]}]"
+                        "+[k IN keys(o) WHERE NOT k IN keys(n) AND NOT k STARTS WITH '_dt_' "
+                        "| {key:k,base:o[k],head:null}] AS properties,"
+                        "CASE WHEN size(labels(n))<>size(labels(o)) OR any(l IN labels(n) "
+                        "WHERE NOT l IN labels(o)) THEN {base:labels(o),head:labels(n)} "
+                        "END AS labels "
+                    )
+                    + "ORDER BY n.qualified_name LIMIT $fetch_limit"
+                )
+            else:
+                statement = (
+                    "MATCH (s:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id})-[r]->"
+                    "(t:GraphNode {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+                    "OPTIONAL MATCH (os:GraphNode {repo_url:$repo_url,snapshot_id:$other,"
+                    "qualified_name:s.qualified_name}) "
+                    "WITH s,r,t,os WHERE os IS NULL OR NOT EXISTS { "
+                    "MATCH (os)-[r2]->() WHERE r2._dt_edge_id=r._dt_edge_id } "
+                    "RETURN r._dt_edge_id AS edge_id,type(r) AS type,"
+                    "s.qualified_name AS source,t.qualified_name AS target,"
+                    "r.evidence_type AS evidence_type,r.rule_id AS rule_id,r.line AS line "
+                    "ORDER BY type,source,target,edge_id LIMIT $fetch_limit"
+                )
+            rows = await self._read(
+                statement, {"other": other}, repo_url, scope, limit=limit, **bounds
+            )
+            listed[category] = {"items": rows["items"], "truncated": rows["truncated"]}
+        response = {
+            "repo_url": repo_url,
+            "base_snapshot_id": base_snapshot_id,
+            "head_snapshot_id": head_snapshot_id,
+            "status": "succeeded",
+            "scope": "repository_snapshots",
+            "summary": summary,
+            "changes": listed,
+            "truncated": any(item["truncated"] for item in listed.values()),
+            "semantics": (
+                "Nodes match by qualified name and edges by content; an edge whose "
+                "properties changed is listed as removed and added."
+            ),
+        }
+        # Trim the longest listings first until the response fits its budget.
+        while len(_json(response).encode()) > max_output_bytes:
+            longest = max(listed.values(), key=lambda item: len(item["items"]))
+            if not longest["items"]:
+                raise ValueError("Query metadata exceeds the output byte budget")
+            longest["items"].pop()
+            longest["truncated"] = response["truncated"] = True
+        return response
+
     async def search_elements(
         self,
         query,
