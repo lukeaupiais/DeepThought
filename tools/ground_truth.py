@@ -1,0 +1,373 @@
+"""Ground-truth corpus: compiler-derived expected call edges and scoring.
+
+Expected edges come from a compiler or language server's SCIP index, never
+from the engine's own extraction, so a regression in a rule cannot move its
+own yardstick.
+
+A *call* in the ground truth is a reference occurrence that the source text
+shows is applied to an argument list: the occurrence is followed, on the same
+line, by ``(``, optionally after a ``::<...>`` or ``<...>`` generic argument
+list. The key ``(file, line, name)`` is a source position with the name as
+written, so any extractor's call site can be judged against it. Its targets
+are where the oracle says the name leads, with a kind:
+
+  callable   an in-repository function, method or type (descriptor ending
+             ``().`` or ``#``): each line that defines it
+  value      another in-repository symbol (``const f = () => ...``, a
+             field): each line that defines it
+  external   a symbol defined outside the repository (library, builtin)
+  local      a local binding (parameter, loop variable, local function):
+             the line that binds it
+
+Only calls with a callable target are *expected* (the recall denominator);
+the others let a link at that position be judged right or wrong.
+
+Subcommands:
+  derive WORKSPACE INDEX                   write expected calls (TSV) to stdout
+  score WORKSPACE TRUTH --language L       score the engine against a TSV
+  check [--corpus NAME ...] [--cache DIR]  fetch each pinned corpus, score it
+                                           and compare with the baseline
+
+Scores (calls):
+  confirmed     linked, and the target is one the oracle names
+  contradicted  linked, the oracle judges the position, names other targets
+  unjudged      linked at a position the oracle records no call at
+  missed        an expected call with no confirmed engine link
+  precision = confirmed / (confirmed + contradicted)
+  recall    = expected calls with a confirmed link / expected calls
+"""
+
+import argparse
+from collections import Counter
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+CORPUS = ROOT / "evals" / "ground_truth"
+HEADER = "# file\tline\tname\ttarget_file\ttarget_line\tkind"
+_NAME = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+_DECLARES = re.compile(
+    r"(?:\b(?:def|fn|func|function|class|struct|trait)|\bfunc\s*\([^)]*\))\s+$"
+)
+_GENERIC = re.compile(r"(?:::)?<[^<>()]*(?:<[^<>()]*>[^<>()]*)*>")
+
+
+def _descriptor_name(native_id):
+    names = _NAME.findall(native_id.split(" ", 4)[-1])
+    return names[-1] if names else None
+
+
+def _callable(native_id):
+    return native_id.endswith(("().", "#")) and not native_id.startswith("local ")
+
+
+def _slice(text, start, end, encoding):
+    """Characters ``start:end`` of a line in the index's coordinate units."""
+    if encoding == "utf-8":
+        return text.encode("utf-8")[start:end].decode("utf-8", "replace")
+    if encoding == "utf-16":
+        stop = None if end is None else 2 * end
+        return text.encode("utf-16-le")[2 * start : stop].decode("utf-16-le", "replace")
+    return text[start:end]
+
+
+def _applied(rest):
+    """Whether the text after a name occurrence opens an argument list."""
+    generic = _GENERIC.match(rest)
+    if generic:
+        rest = rest[generic.end() :]
+    return rest.lstrip(" \t").startswith("(")
+
+
+def derive(workspace, index):
+    """Expected calls and the files the oracle indexed.
+
+    Returns ``({(file, line, name): {(target_file, target_line)}}, files)``.
+    The name is the one written at the occurrence. A constructor's targets
+    include its class, since a call that names a class is a construction.
+    """
+    import deepthought
+
+    source = deepthought.ingest_scip(index, repository_id="ground-truth")
+    workspace = Path(workspace)
+    indexed = {c.file for c in source.coverage}
+    defined, bound = {}, {}
+    for d in source.definitions:
+        if d.native_id.startswith("local "):
+            # Local symbols are scoped to their document.
+            bound.setdefault((d.file, d.native_id), set()).add(
+                (d.file, d.line, "local")
+            )
+        elif d.native_id:
+            kind = "callable" if _callable(d.native_id) else "value"
+            defined.setdefault(d.native_id, set()).add((d.file, d.line, kind))
+    for native, locations in list(defined.items()):
+        if native.endswith("`<constructor>`()."):
+            owner = native[: -len("`<constructor>`().")]
+            locations |= {
+                (file, line, "callable") for file, line, _ in defined.get(owner, ())
+            }
+    lines = {}
+    expected = {}
+    for r in source.references:
+        if r.line != r.end_line:
+            continue
+        if r.file not in lines:
+            try:
+                lines[r.file] = (workspace / r.file).read_text("utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                lines[r.file] = []
+        text = lines[r.file]
+        if r.line > len(text):
+            continue
+        line = text[r.line - 1]
+        encoding = r.coordinate_encoding
+        written = _slice(line, r.column, r.end_column, encoding)
+        name = written if _NAME.fullmatch(written) else _descriptor_name(r.native_id)
+        if not name or not _applied(_slice(line, r.end_column, None, encoding)):
+            continue
+        if _DECLARES.search(_slice(line, 0, r.column, encoding)):
+            # A declaration the index records as a reference (scip-python
+            # marks each @overload this way), not a call.
+            continue
+        if r.native_id in defined:
+            targets = defined[r.native_id]
+        elif r.native_id.startswith("local "):
+            targets = bound.get((r.file, r.native_id), {("-", 0, "local")})
+        else:
+            targets = {("-", 0, "external")}
+        expected.setdefault((r.file, r.line, name), set()).update(targets)
+    return expected, indexed
+
+
+def write_truth(expected, indexed, stream):
+    stream.write(HEADER + "\n")
+    for file in sorted(indexed):
+        stream.write(f"# indexed\t{file}\n")
+    for (file, line, name), targets in sorted(expected.items()):
+        for target in sorted(targets):
+            stream.write("\t".join(map(str, (file, line, name, *target))) + "\n")
+
+
+def read_truth(path):
+    expected, indexed = {}, set()
+    for row in Path(path).read_text("utf-8").splitlines():
+        if row.startswith("# indexed\t"):
+            indexed.add(row.split("\t", 1)[1])
+        if not row or row.startswith("#"):
+            continue
+        file, line, name, target_file, target_line, kind = row.split("\t")
+        expected.setdefault((file, int(line), name), set()).add(
+            (target_file, int(target_line), kind)
+        )
+    return expected, indexed
+
+
+def score(result, truth, examples=10):
+    """Judge every engine call resolution against expected calls."""
+    from deepthought.calls import resolve_calls
+
+    positions, indexed = truth
+    expected = {
+        k
+        for k, targets in positions.items()
+        if any(kind == "callable" for _, _, kind in targets)
+    }
+    by_id = {d.id: d for d in result.definitions}
+    sites = {s.id: s for s in result.call_sites}
+    outcomes = Counter()
+    found = set()
+    samples = {}
+    # Why each expected call has no confirmed link, by engine outcome.
+    near = {}
+    for resolution in resolve_calls(result):
+        site = sites[resolution.call_id]
+        name = re.split(r"::|\.", site.callee)[-1]
+        keys = [
+            (site.file, line, name)
+            for line in range(site.line, site.end_line + 1)
+            if (site.file, line, name) in positions
+        ]
+        ids = [i for i in (resolution.target_id, *resolution.candidates) if i]
+        ours = [(by_id[i].file, by_id[i].line) for i in ids]
+        targets = {t[:2] for k in keys for t in positions[k]}
+        if resolution.status == "linked":
+            if not keys:
+                outcome = "unjudged" if site.file in indexed else "not_indexed"
+            elif ours[0] in targets:
+                outcome = "confirmed"
+                found.update(
+                    k for k in keys if ours[0] in {t[:2] for t in positions[k]}
+                )
+            else:
+                outcome = "contradicted"
+        elif resolution.status == "ambiguous":
+            outcome = (
+                "ambiguous_unjudged"
+                if not keys or not set(keys) & expected
+                else "ambiguous_no_candidates"
+                if not ours
+                else "ambiguous_includes"
+                if targets & set(ours)
+                else "ambiguous_excludes"
+            )
+        else:
+            outcome = (
+                "unresolved_expected" if set(keys) & expected else "unresolved_unjudged"
+            )
+        outcomes[outcome] += 1
+        for key in set(keys) & expected:
+            near.setdefault(key, f"{resolution.status}:{resolution.reason or 'linked'}")
+        if outcome in {"contradicted", "ambiguous_excludes", "unjudged"}:
+            samples.setdefault(outcome, []).append(
+                [site.file, site.line, site.callee, ours[:3], sorted(targets)[:3]]
+            )
+    found &= expected
+    missed = sorted(expected - found)
+    why = Counter(near.get(k, "no_call_site") for k in missed)
+    judged = outcomes["confirmed"] + outcomes["contradicted"]
+    report = {
+        "expected": len(expected),
+        **{k: outcomes[k] for k in sorted({"confirmed", "contradicted", *outcomes})},
+        "missed": len(missed),
+        "missed_by_engine_outcome": dict(sorted(why.items())),
+        "precision": round(outcomes["confirmed"] / judged, 4) if judged else None,
+        "recall": round(len(found) / len(expected), 4) if expected else None,
+    }
+    samples["missed"] = [[*k, near.get(k, "no_call_site")] for k in missed]
+    return report, {k: v[:examples] for k, v in sorted(samples.items())}
+
+
+def analyze(workspace, languages, exclude=()):
+    import deepthought
+
+    return deepthought.analyze_repository(
+        Path(workspace).resolve(),
+        repository_id="ground-truth",
+        languages=tuple(languages),
+        exclude=tuple(exclude),
+        max_files=100_000,
+        max_total_bytes=1_000_000_000,
+    )
+
+
+def fetch(corpus, cache):
+    """A clean checkout of the corpus's pinned commit under ``cache``."""
+    target = Path(cache) / corpus["name"]
+    if not (target / ".git").is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+        subprocess.run(
+            ["git", "-C", str(target), "remote", "add", "origin", corpus["url"]],
+            check=True,
+        )
+    head = subprocess.run(
+        ["git", "-C", str(target), "rev-parse", "-q", "--verify", "HEAD"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if head != corpus["commit"]:
+        subprocess.run(
+            ["git", "-C", str(target), "fetch", "-q", "--depth", "1", "origin"]
+            + [corpus["commit"]],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(target), "checkout", "-q", "--detach", "FETCH_HEAD"],
+            check=True,
+        )
+    subprocess.run(
+        ["git", "-C", str(target), "clean", "-qfdx"], check=True
+    )  # Nothing but the pinned tree is analyzed.
+    return target
+
+
+def regressions(report, baseline):
+    """Ways ``report`` is worse than ``baseline``; empty when no worse."""
+    problems = []
+    if report["contradicted"] > baseline["contradicted"]:
+        problems.append(
+            f"contradicted {baseline['contradicted']} -> {report['contradicted']}"
+        )
+    if report["confirmed"] < baseline["confirmed"]:
+        problems.append(f"confirmed {baseline['confirmed']} -> {report['confirmed']}")
+    if report["expected"] != baseline["expected"]:
+        problems.append(
+            f"expected {baseline['expected']} -> {report['expected']} "
+            "(the truth file changed; update the baseline in the same commit)"
+        )
+    return problems
+
+
+def check(names, cache, update=False, examples=10):
+    manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
+    baseline_path = CORPUS / "baseline.json"
+    baseline = json.loads(baseline_path.read_text("utf-8"))
+    reports, failed = {}, False
+    for corpus in manifest["corpora"]:
+        if names and corpus["name"] not in names:
+            continue
+        workspace = fetch(corpus, cache)
+        expected = read_truth(CORPUS / corpus["truth"])
+        result = analyze(workspace, corpus["languages"], corpus.get("exclude", ()))
+        report, samples = score(result, expected, examples)
+        problems = (
+            regressions(report, baseline[corpus["name"]])
+            if (corpus["name"] in baseline and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            **report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            baseline[corpus["name"]] = report
+    if update:
+        baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
+    return reports, failed
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    d = sub.add_parser("derive")
+    d.add_argument("workspace", type=Path)
+    d.add_argument("index", type=Path)
+    s = sub.add_parser("score")
+    s.add_argument("workspace", type=Path)
+    s.add_argument("truth", type=Path)
+    s.add_argument("--language", action="append", required=True)
+    s.add_argument("--exclude", action="append", default=[])
+    c = sub.add_parser("check")
+    c.add_argument("--corpus", action="append", default=[])
+    c.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
+    c.add_argument("--update-baseline", action="store_true")
+    for p in (s, c):
+        p.add_argument("--examples", type=int, default=10)
+    args = parser.parse_args(argv)
+    if args.command == "derive":
+        write_truth(*derive(args.workspace, args.index), sys.stdout)
+        return 0
+    if args.command == "score":
+        report, samples = score(
+            analyze(args.workspace, args.language, args.exclude),
+            read_truth(args.truth),
+            args.examples,
+        )
+        print(json.dumps({**report, "examples": samples}, indent=2))
+        return 0
+    reports, failed = check(
+        set(args.corpus), args.cache, args.update_baseline, args.examples
+    )
+    print(json.dumps(reports, indent=2))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
