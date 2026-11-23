@@ -193,6 +193,12 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
             resolutions.append(_python(item, files, roots))
         elif language == "javascript":
             resolutions.append(_javascript(item, files))
+        elif language == "go":
+            # Go imports name packages by module path, which go.mod defines;
+            # the analysis does not read it, so no file is claimed.
+            resolutions.append(
+                ImportResolution(item.id, "unresolved", reason="go_module_path")
+            )
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)

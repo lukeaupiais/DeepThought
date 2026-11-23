@@ -29,7 +29,8 @@ found equal declaration accuracy and increased token use with raw tool output.
 
 This local alpha extracts named declarations, static import statements, named
 call sites and declared class and interface bases from Python and TypeScript/TSX, and from JavaScript/JSX
-(`.js`, `.jsx`, `.mjs`, `.cjs`) when `--language javascript` is selected, preserves namespace and quoted ambient-module owners in declaration names,
+(`.js`, `.jsx`, `.mjs`, `.cjs`) when `--language javascript` is selected, and
+Go declarations and import facts when `--language go` is selected, preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. The `scip` graph tool stores TypeScript references
 from a source-bound scip-typescript index in Neo4j (see
@@ -42,7 +43,7 @@ instantiations, inheritance or architectural roles from reference occurrences.
 Provision dependencies separately:
 
 ```sh
-pip install '.[python,typescript,scip]'  # add javascript for JavaScript sources
+pip install '.[python,typescript,scip]'  # add javascript or go for those sources
 deepthought analyze ./workspace --repository-id my-project --language python
 deepthought ingest-scip ./index.scip --repository-id my-project
 deepthought compose ./analysis.json ./dependency-analysis.json

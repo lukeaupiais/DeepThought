@@ -60,7 +60,9 @@ def parser():
     )
     index.add_argument("--repository-id", required=True)
     index.add_argument(
-        "--language", action="append", choices=("javascript", "python", "typescript")
+        "--language",
+        action="append",
+        choices=("go", "javascript", "python", "typescript"),
     )
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
