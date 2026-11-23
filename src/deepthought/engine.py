@@ -330,7 +330,7 @@ def analyze_repository(
                 supertypes.extend(
                     extract_supertypes(tree, content, repository_id, relative, declared)
                 )
-                if language == "go":
+                if language in {"go", "java"}:
                     packages.extend(
                         extract_packages(tree, content, repository_id, relative)
                     )

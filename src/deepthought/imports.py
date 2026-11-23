@@ -20,6 +20,9 @@ TYPESCRIPT_RELATIVE_MODULE = "tree-sitter.typescript-relative-module"
 JAVASCRIPT_RELATIVE_FILE = "tree-sitter.javascript-relative-file"
 JAVASCRIPT_EXTENSIONLESS_MODULE = "tree-sitter.javascript-extensionless-module"
 GO_MODULE_PACKAGE = "tree-sitter.go-module-package"
+JAVA_PACKAGE_MEMBER = "tree-sitter.java-package-member"
+JAVA_SAME_SOURCE_ROOT = "tree-sitter.java-same-source-root"
+_JAVA_TYPES = frozenset({"Class", "Interface", "Enum", "Record", "Annotation"})
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
 _TS_INDEX = ("/index.ts", "/index.tsx", "/index.d.ts")
@@ -206,7 +209,11 @@ def _go_packages(result: AnalysisResult):
     """
     names = defaultdict(lambda: defaultdict(list))
     for item in result.packages:
-        if item.kind == "package" and not item.file.endswith("_test.go"):
+        if (
+            item.kind == "package"
+            and item.file.endswith(".go")
+            and not item.file.endswith("_test.go")
+        ):
             names[posixpath.dirname(item.file)][item.name].append(item.file)
     packages = {}
     for directory, by_name in names.items():
@@ -255,12 +262,96 @@ def _go(item: Import, modules, packages):
     )
 
 
+def _java_index(result: AnalysisResult):
+    """Java packages and importable types, each mapped to source root -> files.
+
+    A file's source root is its directory above the path its package names
+    (``src/main/java`` for ``src/main/java/a/b/C.java`` in package ``a.b``).
+    Files outside such a path, or in the unnamed package, are not indexed:
+    javac could not find them by name. A type is importable when every
+    enclosing declaration is a type too, so local classes are not. A package
+    maps to the files declaring a type in it.
+    """
+    java = {i.file for i in result.coverage if i.language == "java"}
+    roots, packages, types = {}, defaultdict(dict), defaultdict(dict)
+    for clause in result.packages:
+        directory = posixpath.dirname(clause.file)
+        path = clause.name.replace(".", "/")
+        if clause.file not in java or not (
+            directory == path or directory.endswith("/" + path)
+        ):
+            continue
+        root = directory[: len(directory) - len(path)].rstrip("/")
+        roots[clause.file] = root
+    declared = defaultdict(dict)
+    for d in result.definitions:
+        if d.file in roots:
+            declared[d.file].setdefault(d.symbol, set()).add(d.kind)
+    for clause in result.packages:
+        root = roots.get(clause.file)
+        if root is None:
+            continue
+        symbols = declared[clause.file]
+        for symbol, kinds in symbols.items():
+            parts = symbol.split(".")
+            if all(
+                symbols.get(".".join(parts[:i]), set()) & _JAVA_TYPES
+                for i in range(1, len(parts) + 1)
+            ):
+                files = types[clause.name + "." + symbol].setdefault(root, [])
+                files.append(clause.file)
+                # A package's files are those declaring a type in it;
+                # package-info.java declares none.
+                packages[clause.name].setdefault(root, []).append(clause.file)
+    return roots, packages, types
+
+
+def _java(item: Import, roots, packages, types):
+    """Link a Java import to the files declaring the type or package it names.
+
+    A wildcard names a package (every file of it) or, failing that, a type; a
+    package and a type cannot share a name. Candidates in one source root
+    resolve; across several roots, the importer's own root is preferred.
+    """
+    by_root = packages.get(item.specifier) if item.names == ("*",) else None
+    package = bool(by_root)
+    if not package:
+        by_root = types.get(item.specifier)
+    if not by_root:
+        return ImportResolution(item.id, "unresolved", reason="not_in_repository")
+    own = roots.get(item.file)
+    if len(by_root) == 1:
+        files, rule = next(iter(by_root.values())), JAVA_PACKAGE_MEMBER
+    elif own in by_root:
+        files, rule = by_root[own], JAVA_SAME_SOURCE_ROOT
+    else:
+        return ImportResolution(
+            item.id,
+            "ambiguous",
+            reason="multiple_source_roots",
+            candidates=tuple(sorted(f for fs in by_root.values() for f in fs)),
+        )
+    files = sorted(set(files))
+    if not package and len(files) > 1:
+        # One type declared by several files of the same source root.
+        return ImportResolution(
+            item.id,
+            "ambiguous",
+            reason="multiple_declarations",
+            candidates=tuple(files),
+        )
+    return ImportResolution(
+        item.id, "linked", tuple(ImportLink(file, rule) for file in files)
+    )
+
+
 def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     """One resolution per import fact, in import identity order."""
     files = {item.file for item in result.coverage}
     languages = {item.file: item.language for item in result.coverage}
     roots = ("",) + (("src",) if any(f.startswith("src/") for f in files) else ())
     modules, packages = _go_modules(result), _go_packages(result)
+    java = _java_index(result)
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
@@ -270,6 +361,8 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
             resolutions.append(_javascript(item, files))
         elif language == "go":
             resolutions.append(_go(item, modules, packages))
+        elif language == "java":
+            resolutions.append(_java(item, *java))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)

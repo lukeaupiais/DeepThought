@@ -461,7 +461,28 @@ Overloads are separate declarations with distinct identities. Lambdas and
 fields are not declarations. A declaration's text starts at its first
 annotation or modifier; a Javadoc comment before it is not part of it.
 
-Imports, packages, calls and declared bases are not recorded for Java yet.
+Each file's `package a.b;` declaration is a `packages` fact and a `package`
+property on its File node. Imports are facts: `import a.b.C;` imports type
+`a.b.C` and binds `C`; `import static a.b.C.m;` imports member `m` of type
+`a.b.C`; `import a.b.*;` imports package `a.b` (or the member types of a type
+`a.b`), named `*`. A file's source root is its directory above the path its
+package names (`src/main/java` for `src/main/java/a/b/C.java` in package
+`a.b`); files outside such a path or in the unnamed package cannot be found by
+name and are not import targets. An import links to the file declaring the
+type it names (top-level or nested; local classes are not importable), and a
+package wildcard to every file declaring a type in that package
+(`package-info.java` declares none):
+
+| Rule | Evidence | When |
+|---|---|---|
+| `tree-sitter.java-package-member` | resolved | exactly one source root declares the package or type |
+| `tree-sitter.java-same-source-root` | name_matched | several roots declare it (flavors, copies); the importer's own root is chosen, since which root a build puts on the class path is not read |
+
+Other outcomes: `not_in_repository` (JDK, libraries), ambiguous
+`multiple_source_roots` when several roots declare it and none is the
+importer's, and ambiguous `multiple_declarations` when two files of one root
+declare the same type. Build files (Maven, Gradle) are not read. Calls and
+declared bases are not recorded for Java yet.
 
 Checked against javac's own parser with
 `tools/compare_java_declarations_with_javac.py`, which runs
@@ -482,6 +503,31 @@ junit5 differences are two Java 25 compact source files: javac wraps their
 top-level methods in an implicit class named after the file, while here they
 are top-level methods. Guava's annotated varargs (`Object @Nullable ...`) make
 13 files `partial`, but every declaration in them still matches.
+
+Imports are checked against javac's own import resolution with
+`tools/compare_java_imports_with_javac.py`. It runs
+`tools/JavaImportOracle.java` once per source root: javac parses and enters
+that root's files with the root first on the source path and every other root
+after it (sorted), and reports the source files each import binds to.
+
+| Corpus | Source roots | Links confirmed by javac | Contradicted | Ambiguous, javac's file among candidates | Neither in repository |
+|---|---|---|---|---|---|
+| google/gson | 12 | 1,115 / 1,115 | 0 | 0 | 1,655 |
+| apache/commons-lang | 3 | 790 / 790 | 0 | 0 | 3,880 |
+| junit-team/junit5 | 49 | 9,893 / 9,893 | 0 | 0 | 8,117 |
+| google/guava | 25 | 8,596 / 8,597 | 1 | 8,457 | 22,189 |
+
+No import javac binds to a repository file is left unlinked. In junit5, 21
+links (27 imports) are not compared, because two imports share a line or javac
+saw the file under two nested source roots. The guava
+contradiction is an artifact of the oracle's source path order: `guava-tests`
+imports `UnsignedBytes.ArraysCompareUnsignedComparator`, a nested type only
+`guava/src` declares, and is built against `guava/src`; javac, given
+`android/guava/src` first, finds that root's `UnsignedBytes`, which lacks it.
+Guava's 8,457 ambiguous imports are test roots importing a package that both
+`guava/src` and `android/guava/src` declare; only the Maven build says which.
+The same-source-root rule is confirmed only for javac given the importer's
+root first, as it is.
 
 ## SCIP references
 

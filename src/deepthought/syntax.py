@@ -273,15 +273,53 @@ def _go_imports(node, content):
     yield _text(parts[0], content), "import", names, local_names
 
 
+def _java_name(node, content):
+    """Dotted text of a Java (scoped) identifier, without spaces or comments."""
+    if node.type == "identifier":
+        return _text(node, content)
+    scope = node.child_by_field_name("scope")
+    name = node.child_by_field_name("name")
+    if node.type != "scoped_identifier" or scope is None or name is None:
+        return None
+    prefix = _java_name(scope, content)
+    return None if prefix is None else prefix + "." + _text(name, content)
+
+
+def _java_imports(node, content):
+    """Yield one import per Java import declaration.
+
+    The specifier is the imported type or package. ``import a.b.C;`` imports
+    the type and binds ``C``; ``import static a.b.C.m;`` imports member ``m``
+    of type ``a.b.C``; ``a.b.*`` imports every type of a package or every
+    member type (or, with ``static``, static member) of a type, named ``*``.
+    """
+    if node.type != "import_declaration":
+        return
+    path = next(
+        (
+            c
+            for c in node.named_children
+            if c.type in {"scoped_identifier", "identifier"}
+        ),
+        None,
+    )
+    name = _java_name(path, content) if path is not None else None
+    if name is None:
+        return
+    if any(c.type == "asterisk" for c in node.named_children):
+        yield name, "import", ("*",), ("*",)
+    elif any(c.type == "static" for c in node.children):
+        owner, _, member = name.rpartition(".")
+        yield owner, "import", (member,), (member,)
+    else:
+        yield name, "import", (), (name.rsplit(".", 1)[-1],)
+
+
 def extract_imports(
     tree, content: bytes, repository_id: str, file: str, language: str
 ) -> list[Import]:
     """Static import statements in source order; dynamic loads are not facts here."""
-    if language == "java":
-        # Java imports name packages and types, which only package
-        # declarations resolve; they are not recorded yet.
-        return []
-    visit = {"python": _python_imports, "go": _go_imports}.get(
+    visit = {"python": _python_imports, "go": _go_imports, "java": _java_imports}.get(
         language, _typescript_imports
     )
     imports, ordinals = [], {}
@@ -520,16 +558,23 @@ def extract_supertypes(
 def extract_packages(
     tree, content: bytes, repository_id: str, file: str
 ) -> list[PackageClause]:
-    """The package a Go file declares: its first top-level package clause."""
+    """The package a Go or Java file declares: its first top-level declaration."""
     for node in tree.root_node.named_children:
-        if node.type != "package_clause":
+        if node.type not in {"package_clause", "package_declaration"}:
             continue
         name = next(
-            (c for c in node.named_children if c.type == "package_identifier"), None
+            (
+                c
+                for c in node.named_children
+                if c.type in {"package_identifier", "scoped_identifier", "identifier"}
+            ),
+            None,
         )
-        if name is None:
+        text = _java_name(name, content) if name is not None else None
+        if name is not None and name.type == "package_identifier":
+            text = _text(name, content)
+        if text is None:
             return []
-        text = _text(name, content)
         return [
             PackageClause(
                 id=identifier(repository_id, file, text, "Package", 0),

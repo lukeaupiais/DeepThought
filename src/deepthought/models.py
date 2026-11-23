@@ -221,8 +221,9 @@ class Supertype:
 class PackageClause:
     """A package or module a file declares, as written.
 
-    ``package`` is a Go source file's ``package name``; ``module`` is the
-    module path a ``go.mod`` file's ``module`` directive declares.
+    ``package`` is a Go source file's ``package name`` or a Java file's dotted
+    ``package a.b;`` name; ``module`` is the module path a ``go.mod`` file's
+    ``module`` directive declares.
     """
 
     id: str

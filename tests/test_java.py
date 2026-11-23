@@ -8,6 +8,11 @@ import unittest
 
 from deepthought import analyze_repository
 from deepthought.analysis_tools import TreeSitterTool
+from deepthought.imports import (
+    JAVA_PACKAGE_MEMBER,
+    JAVA_SAME_SOURCE_ROOT,
+    resolve_imports,
+)
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_java"
@@ -80,7 +85,11 @@ class JavaTests(unittest.TestCase):
         # Overloads keep distinct identities.
         self.assertEqual(len({d.id for d in result.definitions}), 20)
         self.assertEqual([c.status for c in result.coverage], ["analyzed"])
-        self.assertEqual(result.imports, ())
+        self.assertEqual(
+            [(i.specifier, i.names, i.local_names) for i in result.imports],
+            [("java.util.List", (), ("List",))],
+        )
+        self.assertEqual([p.name for p in result.packages], ["app"])
         self.assertEqual(result.call_sites, ())
         self.assertEqual(result.supertypes, ())
 
@@ -111,6 +120,144 @@ class JavaTests(unittest.TestCase):
         }
         self.assertIn(("Outer.Point", "Outer.Point.origin"), nested)
         self.assertIn(("Outer.run", "Outer.run.run"), nested)
+
+    def test_imports_link_to_the_declaring_files_by_package_and_source_root(self):
+        self.maxDiff = None
+        core = "core/src/main/java/app/core/"
+        util = (
+            "package app.core;\n"
+            "public class Util {\n"
+            "  public static class Nested {}\n"
+            "  public static int helper() { class Local {} return 0; }\n"
+            "}\n"
+        )
+        files = {
+            core + "Util.java": util,
+            core + "Other.java": "package app.core;\nclass Other {}\n",
+            core + "package-info.java": "package app.core;\n",
+            # Two files of one root declaring the same type.
+            core + "Twin.java": "package app.core;\nclass Twin {}\n",
+            core + "TwinCopy.java": "package app.core;\nclass Twin {}\n",
+            "core/src/main/java/app/Main.java": (
+                "package app;\n"
+                "import app.core.Util;\n"
+                "import app . core . Util . Nested;\n"
+                "import static app.core.Util.helper;\n"
+                "import app.core.*;\n"
+                "import static app.core.Util.*;\n"
+                "import app.core.Util.helper.Local;\n"
+                "import java.util.List;\n"
+                "import app.core.Twin;\n"
+                "class Main {}\n"
+            ),
+            # Another flavor of the same package, and a root with neither.
+            "flavor/src/app/core/Util.java": util,
+            "flavor/src/app/Use.java": "package app;\nimport app.core.Util;\n",
+            "tests/src/app/T.java": (
+                "package app;\nimport app.core.Util;\nimport app.core.Other;\n"
+            ),
+            # Not under its package path, so javac could not find it by name.
+            "misplaced/Stray.java": "package app.stray;\nclass Stray {}\n",
+            "misplaced/Uses.java": "package app;\nimport app.stray.Stray;\n",
+        }
+        result = analyze(files)
+        imports = {i.id: i for i in result.imports}
+        outcomes = {
+            (
+                imports[r.import_id].file,
+                imports[r.import_id].specifier,
+                imports[r.import_id].names,
+            ): (
+                r.status,
+                r.reason,
+                [(link.target_file, link.rule_id) for link in r.links],
+                r.candidates,
+            )
+            for r in resolve_imports(result)
+        }
+        main = "core/src/main/java/app/Main.java"
+        # flavor/ declares app.core.Util too, so the importer's root decides.
+        own = [(core + "Util.java", JAVA_SAME_SOURCE_ROOT)]
+        self.assertEqual(
+            outcomes,
+            {
+                (main, "app.core.Util", ()): ("linked", None, own, ()),
+                (main, "app.core.Util.Nested", ()): ("linked", None, own, ()),
+                (main, "app.core.Util", ("helper",)): ("linked", None, own, ()),
+                # A package wildcard reaches every file declaring a type.
+                (main, "app.core", ("*",)): (
+                    "linked",
+                    None,
+                    [
+                        (core + "Other.java", JAVA_SAME_SOURCE_ROOT),
+                        (core + "Twin.java", JAVA_SAME_SOURCE_ROOT),
+                        (core + "TwinCopy.java", JAVA_SAME_SOURCE_ROOT),
+                        (core + "Util.java", JAVA_SAME_SOURCE_ROOT),
+                    ],
+                    (),
+                ),
+                (main, "app.core.Util", ("*",)): ("linked", None, own, ()),
+                (main, "app.core.Util.helper.Local", ()): (
+                    "unresolved",
+                    "not_in_repository",
+                    [],
+                    (),
+                ),
+                (main, "app.core.Twin", ()): (
+                    "ambiguous",
+                    "multiple_declarations",
+                    [],
+                    (core + "Twin.java", core + "TwinCopy.java"),
+                ),
+                (main, "java.util.List", ()): (
+                    "unresolved",
+                    "not_in_repository",
+                    [],
+                    (),
+                ),
+                ("flavor/src/app/Use.java", "app.core.Util", ()): (
+                    "linked",
+                    None,
+                    [("flavor/src/app/core/Util.java", JAVA_SAME_SOURCE_ROOT)],
+                    (),
+                ),
+                ("tests/src/app/T.java", "app.core.Util", ()): (
+                    "ambiguous",
+                    "multiple_source_roots",
+                    [],
+                    (core + "Util.java", "flavor/src/app/core/Util.java"),
+                ),
+                # Only one root declares Other.
+                ("tests/src/app/T.java", "app.core.Other", ()): (
+                    "linked",
+                    None,
+                    [(core + "Other.java", JAVA_PACKAGE_MEMBER)],
+                    (),
+                ),
+                ("misplaced/Uses.java", "app.stray.Stray", ()): (
+                    "unresolved",
+                    "not_in_repository",
+                    [],
+                    (),
+                ),
+            },
+        )
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_go"), "Provision the Go grammar"
+    )
+    def test_java_package_clauses_do_not_join_go_packages(self):
+        result = analyze(
+            {
+                "go.mod": "module example.com/m\n",
+                "main.go": 'package main\nimport "example.com/m/lib"\n',
+                "lib/x.go": "package lib\n",
+                "lib/Y.java": "package lib;\nclass Y {}\n",
+            },
+            languages=("go", "java"),
+        )
+        (resolution,) = resolve_imports(result)
+        self.assertEqual([link.target_file for link in resolution.links], ["lib/x.go"])
 
     def test_java_is_opt_in(self):
         default = analyze({"Outer.java": SOURCE, "a.py": "x = 1\n"}, languages=None)
