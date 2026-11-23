@@ -74,6 +74,9 @@ class Mapping:
     explicit: bool
     line: int
     column: int
+    # The member annotated @JoinTable or @CollectionTable, for a table the
+    # entity's associations use rather than the entity's own table.
+    member: str | None = None
 
 
 @dataclass(frozen=True)
@@ -230,6 +233,11 @@ def extract_java(tree, content, file, definitions, constants=None):
                     node.start_point.column,
                 )
             )
+            mappings.extend(
+                _association_tables(
+                    node, content, file, definition.id, qualified, imports, values
+                )
+            )
         elif node.type == "interface_declaration":
             extends = next(
                 (c for c in node.named_children if c.type == "extends_interfaces"),
@@ -268,6 +276,44 @@ def extract_java(tree, content, file, definitions, constants=None):
                     )
                 )
     return mappings, repositories
+
+
+def _association_tables(entity, content, file, entity_id, qualified, imports, values):
+    """Mappings for the @JoinTable and @CollectionTable names of an entity's
+    fields and getters (not of nested classes)."""
+    body = entity.child_by_field_name("body")
+    found = []
+    for member in body.named_children if body is not None else ():
+        if member.type not in ("field_declaration", "method_declaration"):
+            continue
+        for written, annotation in _annotations(member, content):
+            if written.rpartition(".")[2] not in (
+                "JoinTable",
+                "CollectionTable",
+            ) or not _from(imports, written, _PERSISTENCE):
+                continue
+            name = _arguments(annotation).get("name")
+            text = values.evaluate(name) if name is not None else PLACEHOLDER
+            if PLACEHOLDER in text or not text:
+                continue  # Default join table names are not derived.
+            if member.type == "field_declaration":
+                declarator = member.child_by_field_name("declarator")
+                label = declarator.child_by_field_name("name") if declarator else None
+            else:
+                label = member.child_by_field_name("name")
+            found.append(
+                Mapping(
+                    file,
+                    entity_id,
+                    qualified,
+                    table_key(text),
+                    True,
+                    annotation.start_point.row + 1,
+                    annotation.start_point.column,
+                    _text(label, content) if label is not None else "?",
+                )
+            )
+    return found
 
 
 def _type_name(node, content):

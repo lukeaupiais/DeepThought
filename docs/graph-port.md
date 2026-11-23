@@ -1811,14 +1811,20 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file (temporary tables, comments and string literals skipped) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
 | Symbol -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-repository` | pattern_matched | an interface extending a Spring Data CRUD repository (READS and WRITES) or paging-and-sorting repository (READS) whose entity type argument is a mapped entity |
 
-A table belongs to the nearest package of the file that declares or maps it,
-and names compare case-insensitively without schema or quotes, so one
-service's `owners` is not another's. Datasource configuration is not read:
-two packages that share one database get two tables, and migrations kept in a
-separate package from their entities do not meet them. SQL in strings,
-`@JoinTable`, `@Query` and other persistence frameworks are not read yet.
+Tables are told apart by name (case-insensitive, without schema or quotes)
+within a namespace. A module whose Spring configuration
+(`src/main/resources/application.*`, as for service names) fixes one
+`spring.datasource.url` uses that URL as its namespace, so services that
+point at the same persistent database share its tables. Otherwise, and for
+in-memory URLs (`:mem:`, `:memory:`), which give each process its own
+database, the namespace is the nearest package. One service's private
+`owners` is therefore not another's. URLs written with `${...}`, profiles and
+environment variables are not resolved, and migrations kept in a separate
+package from their entities meet them only through a shared datasource URL.
+SQL in strings, `@Query` and other persistence frameworks are not read yet.
 Test sources (`src/test/`) are skipped.
 
 `get_impact` goes forwards over WRITES and backwards over READS, so a change
@@ -1829,8 +1835,9 @@ it.
 On spring-petclinic-microservices the tool finds 7 tables, declared by 14
 `CREATE TABLE` statements in the hsqldb and mysql schema files of three
 services. All 6 entities map to a table that their own service's DDL
-declares, with no unmatched mapping, and all 4 repositories resolve to their
-entity. `vet_specialties` has DDL only, because it comes from a `@JoinTable`.
+declares, with no unmatched mapping. Vet's `@JoinTable` maps
+`vet_specialties`, so all 7 declared tables are mapped. All 4 repositories
+resolve to their entity.
 
 ## Commit-linked snapshots
 
