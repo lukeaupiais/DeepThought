@@ -11,6 +11,7 @@ import json
 import time
 
 from .._version import __version__
+from .. import component_dependencies as deps
 from ..components import MANIFESTS, Component, enclosing_components, scan_components
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -51,6 +52,43 @@ PART_OF_RULE = register_rule(
     )
 )
 
+_REQUIRES_TEXT = {
+    deps.PATH["cargo_package"]: "A Cargo.toml dependency's path is the "
+    "directory of this Cargo package.",
+    deps.PATH["go_module"]: "A go.mod require of a module that a replace "
+    "directive points at this go.mod's directory.",
+    deps.PATH["node_package"]: "A package.json dependency's file: or link: "
+    "path is the directory of this package.",
+    deps.PATH["python_project"]: "A pyproject.toml dependency whose "
+    "[tool.uv.sources] or Poetry path is the directory of this project.",
+    deps.WORKSPACE["cargo_package"]: "A Cargo.toml dependency with workspace = "
+    "true, whose entry in the nearest enclosing [workspace.dependencies] has "
+    "a path to this package's directory.",
+    deps.PATCH: "A Cargo.toml dependency names a package that a [patch] table "
+    "in an enclosing manifest replaces with a path to this package's "
+    "directory.",
+    deps.WORKSPACE["node_package"]: "A package.json dependency using the "
+    "workspace: protocol names this package, the only one in the repository "
+    "with that name.",
+    deps.WORKSPACE["python_project"]: "A pyproject.toml dependency with a "
+    "workspace = true uv source names this project, the only one in the "
+    "repository with that (normalized) name.",
+}
+REQUIRES_RULES = {
+    rule: register_rule(EvidenceRule("components." + rule, "resolved", text))
+    for rule, text in _REQUIRES_TEXT.items()
+}
+REQUIRES_RULES[deps.NAME] = register_rule(
+    EvidenceRule(
+        "components." + deps.NAME,
+        "name_matched",
+        "A declared dependency's name (Maven groupId:artifactId, Go module path, "
+        "normalized Python name, npm or Cargo package name) equals the name of "
+        "exactly one component of the same kind in the repository. The build "
+        "may take that name from a registry instead, at another version.",
+    )
+)
+
 
 def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
@@ -64,7 +102,7 @@ def file_name(repo_url, path):
     return f"{repo_url}::{path}::file"
 
 
-def _component_node(repo_url, component):
+def _component_node(repo_url, component, coordinates=None):
     properties = {
         "qualified_name": component_name(repo_url, component),
         "repo_url": repo_url,
@@ -78,6 +116,8 @@ def _component_node(repo_url, component):
         properties["name"] = component.name
     if component.line is not None:
         properties["start_line"] = component.line
+    if coordinates is not None:
+        properties["coordinates"] = coordinates
     return NodeData(["Component"], properties)
 
 
@@ -178,6 +218,11 @@ class ComponentsTool(AnalysisTool):
             "components": [
                 [c.kind, c.manifest, c.name, c.line] for c in scan.components
             ],
+            "dependencies": [
+                [d.manifest, d.section, d.name, d.path, d.workspace]
+                for d in scan.dependencies
+            ],
+            "coordinates": scan.coordinates,
         }
         snapshot_id = sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         repository = f"{repo_url}::repository"
@@ -221,7 +266,9 @@ class ComponentsTool(AnalysisTool):
         counts = {}
         for component in scan.components:
             counts[component.kind] = counts.get(component.kind, 0) + 1
-            node = _component_node(repo_url, component)
+            node = _component_node(
+                repo_url, component, dict(scan.coordinates).get(component.manifest)
+            )
             nodes.append(node)
             relationships.append(
                 RelationshipData(
@@ -237,6 +284,35 @@ class ComponentsTool(AnalysisTool):
                         "repo_url": repo_url,
                     },
                     _evidence(DECLARES_RULE),
+                )
+            )
+        links, dependency_counts = deps.resolve_dependencies(
+            scan.components, scan.dependencies, dict(scan.coordinates)
+        )
+        for link in links:
+            relationships.append(
+                RelationshipData(
+                    "REQUIRES",
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, link.source),
+                        "repo_url": repo_url,
+                    },
+                    ["Component"],
+                    {
+                        "qualified_name": component_name(repo_url, link.target),
+                        "repo_url": repo_url,
+                    },
+                    {
+                        **_evidence(REQUIRES_RULES[link.rule]),
+                        "section": link.dependency.section,
+                        "declared_name": link.dependency.name,
+                        **(
+                            {"declared_path": link.dependency.path}
+                            if link.dependency.path is not None
+                            else {}
+                        ),
+                    },
                 )
             )
         part_of, membership = bind_components(nodes, repo_url)
@@ -264,6 +340,7 @@ class ComponentsTool(AnalysisTool):
                     "diagnostics": [list(item) for item in scan.diagnostics],
                     "component_counts": dict(sorted(counts.items())),
                     "membership": membership,
+                    "dependency_resolution": dependency_counts,
                     "scope": "components that build manifests declare and the "
                     "nearest enclosing root of each kind; no deployment, "
                     "network or call-graph inference",
