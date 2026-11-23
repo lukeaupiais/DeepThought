@@ -17,7 +17,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/storage/.../graph/schema.py | deepthought.storage.graph.schema | Constraints, indexes and code_search fulltext index |
 | libs/analysis/.../engine/data_access/graph_repository.py | deepthought.graph_queries | Calls/callers, imports/exports, hierarchy, paths, statistics and symbol lookup |
 | libs/core/.../context/context_service.py | deepthought.graph_queries | File/line context, neighbouring relationships, fulltext search and file navigation |
-| applications/unified-server/src/main.py MCP tools | deepthought.graph_mcp | getCodeContext, getFileStructure and searchCodeElements |
+| applications/unified-server/src/main.py MCP tools | deepthought.graph_mcp | getCodeContext (now with paged declaration source), getFileStructure and searchCodeElements |
 | libs/storage/.../graph/updater.py and utils/git_utils.py `Repository.last_commit` | deepthought.revisions + WriteCoordinator.link_commit + GraphQueryService.list_snapshots | Each immutable snapshot lists the commits it was analyzed at, instead of one mutable last commit per repository (see below) |
 | libs/storage/.../graph/updater.py file-level incremental update (`get_changed_files`, file hashes) | deepthought.engine `previous=` + `deepthought analyze --previous` + `deepthought-graph index --previous-artifact` | Unchanged files reuse an earlier analysis's facts; the result is a new snapshot equal to a full run, not an in-place update (see below) |
 | libs/storage/.../graph/updater.py AST change detection (`apply_ast_diff`) | GraphQueryService.diff_snapshots | Read-only comparison of two immutable snapshots instead of mutating one graph (see below) |
@@ -178,6 +178,43 @@ checked: on Django 5.1.4 `django/` (7,932 edges), rxjs 7.8.1 `src/` (260) and
 preact 10.25.4 (32), every inner name is its owner's name plus one or more
 segments, every declaration whose name prefix is declared in the same file has
 an owner, and none has two.
+
+## Declaration source
+
+Each tree-sitter Symbol node stores its declaration's text as analyzed:
+`source_code`, `source_sha256`, and the text's span
+(`source_start_line`/`source_start_column` to `source_end_line`/
+`source_end_column`). The text runs from the declaration's decorators or
+`export` keyword to its end, so a decorated Python method starts at its first
+`@`. The name's position is stored as `[line, column, end line, end column]`
+three times, with UTF-8, UTF-16 and UTF-32 code-unit columns
+(`name_range_utf8`, `name_range_utf16`, `name_range_utf32`), for clients and
+indexes that count columns differently. The projection reads each analyzed
+file again and stores text only if the file's sha256 still equals the digest
+the analysis recorded; files that changed in between are listed in the
+`source_context` metric and get no text. Files reused by incremental
+re-indexing get text like parsed ones.
+
+`get_code_context` (CLI `context`, MCP getCodeContext) returns a page of each
+declaration's text: `max_source_characters` (0 to 8,192, default 1,200)
+Unicode code points from `source_offset`, with `source_characters` giving the
+full length; `definition_id` selects one declaration. Other queries that
+return whole nodes leave the text, its hash, its span and the name positions
+out, so results such as class hierarchy paths keep their size; graph diffs
+leave `source_code` out and list the `source_sha256` change.
+Nested declarations repeat their text in their owner's, which costs 1.62 times
+the analyzed bytes on Django 5.1.4 `django/` and 0.58 times on rxjs 7.8.1
+`src/`.
+
+Checked against independent parsers:
+
+| Corpus | Parser | Declarations | Same text, span and name position | Differences |
+|---|---|---|---|---|
+| Django 5.1.4 `django/` | CPython `ast` (`tools/compare_declaration_sources_with_ast.py`) | 10,994 | 10,974 | 20 keep comments that end the body, which `ast` omits |
+| rxjs 7.8.1 `src/` | TypeScript 5 parser (`tools/compare_declaration_sources_with_typescript.py`) | 937 | 880 | 57 overload signatures without the `;` the compiler's node ends with |
+
+The TypeScript check finds each declaration by its UTF-16 name position, so it
+also confirms those positions.
 
 ## Impact
 

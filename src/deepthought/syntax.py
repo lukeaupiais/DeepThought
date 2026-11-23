@@ -91,7 +91,10 @@ def make_parser(language: str, suffix: str):
     return Parser(Language(getattr(grammar, factory)()))
 
 
-def extract(tree, content: bytes, repository_id: str, file: str) -> list[Definition]:
+def extract(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """Named declarations in source order; ``nodes`` receives id -> (node, name)."""
     definitions = []
     ordinals = {}
     stack = [(tree.root_node, (), False)]
@@ -126,18 +129,19 @@ def extract(tree, content: bytes, repository_id: str, file: str) -> list[Definit
                 kind = "Method"
             ordinal = ordinals.get((symbol, kind), 0)
             ordinals[(symbol, kind)] = ordinal + 1
-            definitions.append(
-                Definition(
-                    id=identifier(repository_id, file, symbol, kind, ordinal),
-                    file=file,
-                    symbol=symbol,
-                    kind=kind,
-                    line=node.start_point.row + 1,
-                    column=node.start_point.column,
-                    end_line=node.end_point.row + 1,
-                    end_column=node.end_point.column,
-                )
+            definition = Definition(
+                id=identifier(repository_id, file, symbol, kind, ordinal),
+                file=file,
+                symbol=symbol,
+                kind=kind,
+                line=node.start_point.row + 1,
+                column=node.start_point.column,
+                end_line=node.end_point.row + 1,
+                end_column=node.end_point.column,
             )
+            definitions.append(definition)
+            if nodes is not None:
+                nodes[definition.id] = (node, name_node)
             scope = (*scope, name)
             in_class = kind == "Class"
         stack.extend(
@@ -591,3 +595,55 @@ def extract_go_module(
             )
         ]
     return []
+
+
+# Wrappers whose text belongs to the declaration they hold: decorators and
+# the export keyword.
+_SOURCE_WRAPPERS = {"decorated_definition", "export_statement"}
+
+
+def _columns(line: bytes, column: int):
+    prefix = line[:column].decode("utf-8")
+    return {
+        "utf-8": column,
+        "utf-16": len(prefix.encode("utf-16-le")) // 2,
+        "utf-32": len(prefix),
+    }
+
+
+def declaration_sources(tree, content: bytes, repository_id: str, file: str) -> dict:
+    """Each declaration's source text, its span and its name's position, by id.
+
+    The text runs from the declaration's decorators or ``export`` keyword to its
+    end. Name positions ``[line, column, end line, end column]`` are given with
+    UTF-8, UTF-16 and UTF-32 code-unit columns (1-based lines), so clients and
+    indexes using any encoding can find them.
+    """
+    nodes = {}
+    extract(tree, content, repository_id, file, nodes=nodes)
+    lines = content.split(b"\n")
+    sources = {}
+    for definition_id, (node, name) in nodes.items():
+        while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
+            node = node.parent
+        text = content[node.start_byte : node.end_byte].decode("utf-8")
+        start = _columns(lines[name.start_point.row], name.start_point.column)
+        end = _columns(lines[name.end_point.row], name.end_point.column)
+        sources[definition_id] = {
+            "source_code": text,
+            "source_sha256": sha256(text.encode()).hexdigest(),
+            "source_start_line": node.start_point.row + 1,
+            "source_start_column": node.start_point.column,
+            "source_end_line": node.end_point.row + 1,
+            "source_end_column": node.end_point.column,
+            **{
+                "name_range_" + encoding.replace("-", ""): [
+                    name.start_point.row + 1,
+                    start[encoding],
+                    name.end_point.row + 1,
+                    end[encoding],
+                ]
+                for encoding in ("utf-8", "utf-16", "utf-32")
+            },
+        }
+    return sources
