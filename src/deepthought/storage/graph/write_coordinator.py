@@ -292,6 +292,34 @@ class WriteCoordinator:
         self._write_history.append(result)
         return result
 
+    async def link_commit(self, repo_url, snapshot_id, commit):
+        """Record that a complete snapshot was analyzed from ``commit``.
+
+        The link is an observation kept beside the snapshot, outside its content
+        fingerprint: the same content analyzed at several commits is one snapshot
+        linked to each. Callers decide eligibility (see deepthought.revisions).
+        """
+        from ...revisions import is_commit
+
+        if not is_commit(commit):
+            raise ValueError("commit must be a full lowercase hex Git object name")
+        async with self.neo4j_driver.session(
+            database=self.graph_writer.database
+        ) as session:
+            result = await session.run(
+                "MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,status:'complete'}) "
+                "SET s.source_commits = CASE WHEN $commit IN coalesce(s.source_commits,[]) "
+                "THEN s.source_commits ELSE coalesce(s.source_commits,[]) + $commit END "
+                "RETURN s.source_commits AS commits",
+                repo_url=repo_url,
+                snapshot_id=snapshot_id,
+                commit=commit,
+            )
+            record = await result.single()
+        if record is None:
+            raise ValueError("Selected repository snapshot is missing or incomplete")
+        return sorted(record["commits"])
+
     def get_total_stats(self):
         return {
             "nodes_created": sum(

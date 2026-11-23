@@ -86,6 +86,18 @@ def create_server():
             limit=max_elements,
         )
 
+    @server.tool()
+    async def listSnapshots(
+        repository_id: str,
+        ctx: Context,
+        commit: str | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """List complete snapshots of a repository and the commits each came from."""
+        return await ctx.request_context.lifespan_context.list_snapshots(
+            repository_id, commit=commit, limit=max_elements
+        )
+
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
 
     @server.tool()
