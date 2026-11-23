@@ -34,6 +34,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/utils/base/config.py `LanguageConfig["go"]` | deepthought.syntax `LANGUAGES["go"]` | Opt-in Go functions, receiver-named methods, named types and import facts; imports are not resolved to files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
 | libs/analysis/.../tools/scip/transformation/enhanced_relationship_mapper.py `is_implementation` | deepthought.analysis_tools.scip + GraphQueryService.get_implementations/get_supertypes | Symbol -> IMPLEMENTS -> Symbol under a registered `resolved` rule; the original's doc-keyword EXTENDS guess and TYPE_OF mapping are not ported (see below) |
+| libs/analysis/.../tools/service_detector (weighted Dockerfile/compose/k8s/serialization/modularity score and `confidence`) | deepthought.components + deepthought.analysis_tools.components + GraphQueryService.list_components/get_file_components/get_component_files | Components that build manifests declare and File -> PART_OF -> Component by nearest root, all `resolved`; no score, port guess or clustering (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -272,6 +273,62 @@ tool's own output that never reads Neo4j. Every compared seed matched exactly
 5.1.4 declarations (every fourth; 3,213 dependents) and 925 of the 937 in rxjs 7.8.1 `src/` (627
 dependents). 7 and 12 seeds with more than 100 dependents or 64 KB of output
 were truncated and not compared.
+
+## Components
+
+The original service detector added weighted points for a Dockerfile (30), a
+Kubernetes or Compose entry (10), serialization calls (10 to 20), schema files
+(10), call-graph modularity (8 to 15), environment variables and config files,
+then reported the total as a confidence; it named services after their
+directory and typed them by port number. None of that is ported. The
+`components` tool (`deepthought-graph index --tool components`) records only
+what a build manifest declares:
+
+| Manifest | Kind | Declared by |
+|----------|------|-------------|
+| `pyproject.toml` | `python_project` | `[project] name`, else `[tool.poetry] name`; tool configuration alone declares nothing |
+| `package.json` | `node_package` | any JSON object, named by `name` when present (a package root without a name is still a root) |
+| `go.mod` | `go_module` | the `module` directive |
+| `Cargo.toml` | `cargo_package` | `[package] name`; a virtual workspace declares nothing |
+| `pom.xml` | `maven_module` | the project's own `artifactId` |
+
+Each is a Component node (root = the manifest's directory), and the manifest
+File -> DECLARES -> Component (`components.manifest-declares`). When tool
+outputs are combined into one graph revision, every File node from any tool
+gets File -> PART_OF -> Component for the nearest enclosing root of each kind
+(`components.nearest-root`): a Go file in a repository with a root
+`pyproject.toml` belongs to its go.mod module and to that Python project. Both
+rules are `resolved`: they state declarations and directory containment, not
+whether a build includes the file (a manifest's excludes and Python package
+discovery are not read). Directories the source analyzer skips (`.git`,
+`.venv`, `node_modules`, `__pycache__`) are skipped here too. A manifest that
+cannot be read makes the analysis `partial`, like a syntax error; exclude test
+fixtures with `--exclude`.
+
+`list_components` (`deepthought-graph components [--kind KIND]`, MCP
+listComponents) lists components with their file counts,
+`get_file_components` (`file-components --file`, getFileComponents) a file's
+components with evidence, and `get_component_files` (`component-files
+--component QUALIFIED_NAME [--after-path PATH]`, getComponentFiles) pages
+through a component's files by path.
+
+`tools/compare_components_with_build_tools.py` checks components and
+membership against each format's own tool: `go list -m` names and `go list -e
+./...` module directories, `cargo metadata --no-deps` packages and target root
+files, Node's `module.findPackageJSON` for every JavaScript, TypeScript and JSON
+file, and `mvn help:evaluate` artifact IDs. No contradictions:
+
+| Repository | Components | Checked |
+|------------|------------|---------|
+| opentelemetry-go | 30 go.mod modules | 30/30 module paths, 1,396/1,396 Go files' modules |
+| tokio | 12 Cargo packages | 12/12 packages, 307/307 target root files |
+| babel | 207 npm packages | 29,128/29,128 files' package.json (2 deliberately invalid fixture manifests unchecked, reported as diagnostics) |
+| guava | 14 Maven modules | 14/14 artifact IDs |
+| spring-petclinic-microservices | 9 Maven modules | 9/9 artifact IDs, 34/34 files' package.json |
+
+Python projects have no comparable resolver and are checked by tests only.
+Deployment units (Compose services, Kubernetes workloads), dependencies
+between components and cross-service contract edges are separate slices.
 
 ## Declared bases
 
@@ -1315,15 +1372,15 @@ deepthought-graph diff --repository-id public-project --base BASE_REVISION --hea
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
 with the chosen graph revision. This port ships TreeSitterTool (declarations,
-file imports, and name-matched calls and bases) and the SCIP tool (TypeScript references
-and file dependencies); it does not pretend other original analyzers have already been
+file imports, and name-matched calls and bases), the SCIP tool (TypeScript references
+and file dependencies) and the components tool (build-manifest components); it does not pretend other original analyzers have already been
 ported. The embedded Python API can
 register tools through the existing registry.
 
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access

@@ -257,6 +257,9 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             "getSubtypes",
                             "listSnapshots",
                             "searchCodeElements",
+                            "listComponents",
+                            "getFileComponents",
+                            "getComponentFiles",
                         }
                         if raw_enabled:
                             expected.add("queryGraph")
