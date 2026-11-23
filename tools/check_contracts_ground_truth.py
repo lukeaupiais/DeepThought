@@ -227,11 +227,16 @@ def _message_pairs(endpoints, roots):
             consumers.setdefault((endpoint.broker, endpoint.destination), []).append(
                 endpoint
             )
-    pairs = []
+    pairs, seen = [], set()
     for endpoint in endpoints:
         if endpoint.role != "publish":
             continue
         for consumer in consumers.get((endpoint.broker, endpoint.destination), []):
+            # Library code run by several services sends from one site.
+            key = (endpoint.file, endpoint.line, consumer.file, consumer.line)
+            if key in seen:
+                continue
+            seen.add(key)
             pairs.append(
                 {
                     "kind": "messaging",

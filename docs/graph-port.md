@@ -1714,9 +1714,39 @@ another class (`Queues.queueName`) through the file's imports or package
 when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
-destination with unknown text is counted as unread. Spring Cloud Stream
-bindings (destinations set per service in configuration, used through
-library code) are not read yet.
+destination with unknown text is counted as unread.
+
+### Spring Cloud Stream
+
+Spring Cloud Stream code names a binding and each service's configuration
+names its destination (`deepthought.service_contracts.cloud_stream`). Read
+sites, in Java:
+
+- consume: a `@StreamListener` method whose value or `target` names a
+  binding (`Sink.INPUT` and `Processor.INPUT` are `input`);
+- publish: `send(...)` on `x.output()` where `x` is declared only as
+  `Source` or `Processor`, or on a name assigned only such a call; `@SendTo`
+  on a stream listener; `StreamBridge.send("binding", ...)`.
+
+The code runs in its own Maven module when that module names a service
+(`spring.application.name`), else in every repository module whose `pom.xml`
+depends on that module's artifact and names a service. Each such service
+gives one endpoint: its destination is
+`spring.cloud.stream.bindings.<binding>.destination` from the service's
+configuration (the config-server sources included), or the binding name when
+the key is not set. The broker is Kafka or RabbitMQ by the
+`spring-cloud-stream-binder-*` (or `spring-cloud-starter-stream-*`)
+dependency of the service module or a repository module it depends on. The
+Kafka binder's destination is a topic; the RabbitMQ binder publishes to a
+topic exchange named by the destination and binds each consumer group's
+queue to it with `#`, so both sides meet at `destination/#`. Rules are
+`service-contracts.spring-cloud-stream-output` and `-listener`.
+
+Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
+`binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
+both) and `destination_not_literal` (a placeholder in the configured
+destination). The functional style (`Consumer`/`Supplier`/`Function` beans
+named by `spring.cloud.function.definition`) is not read yet.
 
 ### Validation
 
@@ -1759,7 +1789,7 @@ Labelled message links (`--kind messaging`):
 |---|---|---|---|---|
 | ewolff/microservice-kafka (Spring Kafka, two consumers) | 2 | 2 | 2 | 0 |
 | robot-shop (pika publish to Go `amqp` consumer) | 1 | 1 | 1 | 0 |
-| apssouza22/java-microservice (Spring Cloud Stream) | 1 | 0 | 0 | 1: Spring Cloud Stream is not read |
+| apssouza22/java-microservice (Spring Cloud Stream, RabbitMQ binder, library publisher) | 1 | 1 | 1 | 0 |
 
 Train-ticket has no labelled messages; its four publish-to-consume pairs
 (food to delivery on `food_delivery`, and preserve, preserve-other and
