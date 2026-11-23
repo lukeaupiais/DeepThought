@@ -30,6 +30,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM by the call name-binding rules, all `name_matched`; `get_class_hierarchy` follows classes and interfaces (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
+| libs/analysis/.../tools/scip/transformation/enhanced_relationship_mapper.py `is_implementation` | deepthought.analysis_tools.scip + GraphQueryService.get_implementations/get_supertypes | Symbol -> IMPLEMENTS -> Symbol under a registered `resolved` rule; the original's doc-keyword EXTENDS guess and TYPE_OF mapping are not ported (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -309,6 +310,61 @@ occurrences have no compiler identifier: module specifier strings (1,220),
 shorthand properties and destructuring names that are their own declaration.
 All 41,014 edges round-trip through Neo4j with their rule.
 
+## SCIP implementations
+
+The same tool turns each SCIP `is_implementation` relationship into
+Symbol -> IMPLEMENTS -> Symbol under `scip.symbol-implementation` (`resolved`)
+when both symbols are declared in the analyzed files. A symbol declared at
+several sites links from and to every site, and a `local` symbol matches only
+within its document. A relationship whose target is not declared in the
+analyzed files (a library type, or a file left out of the selection) gets no
+edge and is counted in `implementation_relationships.external_target`.
+
+```sh
+deepthought-graph supertypes --repository-id public-project --snapshot REVISION \
+  --symbol 'scip-typescript npm . . src/`dog.ts`/Dog#'
+deepthought-graph implementations --repository-id public-project --snapshot REVISION \
+  --symbol 'scip-typescript npm . . src/`base.ts`/Base#greet().'
+```
+
+The MCP tools are findImplementations and getSupertypes. Both queries need
+`file_path` for `local` symbols and refuse a snapshot with no SCIP
+contribution.
+
+What scip-typescript 0.6.0 records decides what the edge means, so it is
+stated here rather than refined by guessing:
+
+- One relationship covers `extends` and `implements`, and includes indirect
+  supertypes (a class implementing `Pet` also gets `Animal` when
+  `Pet extends Animal`). IMPLEMENTS therefore means "is a subtype of", not
+  "names in its own heritage clause".
+- A class member that overrides or implements a supertype's member of the
+  same name gets the same relationship.
+- An interface gets none, so `interface A extends B` produces no edge.
+- No `is_type_definition` is emitted, so the original tool's TYPE_OF mapping
+  has no source. The original also guessed EXTENDS from words such as
+  "extends" in hover documentation; that is not deterministic and is not
+  ported. Direct heritage edges belong to a syntax rule instead.
+
+`tools/typescript_supertype_oracle.cjs` is an independent check. It runs the
+TypeScript checker on the workspace, without reading SCIP, and lists each class
+and interface's transitive heritage supertypes and the same-named members of
+those supertypes. `tools/compare_implementations_with_typescript.py` compares
+them with the IMPLEMENTS edges. On rxjs 7.8.1 `src/` (251 files, 116 classes
+and interfaces, TypeScript 6.0.3, scip-typescript 0.6.0):
+
+| Outcome | Pairs |
+|---|---|
+| Same type pair as the compiler | 112 |
+| Same member pair as the compiler | 88 |
+| Missing because the source is an interface (20 type, 2 member pairs) | 22 |
+| Any other missing pair | 0 |
+| Edge the compiler does not list | 0 |
+
+Every class-sourced pair matches and nothing is added; the 22 missing pairs
+are the interface case above. All 200 edges round-trip through Neo4j with
+their rule, and two runs produce identical edges.
+
 ## Commit-linked snapshots
 
 The original engine kept one mutable `last_commit` on the Repository node and
@@ -478,7 +534,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getFileImports`, `getFileImporters`,
-`findReferences`, `getFileDependencies`, `getFileDependents`, `explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access

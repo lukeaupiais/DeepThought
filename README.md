@@ -33,7 +33,9 @@ call sites and declared class and interface bases from Python and TypeScript/TSX
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. The `scip` graph tool stores TypeScript references
 from a source-bound scip-typescript index in Neo4j (see
-[docs/graph-port.md](docs/graph-port.md#scip-references)). It retains ranges, native symbol identities, role
+[docs/graph-port.md](docs/graph-port.md#scip-references)), and the subtype and
+override relationships the index records as IMPLEMENTS edges
+([details](docs/graph-port.md#scip-implementations)). It retains ranges, native symbol identities, role
 flags, coverage, diagnostics and source snapshots. It does not infer calls,
 instantiations, inheritance or architectural roles from reference occurrences.
 

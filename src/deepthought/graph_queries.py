@@ -908,6 +908,91 @@ class GraphQueryService:
             file_path, repo_url, snapshot_id, limit, max_output_bytes, timeout, True
         )
 
+    async def _implementations(
+        self,
+        native_symbol,
+        repo_url,
+        snapshot_id,
+        file_path,
+        limit,
+        max_output_bytes,
+        timeout,
+        incoming,
+    ):
+        _text(native_symbol, "native_symbol")
+        if file_path is not None:
+            _text(file_path, "file_path")
+        if native_symbol.startswith("local ") and file_path is None:
+            raise ValueError("Local SCIP symbols require file_path document scope")
+        pattern = (
+            "(other)-[r:IMPLEMENTS]->(s)" if incoming else "(s)-[r:IMPLEMENTS]->(other)"
+        )
+        return await self._read(
+            f"""MATCH (s:Symbol {{repo_url:$repo_url,snapshot_id:$snapshot_id,native_id:$native_symbol}})
+            WHERE $file_path IS NULL OR s.file_path=$file_path
+            MATCH {pattern}
+            WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id
+            RETURN other {{.qualified_name,.native_id,.display_name,.kind,.file_path,
+                .start_line,.column}} AS symbol,r._dt_edge_id AS edge_id,
+                r.evidence_type AS evidence_type,r.rule_id AS rule_id
+            ORDER BY other.file_path,other.start_line,other.qualified_name,
+                s.qualified_name
+            LIMIT $fetch_limit""",
+            {"native_symbol": native_symbol, "file_path": file_path},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="implementations",
+        )
+
+    async def get_implementations(
+        self,
+        native_symbol,
+        repo_url,
+        *,
+        snapshot_id,
+        file_path=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Symbols the index records as implementing, extending or overriding it."""
+        return await self._implementations(
+            native_symbol,
+            repo_url,
+            snapshot_id,
+            file_path,
+            limit,
+            max_output_bytes,
+            timeout,
+            True,
+        )
+
+    async def get_supertypes(
+        self,
+        native_symbol,
+        repo_url,
+        *,
+        snapshot_id,
+        file_path=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Symbols this symbol implements, extends or overrides, per the index."""
+        return await self._implementations(
+            native_symbol,
+            repo_url,
+            snapshot_id,
+            file_path,
+            limit,
+            max_output_bytes,
+            timeout,
+            False,
+        )
+
     async def get_file_exports(
         self,
         file_path,
