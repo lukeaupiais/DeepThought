@@ -371,6 +371,21 @@ build or run it, and the Kubernetes Services that select those workloads,
 each hop with its own evidence (a `name_matched` image-name deployment marks
 the whole path `name_matched`).
 
+When the `service-contracts` tool runs in the same revision, packages are also
+joined by the HTTP contracts between them: a package CONSUMES another when a
+declaration or file in it REQUESTS a route whose handler is in the other
+(`components.http-route-consumer`, `pattern_matched`, one edge per route,
+with the route's qualified name on the edge). Each file counts in its nearest
+package, the package component of any kind whose root is deepest above it,
+and requests within one package make no edge. The edges are made when
+outputs are combined, like PART_OF, since requests, handlers and components
+come from different tools. `get_component_impact` follows CONSUMES backwards,
+so a change to a service's package lists the packages that call its routes.
+On spring-petclinic-microservices, its 2 linked requests give 2 CONSUMES
+edges, api-gateway to customers-service and genai-service to vets-service,
+and both match the calling code (`CustomersServiceClient` and
+`VectorStoreController`).
+
 The same comparison tool checks REQUIRES against `cargo metadata
 --all-features` resolve graphs, `go mod edit -json` replacements and a Yarn
 Berry `yarn.lock`: every resolved link must be one the build tool made, and

@@ -812,13 +812,14 @@ class GraphQueryService:
         Follows REQUIRES (package and Compose depends_on dependencies),
         DEPLOYS (the Compose services and Kubernetes workloads that build or
         run a package) and SELECTS (the Kubernetes Services that route to a
-        workload) backwards, so a package change reaches what deploys and
-        exposes it.
+        workload) and CONSUMES (packages whose code requests an HTTP route
+        handled in another package) backwards, so a package change reaches
+        what deploys and exposes it and the packages calling its routes.
         """
         return await self._impact(
             "MATCH (root:Component {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) WITH root, [] AS parts ",
-            "REQUIRES|DEPLOYS|SELECTS",
+            "REQUIRES|DEPLOYS|SELECTS|CONSUMES",
             qualified_name,
             repo_url,
             snapshot_id,
