@@ -6,6 +6,7 @@
 import importlib
 from hashlib import sha256
 import json
+import re
 
 from .models import CallSite, Definition, Import, PackageClause, Supertype
 
@@ -522,6 +523,71 @@ def extract_packages(
                 column=name.start_point.column,
                 end_line=name.end_point.row + 1,
                 end_column=name.end_point.column,
+            )
+        ]
+    return []
+
+
+_GO_MOD_TOKEN = re.compile(rb'"(?:[^"\\\n]|\\.)*"|`[^`]*`|[()]|[^\s()"`]+')
+
+
+def _go_mod_path(token: bytes):
+    text = token.decode("utf-8")
+    if text.startswith("`"):
+        return text[1:-1]
+    if text.startswith('"'):
+        try:
+            return json.loads(text)
+        except ValueError:
+            return None
+    return text
+
+
+def extract_go_module(
+    content: bytes, repository_id: str, file: str
+) -> list[PackageClause]:
+    """The module path a go.mod ``module`` directive declares, or nothing.
+
+    Reads the first ``module`` directive, in line or block form; ``//``
+    comments are ignored. Other directives are not facts.
+    """
+    in_block = False
+    for row, raw in enumerate(content.split(b"\n")):
+        tokens = [
+            (match.start(), match.group())
+            for match in _GO_MOD_TOKEN.finditer(raw.split(b"//", 1)[0])
+        ]
+        if not tokens:
+            continue
+        if in_block:
+            if tokens[0][1] == b")":
+                return []
+            token = tokens[0]
+        elif tokens[0][1] != b"module":
+            continue
+        elif len(tokens) > 2 and tokens[1][1] == b"(":
+            token = tokens[2]
+        elif len(tokens) == 2 and tokens[1][1] == b"(":
+            in_block = True
+            continue
+        elif len(tokens) == 2:
+            token = tokens[1]
+        else:
+            return []
+        column, text = token
+        path = _go_mod_path(text)
+        if not path or text in {b"(", b")"}:
+            return []
+        return [
+            PackageClause(
+                id=identifier(repository_id, file, path, "Module", 0),
+                file=file,
+                name=path,
+                line=row + 1,
+                column=column,
+                end_line=row + 1,
+                end_column=column + len(text),
+                kind="module",
             )
         ]
     return []

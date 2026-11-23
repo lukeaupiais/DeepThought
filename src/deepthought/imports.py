@@ -6,6 +6,7 @@ rule can tie to exactly one analyzed file stays unresolved or ambiguous, with a
 reason, and produces no link.
 """
 
+from collections import defaultdict
 from dataclasses import dataclass
 import posixpath
 
@@ -18,6 +19,7 @@ PYTHON_FROM_IMPORT_SUBMODULE = "tree-sitter.python-from-import-submodule"
 TYPESCRIPT_RELATIVE_MODULE = "tree-sitter.typescript-relative-module"
 JAVASCRIPT_RELATIVE_FILE = "tree-sitter.javascript-relative-file"
 JAVASCRIPT_EXTENSIONLESS_MODULE = "tree-sitter.javascript-extensionless-module"
+GO_MODULE_PACKAGE = "tree-sitter.go-module-package"
 
 _TS_EXTENSIONLESS = (".ts", ".tsx", ".d.ts")
 _TS_INDEX = ("/index.ts", "/index.tsx", "/index.d.ts")
@@ -181,11 +183,84 @@ def _javascript(item: Import, files):
     return _first(item, candidates, files, JAVASCRIPT_EXTENSIONLESS_MODULE)
 
 
+def _go_modules(result: AnalysisResult):
+    """(module directory, module path) per go.mod, deepest directory first."""
+    modules = [
+        (posixpath.dirname(item.file), item.name)
+        for item in result.packages
+        if item.kind == "module"
+    ]
+    return sorted(modules, key=lambda m: (-len(m[0].split("/")) if m[0] else 0, m))
+
+
+def _within(directory, file):
+    return not directory or file.startswith(directory + "/")
+
+
+def _go_packages(result: AnalysisResult):
+    """Importable files per directory: non-test Go files, minus ``main``.
+
+    ``main`` packages cannot be imported, so a build-ignored ``package main``
+    generator beside a library does not make the directory ambiguous, and a
+    directory with only ``main`` maps to no package.
+    """
+    names = defaultdict(lambda: defaultdict(list))
+    for item in result.packages:
+        if item.kind == "package" and not item.file.endswith("_test.go"):
+            names[posixpath.dirname(item.file)][item.name].append(item.file)
+    packages = {}
+    for directory, by_name in names.items():
+        packages[directory] = {n: f for n, f in by_name.items() if n != "main"}
+    return packages
+
+
+def _go(item: Import, modules, packages):
+    own = next(((d, p) for d, p in modules if _within(d, item.file)), None)
+    if own is None:
+        return ImportResolution(item.id, "unresolved", reason="go_module_path")
+    directory, path = own
+    specifier = item.specifier
+    if specifier != path and not specifier.startswith(path + "/"):
+        other = any(specifier == p or specifier.startswith(p + "/") for _, p in modules)
+        return ImportResolution(
+            item.id,
+            "unresolved",
+            reason="other_repository_module" if other else "outside_module",
+        )
+    target = posixpath.join(directory, specifier[len(path) :].lstrip("/"))
+    target = posixpath.normpath(target) if target else ""
+    target = "" if target == "." else target
+    # A nested module owns its own tree; the import cannot reach into it.
+    if any(
+        d != directory and _within(directory, d + "/") and _within(d, target + "/")
+        for d, _ in modules
+    ):
+        return ImportResolution(item.id, "unresolved", reason="other_repository_module")
+    by_name = packages.get(target)
+    if not by_name:
+        reason = "no_analyzed_file" if by_name is None else "main_package"
+        return ImportResolution(item.id, "unresolved", reason=reason)
+    if len(by_name) > 1:
+        return ImportResolution(
+            item.id,
+            "ambiguous",
+            reason="multiple_packages",
+            candidates=tuple(sorted(f for files in by_name.values() for f in files)),
+        )
+    files = sorted(next(iter(by_name.values())))
+    return ImportResolution(
+        item.id,
+        "linked",
+        tuple(ImportLink(file, GO_MODULE_PACKAGE) for file in files),
+    )
+
+
 def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     """One resolution per import fact, in import identity order."""
     files = {item.file for item in result.coverage}
     languages = {item.file: item.language for item in result.coverage}
     roots = ("",) + (("src",) if any(f.startswith("src/") for f in files) else ())
+    modules, packages = _go_modules(result), _go_packages(result)
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
@@ -194,11 +269,7 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
         elif language == "javascript":
             resolutions.append(_javascript(item, files))
         elif language == "go":
-            # Go imports name packages by module path, which go.mod defines;
-            # the analysis does not read it, so no file is claimed.
-            resolutions.append(
-                ImportResolution(item.id, "unresolved", reason="go_module_path")
-            )
+            resolutions.append(_go(item, modules, packages))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)

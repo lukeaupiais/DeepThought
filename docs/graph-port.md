@@ -119,6 +119,7 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
 | `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
 | `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
+| `tree-sitter.go-module-package` | resolved | a Go import path inside the importing file's own module (nearest `go.mod`): the directory at that path below the module root, linked to every non-test file of its package; `main` packages are not importable, and `vendor/`, `replace` and `go.work` are not read |
 
 Anything else gets no edge. Non-relative TypeScript and JavaScript specifiers (packages, `paths`
 aliases), Python imports matching several roots, imports beyond the repository
@@ -304,11 +305,26 @@ level, not inside the type. A named type's kind is `Struct`, `Interface` or
 `Type` from its underlying type, and `type A = B` is a `TypeAlias`. Interface
 method elements and types declared inside functions are nested by CONTAINS.
 
-Import specs are facts (path, alias, `.` as `*`, `_` binds nothing) but are not
-linked to files: a Go import names a package by module path, which `go.mod`
-defines and the analysis does not read, so each stays `unresolved` with reason
-`go_module_path`. Calls are recorded as written, including selector calls such
-as `fmt.Println`.
+Import specs are facts (path, alias, `.` as `*`, `_` binds nothing). When Go
+is selected, each `go.mod` file is read too: its `module` directive (line or
+block form) becomes a `packages` fact of kind `module` and a `module` property
+on its File node; a `go.mod` without one is `partial` with a `syntax_error`.
+An import resolves by `tree-sitter.go-module-package` only inside the
+importing file's own module, the nearest enclosing `go.mod`: the path after
+the module path (whole path elements only) names a directory below that
+`go.mod`, and the import links to every non-test file of the package there.
+Other outcomes stay unresolved or ambiguous, with a reason:
+
+| Reason | When |
+|---|---|
+| `outside_module` | the path is not under any module in the repository (standard library, third-party) |
+| `other_repository_module` | another `go.mod` in the repository owns the path, including a nested module below the importer's; reaching it needs `replace`, `go.work` or the module cache, which are not read |
+| `no_analyzed_file` | no analyzed Go file of an importable package is in that directory |
+| `main_package` | the directory holds only `package main`, which cannot be imported |
+| `multiple_packages` (ambiguous) | non-test files in the directory declare more than one importable package |
+| `go_module_path` | the importing file has no enclosing `go.mod` |
+
+Calls are recorded as written, including selector calls such as `fmt.Println`.
 
 Each Go file's `package` clause is a fact (`packages`, part of snapshot
 identity) and a `package` property on its File node. A Go package is the files
@@ -335,6 +351,22 @@ inside test functions, two interface method elements, and `preExecHook` in
 `command_win.go`, which a Linux build excludes. Recall of calls is 983 of
 2,096 and 398 of 820 calls with an in-repository SCIP target; the rest are
 method calls, conversions and package-qualified calls, which are not linked.
+
+Import links are compared per (file, package directory) pair across
+directories with `tools/compare_imports_with_scip.py --language go`, against
+directories scip-go saw a reference into:
+
+| Corpus | Imports linked / in-module | Package pairs confirmed by scip-go | scip-go only |
+|---|---|---|---|
+| cobra 1.8.1 | 12 / 12 | 11 / 11 | 0 |
+| gorilla/mux 1.8.1 | 4 / 4 | no cross-directory pairs | 0 |
+| go-chi/chi v5.0.12 | 43 / 43 | 18 / 43 | 0 |
+| spf13/viper 1.18.2 | 12 / 12 | 12 / 12 | 0 |
+
+The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
+so scip-go, skips; they are ordinary imports of the chi packages. Every other
+import in these corpora names the standard library or a third-party module
+(`outside_module`).
 
 ## SCIP references
 

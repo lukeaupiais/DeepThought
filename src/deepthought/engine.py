@@ -27,6 +27,7 @@ from .syntax import (
     LANGUAGES,
     extract,
     extract_call_sites,
+    extract_go_module,
     extract_imports,
     extract_packages,
     extract_supertypes,
@@ -201,6 +202,9 @@ def analyze_repository(
             language = next(
                 (lang for lang in languages if suffix in LANGUAGES[lang][0]), None
             )
+            if name == "go.mod" and "go" in languages:
+                # Go module files declare the import path prefix of their tree.
+                language = "go"
             if language is None:
                 continue
             if not is_relative_file(relative):
@@ -255,6 +259,26 @@ def analyze_repository(
                     )
                     continue
                 content.decode("utf-8")
+                if name == "go.mod":
+                    module = extract_go_module(content, repository_id, relative)
+                    coverage.append(
+                        FileCoverage(
+                            relative,
+                            language,
+                            "analyzed" if module else "partial",
+                            digest,
+                        )
+                    )
+                    if not module:
+                        diagnostics.append(
+                            Diagnostic(
+                                "syntax_error",
+                                "go.mod declares no module path",
+                                relative,
+                            )
+                        )
+                    packages.extend(module)
+                    continue
                 key = (language, suffix)
                 if key not in parsers:
                     parsers[key] = make_parser(language, suffix)

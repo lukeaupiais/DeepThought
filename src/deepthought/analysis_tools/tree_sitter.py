@@ -102,6 +102,16 @@ IMPORT_RULES = {
                 "Node ES modules would not resolve it, and bundler config is not read.",
             )
         ),
+        register_rule(
+            EvidenceRule(
+                import_rules.GO_MODULE_PACKAGE,
+                "resolved",
+                "A Go import path inside the importing file's own module (the "
+                "nearest go.mod) names the directory at that path below the "
+                "module root; the link reaches every non-test file of its "
+                "package. vendor/, replace directives and go.work are not read.",
+            )
+        ),
     )
 }
 
@@ -229,7 +239,9 @@ class TreeSitterTool(AnalysisTool):
                 undisclosed.setdefault(item.file, {}).setdefault(
                     resolution.status + "_imports", set()
                 ).add(item.specifier)
-        declared_packages = {item.file: item.name for item in result.packages}
+        declared_packages = {
+            item.file: {item.kind: item.name} for item in result.packages
+        }
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"
             files[coverage.file] = file_name
@@ -244,11 +256,7 @@ class TreeSitterTool(AnalysisTool):
                         "name": coverage.file,
                         "language": coverage.language,
                         "coverage_status": coverage.status,
-                        **(
-                            {"package": declared_packages[coverage.file]}
-                            if coverage.file in declared_packages
-                            else {}
-                        ),
+                        **declared_packages.get(coverage.file, {}),
                         **{
                             key: sorted(values)
                             for key, values in sorted(
