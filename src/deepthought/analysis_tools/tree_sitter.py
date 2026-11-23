@@ -175,9 +175,9 @@ IMPORT_RULES = {
                 import_rules.RUST_USE_REEXPORT,
                 "resolved",
                 "A Rust use path reaches a module that does not declare the "
-                "next name but binds it with its own use (or exactly one of "
-                "its glob uses supplies it); following those uses reaches the "
-                "file that declares it.",
+                "next name but binds it with its own use (or, when none does, "
+                "its glob uses supply it); following those uses reaches the "
+                "file that declares it. Each #[cfg] meaning is linked.",
             )
         ),
         register_rule(

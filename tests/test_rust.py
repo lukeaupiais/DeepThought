@@ -439,11 +439,14 @@ class RustTests(unittest.TestCase):
                 "util/src/prelude.rs": "pub use crate::shapes::*;\n"
                 "pub use crate::inner::deeper;\n"
                 "pub use crate::Circle as Round;\n"
-                "pub use crate::shp::sub::S as S2;\n",
+                "pub use crate::shp::sub::S as S2;\n"
+                "pub use crate::shapes::MAX;\n",
                 "util/src/x.rs": "pub use crate::y::Loop;\n",
                 "util/src/y.rs": "pub use crate::x::Loop;\n",
                 "util/src/both.rs": "pub use crate::a1::*;\npub use crate::a2::*;\n",
-                "util/src/one.rs": "pub use crate::a1::*;\npub use crate::shapes::*;\n",
+                "util/src/one.rs": "pub use crate::a1::*;\n"
+                "pub use crate::shapes::*;\n"
+                "pub use crate::a2::Same;\n",
                 "util/src/a1.rs": "pub struct Same;\n",
                 "util/src/a2.rs": "pub struct Same;\n",
                 "util/src/shapes.rs": "pub struct Circle;\n"
@@ -503,7 +506,14 @@ class RustTests(unittest.TestCase):
                 "use my_util::prelude::sub::S;\n"
                 "use my_util::prelude::S2 as S3;\n"
                 "use my_util::hub::Kind as K2;\n"
-                "use my_util::one::Same as Same2;\n",
+                "use my_util::one::Same as Same2;\n"
+                "use my_util::one::Circle as C9;\n"
+                "use self::imp as imp_alias;\n"
+                "mod dual;\n"
+                "fn dual() {}\n"
+                "use crate::dual::Bar;\n"
+                "use my_util::prelude::MAX as M2;\n",
+                "app/src/dual.rs": "pub struct Bar;\n",
                 "app/src/a.rs": "pub struct Thing;\nuse super::b::c::Deep;\n",
                 "app/src/b/c.rs": "pub struct Deep;\nuse super::super::a::Thing;\n",
                 "app/src/main.rs": "mod shared;\nuse app::b::c::Deep;\n"
@@ -627,20 +637,21 @@ class RustTests(unittest.TestCase):
                     "crate_ambiguous",
                     ["dup1/src/lib.rs", "dup2/src/lib.rs"],
                 ),
-                # A module declared once per #[cfg], in two files.
+                # A module declared once per #[cfg], in two files: both, as
+                # every configuration is analyzed.
                 ("app/src/lib.rs", 30): (
-                    "ambiguous",
-                    "module_file_ambiguous",
-                    ["app/src/unix.rs", "app/src/windows.rs"],
+                    "linked",
+                    None,
+                    [("app/src/unix.rs", module), ("app/src/windows.rs", module)],
                 ),
                 # Modules inside function bodies are not followed.
                 ("app/src/lib.rs", 31): ("unresolved", "module_missing", []),
                 # A file is visited once per crate: cyc's `again` (cyc.rs
-                # itself) is not followed, and is a name declared in cyc.rs.
+                # itself) is not a module again.
                 ("app/src/lib.rs", 33): (
                     "linked",
                     None,
-                    [("app/src/cyc.rs", declared)],
+                    [("app/src/cyc.rs", module)],
                 ),
                 # Through a glob re-export.
                 ("app/src/lib.rs", 34): (
@@ -660,17 +671,18 @@ class RustTests(unittest.TestCase):
                     None,
                     [("util/src/shapes.rs", reexport)],
                 ),
-                # Re-exports in a cycle, and two globs that both supply the
-                # name, are not followed.
+                # Re-exports in a cycle are not followed.
                 ("app/src/lib.rs", 37): (
                     "linked",
                     None,
                     [("util/src/x.rs", module)],
                 ),
+                # Two globs that both supply a name can only both compile
+                # under different #[cfg]s: both are followed.
                 ("app/src/lib.rs", 38): (
                     "linked",
                     None,
-                    [("util/src/both.rs", module)],
+                    [("util/src/a1.rs", reexport), ("util/src/a2.rs", reexport)],
                 ),
                 # A name inside a re-exported item is declared with it.
                 ("app/src/lib.rs", 39): (
@@ -708,11 +720,36 @@ class RustTests(unittest.TestCase):
                     None,
                     [("util/src/shapes.rs", reexport)],
                 ),
-                # Of two globs, the one that supplies the name.
+                # An explicit use shadows globs that supply the name.
                 ("app/src/lib.rs", 45): (
                     "linked",
                     None,
-                    [("util/src/a1.rs", reexport)],
+                    [("util/src/a2.rs", reexport)],
+                ),
+                # Of two globs, the one that supplies the name.
+                ("app/src/lib.rs", 46): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", reexport)],
+                ),
+                # A module declared once per #[cfg] names both files.
+                ("app/src/lib.rs", 47): (
+                    "linked",
+                    None,
+                    [("app/src/unix.rs", declared), ("app/src/windows.rs", declared)],
+                ),
+                # A re-exported constant: the module the re-export names.
+                ("app/src/lib.rs", 51): (
+                    "linked",
+                    None,
+                    [("util/src/shapes.rs", module)],
+                ),
+                # A path goes on through the module, not the function, of a
+                # name that is both.
+                ("app/src/lib.rs", 50): (
+                    "linked",
+                    None,
+                    [("app/src/dual.rs", declared)],
                 ),
                 # A crate re-exported by `pub extern crate`, then on down.
                 ("app/src/main.rs", 3): (

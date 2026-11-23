@@ -63,7 +63,7 @@ def main():
         for item in result.imports
         if item.kind in {"use", "use_glob", "extern_crate"}
     }
-    outcomes, examples = Counter(), {}
+    outcomes, examples, alternatives = Counter(), {}, Counter()
     for resolution in resolve_imports(result):
         item = uses.get(resolution.import_id)
         if item is None:
@@ -73,7 +73,13 @@ def main():
         for line in range(item.line, item.end_line + 1):
             symbols |= occurrences.get((item.file, line, name), set())
         expected = {f for s in symbols for f in defined.get(s, ())}
-        link = resolution.links[0] if resolution.links else None
+        # A use can link several files, one per #[cfg] alternative;
+        # rust-analyzer indexes one configuration, so one of them is compared.
+        links = resolution.links
+        link = next(
+            (x for x in links if x.target_file in expected),
+            links[0] if links else None,
+        )
         if link is None:
             if expected:
                 outcome = f"missed_{resolution.reason}"
@@ -92,10 +98,12 @@ def main():
                 outcome = f"{kind}_{where}"
             elif link.target_file in expected:
                 outcome = f"{kind}_confirmed"
-            elif kind == "module":
+            elif all(x.rule_id == RUST_USE_MODULE for x in links):
                 outcome = "module_defined_elsewhere"
             else:
                 outcome = f"{kind}_contradicted"
+        if len(links) > 1:
+            alternatives[outcome] += 1
         outcomes[outcome] += 1
         if outcome.endswith(("contradicted", "elsewhere")) or outcome.startswith(
             "missed"
@@ -105,7 +113,7 @@ def main():
                     item.file,
                     item.line,
                     item.specifier,
-                    link.target_file if link else None,
+                    [x.target_file for x in links],
                     sorted(expected),
                 ]
             )
@@ -114,6 +122,7 @@ def main():
             {
                 "uses": len(uses),
                 **dict(sorted(outcomes.items())),
+                "with_cfg_alternatives": dict(sorted(alternatives.items())),
                 "examples": {k: v[:12] for k, v in sorted(examples.items())},
             },
             indent=2,
