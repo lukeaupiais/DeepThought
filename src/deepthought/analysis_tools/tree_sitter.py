@@ -101,6 +101,8 @@ class TreeSitterTool(AnalysisTool):
     def __init__(self, repo_path):
         super().__init__(repo_path)
         self._definitions: dict[str, dict] = {}
+        self.last_analysis = None
+        self.last_reuse = {}
 
     def _get_metadata(self):
         return ToolMetadata(
@@ -123,10 +125,22 @@ class TreeSitterTool(AnalysisTool):
         )
 
     async def analyze(
-        self, repo_url, languages=None, file_patterns=None, skip_patterns=None
+        self,
+        repo_url,
+        languages=None,
+        file_patterns=None,
+        skip_patterns=None,
+        previous=None,
     ):
+        """Analyze the workspace; ``previous`` is an earlier AnalysisResult.
+
+        Unchanged files reuse ``previous`` facts (see analyze_repository); the
+        output equals a full run. The analysis and reuse counts are kept on
+        ``last_analysis`` and ``last_reuse``, outside the published metadata.
+        """
         self._definitions = {}
         started = time.monotonic()
+        self.last_reuse = {}
         result = analyze_repository(
             self.repo_path,
             repository_id=repo_url,
@@ -139,7 +153,10 @@ class TreeSitterTool(AnalysisTool):
             ),
             include=("*",) if file_patterns is None else tuple(file_patterns),
             exclude=() if skip_patterns is None else tuple(skip_patterns),
+            previous=previous,
+            reuse=self.last_reuse,
         )
+        self.last_analysis = result
         # Preserve the original engine's Repository -> File -> declaration
         # projection. Extraction still belongs to the unchanged SDK parser.
         repository_name = f"{repo_url}::repository"

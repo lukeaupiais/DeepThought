@@ -1,6 +1,7 @@
 """Machine-readable local analysis; 0 success, 1 incomplete, 2 invalid input."""
 
 import argparse
+import json
 import os
 import signal
 import stat
@@ -57,6 +58,11 @@ def main(argv=None) -> int:
     analyze.add_argument("--max-files", type=int, default=10_000)
     analyze.add_argument("--max-file-bytes", type=int, default=2_000_000)
     analyze.add_argument("--max-total-bytes", type=int, default=100_000_000)
+    analyze.add_argument(
+        "--previous",
+        help="Earlier analysis artifact whose unchanged files need no parsing",
+    )
+    analyze.add_argument("--max-artifact-bytes", type=int, default=50_000_000)
     ingest = subcommands.add_parser(
         "ingest-scip", help="Read a supplied SCIP artifact; no indexer execution"
     )
@@ -108,6 +114,16 @@ def main(argv=None) -> int:
             previous[sig] = signal.signal(sig, lambda _sig, _frame: cancel.set())
     try:
         if args.command == "analyze":
+            earlier = None
+            if args.previous is not None:
+                if args.max_artifact_bytes < 1:
+                    raise ValueError("Artifact byte limit must be positive")
+                earlier = AnalysisResult.from_json(
+                    _read_artifact(args.previous, args.max_artifact_bytes).decode(
+                        "utf-8"
+                    )
+                )
+            reuse = {}
             result = analyze_repository(
                 args.workspace,
                 repository_id=args.repository_id,
@@ -118,7 +134,12 @@ def main(argv=None) -> int:
                 max_file_bytes=args.max_file_bytes,
                 max_total_bytes=args.max_total_bytes,
                 cancel_event=cancel,
+                previous=earlier,
+                reuse=reuse,
             )
+            if earlier is not None:
+                # The artifact on stdout is identical to a full run's.
+                print(json.dumps({"reuse": reuse}, sort_keys=True), file=sys.stderr)
         elif args.command == "ingest-scip":
             result = ingest_scip(
                 args.index,

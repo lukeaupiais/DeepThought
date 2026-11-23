@@ -62,6 +62,16 @@ def parser():
     index.add_argument("--language", action="append", choices=("python", "typescript"))
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
+    index.add_argument(
+        "--previous-artifact",
+        type=Path,
+        help="Earlier tree-sitter analysis; unchanged files need no parsing",
+    )
+    index.add_argument(
+        "--write-artifact",
+        type=Path,
+        help="Write this tree-sitter analysis here, for the next --previous-artifact",
+    )
     snapshots = commands.add_parser(
         "snapshots", help="List complete snapshots and the commits they came from"
     )
@@ -156,10 +166,24 @@ async def execute(args):
             # Read HEAD before any file so a commit that moves mid-run is caught.
             commit_before = head_commit(args.workspace)
             outputs = []
+            if (
+                args.previous_artifact or args.write_artifact
+            ) and "tree-sitter" not in names:
+                raise ValueError("Analysis artifacts belong to the tree-sitter tool")
+            earlier = None
+            if args.previous_artifact is not None:
+                from .cli import _read_artifact
+                from .models import AnalysisResult
+
+                earlier = AnalysisResult.from_json(
+                    _read_artifact(args.previous_artifact, 50_000_000).decode("utf-8")
+                )
+            analysis = reuse = None
             for name in names:
                 tool = tool_registry.get_tool(name, args.workspace)
                 if tool is None:
                     raise ValueError("Unknown AnalysisTool: " + name)
+                options = {"previous": earlier} if name == "tree-sitter" else {}
                 try:
                     if not await tool.check_availability():
                         raise ValueError("Requested AnalysisTool is unavailable")
@@ -169,8 +193,11 @@ async def execute(args):
                             languages=set(args.language) if args.language else None,
                             file_patterns=args.include,
                             skip_patterns=args.exclude,
+                            **options,
                         )
                     )
+                    if name == "tree-sitter":
+                        analysis, reuse = tool.last_analysis, dict(tool.last_reuse)
                 finally:
                     await tool.cleanup()
             coordinator = WriteCoordinator(
@@ -203,7 +230,12 @@ async def execute(args):
                 await coordinator.link_commit(
                     args.repository_id, result.snapshot_id, link.commit
                 )
-            return {**asdict(result), "source_revision": link.to_dict()}
+            if args.write_artifact is not None:
+                args.write_artifact.write_text(analysis.to_json() + "\n")
+            report = {**asdict(result), "source_revision": link.to_dict()}
+            if earlier is not None:
+                report["reuse"] = reuse
+            return report
         from .graph_queries import GraphQueryService
 
         service = GraphQueryService(
