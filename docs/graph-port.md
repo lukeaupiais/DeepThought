@@ -1241,7 +1241,14 @@ Facts are read from Java sources outside test source sets (`src/test/`):
   fields of the file with an initializer, no `@Value` injection and no
   assignment anywhere in the file, String locals declared once and never
   assigned, and calls to a method of the file whose body is a single `return`
-  (arguments substituted). Everything else is unknown text. A route with
+  (arguments substituted). A local may also take its value from `=`
+  assignments that come before the use: one statement in the declaration's own
+  block replaces the value, and assignments in different branches of an `if`
+  that ends before the use each give one alternative URL, plus the initializer
+  when the branches do not cover every path (a `null` initializer gives none).
+  Each alternative is its own request, and its edge records
+  `url_alternatives`; more than 8 alternatives are unknown text. Everything
+  else is unknown text. A route with
   unknown text is not read; a request keeps it as a placeholder, and URI
   template variables (`{id}`) are unknown text too.
 - **Services.** A file belongs to the build module of its nearest `pom.xml` or
@@ -1302,15 +1309,16 @@ and gRPC links of Online Boutique and robot-shop belong to languages this tool
 does not read yet; both are left for later.
 
 Train-ticket (FudanSELab, commit `313886e9`, 41 Spring services using
-RestTemplate) has no labelled corpus, so its predictions were audited instead:
-of 146 requests outside tests, 133 link, all by `http-service-path`. A
-reviewer who did not see the extractor checked a random sample of 40 links
-against the source by hand and found all 40 correct, then checked all 13
-unlinked requests (`evals/fixtures/service_contracts/train-ticket-audit/`).
-Ten of those build their URL in an `if`/`else` with a literal in each branch,
-which is not folded, so each would need two links. One calls an external host,
-one a path no service serves, and one posts to a route that accepts only
-GET and DELETE.
+RestTemplate) has no labelled corpus, so its predictions were audited instead
+(`evals/fixtures/service_contracts/train-ticket-audit/`). A reviewer who did
+not see the extractor checked a random sample of 40 links against the source by
+hand and found all 40 correct, then checked every unlinked request. Ten build
+their URL in an `if`/`else` with a literal in each branch; with branch
+alternatives all ten now link to exactly the two handlers the reviewer named
+(20 links). Of 157 requests outside tests, 153 link. The other four are rightly
+unlinked: one calls an external host, one a path no service serves, and one
+call site posts to `.../order/{id}` in two services that accept only GET and
+DELETE there, which leaves the request ambiguous among POST routes.
 
 ## Commit-linked snapshots
 

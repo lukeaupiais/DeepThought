@@ -33,7 +33,8 @@ class HttpRequest:
     service name the client names explicitly (a Feign client's name); the
     URL's literal host is read when matching. ``method`` is None when the
     source does not fix it. ``caller_id`` is the innermost enclosing
-    declaration, None at file level.
+    declaration, None at file level. A URL chosen in ``if``/``else``
+    branches gives one request per branch, each counting ``alternatives``.
     """
 
     id: str
@@ -45,6 +46,8 @@ class HttpRequest:
     url: str
     client: str
     target_service: str | None = None
+    # How many URLs the call site may request; each is one request.
+    alternatives: int = 1
 
 
 @dataclass(frozen=True)
