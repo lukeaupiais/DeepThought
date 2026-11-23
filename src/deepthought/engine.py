@@ -28,6 +28,7 @@ from .syntax import (
     LANGUAGES,
     extract,
     extract_c,
+    extract_cpp,
     extract_call_sites,
     extract_cargo_manifest,
     extract_go_module,
@@ -36,6 +37,7 @@ from .syntax import (
     extract_packages,
     extract_supertypes,
     make_parser,
+    prepare_source,
     rust_macro_rules,
     RustExpander,
 )
@@ -216,7 +218,7 @@ def analyze_repository(
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
         raise ValueError(
-            "Supported languages: c, go, java, javascript, python, rust, typescript"
+            "Supported languages: c, cpp, go, java, javascript, python, rust, typescript"
         )
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
@@ -274,6 +276,10 @@ def analyze_repository(
             language = next(
                 (lang for lang in languages if suffix in LANGUAGES[lang][0]), None
             )
+            if suffix == ".h" and "cpp" in languages:
+                # A header is read as C++ when C++ is selected: C++ code
+                # includes it, and the C++ grammar reads C declarations too.
+                language = "cpp"
             if name == "go.mod" and "go" in languages:
                 # Go module files declare the import path prefix of their tree.
                 language = "go"
@@ -393,7 +399,7 @@ def analyze_repository(
                     impls.extend(facts.impls)
                     continue
                 stats["parsed"] += 1
-                tree = parsers[key].parse(content)
+                tree = parsers[key].parse(prepare_source(language, content))
                 if tree.root_node.has_error:
                     coverage.append(
                         FileCoverage(
@@ -415,6 +421,12 @@ def analyze_repository(
                     # C: declarations only so far.
                     definitions.extend(
                         extract_c(tree, content, repository_id, relative)
+                    )
+                    continue
+                if language == "cpp":
+                    # C++: declarations only so far.
+                    definitions.extend(
+                        extract_cpp(tree, content, repository_id, relative)
                     )
                     continue
                 expander = (
