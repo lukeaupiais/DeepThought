@@ -37,6 +37,87 @@ Results on real repositories (4 runs each, all byte-identical):
 | sindresorhus/execa | `6f856d5` | javascript | 31,415,744 |
 | DeepThought `src/` | `040a3e1` | python | 5,943,195 |
 
+## Ground-truth corpus
+
+Pinned real repositories with expected call edges derived from a compiler or
+language server, checked in under `evals/ground_truth/`, so the engine is
+scored against a yardstick its own rules cannot move.
+
+- `manifest.json` pins each repository to a commit and records the oracle, its
+  version and the command that produced its SCIP index.
+- `calls/NAME.tsv` is the truth, one row per target:
+  `file line name target_file target_line kind`. A call is a reference
+  occurrence the source text shows is applied to an argument list (`name(`,
+  `name::<T>(`, `name<T>(`) and is not a declaration. Its kind says where the
+  oracle says the name leads: `callable` (an in-repository function, method or
+  type, at each defining line; a constructor also accepts its class), `value`
+  (another in-repository symbol, such as `const f = () => ...`), `local` (a
+  parameter, loop variable or local function, at its binding line) or
+  `external` (a library or builtin). `# indexed` rows list the files the
+  oracle indexed.
+- `baseline.json` is the current score of each corpus.
+
+Every engine call resolution is judged at its source position:
+
+| Outcome | Meaning |
+|---|---|
+| confirmed | linked to a target the oracle names |
+| contradicted | linked, and the oracle names other targets (including `local` or `external`) |
+| unjudged | linked where the oracle records no call (for example code under a `#[cfg]` the oracle did not enable) |
+| not_indexed | linked in a file the oracle did not index |
+| missed | an expected call (one with a `callable` target) without a confirmed link, broken down by the engine's outcome at that position (`no_call_site` means no call site was extracted there) |
+
+Precision is confirmed / (confirmed + contradicted). Recall is the share of
+expected calls with a confirmed link; `value` and `local` links count toward
+precision only, so confirmed can exceed expected.
+
+```sh
+python tools/ground_truth.py check                   # fetch, score, compare with baseline
+python tools/ground_truth.py check --corpus click    # one corpus
+python tools/ground_truth.py check --update-baseline # accept a new score
+python tools/ground_truth.py score WORKSPACE TRUTH --language python
+python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
+```
+
+`check` exits 1 when a corpus has more contradictions or fewer confirmed links
+than its baseline, or when its truth file no longer matches the baseline's
+expected count. An improvement is accepted by updating the baseline in the
+same change. The whole corpus fetches and scores in about ten seconds.
+
+Before a contradiction is reported as an engine defect it is checked against
+the source: the oracle can be misconfigured too. For example, scip-python
+resolves `click` in click's own tests to an installed copy unless the
+repository is installed in the indexing environment, which the manifest's
+command does.
+
+Baseline (calls):
+
+| Corpus | Language | Expected | Confirmed | Contradicted | Precision | Recall |
+|---|---|---|---|---|---|---|
+| click | python | 3,313 | 927 | 1 | 0.9989 | 0.2756 |
+| ky | typescript | 143 | 225 | 0 | 1.0 | 0.2587 |
+| cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
+| anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
+| ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
+
+Recall is low by design where calls need a receiver's type (`x.m()`,
+`c.Root().Name()`), which name-based resolution does not infer. The largest
+missed groups are:
+
+- click: 1,717 calls of a package attribute (`click.echo(...)`) whose
+  declaration is re-exported by the package's `__init__.py`
+  (`module_attribute_not_declared`); 541 method calls on values.
+- cobra: 1,115 method calls on values (`attribute_call`).
+- ky: 97 calls with no extracted call site, mostly `this.#private()` methods.
+- ripgrep and anyhow: calls with no extracted call site (5,944 and 154),
+  mostly method chains and calls inside macro invocations such as
+  `assert_eq!(...)`, and 2,152 and 65 method calls on values.
+
+The one contradiction is a real defect: in `examples/imagepipe/imagepipe.py`
+line 35, `processor(stream)` calls the loop variable of
+`for processor in processors`, and the engine links it to the module-level
+function `processor` defined on line 42.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

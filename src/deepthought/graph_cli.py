@@ -126,6 +126,9 @@ def parser():
         "dependencies",
         "dependents",
         "explain-edge",
+        "components",
+        "file-components",
+        "component-files",
         "cypher",
     ):
         q = commands.add_parser(name)
@@ -196,6 +199,13 @@ def parser():
             )
         if name == "explain-edge":
             q.add_argument("--edge-id", required=True)
+        if name == "components":
+            q.add_argument("--kind", help="Only components of this kind")
+        if name == "file-components":
+            q.add_argument("--file", required=True)
+        if name == "component-files":
+            q.add_argument("--component", required=True, help="Qualified name")
+            q.add_argument("--after-path", default="", help="Continue after this path")
         if name == "cypher":
             q.add_argument("--parameters", default="{}", help="JSON parameter object")
             q.add_argument(
@@ -398,6 +408,21 @@ async def execute(args):
             )
             return await method(
                 args.symbol, args.repository_id, file_path=args.file, **kwargs
+            )
+        if args.command == "components":
+            return await service.list_components(
+                args.repository_id, kind=args.kind, **kwargs
+            )
+        if args.command == "file-components":
+            return await service.get_file_components(
+                args.file, args.repository_id, **kwargs
+            )
+        if args.command == "component-files":
+            return await service.get_component_files(
+                args.component,
+                args.repository_id,
+                after_path=args.after_path,
+                **kwargs,
             )
         if args.command in {"dependencies", "dependents"}:
             method = (

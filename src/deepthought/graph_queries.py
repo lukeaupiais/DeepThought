@@ -1272,6 +1272,97 @@ class GraphQueryService:
             timeout,
         )
 
+    async def list_components(
+        self,
+        repo_url,
+        *,
+        snapshot_id,
+        kind=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Components that manifests declare, with their files' count."""
+        if kind is not None:
+            _text(kind, "kind")
+        response = await self._read(
+            "MATCH (c:Component {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE $kind IS NULL OR c.kind = $kind "
+            "OPTIONAL MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id})"
+            "-[:PART_OF]->(c) "
+            "WITH c, count(f) AS files "
+            "RETURN c AS element, files "
+            "ORDER BY c.root, c.kind, c.qualified_name LIMIT $fetch_limit",
+            {"kind": kind},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="components",
+        )
+        response["semantics"] = (
+            "Components declared by build manifests (pyproject.toml, package.json, "
+            "go.mod, Cargo.toml, pom.xml) in the analyzed paths; units that no "
+            "manifest declares are not listed."
+        )
+        return response
+
+    async def get_file_components(
+        self,
+        file_path,
+        repo_url,
+        *,
+        snapshot_id,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """The nearest enclosing component of each kind for this file."""
+        return await self._file_links(
+            "PART_OF",
+            file_path,
+            repo_url,
+            snapshot_id,
+            limit,
+            max_output_bytes,
+            timeout,
+        )
+
+    async def get_component_files(
+        self,
+        qualified_name,
+        repo_url,
+        *,
+        snapshot_id,
+        after_path="",
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Files under a component's root, by path, after ``after_path``."""
+        _text(qualified_name, "qualified_name")
+        if not isinstance(after_path, str):
+            raise ValueError("after_path must be a string")
+        response = await self._read(
+            "MATCH (c:Component {qualified_name:$name,repo_url:$repo_url,"
+            "snapshot_id:$snapshot_id})"
+            "<-[r:PART_OF]-(f:File {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE f.path > $after "
+            "RETURN f.path AS path, f.language AS language, r AS relationship "
+            "ORDER BY f.path LIMIT $fetch_limit",
+            {"name": qualified_name, "after": after_path},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="components",
+        )
+        if response["items"]:
+            response["next_after_path"] = response["items"][-1]["path"]
+        return self._observed(response, "incoming PART_OF", max_output_bytes)
+
     async def _file_links(
         self,
         relation,
