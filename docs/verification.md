@@ -84,6 +84,27 @@ than its baseline, or when its truth file no longer matches the baseline's
 expected count. An improvement is accepted by updating the baseline in the
 same change. The whole corpus fetches and scores in about ten seconds.
 
+Scores are also broken down by the evidence rule that made each link, and
+`check` fails when any single rule loses a confirmed link or gains a
+contradiction, even if the totals hold. Its `rule_coverage` output lists, for
+every call rule, confirmed and contradicted links across all corpora, and
+names the rules with no confirmed link: breaking one of those would go
+unnoticed here. Today these are the five Java rules (there is no Java corpus
+yet). Every Python, TypeScript, Go and Rust call rule has at least 18
+confirmed links:
+
+| Rule | Confirmed | Contradicted |
+|---|---|---|
+| tree-sitter.call-lexical-name | 969 | 1 |
+| tree-sitter.call-imported-name | 484 | 0 |
+| tree-sitter.call-module-attribute | 18 | 0 |
+| tree-sitter.call-self-method | 159 | 0 |
+| tree-sitter.call-package-name | 566 | 0 |
+| tree-sitter.rust-call-path | 1,831 | 0 |
+| tree-sitter.rust-call-associated | 1,123 | 0 |
+| tree-sitter.rust-call-self-method | 580 | 0 |
+| tree-sitter.rust-call-local-item | 35 | 0 |
+
 Before a contradiction is reported as an engine defect it is checked against
 the source: the oracle can be misconfigured too. For example, scip-python
 resolves `click` in click's own tests to an installed copy unless the
