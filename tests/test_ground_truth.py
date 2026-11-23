@@ -87,6 +87,35 @@ class GroundTruthTest(unittest.TestCase):
         better = {"expected": 10, "confirmed": 9, "contradicted": 0}
         self.assertEqual(ground_truth.regressions(better, baseline), [])
 
+    def test_a_rule_that_gets_worse_is_named(self):
+        baseline = {
+            "expected": 10,
+            "confirmed": 8,
+            "contradicted": 0,
+            "by_rule": {"a.x": {"confirmed": 5}, "a.y": {"confirmed": 3}},
+        }
+        # Same totals, but one rule lost a confirmed link another gained.
+        report = {
+            "expected": 10,
+            "confirmed": 8,
+            "contradicted": 0,
+            "by_rule": {"a.x": {"confirmed": 6}, "a.y": {"confirmed": 2}},
+        }
+        self.assertEqual(
+            ground_truth.regressions(report, baseline), ["a.y confirmed 3 -> 2"]
+        )
+
+    def test_scores_are_broken_down_by_rule(self):
+        result = ground_truth.analyze(FIXTURES / "python", ("python",))
+        report, _ = ground_truth.score(result, self.truth())
+        self.assertEqual(
+            sum(c.get("confirmed", 0) for c in report["by_rule"].values()), 3
+        )
+        coverage = ground_truth.rule_coverage({"fixture": report})
+        self.assertIn("tree-sitter.call-imported-name", coverage["rules"])
+        self.assertIn("tree-sitter.rust-call-path", coverage["unverified"])
+        self.assertNotIn("tree-sitter.python-from-import-submodule", coverage["rules"])
+
 
 class AppliedTest(unittest.TestCase):
     def test_argument_lists_after_generics(self):

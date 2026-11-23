@@ -1,5 +1,23 @@
 {
   "anyhow": {
+    "by_rule": {
+      "tree-sitter.rust-call-associated": {
+        "confirmed": 66,
+        "unjudged": 6
+      },
+      "tree-sitter.rust-call-local-item": {
+        "confirmed": 11
+      },
+      "tree-sitter.rust-call-path": {
+        "confirmed": 140,
+        "not_indexed": 2,
+        "unjudged": 5
+      },
+      "tree-sitter.rust-call-self-method": {
+        "confirmed": 6,
+        "unjudged": 1
+      }
+    },
     "confirmed": 223,
     "contradicted": 0,
     "expected": 444,
@@ -22,6 +40,21 @@
     "ambiguous_includes": 22,
     "ambiguous_no_candidates": 14,
     "ambiguous_unjudged": 29,
+    "by_rule": {
+      "tree-sitter.call-imported-name": {
+        "confirmed": 379
+      },
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 386,
+        "contradicted": 1
+      },
+      "tree-sitter.call-module-attribute": {
+        "confirmed": 3
+      },
+      "tree-sitter.call-self-method": {
+        "confirmed": 159
+      }
+    },
     "confirmed": 927,
     "contradicted": 1,
     "expected": 3313,
@@ -41,6 +74,17 @@
     "unresolved_unjudged": 3555
   },
   "cobra": {
+    "by_rule": {
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 463
+      },
+      "tree-sitter.call-module-attribute": {
+        "confirmed": 15
+      },
+      "tree-sitter.call-package-name": {
+        "confirmed": 566
+      }
+    },
     "confirmed": 1044,
     "contradicted": 0,
     "expected": 2197,
@@ -57,6 +101,17 @@
   },
   "ky": {
     "ambiguous_unjudged": 484,
+    "by_rule": {
+      "tree-sitter.call-imported-name": {
+        "confirmed": 105,
+        "not_indexed": 139
+      },
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 120,
+        "not_indexed": 522,
+        "unjudged": 1
+      }
+    },
     "confirmed": 225,
     "contradicted": 0,
     "expected": 143,
@@ -76,6 +131,23 @@
   "ripgrep": {
     "ambiguous_includes": 18,
     "ambiguous_unjudged": 1,
+    "by_rule": {
+      "tree-sitter.rust-call-associated": {
+        "confirmed": 1057,
+        "not_indexed": 3,
+        "unjudged": 2
+      },
+      "tree-sitter.rust-call-local-item": {
+        "confirmed": 24
+      },
+      "tree-sitter.rust-call-path": {
+        "confirmed": 1691
+      },
+      "tree-sitter.rust-call-self-method": {
+        "confirmed": 574,
+        "not_indexed": 1
+      }
+    },
     "confirmed": 3346,
     "contradicted": 0,
     "expected": 11676,
