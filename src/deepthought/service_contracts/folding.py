@@ -5,7 +5,9 @@ Folded: string literals, ``+`` concatenation, template strings and f-strings
 formatting (each field is unknown text), and names bound exactly once in
 their scope to a foldable value before the use: a function's locals, else
 the module's top-level names (Python assignments, JavaScript ``const``/
-``let``/``var``, Go ``var``/``const``/``:=``). A name bound more than once in
+``let``/``var``, Go ``var``/``const``/``:=``), and Python ``self.NAME`` for a
+class attribute assigned once in the class body and never through an
+attribute assignment in the class. A name bound more than once in
 that scope, or assigned anywhere else, is unknown text. Everything else is
 unknown text (PLACEHOLDER).
 """
@@ -208,6 +210,49 @@ class Folder:
             return PLACEHOLDER
         return self._fold(found[0].id, found[1], depth)
 
+    def _class_attribute(self, node, depth):
+        """``self.NAME``/``cls.NAME`` inside a class whose body assigns NAME
+        once, when nothing in the class assigns ``<anything>.NAME``."""
+        owner = node.child_by_field_name("object")
+        attribute = text(node.child_by_field_name("attribute"), self.content)
+        if owner.type != "identifier" or text(owner, self.content) not in (
+            "self",
+            "cls",
+        ):
+            return PLACEHOLDER
+        current = node.parent
+        while current is not None and current.type != "class_definition":
+            current = current.parent
+        if current is None:
+            return PLACEHOLDER
+        body = current.child_by_field_name("body")
+        values = [
+            child
+            for statement in body.named_children
+            if statement.type == "expression_statement"
+            for child in statement.named_children
+            if child.type == "assignment"
+            and child.child_by_field_name("left").type == "identifier"
+            and text(child.child_by_field_name("left"), self.content) == attribute
+        ]
+        if len(values) != 1:
+            return PLACEHOLDER
+        stack = [body]
+        while stack:
+            current = stack.pop()
+            if current.type in ("assignment", "augmented_assignment"):
+                left = current.child_by_field_name("left")
+                targets = [left, *left.named_children]
+                if any(
+                    t.type == "attribute"
+                    and text(t.child_by_field_name("attribute"), self.content)
+                    == attribute
+                    for t in targets
+                ):
+                    return PLACEHOLDER
+            stack.extend(current.named_children)
+        return self._fold(values[0].id, values[0].child_by_field_name("right"), depth)
+
     def _assigned_elsewhere(self, name, scope):
         """A module name rebound inside a function (``global``) is not fixed."""
         if scope is not self.root:
@@ -303,6 +348,8 @@ class Folder:
                         left,
                     )
                 return PLACEHOLDER
+            if kind == "attribute":
+                return self._class_attribute(node, depth)
             if kind == "call":
                 function = node.child_by_field_name("function")
                 if (
