@@ -9,17 +9,21 @@ unresolved or ambiguous, with a reason, and produces no link.
 
 from dataclasses import dataclass
 
-from .calls import CallResolution, _JavaScope, _pick, _RustPaths, name_bindings
+from .calls import (
+    RUST_IMPL_TRAIT,  # noqa: F401 (re-exported)
+    RUST_IMPL_TYPE,  # noqa: F401 (re-exported)
+    CallResolution,
+    _JavaScope,
+    _pick,
+    _RustPaths,
+    name_bindings,
+)
 from .models import AnalysisResult
 
 BASE_LEXICAL_NAME = "tree-sitter.base-lexical-name"
 BASE_IMPORTED_NAME = "tree-sitter.base-imported-name"
 BASE_MODULE_ATTRIBUTE = "tree-sitter.base-module-attribute"
 JAVA_BASE_TYPE = "tree-sitter.java-base-type"
-RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
-RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
-
-_RUST_TYPES = {"Struct", "Enum", "Union", "TypeAlias"}
 
 _TYPES = {"Class", "Interface"}
 
@@ -130,28 +134,6 @@ def resolve_rust_impls(result: AnalysisResult) -> tuple[ImplResolution, ...]:
     paths = _RustPaths(result, name_bindings(result).by_symbol)
     resolutions = []
     for item in sorted(result.impls, key=lambda value: value.id):
-        if item.type in item.generics:
-            kind = CallResolution(item.id, "unresolved", reason="generic_parameter")
-        else:
-            kind = paths.resolve(
-                item.id,
-                item,
-                item.type.split("::"),
-                _RUST_TYPES,
-                RUST_IMPL_TYPE,
-                RUST_IMPL_TYPE,
-            )
-        trait = (
-            None
-            if item.trait is None
-            else paths.resolve(
-                item.id,
-                item,
-                item.trait.split("::"),
-                {"Trait"},
-                RUST_IMPL_TRAIT,
-                RUST_IMPL_TRAIT,
-            )
-        )
-        resolutions.append(ImplResolution(item.id, kind, trait))
+        kind = paths.impl_type(item)
+        resolutions.append(ImplResolution(item.id, kind, paths.impl_trait(item)))
     return tuple(resolutions)

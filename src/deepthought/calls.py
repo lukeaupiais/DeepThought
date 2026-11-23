@@ -32,6 +32,12 @@ JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
+RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
+RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
+RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
+RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
+# Rust declarations an impl can be written for.
+_RUST_TYPES = {"Struct", "Enum", "Union", "TypeAlias"}
 # Rust declarations a call can name: functions and tuple structs.
 _RUST_CALLABLE = {"Function", "Struct"}
 _CALLABLE = {"Function", "Class"}
@@ -478,6 +484,155 @@ class _RustPaths:
         for d in result.definitions:
             if languages.get(d.file) == "rust":
                 self.spans[d.file].append(d)
+        self.impls = defaultdict(list)
+        for item in result.impls:
+            self.impls[item.file].append(item)
+        self._types, self._members, self._aliased = {}, None, set()
+        self._definitions = {d.id: d for d in result.definitions}
+        self._kinds = {d.id: d.kind for d in result.definitions}
+
+    def impl_type(self, item):
+        """The declaration an impl is written for."""
+        if item.id not in self._types:
+            self._types[item.id] = (
+                CallResolution(item.id, "unresolved", reason="generic_parameter")
+                if item.type in item.generics
+                else self.resolve(
+                    item.id,
+                    item,
+                    item.type.split("::"),
+                    _RUST_TYPES,
+                    RUST_IMPL_TYPE,
+                    RUST_IMPL_TYPE,
+                )
+            )
+        return self._types[item.id]
+
+    def impl_trait(self, item):
+        """The trait declaration an impl implements, or None for an inherent
+        impl."""
+        if item.trait is None:
+            return None
+        key = (item.id, "trait")
+        if key not in self._types:
+            self._types[key] = self.resolve(
+                item.id,
+                item,
+                item.trait.split("::"),
+                {"Trait"},
+                RUST_IMPL_TRAIT,
+                RUST_IMPL_TRAIT,
+            )
+        return self._types[key]
+
+    def _trait_method(self, trait_id, name):
+        trait = self._definitions[trait_id]
+        return [
+            d
+            for d in self.by_symbol.get((trait.file, f"{trait.symbol}.{name}"), ())
+            if d.kind == "Method"
+        ]
+
+    def _innermost_trait(self, site):
+        """The trait declaration around ``site`` when no impl inside it is."""
+        around = [
+            d
+            for d in self.spans[site.file]
+            if d.kind == "Trait" and self._contains(d, site)
+        ]
+        if not around:
+            return None
+        trait = max(around, key=lambda d: (d.line, d.column))
+        if any(
+            self._contains(i, site) and (i.line, i.column) > (trait.line, trait.column)
+            for i in self.impls[site.file]
+        ):
+            return None
+        return trait
+
+    def _innermost_impl(self, site):
+        """The impl block around ``site``, or None outside one or inside a
+        trait written in it."""
+        around = [i for i in self.impls[site.file] if self._contains(i, site)]
+        if not around:
+            return None
+        item = max(around, key=lambda i: (i.line, i.column))
+        if any(
+            d.kind == "Trait"
+            and self._contains(d, site)
+            and (d.line, d.column) > (item.line, item.column)
+            for d in self.spans[site.file]
+        ):
+            return None
+        return item
+
+    def members(self):
+        """Type declaration ID -> [(impl, functions it declares)]: the
+        functions an impl body declares, by the type the impl resolves to."""
+        if self._members is None:
+            self._members = defaultdict(list)
+            for file, items in sorted(self.impls.items()):
+                declared = defaultdict(list)
+                for d in self.spans[file]:
+                    if d.kind != "Method":
+                        continue
+                    item = self._innermost_impl(d)
+                    # A method qualified by the impl's type, not one of a
+                    # trait declared inside it.
+                    if item is not None and d.symbol.split(".")[-2:-1] == [
+                        item.type.split("::")[-1]
+                    ]:
+                        declared[item.id].append(d)
+                for item in items:
+                    kind = self.impl_type(item)
+                    if kind.status != "linked":
+                        continue
+                    if self._kinds[kind.target_id] == "TypeAlias":
+                        # The aliased type is not read: an impl for an alias
+                        # may declare a name another impl of that type does.
+                        self._aliased |= {
+                            d.symbol.split(".")[-1] for d in declared[item.id]
+                        }
+                    self._members[kind.target_id].append((item, declared[item.id]))
+        return self._members
+
+    def _associated(self, site, owners, name, rule):
+        """A function ``name`` the impls of ``owners`` declare: an inherent
+        impl's, else a trait impl's, or the trait's own (a provided method
+        the impl does not override). A type alias's impls are not read as
+        its aliased type's, so a name an impl for an alias declares is not
+        taken from a trait."""
+        if any(self._kinds[owner] == "TypeAlias" for owner in owners):
+            return CallResolution(site.id, "unresolved", reason="type_alias")
+        members = self.members()
+        found = [
+            (item.trait is not None, d)
+            for owner in owners
+            for item, functions in members.get(owner, ())
+            for d in functions
+            if d.symbol.split(".")[-1] == name
+        ]
+        inherent = [d for trait, d in found if not trait]
+        if inherent:
+            return _pick(site.id, inherent, rule, "no_declaration")
+        provided = []
+        for owner in owners:
+            for item, functions in members.get(owner, ()):
+                trait = self.impl_trait(item)
+                if (
+                    trait is not None
+                    and trait.status == "linked"
+                    and not any(d.symbol.split(".")[-1] == name for d in functions)
+                ):
+                    provided.extend(self._trait_method(trait.target_id, name))
+        candidates = [d for _, d in found] + provided
+        if candidates and name in self._aliased:
+            return CallResolution(site.id, "unresolved", reason="type_alias")
+        if candidates:
+            return _pick(
+                site.id, {d.id: d for d in candidates}.values(), rule, "no_declaration"
+            )
+        return CallResolution(site.id, "unresolved", reason="associated_item")
 
     @staticmethod
     def _contains(d, site):
@@ -582,16 +737,52 @@ class _RustPaths:
     def call(self, site):
         segments = site.callee.split("::")
         if "." in segments[-1]:
-            return CallResolution(site.id, "unresolved", reason="method_call")
+            receiver, _, name = site.callee.rpartition(".")
+            trait = self._innermost_trait(site) if receiver == "self" else None
+            if trait is not None:
+                # A method of the trait itself; supertraits are not read.
+                return _pick(
+                    site.id,
+                    self._trait_method(trait.id, name),
+                    RUST_CALL_SELF_METHOD,
+                    "method_call",
+                )
+            item = self._innermost_impl(site) if receiver == "self" else None
+            kind = self.impl_type(item) if item is not None else None
+            if kind is None or kind.status != "linked":
+                return CallResolution(site.id, "unresolved", reason="method_call")
+            return self._associated(site, [kind.target_id], name, RUST_CALL_SELF_METHOD)
         if segments[0] == "Self":
-            return CallResolution(site.id, "unresolved", reason="associated_item")
-        return self.resolve(
+            item = self._innermost_impl(site) if len(segments) == 2 else None
+            kind = self.impl_type(item) if item is not None else None
+            if kind is None or kind.status != "linked":
+                return CallResolution(site.id, "unresolved", reason="associated_item")
+            return self._associated(
+                site, [kind.target_id], segments[1], RUST_CALL_ASSOCIATED
+            )
+        resolution = self.resolve(
             site.id,
             site,
             segments,
             _RUST_CALLABLE,
             RUST_CALL_LOCAL_ITEM,
             RUST_CALL_PATH,
+        )
+        if resolution.reason != "associated_item":
+            return resolution
+        # A path through a type: a function its impls declare.
+        owner = self.resolve(
+            site.id,
+            site,
+            segments[:-1],
+            _RUST_TYPES,
+            RUST_IMPL_TYPE,
+            RUST_IMPL_TYPE,
+        )
+        if owner.status != "linked":
+            return resolution
+        return self._associated(
+            site, [owner.target_id], segments[-1], RUST_CALL_ASSOCIATED
         )
 
     def resolve(self, item_id, site, segments, kinds, local_rule, path_rule):
