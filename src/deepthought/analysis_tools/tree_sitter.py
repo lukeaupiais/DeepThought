@@ -1,8 +1,8 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
 This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX,
-Go and Java declarations, static file imports (not yet for Java), and
-name-matched calls and declared bases (not yet for Java).
+Go and Java declarations, static file imports, and name-matched calls and
+declared bases (not yet for Java).
 It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
@@ -113,6 +113,25 @@ IMPORT_RULES = {
                 "nearest go.mod) names the directory at that path below the "
                 "module root; the link reaches every non-test file of its "
                 "package. vendor/, replace directives and go.work are not read.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.JAVA_PACKAGE_MEMBER,
+                "resolved",
+                "A Java import names a package or type that analyzed files "
+                "declare under exactly one source root (the directory above "
+                "the package path); a type links to its declaring file, a "
+                "package wildcard to every file of the package.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.JAVA_SAME_SOURCE_ROOT,
+                "name_matched",
+                "Several source roots declare the imported package or type; "
+                "the importing file's own source root is chosen. Which root "
+                "a build puts on the class path is not read.",
             )
         ),
     )
