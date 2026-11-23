@@ -1580,6 +1580,70 @@ Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
 
+### gRPC
+
+The same tool reads gRPC contracts from `.proto` files and from Go, Python,
+Java and JavaScript sources (`deepthought.service_contracts.grpc`). C# is not
+parsed, so C# servers and clients are out of scope.
+
+- **Methods.** Every `rpc` of a top-level `service` block in a `.proto` file
+  (comments removed, strings kept; directories `node_modules`, `vendor` and
+  hidden ones skipped) is a `GrpcMethod` node with labels
+  `["GrpcMethod", "Contract"]` and qualified name
+  `{repo}::grpc::{package}.{Service}/{Method}`. The identity is the fully
+  qualified protobuf name, which is what goes on the wire, so the copies of
+  one proto that each service vendors give one node; `declared_in` lists
+  every `file:line`, and `file_path`/`line` name the first. Proto files are
+  not part of the analysis coverage; their SHA-256 digests are recorded in
+  the `proto_files` metric.
+- **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
+
+  | Rule | Server |
+  |---|---|
+  | `service-contracts.grpc-go-register` | `pb.RegisterXServer(s, impl)` where `impl` is `&T{}`, `new(T)` or a name bound once to one of those; the methods of `T` named as X's rpcs, declared in the same package directory |
+  | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
+  | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
+  | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
+
+- **Clients.** `service-contracts.grpc-stub-call` links the calling
+  declaration (or the file) by `REQUESTS` when a method is called on a stub of
+  service X: built in place by its generated factory (`pb.NewXClient(conn)`,
+  `pkg_pb2_grpc.XStub(channel)`, `XGrpc.newStub/newBlockingStub/newFutureStub`,
+  `new pkg.X(addr, creds)`), or a name (local, field or attribute) bound in
+  the same file only to stubs of X. For JavaScript, where any `new a.B()`
+  looks the same, `B` must be a service some proto declares. The call is
+  placed at the method's name.
+
+A simple service name must belong to one proto package and the written
+method must be one of its rpcs (exactly, or as the only lowerCamel match);
+otherwise there is no edge, and File nodes list the call in
+`unresolved_grpc_calls` (metrics count `grpc_call_resolution` by reason:
+`no_proto_service`, `several_proto_packages`, `no_proto_method`). A server
+that cannot be tied to a declaration is counted in `unread` as
+`grpc_server:implementation_not_read`, `handler_not_declared` and so on.
+Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like), Go
+`_test.go` files, Python `test_*.py` files and `src/test/` are neither servers
+nor clients. The channel's target address is never read, so a stub links to
+the method wherever it is served; interceptors, reflection and dynamically
+loaded service definitions are not followed. Every edge is `pattern_matched`.
+
+On Online Boutique (`evals/fixtures/service_contracts/online-boutique.json`,
+20 labelled gRPC links, all direct; `--kind grpc` scores a call site by client
+location and contract, and servers separately):
+
+| Level | Predicted | Correct | Labelled | Precision | Recall |
+|---|---|---|---|---|---|
+| Call sites | 21 | 20 | 20 | 0.95 | 1.00 |
+| Service pairs | 12 | 12 | 14 | 1.00 | 0.86 |
+| Servers at labelled locations | | 15 | 20 | | 0.75 |
+
+The five missed servers and both missed service pairs are `cartservice`,
+written in C#. The one wrong call site is adservice's own developer client
+(`AdServiceClient.java:66`), which the corpus marks as a don't-care site at
+line 60, outside the 3-line tolerance. Four more
+calls at don't-care sites (test clients inside currencyservice,
+recommendationservice and emailservice) are linked and count for neither side.
+
 ### Message destinations
 
 The same tool reads where code publishes messages and where it consumes them
