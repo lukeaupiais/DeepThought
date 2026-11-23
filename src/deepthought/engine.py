@@ -413,13 +413,19 @@ def analyze_repository(
                         expander=expander,
                     )
                 )
-                if language == "rust":
-                    # Rust: declarations and file modules so far; calls, uses
-                    # and impls are not facts yet.
-                    continue
                 call_sites.extend(
-                    extract_call_sites(tree, content, repository_id, relative, declared)
+                    extract_call_sites(
+                        tree,
+                        content,
+                        repository_id,
+                        relative,
+                        declared,
+                        expander=expander,
+                    )
                 )
+                if language == "rust":
+                    # Rust: impls are not supertype facts yet.
+                    continue
                 supertypes.extend(
                     extract_supertypes(tree, content, repository_id, relative, declared)
                 )

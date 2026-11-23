@@ -294,6 +294,22 @@ CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _CALL_RULE_TEXT.items()
 }
+# Rust has no overloading: a call path read like a use path names one
+# declaration in each configuration.
+CALL_RULES.update(
+    {
+        rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
+        for rule_id, text in {
+            call_rules.RUST_CALL_PATH: "A Rust call's path, read from the "
+            "caller's module as a use path is (through modules, uses and globs, "
+            "after the uses written in the function bodies around the call), "
+            "names a function or tuple struct declared there.",
+            call_rules.RUST_CALL_LOCAL_ITEM: "A Rust call's single name is a "
+            "function or tuple struct declared in a function body around the "
+            "call.",
+        }.items()
+    }
+)
 
 _BASE_RULE_TEXT = {
     base_rules.BASE_LEXICAL_NAME: "A base named in a class or interface "

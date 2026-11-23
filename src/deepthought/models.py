@@ -151,8 +151,18 @@ class Import:
     coordinate_encoding: str = "utf-8"
     # Names the statement binds in the importing module (aliases applied).
     local_names: tuple[str, ...] = ()
+    # Rust declarations written in a block (a function body, or a block in
+    # one), which bind names in that block only: the block's (line, column,
+    # end line, end column). None elsewhere.
+    block: tuple[int, int, int, int] | None = None
 
     def __post_init__(self):
+        if self.block is not None and (
+            type(self.block) is not tuple
+            or len(self.block) != 4
+            or not all(type(v) is int and v >= 0 for v in self.block)
+        ):
+            raise ValueError("block must be a span of four nonnegative integers")
         validate_location(
             self.file,
             self.line,
@@ -444,6 +454,9 @@ class AnalysisResult:
                 del item["arguments"]
             if item["anonymous"] is None:
                 del item["anonymous"]
+        for item in data["imports"]:
+            if item["block"] is None:
+                del item["block"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
@@ -491,6 +504,11 @@ class AnalysisResult:
                         **item,
                         "names": tuple(item["names"]),
                         "local_names": tuple(item["local_names"]),
+                        **(
+                            {"block": tuple(item["block"])}
+                            if isinstance(item.get("block"), list)
+                            else {}
+                        ),
                     }
                 )
                 for item in data["imports"]

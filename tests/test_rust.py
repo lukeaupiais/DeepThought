@@ -19,6 +19,7 @@ from deepthought.imports import (
     resolve_imports,
 )
 from deepthought.analysis_tools import TreeSitterTool
+from deepthought.calls import RUST_CALL_LOCAL_ITEM, RUST_CALL_PATH, resolve_calls
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_rust"
@@ -105,8 +106,11 @@ class RustTests(unittest.TestCase):
             ],
         )
         # Constants, statics, fields, variants and closures are not
-        # declarations; calls, uses and impls are not facts for Rust yet.
-        self.assertEqual((result.call_sites, result.supertypes), ((), ()))
+        # declarations; impls are not facts for Rust yet.
+        self.assertEqual(result.supertypes, ())
+        self.assertEqual(
+            [(c.callee, c.line) for c in result.call_sites], [("helper", 26)]
+        )
         self.assertEqual(
             [(i.line, i.specifier, i.kind) for i in result.imports],
             [(23, "outer/file_module", "module")],
@@ -1064,6 +1068,352 @@ class RustTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             dataclasses.replace(result.definitions[0], macro_export="yes")
+
+    def test_calls_resolve_through_module_trees(self):
+        result = analyze(
+            {
+                "util/Cargo.toml": '[package]\nname = "my-util"\n',
+                "util/src/lib.rs": "pub mod shapes;\npub fn top() {}\n"
+                "pub use shapes::area as size;\n"
+                "pub mod both;\npub use both::both;\n",
+                "util/src/both.rs": "pub fn both() {}\npub fn other() {}\n",
+                "util/src/shapes.rs": "pub fn area() {}\npub struct P(u8);\n"
+                "pub enum K { A(u8) }\npub struct Unit;\n"
+                "pub trait Speak {}\npub fn Speak() {}\n"
+                "impl Unit { pub fn new() -> Self { Unit } }\n",
+                "app/Cargo.toml": '[package]\nname = "app"\n',
+                "app/src/lib.rs": "mod a;\n"
+                "use my_util::shapes::{self, P};\n"
+                "use my_util::shapes::*;\n"
+                "fn local() {}\n"
+                "fn caller(x: Unit) {\n"
+                "    fn inner() {}\n"
+                "    inner();\n"
+                "    local();\n"
+                "    a::helper();\n"
+                "    crate::a::helper();\n"
+                "    self::a::helper();\n"
+                "    my_util::top();\n"
+                "    ::my_util::size();\n"
+                "    shapes::area();\n"
+                "    P(1);\n"
+                "    K::A(1);\n"
+                "    Unit::new();\n"
+                "    x.clone();\n"
+                "    Some(1);\n"
+                "    std::mem::drop(1);\n"
+                "    a::missing();\n"
+                "    Self::new();\n"
+                "    { use my_util::top as t; t(); }\n"
+                "    { use crate::a::*; helper(); }\n"
+                "    { use std::mem::drop as local; local(); }\n"
+                "    <u8 as Default>::default();\n"
+                "    area::<u8>();\n"
+                "}\n"
+                "mod m { fn g() { super::local(); local(); } }\n"
+                "#[cfg(unix)]\nfn twice() {}\n#[cfg(windows)]\nfn twice() {}\n"
+                "fn more() { twice(); }\n"
+                "fn last() { my_util::both::other(); }\n"
+                "use my_util::both::other as o2;\nfn after() { o2(); }\n"
+                "mod b;\n",
+                "app/src/b.rs": "fn caller() {\n"
+                "    fn helper() {}\n"
+                "    enum top {}\n"
+                "    super::a::helper();\n"
+                "    super::local();\n"
+                "    { use my_util::top as t; use super::a::helper; t(); }\n"
+                "    { use super::a::*; top(); }\n"
+                "    { use super::a as aa; aa::helper(); }\n"
+                "    { use my_util::shapes::K as KK; KK::A(1); }\n"
+                "    self::nothing();\n"
+                "    my_util::shapes::Speak();\n"
+                "    my_util::shapes::Unit::<u8>::new();\n"
+                "    ::my_util();\n"
+                "}\n"
+                "fn top() {}\n"
+                "mod m { pub mod n { fn h() { super::super::top(); } } }\n"
+                "fn holder() { mod inner { use crate::a::helper; fn k() { j(); } } }\n",
+                "app/src/a.rs": "pub fn helper() {}\n",
+                "loose.rs": "fn f() { g(); }\nfn g() {}\n",
+            }
+        )
+        names = {d.id: (d.file, d.symbol) for d in result.definitions}
+        sites = {c.id: c for c in result.call_sites}
+        path, local = RUST_CALL_PATH, RUST_CALL_LOCAL_ITEM
+        self.maxDiff = None
+        self.assertEqual(
+            sorted(
+                (
+                    sites[r.call_id].file,
+                    sites[r.call_id].line,
+                    sites[r.call_id].callee,
+                    r.status,
+                    names.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_calls(result)
+                if sites[r.call_id].file != "util/src/shapes.rs"
+            ),
+            [
+                # A path, not the local item of the same name.
+                (
+                    "app/src/b.rs",
+                    4,
+                    "super::a::helper",
+                    "linked",
+                    ("app/src/a.rs", "helper"),
+                    path,
+                ),
+                (
+                    "app/src/b.rs",
+                    5,
+                    "super::local",
+                    "linked",
+                    ("app/src/lib.rs", "local"),
+                    path,
+                ),
+                # Each use binds its own name.
+                ("app/src/b.rs", 6, "t", "linked", ("util/src/lib.rs", "top"), path),
+                # A local enum is not callable, and a glob that does not
+                # supply the name leaves the module's.
+                ("app/src/b.rs", 7, "top", "linked", ("app/src/b.rs", "top"), path),
+                (
+                    "app/src/b.rs",
+                    8,
+                    "aa::helper",
+                    "linked",
+                    ("app/src/a.rs", "helper"),
+                    path,
+                ),
+                ("app/src/b.rs", 9, "KK::A", "unresolved", None, "associated_item"),
+                (
+                    "app/src/b.rs",
+                    10,
+                    "self::nothing",
+                    "unresolved",
+                    None,
+                    "not_declared",
+                ),
+                # A function sharing its name with a trait.
+                (
+                    "app/src/b.rs",
+                    11,
+                    "my_util::shapes::Speak",
+                    "linked",
+                    ("util/src/shapes.rs", "Speak"),
+                    path,
+                ),
+                (
+                    "app/src/b.rs",
+                    12,
+                    "my_util::shapes::Unit::new",
+                    "unresolved",
+                    None,
+                    "associated_item",
+                ),
+                ("app/src/b.rs", 13, "::my_util", "unresolved", None, "not_declared"),
+                # From nested inline modules.
+                (
+                    "app/src/b.rs",
+                    16,
+                    "super::super::top",
+                    "linked",
+                    ("app/src/b.rs", "top"),
+                    path,
+                ),
+                # A module inside a function body is not reached.
+                ("app/src/b.rs", 17, "j", "unresolved", None, "module_missing"),
+                (
+                    "app/src/lib.rs",
+                    7,
+                    "inner",
+                    "linked",
+                    ("app/src/lib.rs", "caller.inner"),
+                    local,
+                ),
+                (
+                    "app/src/lib.rs",
+                    8,
+                    "local",
+                    "linked",
+                    ("app/src/lib.rs", "local"),
+                    path,
+                ),
+                (
+                    "app/src/lib.rs",
+                    9,
+                    "a::helper",
+                    "linked",
+                    ("app/src/a.rs", "helper"),
+                    path,
+                ),
+                (
+                    "app/src/lib.rs",
+                    10,
+                    "crate::a::helper",
+                    "linked",
+                    ("app/src/a.rs", "helper"),
+                    path,
+                ),
+                (
+                    "app/src/lib.rs",
+                    11,
+                    "self::a::helper",
+                    "linked",
+                    ("app/src/a.rs", "helper"),
+                    path,
+                ),
+                (
+                    "app/src/lib.rs",
+                    12,
+                    "my_util::top",
+                    "linked",
+                    ("util/src/lib.rs", "top"),
+                    path,
+                ),
+                # Through a re-export.
+                (
+                    "app/src/lib.rs",
+                    13,
+                    "::my_util::size",
+                    "linked",
+                    ("util/src/shapes.rs", "area"),
+                    path,
+                ),
+                (
+                    "app/src/lib.rs",
+                    14,
+                    "shapes::area",
+                    "linked",
+                    ("util/src/shapes.rs", "area"),
+                    path,
+                ),
+                # A tuple struct.
+                (
+                    "app/src/lib.rs",
+                    15,
+                    "P",
+                    "linked",
+                    ("util/src/shapes.rs", "P"),
+                    path,
+                ),
+                # A variant and an associated function: names inside a type.
+                ("app/src/lib.rs", 16, "K::A", "unresolved", None, "associated_item"),
+                (
+                    "app/src/lib.rs",
+                    17,
+                    "Unit::new",
+                    "unresolved",
+                    None,
+                    "associated_item",
+                ),
+                ("app/src/lib.rs", 18, "x.clone", "unresolved", None, "method_call"),
+                ("app/src/lib.rs", 19, "Some", "unresolved", None, "unbound_name"),
+                (
+                    "app/src/lib.rs",
+                    20,
+                    "std::mem::drop",
+                    "unresolved",
+                    None,
+                    "external_crate",
+                ),
+                (
+                    "app/src/lib.rs",
+                    21,
+                    "a::missing",
+                    "unresolved",
+                    None,
+                    "not_declared",
+                ),
+                (
+                    "app/src/lib.rs",
+                    22,
+                    "Self::new",
+                    "unresolved",
+                    None,
+                    "associated_item",
+                ),
+                # Uses in a body bind there, before the module's names.
+                ("app/src/lib.rs", 23, "t", "linked", ("util/src/lib.rs", "top"), path),
+                (
+                    "app/src/lib.rs",
+                    24,
+                    "helper",
+                    "linked",
+                    ("app/src/a.rs", "helper"),
+                    path,
+                ),
+                ("app/src/lib.rs", 25, "local", "unresolved", None, "external_crate"),
+                # A generic function's path; a qualified path is not recorded.
+                (
+                    "app/src/lib.rs",
+                    27,
+                    "area",
+                    "linked",
+                    ("util/src/shapes.rs", "area"),
+                    path,
+                ),
+                ("app/src/lib.rs", 29, "local", "unresolved", None, "unbound_name"),
+                (
+                    "app/src/lib.rs",
+                    29,
+                    "super::local",
+                    "linked",
+                    ("app/src/lib.rs", "local"),
+                    path,
+                ),
+                # A function declared once per #[cfg].
+                (
+                    "app/src/lib.rs",
+                    34,
+                    "twice",
+                    "ambiguous",
+                    None,
+                    "multiple_declarations",
+                ),
+                # `both` is a module and a function; the path goes on through
+                # the module.
+                (
+                    "app/src/lib.rs",
+                    35,
+                    "my_util::both::other",
+                    "linked",
+                    ("util/src/both.rs", "other"),
+                    path,
+                ),
+                (
+                    "app/src/lib.rs",
+                    37,
+                    "o2",
+                    "linked",
+                    ("util/src/both.rs", "other"),
+                    path,
+                ),
+                ("loose.rs", 1, "g", "unresolved", None, "module_context_unknown"),
+            ],
+        )
+        # A use in a block records the block it binds in.
+        self.assertEqual(
+            sorted(
+                (i.line, i.specifier, i.block)
+                for i in result.imports
+                if i.file == "app/src/lib.rs" and i.block is not None
+            ),
+            [
+                (23, "my_util::top", (23, 4, 23, 35)),
+                (24, "crate::a", (24, 4, 24, 34)),
+                (25, "std::mem::drop", (25, 4, 25, 45)),
+            ],
+        )
+        # A module in a function body holds the uses written in it.
+        self.assertEqual(
+            [i.block for i in result.imports if i.file == "app/src/b.rs"][-1], None
+        )
+        data = result.to_dict()["imports"]
+        self.assertEqual(sum("block" in i for i in data), 8)
+        self.assertEqual(type(result).from_json(result.to_json()), result)
+        with self.assertRaises(ValueError):
+            dataclasses.replace(result.imports[0], block=(1, 2, 3))
 
 
 if __name__ == "__main__":

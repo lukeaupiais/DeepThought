@@ -11,7 +11,12 @@ from collections import defaultdict
 from dataclasses import dataclass
 import posixpath
 
-from .imports import PYTHON_FROM_IMPORT_SUBMODULE, _java_index, resolve_imports
+from .imports import (
+    PYTHON_FROM_IMPORT_SUBMODULE,
+    _java_index,
+    _RustIndex,
+    resolve_imports,
+)
 from .models import AnalysisResult, Definition
 
 CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
@@ -25,6 +30,10 @@ JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
 JAVA_TYPE_MEMBER = "tree-sitter.java-type-member"
 JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
+RUST_CALL_PATH = "tree-sitter.rust-call-path"
+RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
+# Rust declarations a call can name: functions and tuple structs.
+_RUST_CALLABLE = {"Function", "Struct"}
 _CALLABLE = {"Function", "Class"}
 _METHOD = {"Method", "Function"}
 
@@ -455,6 +464,212 @@ class _JavaScope:
         )
 
 
+class _RustCalls:
+    """Rust calls of a path: read from the caller's module as a use path is,
+    after the items and uses of the function bodies around the call."""
+
+    def __init__(self, result: AnalysisResult, by_symbol):
+        files = {item.file for item in result.coverage}
+        languages = {item.file: item.language for item in result.coverage}
+        self.index = _RustIndex(result, files, languages)
+        self.by_symbol = by_symbol
+        self.spans = defaultdict(list)
+        for d in result.definitions:
+            if languages.get(d.file) == "rust":
+                self.spans[d.file].append(d)
+
+    @staticmethod
+    def _contains(d, site):
+        return (d.line, d.column) <= (site.line, site.column) and (
+            site.end_line,
+            site.end_column,
+        ) <= (d.end_line, d.end_column)
+
+    def _scope(self, site):
+        """The inline modules around the call, or None inside a module
+        written in a function body."""
+        modules = [
+            d
+            for d in self.spans[site.file]
+            if d.kind == "Module" and self._contains(d, site)
+        ]
+        if not modules:
+            return ()
+        innermost = max(modules, key=lambda d: (d.line, d.column))
+        parts = tuple(innermost.symbol.split("."))
+        for depth in range(1, len(parts)):
+            if not any(
+                d.kind == "Module"
+                for d in self.by_symbol.get((site.file, ".".join(parts[:depth])), ())
+            ):
+                return None
+        return parts
+
+    def _bodies(self, site):
+        """Functions and methods around the call, innermost first."""
+        return sorted(
+            (
+                d
+                for d in self.spans[site.file]
+                if d.kind in {"Function", "Method"} and self._contains(d, site)
+            ),
+            key=lambda d: (d.line, d.column),
+            reverse=True,
+        )
+
+    def _declared(self, meanings):
+        """Callable declarations the item meanings name."""
+        found = []
+        for what, file, root, module, _, declared in meanings:
+            if what != "item":
+                continue
+            for context_root, path in self.index.contexts.get(file, ()):
+                if context_root != root or module[: len(path)] != path:
+                    continue
+                symbol = ".".join(module[len(path) :] + (declared,))
+                found.extend(
+                    d
+                    for d in self.by_symbol.get((file, symbol), ())
+                    if d.kind in _RUST_CALLABLE
+                )
+        return found
+
+    def _path(self, root, module, segments):
+        """(meanings of the last name, whether a name before it is an item
+        such as a type, failures) of a path read from a module."""
+        if len(segments) == 1:
+            meanings, failures = self.index._follow(root, module, segments, frozenset())
+            return meanings, False, failures
+        prefix, failures = self.index._follow(root, module, segments[:-1], frozenset())
+        return self._last(prefix, segments[-1]) + (failures,)
+
+    def _last(self, prefix, name):
+        """(meanings of ``name`` in the modules ``prefix`` reaches, whether
+        ``prefix`` reaches an item instead)."""
+        meanings, through_item = set(), False
+        for m in prefix:
+            if m[0] == "module":
+                meanings |= self.index._follow(m[2], m[3], [name], frozenset())[0]
+            elif m[0] in {"item", "through"}:
+                through_item = True
+        return meanings, through_item
+
+    def _body_binding(self, uses, name, root, path, failures):
+        """(meanings the uses in the bodies around a call bind ``name`` to,
+        whether an explicit use binds it): explicit uses, or, when none
+        binds it, the names globs supply."""
+        found = set()
+        explicit = [
+            u
+            for u in uses
+            if u.kind == "use" and u.local_names and u.local_names[0] == name
+        ]
+        for u in explicit or [u for u in uses if u.kind == "use_glob"]:
+            walked = self.index._walk(u.specifier.split("::"), u.names, root, path)
+            if len(walked) != 3:
+                if explicit:
+                    failures.append(walked)
+                continue
+            meanings = self.index._follow(*walked, frozenset())[0]
+            if explicit:
+                found |= meanings
+                continue
+            for m in meanings:
+                if m[0] == "module":
+                    supplied = self.index._follow(m[2], m[3], [name], frozenset())[0]
+                    found |= {x for x in supplied if x[0] != "undeclared"}
+        return found, bool(explicit)
+
+    def call(self, site):
+        segments = site.callee.split("::")
+        if "." in segments[-1]:
+            return CallResolution(site.id, "unresolved", reason="method_call")
+        if segments[0] == "Self":
+            return CallResolution(site.id, "unresolved", reason="associated_item")
+        bodies = self._bodies(site)
+        name = segments[-1]
+        if len(segments) == 1:
+            # An item declared in a function body around the call.
+            for body in bodies:
+                local = [
+                    d
+                    for d in self.by_symbol.get(
+                        (site.file, f"{body.symbol}.{name}"), ()
+                    )
+                    if d.kind in _RUST_CALLABLE
+                ]
+                if local:
+                    return _pick(site.id, local, RUST_CALL_LOCAL_ITEM, "no_declaration")
+        contexts = self.index.contexts.get(site.file)
+        scope = self._scope(site)
+        if not contexts:
+            return CallResolution(
+                site.id, "unresolved", reason="module_context_unknown"
+            )
+        if scope is None:
+            return CallResolution(site.id, "unresolved", reason="module_missing")
+        # Uses written in the bodies around the call bind before the module.
+        uses = [
+            u
+            for u in self.index.body_uses.get(site.file, ())
+            if u.block[:2] <= (site.line, site.column)
+            and (site.end_line, site.end_column) <= u.block[2:]
+        ]
+        found, failures = [], []
+        for root, path in sorted(contexts):
+            module = path + scope
+            meanings, through_item = None, False
+            bound, explicit = self._body_binding(
+                uses, segments[0], root, path, failures
+            )
+            if explicit and not bound:
+                # A use in the body binds the name to something outside the
+                # repository.
+                continue
+            if bound and len(segments) == 1:
+                meanings = bound
+            elif bound:
+                meanings = set()
+                for m in bound:
+                    if m[0] == "module":
+                        more, item, _ = self._path(m[2], m[3], segments[1:])
+                        meanings |= more
+                        through_item |= item
+                    elif m[0] in {"item", "through"}:
+                        through_item = True
+            elif segments[0] not in {"crate", "self", "super", ""}:
+                first = self.index._follow(root, module, segments[:1], frozenset())[0]
+                if any(m[0] != "undeclared" for m in first):
+                    meanings, through_item, _ = self._path(root, module, segments)
+                elif len(segments) == 1:
+                    failures.append(("unresolved", "unbound_name", (), ()))
+                    continue
+            if meanings is None:
+                walked = self.index._walk(segments, scope, root, path)
+                if len(walked) != 3:
+                    failures.append(walked)
+                    continue
+                if not walked[2]:
+                    # The path names a module or crate root.
+                    failures.append(("unresolved", "not_declared", (), ()))
+                    continue
+                meanings, through_item, failed = self._path(*walked)
+                failures.extend(failed)
+            declared = self._declared(meanings)
+            if through_item:
+                failures.append(("unresolved", "associated_item", (), ()))
+            elif not declared:
+                failures.append(("unresolved", "not_declared", (), ()))
+            found.extend(declared)
+        unique = {d.id: d for d in found}
+        if unique:
+            return _pick(site.id, unique.values(), RUST_CALL_PATH, "no_declaration")
+        status, reason = (
+            min(failures)[:2] if failures else ("unresolved", "not_declared")
+        )
+        return CallResolution(site.id, status, reason=reason)
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
@@ -464,6 +679,11 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     peers = package_peers(result)
     languages = {item.file: item.language for item in result.coverage}
     java = _JavaScope(result, by_symbol)
+    rust = (
+        _RustCalls(result, by_symbol)
+        if any(item.language == "rust" for item in result.coverage)
+        else None
+    )
 
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
@@ -471,6 +691,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         scope = caller.symbol.split(".") if caller is not None else []
         if languages.get(site.file) == "java":
             resolutions.append(java.call(site, scope))
+            continue
+        if languages.get(site.file) == "rust":
+            resolutions.append(rust.call(site))
             continue
         parts = site.callee.split(".")
         if len(parts) == 1:

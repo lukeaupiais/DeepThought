@@ -647,7 +647,8 @@ written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed,
 except in item macros (see "Rust item macros" below).
 A `mod name;` declaration is also an import fact: it includes a file as a
 module (see "Rust module files" below), as are `Cargo.toml` crate roots and
-`use` declarations. Calls and impl relationships are not facts for Rust yet.
+`use` declarations. Calls are facts (see "Rust calls" below); impl
+relationships are not facts for Rust yet.
 
 Checked against rust-analyzer's SCIP index (`rust-analyzer scip`, rust-analyzer
 1.97.0) with `tools/compare_rust_declarations_with_scip.py`. A declaration
@@ -874,6 +875,65 @@ macro that is not an item macro (6, tokio), a `use` of a type declared in a
 function body (4, serde), a module chosen by `#[cfg_attr(..., path)]` (1,
 serde), and one leaf name imported twice in one declaration whose other
 occurrence the comparison matched (1, ripgrep).
+
+### Rust calls
+
+Each Rust call expression whose callee is a path is a call site, its callee
+the path joined by `::` (`a::b::f`, `Type::new`, `::krate::f`; generic
+arguments such as `f::<T>` and `Vec::<u8>::new` are dropped). A method call on
+a receiver that is `self`, a name or a field of one is recorded as
+`receiver.name` (`self.write`, `x.y.len`); other callees (`(f)()`,
+`a().b()`, `<T as Trait>::f`) and macro invocations are not call sites. Calls
+inside item macro bodies are read as other calls are.
+
+A call is resolved as a use path would be, from the caller's module, after
+the names the function bodies around it bind:
+
+- `tree-sitter.rust-call-local-item` when a single name is a function or
+  tuple struct declared in a function body around the call, innermost first;
+- `tree-sitter.rust-call-path` when the path names a function or tuple
+  struct. A `use` written in a block binds its name in that block only, and
+  ahead of the module's names (its explicit uses first, then the names its
+  globs supply); then the path is read from the caller's module through
+  child modules, declared items, uses and globs, re-exports and `#[cfg]`
+  meanings, as for `use` declarations.
+
+Both are `resolved`: Rust has no overloading, so a path names one
+declaration in each configuration. A function declared once per `#[cfg]` is
+`ambiguous` (`multiple_declarations`). Other outcomes: `method_call`
+(receiver types are not inferred), `associated_item` (a name inside a type,
+such as `Type::new`, `Self::new` or an enum variant), `unbound_name` (a single
+name with no declaration or use in scope: the prelude, such as `Some`, or a
+local closure), `external_crate` (the first name is not in scope and names no
+workspace crate: a crate outside the repository, a standard type or a type
+parameter), `not_declared` (the module reached does not declare the name),
+`module_context_unknown` and `module_missing` as for uses. Each Rust `use`
+written in a block records the block's span (`block`).
+
+Checked with `tools/compare_rust_calls_with_scip.py`: rust-analyzer has an
+occurrence of the symbol the callee's last name refers to on the call's line,
+defined on the line of a declaration.
+
+| Corpus | Call sites | Linked: confirmed / contradicted / not indexed or outside | Ambiguous, rust-analyzer's among the candidates | Missed: method call / associated item / other |
+|---|---|---|---|---|
+| ripgrep | 10,215 | 1,704 / 0 / 11 | 12 | 2,770 / 1,265 / 52 |
+| regex | 17,373 | 1,703 / 0 / 269 | 38 | 6,283 / 2,144 / 69 |
+| serde | 7,829 | 670 / 0 / 388 | 1 | 1,067 / 179 / 347 |
+| tokio | 30,100 | 3,697 / 0 / 1,167 | 92 | 5,840 / 2,238 / 459 |
+
+Seven tokio links differ from rust-analyzer's and are not counted as
+contradicted. In five, rust-analyzer's occurrence names a module of the same
+name that a `pub use m::m;` re-export brings in with the function
+(`tokio_stream::once`), and a call cannot name a module. In one, its
+declaration is written in a macro that forwards to another macro, which is
+not read. In the last, it is another declaration of the same name in the same
+module under a different `#[cfg]`. Missed calls are mostly method calls and
+associated functions, which need receiver and impl types. The other missed
+calls are paths through a type parameter or a standard type that the
+occurrence's line shares with a repository function (`external_crate`),
+serde's files in no crate (`module_context_unknown`, 298), and enum variants
+that a glob of an enum brings into scope (`unbound_name`). Resolutions are
+identical across repeated runs.
 
 ## SCIP references
 
