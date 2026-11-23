@@ -40,6 +40,14 @@ DEFINES_RULE = register_rule(
         "The parse tree of the file contains this named declaration.",
     )
 )
+NESTS_RULE = register_rule(
+    EvidenceRule(
+        "tree-sitter.declaration-contains-declaration",
+        "resolved",
+        "The parse tree places the inner declaration within the outer one; the "
+        "outer is the innermost declaration whose span encloses it.",
+    )
+)
 
 IMPORT_RULES = {
     rule.rule_id: rule
@@ -281,6 +289,47 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(DEFINES_RULE),
                 )
             )
+        # Each declaration's owner is the innermost other declaration whose span
+        # strictly encloses it in the same file.
+        spans = {}
+        for d in result.definitions:
+            spans.setdefault(d.file, []).append(
+                ((d.line, d.column), (d.end_line, d.end_column), d)
+            )
+        for file, items in spans.items():
+            # Parse-tree spans nest, so a stack of open spans gives each owner.
+            items.sort(key=lambda item: (item[0], tuple(-v for v in item[1])))
+            open_spans = []
+            for start, end, inner in items:
+                while open_spans and open_spans[-1][1] < end:
+                    open_spans.pop()
+                owner = next(
+                    (
+                        outer
+                        for _, outer_end, outer in reversed(open_spans)
+                        if (outer_end, outer.line, outer.column) != (end, *start)
+                    ),
+                    None,
+                )
+                open_spans.append((start, end, inner))
+                if owner is None:
+                    continue
+                relationships.append(
+                    RelationshipData(
+                        "CONTAINS",
+                        [owner.kind, "Symbol"],
+                        {
+                            "qualified_name": f"{repo_url}::{owner.file}::{owner.symbol}::{owner.id}",
+                            "repo_url": repo_url,
+                        },
+                        [inner.kind, "Symbol"],
+                        {
+                            "qualified_name": f"{repo_url}::{inner.file}::{inner.symbol}::{inner.id}",
+                            "repo_url": repo_url,
+                        },
+                        {"line": inner.line, **_evidence(NESTS_RULE)},
+                    )
+                )
         for resolution in resolutions:
             item = imports[resolution.import_id]
             for link in resolution.links:

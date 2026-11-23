@@ -159,8 +159,18 @@ class CorePortIndependentReview(unittest.TestCase):
                 file = files[owns[node.properties["qualified_name"]]]
                 self.assertEqual(file.properties["path"], node.properties["file_path"])
             contains = [
-                edge for edge in output.relationships if edge.type == "CONTAINS"
+                edge
+                for edge in output.relationships
+                if edge.type == "CONTAINS" and "Symbol" not in edge.source_labels
             ]
+            # Declaration CONTAINS edges follow the extractor's name scopes.
+            names = {n.properties["qualified_name"]: n.properties for n in symbols}
+            for edge in output.relationships:
+                if edge.type == "CONTAINS" and "Symbol" in edge.source_labels:
+                    outer = names[edge.source_match["qualified_name"]]
+                    inner = names[edge.target_match["qualified_name"]]
+                    self.assertTrue(inner["name"].startswith(outer["name"] + "."))
+                    self.assertEqual(inner["file_path"], outer["file_path"])
             self.assertEqual(
                 {edge.source_match["qualified_name"] for edge in contains}, repositories
             )

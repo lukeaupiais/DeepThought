@@ -2,7 +2,7 @@
 
 The optional MCP transport contains no Cypher construction or extraction logic.
 The three original tool names are preserved; queryGraph adapts the original
-HTTP Cypher capability. The call, base type, import, reference, implementation,
+HTTP Cypher capability. The call, base type, member/owner, import, reference, implementation,
 dependency and explainEdge
 tools expose the ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
 requires a dedicated snapshot database and database-enforced read-only access.
@@ -161,6 +161,38 @@ def create_server():
             repository_id,
             snapshot_id=snapshot_id,
             evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getMembers(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get declarations directly nested in a declaration (CONTAINS), with evidence."""
+        return await ctx.request_context.lifespan_context.get_members(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getOwner(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get the declaration a declaration is directly nested in, with evidence."""
+        return await ctx.request_context.lifespan_context.get_owner(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
             limit=max_elements,
         )
 

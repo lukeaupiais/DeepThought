@@ -116,7 +116,8 @@ class Neo4jEvaluationTests(unittest.TestCase):
 
     def test_real_import_readback_and_observed_query_allow_integration(self):
         self.assertEqual(self.graph["nodes"], 18)
-        self.assertEqual(self.graph["relationships"], 17)
+        # 15 DEFINES, 2 file and 6 declaration CONTAINS edges.
+        self.assertEqual(self.graph["relationships"], 23)
         self.assertNotIn("tool_output", self.prepared["contexts"]["treatment"])
         self.assertEqual(
             self.prepared["contexts"]["treatment"]["tool_access"]["backend"], "neo4j"
