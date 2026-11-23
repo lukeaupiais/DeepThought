@@ -100,7 +100,11 @@ class DeclarationTests(unittest.TestCase):
                     directory, repository_id="fixture", languages=(language,)
                 )
                 self.assertEqual([d.symbol for d in result.definitions], ["consume"])
-                self.assertEqual(result.capabilities, ("definitions",))
+                self.assertEqual(result.capabilities, ("definitions", "imports"))
+                self.assertEqual(
+                    [i.specifier for i in result.imports],
+                    ["helpers" if language == "python" else "./helpers"],
+                )
 
     def test_malformed_tsx_has_explicit_partial_coverage(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -99,6 +99,46 @@ class Reference:
             )
 
 
+IMPORT_KINDS = frozenset({"import", "from_import", "export_from"})
+
+
+@dataclass(frozen=True)
+class Import:
+    """A static import statement as written; resolution is a separate step."""
+
+    id: str
+    file: str
+    specifier: str
+    kind: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    names: tuple[str, ...] = ()
+    coordinate_encoding: str = "utf-8"
+    # Names the statement binds in the importing module (aliases applied).
+    local_names: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
+        if not all(isinstance(v, str) and v for v in (self.id, self.specifier)):
+            raise ValueError("Import identity and specifier must be nonempty strings")
+        if self.kind not in IMPORT_KINDS:
+            raise ValueError("Unsupported import kind")
+        for values in (self.names, self.local_names):
+            if not isinstance(values, tuple) or not all(
+                isinstance(name, str) and name for name in values
+            ):
+                raise ValueError("Imported names must be tuples of nonempty strings")
+
+
 @dataclass(frozen=True)
 class FileCoverage:
     file: str
@@ -136,15 +176,17 @@ class AnalysisResult:
     analyzer: str
     analyzer_versions: tuple[tuple[str, str], ...]
     capabilities: tuple[str, ...] = ("definitions",)
+    # Schema 3 adds import facts; producers without them keep emitting schema 2.
     schema_version: str = "2"
     coordinate_encoding: str = "utf-8"
     references: tuple[Reference, ...] = ()
+    imports: tuple[Import, ...] = ()
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
             raise ValueError("Invalid analysis status")
         if (
-            self.schema_version != "2"
+            self.schema_version not in ("2", "3")
             or not isinstance(self.repository_id, str)
             or not self.repository_id.strip()
         ):
@@ -157,9 +199,16 @@ class AnalysisResult:
             raise ValueError("Duplicate reference identities")
         if self.references and "references" not in self.capabilities:
             raise ValueError("Reference facts require the references capability")
+        if len({i.id for i in self.imports}) != len(self.imports):
+            raise ValueError("Duplicate import identities")
+        if self.imports and "imports" not in self.capabilities:
+            raise ValueError("Import facts require the imports capability")
+        if self.schema_version == "2" and "imports" in self.capabilities:
+            raise ValueError("Schema 2 cannot contain imports")
         covered = {item.file for item in self.coverage}
         if any(
-            item.file not in covered for item in (*self.definitions, *self.references)
+            item.file not in covered
+            for item in (*self.definitions, *self.references, *self.imports)
         ):
             raise ValueError("Every fact requires source file coverage")
         if self.status == "succeeded" and (
@@ -170,7 +219,11 @@ class AnalysisResult:
             )
 
     def to_dict(self) -> dict:
-        return json.loads(json.dumps(asdict(self)))
+        data = json.loads(json.dumps(asdict(self)))
+        if self.schema_version == "2":
+            # Schema 2 predates import facts; keep its serialized identity unchanged.
+            del data["imports"]
+        return data
 
     def to_json(self) -> str:
         return json.dumps(
@@ -180,7 +233,11 @@ class AnalysisResult:
     @classmethod
     def from_json(cls, value: str) -> "AnalysisResult":
         data = json.loads(value)
-        if not isinstance(data, dict) or data.get("schema_version") not in ("1", "2"):
+        if not isinstance(data, dict) or data.get("schema_version") not in (
+            "1",
+            "2",
+            "3",
+        ):
             raise ValueError("Unsupported artifact schema version")
         try:
             if data["schema_version"] == "1":
@@ -190,7 +247,21 @@ class AnalysisResult:
                     raise ValueError("Schema 1 cannot contain references")
                 data["schema_version"] = "2"
                 data["references"] = []
+            if data["schema_version"] == "2":
+                if "imports" in data:
+                    raise ValueError("Schema 2 cannot contain imports")
+                data["imports"] = []
             data["references"] = tuple(Reference(**item) for item in data["references"])
+            data["imports"] = tuple(
+                Import(
+                    **{
+                        **item,
+                        "names": tuple(item["names"]),
+                        "local_names": tuple(item["local_names"]),
+                    }
+                )
+                for item in data["imports"]
+            )
             data["definitions"] = tuple(
                 Definition(**item) for item in data["definitions"]
             )

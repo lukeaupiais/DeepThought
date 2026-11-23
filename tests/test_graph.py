@@ -262,6 +262,8 @@ class GraphTests(unittest.TestCase):
         legacy = source.to_dict()
         legacy["schema_version"] = "1"
         del legacy["references"]
+        del legacy["imports"]
+        legacy["capabilities"] = ["definitions"]
         restored = AnalysisResult.from_json(json.dumps(legacy))
         graph = deepthought.compose_graph([restored])
         self.assertEqual(len(graph.lookup_definitions("helper")), 1)

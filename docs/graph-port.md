@@ -21,6 +21,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | applications/unified-server/src/main.py /api/v1/graph/query | deepthought.graph_queries + graph_cli/graph_mcp | Cypher execution, adapted to CLI and optional queryGraph MCP transport |
 | Original analyzer repository/file projection | deepthought.analysis_tools.tree_sitter | Repository -> CONTAINS -> File -> DEFINES -> declaration |
 | libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
+| libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -88,6 +89,34 @@ holding a revision published before this contract rejects a re-import of the
 same source under the same revision as conflicting content. Select a new
 revision with `--snapshot` or use a fresh database.
 
+## File imports
+
+Tree-sitter extraction records each static import statement as an `Import` fact
+(analysis schema 3): Python `import` and `from ... import`, and TypeScript
+`import ... from` and `export ... from`. Dynamic loads such as `require()`,
+`import()` and `importlib` are not facts here. `deepthought.imports.resolve_imports`
+then matches specifiers against the analyzed files of the same result, without
+reading files, and TreeSitterTool writes File -> IMPORTS -> File for each link
+with the specifier, names, line, import ID and rule:
+
+| Rule | Evidence | Links |
+|---|---|---|
+| `tree-sitter.python-relative-module` | resolved | `.m`, `..m`, `.`: the package `__init__.py` (preferred) or module file at that path; climbing above the importing directory requires a package |
+| `tree-sitter.python-absolute-module-path` | name_matched | dotted name equals a file path under the repository root or `src/`; the runtime import path is not checked |
+| `tree-sitter.python-from-import-submodule` | name_matched | `from pkg import x` where `pkg/x.py` exists; the package may define `x` instead |
+| `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; `package.json` is not read |
+
+Anything else gets no edge. Non-relative TypeScript specifiers (packages, `paths`
+aliases), Python imports matching several roots, imports beyond the repository
+root, self-imports and modules outside the analyzed files are reported instead:
+each File node lists its `unresolved_imports` and `ambiguous_imports`
+specifiers, and tool metadata counts linked, ambiguous and unresolved imports.
+
+An IMPORTS edge says which file a statement imports, not where an imported name
+is defined; a package re-export links to the package's `__init__.py` or index
+file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
+before, so their snapshot and graph identities do not change.
+
 ## Provision and use
 
 ```sh
@@ -111,8 +140,9 @@ deepthought-graph structure --repository-id public-project --snapshot REVISION -
 ```
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
-with the chosen graph revision. This port ships TreeSitterTool; it does not pretend
-other original analyzers have already been ported. The embedded Python API can
+with the chosen graph revision. This port ships TreeSitterTool (declarations and
+file imports); it does not pretend other original analyzers have already been
+ported. The embedded Python API can
 register tools through the existing registry.
 
 For an agent, configure the stdio command `deepthought-mcp` with the same database

@@ -113,7 +113,7 @@ class EngineTests(unittest.TestCase):
             {item.file for item in result.coverage}, {item["file"] for item in expected}
         )
         self.assertTrue(all(item.status == "analyzed" for item in result.coverage))
-        self.assertEqual(result.capabilities, ("definitions",))
+        self.assertEqual(result.capabilities, ("definitions", "imports"))
 
     def test_artifact_round_trip_and_relocation_are_stable(self):
         original = analyze_repository(

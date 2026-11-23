@@ -1,7 +1,8 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
-This bounded port supports Python and TypeScript/TSX. It does not port the
-legacy heuristic CALLS/CFG/data-flow output or claim additional languages.
+This bounded port supports Python and TypeScript/TSX declarations and static
+file imports. It does not port the legacy heuristic CALLS/CFG/data-flow output
+or claim additional languages.
 """
 
 import importlib.util
@@ -9,6 +10,7 @@ import time
 from copy import deepcopy
 
 from .._version import __version__
+from .. import imports as import_rules
 from ..engine import analyze_repository
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -34,6 +36,44 @@ DEFINES_RULE = register_rule(
         "The parse tree of the file contains this named declaration.",
     )
 )
+
+IMPORT_RULES = {
+    rule.rule_id: rule
+    for rule in (
+        register_rule(
+            EvidenceRule(
+                import_rules.PYTHON_RELATIVE_MODULE,
+                "resolved",
+                "A relative import names a package or module file analyzed at "
+                "that path; a package directory takes precedence over a module.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.PYTHON_ABSOLUTE_MODULE,
+                "name_matched",
+                "The dotted module name equals the path of an analyzed file under "
+                "the repository root or src/; the runtime import path is not checked.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.PYTHON_FROM_IMPORT_SUBMODULE,
+                "name_matched",
+                "A name imported from a package equals an analyzed submodule; the "
+                "package itself may define that name instead.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.TYPESCRIPT_RELATIVE_MODULE,
+                "resolved",
+                "A relative specifier resolves to an analyzed file in TypeScript's "
+                "extension and index lookup order; package.json files are not read.",
+            )
+        ),
+    )
+}
 
 
 def _evidence(rule):
@@ -100,6 +140,15 @@ class TreeSitterTool(AnalysisTool):
         ]
         relationships = []
         files = {}
+        imports = {item.id: item for item in result.imports}
+        resolutions = import_rules.resolve_imports(result)
+        undisclosed = {}
+        for resolution in resolutions:
+            if resolution.status != "linked":
+                item = imports[resolution.import_id]
+                undisclosed.setdefault(item.file, {}).setdefault(
+                    resolution.status + "_imports", set()
+                ).add(item.specifier)
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"
             files[coverage.file] = file_name
@@ -114,6 +163,12 @@ class TreeSitterTool(AnalysisTool):
                         "name": coverage.file,
                         "language": coverage.language,
                         "coverage_status": coverage.status,
+                        **{
+                            key: sorted(values)
+                            for key, values in sorted(
+                                undisclosed.get(coverage.file, {}).items()
+                            )
+                        },
                     },
                 )
             )
@@ -158,6 +213,32 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(DEFINES_RULE),
                 )
             )
+        for resolution in resolutions:
+            item = imports[resolution.import_id]
+            for link in resolution.links:
+                relationships.append(
+                    RelationshipData(
+                        "IMPORTS",
+                        ["File"],
+                        {"qualified_name": files[item.file], "repo_url": repo_url},
+                        ["File"],
+                        {
+                            "qualified_name": files[link.target_file],
+                            "repo_url": repo_url,
+                        },
+                        {
+                            "import_id": item.id,
+                            "specifier": item.specifier,
+                            "import_kind": item.kind,
+                            "names": list(item.names),
+                            "line": item.line,
+                            **_evidence(IMPORT_RULES[link.rule_id]),
+                        },
+                    )
+                )
+        status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
+        for resolution in resolutions:
+            status_counts[resolution.status] += 1
         artifact = result.to_dict()
         diagnostics = artifact["diagnostics"]
         metadata = ToolExecutionMetadata(
@@ -182,7 +263,9 @@ class TreeSitterTool(AnalysisTool):
                 "analyzer_versions": artifact["analyzer_versions"],
                 "capabilities": artifact["capabilities"],
                 "source_facts_schema_version": result.schema_version,
-                "scope": "named declarations only; no call, control or data-flow inference",
+                "import_resolution": status_counts,
+                "scope": "named declarations and static file imports; "
+                "no call, control or data-flow inference",
             },
         )
         output = StandardizedOutput(
