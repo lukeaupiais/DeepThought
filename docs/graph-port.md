@@ -28,6 +28,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 | libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
+| libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
 
 The CLI/MCP adapters call this shared query implementation. They do not implement
 another analyzer or a separate query engine. The original hosted authentication,
@@ -194,6 +195,76 @@ indexes used a tsconfig with `allowJs`, `checkJs: false` and `nodenext`
 (execa) or `bundler` (preact) module resolution. `tests/fixtures/javascript`
 and its committed index repeat the check in CI.
 
+## SCIP references
+
+The `scip` AnalysisTool stores compiler-backed references from a
+scip-typescript index. It never runs the indexer itself.
+`deepthought index-typescript WORKSPACE --node NODE --indexer SCIP_TYPESCRIPT_MAIN`
+runs a provisioned scip-typescript 0.6.0 and writes `index.scip` with a
+`index.scip.sources.json` receipt: the index digest plus the sha256 of every
+TypeScript, JavaScript and JSON input, taken before and after indexing. The tool
+refuses an index whose bytes or inputs no longer match the receipt, before and
+after it reads the index, so a stored reference always belongs to the source it
+was computed from.
+
+```sh
+deepthought index-typescript ./checkout --node "$(command -v node)" \
+  --indexer node_modules/@sourcegraph/scip-typescript/dist/src/main.js
+deepthought-graph index ./checkout --tool scip --repository-id public-project
+deepthought-graph references --repository-id public-project --snapshot REVISION \
+  --symbol 'scip-typescript npm . . src/`api.ts`/handler().'
+deepthought-graph dependencies --repository-id public-project --snapshot REVISION --file src/api.ts
+deepthought-graph dependents --repository-id public-project --snapshot REVISION --file src/api.ts
+```
+
+Each definition occurrence becomes a Symbol node with its SCIP `native_id`
+(returned by `search`), and every other occurrence becomes a Reference node.
+All edges are `resolved`:
+
+| Rule | Edge |
+|---|---|
+| `scip.repository-contains-file` | Repository -> CONTAINS -> File for each indexed document |
+| `scip.file-defines-symbol` | File -> DEFINES -> Symbol for each definition occurrence |
+| `scip.file-contains-reference` | File -> CONTAINS_REFERENCE -> Reference for each other occurrence |
+| `scip.native-symbol-reference` | Reference -> REFERENCES -> Symbol when both carry the same native symbol; local symbols match only within their document |
+| `scip.reference-dependency` | File -> DEPENDS_ON -> File when a reference's symbol is declared only in the other file, with the reference IDs as witnesses |
+
+A symbol declared at several sites, such as an overloaded function or a merged
+declaration, is one symbol: its references are `resolved` and link to every
+site. The original tool wrote the same relationships with `confidence: 1.0`.
+A native symbol defined by two different analyses is still `ambiguous` and gets
+no edge, and an occurrence whose symbol has no indexed definition (a package,
+or a name the indexer could not bind) is kept `unresolved` with no edge. The
+queries return the stored facts only: `get_references` pages by `reference_id`
+and needs `file_path` for `local` symbols, and both queries fail on a snapshot
+that has no SCIP contribution instead of returning an empty answer.
+
+`tools/typescript_reference_oracle.cjs` is an independent check. It runs the
+TypeScript checker on the same workspace, without reading SCIP, and lists every
+identifier whose symbol (aliases followed) is declared in the project.
+`tools/compare_references_with_typescript.py` then compares each identifier
+with the definitions its REFERENCES edges point to. On rxjs 7.8.1 `src/`
+(251 files, TypeScript 6.0.3, scip-typescript 0.6.0):
+
+| Outcome | Identifiers |
+|---|---|
+| Same declarations as the compiler | 8,951 |
+| Extra declarations: one SCIP symbol for a parameter or type parameter across overload signatures (1,703), and `static now` and instance `now` of `Scheduler` sharing one symbol (10) | 1,713 |
+| Fewer declarations: the compiler merges several declarations into one symbol and the index names one of them (an exported type and value of one name, 52; a property declared in several object types, 12) | 64 |
+| `new X()` linked to the `constructor` instead of the class | 103 |
+| Namespace import linked to the module's anchor instead of its file range | 10 |
+| Overlapping (the `Scheduler.now` collision) | 1 |
+| No SCIP occurrence, or occurrence left unresolved | 0 |
+
+So every compiler-bound identifier has an edge. The 11 `Scheduler.now` links
+are wrong at member level because the index gives static and instance members
+of one name a single symbol; every other difference names the same declaration
+at another granularity. These are properties of the index that the graph
+reproduces faithfully, not corrections DeepThought makes. A further 1,533 linked
+occurrences have no compiler identifier: module specifier strings (1,220),
+shorthand properties and destructuring names that are their own declaration.
+All 41,014 edges round-trip through Neo4j with their rule.
+
 ## Commit-linked snapshots
 
 The original engine kept one mutable `last_commit` on the Repository node and
@@ -355,14 +426,15 @@ deepthought-graph diff --repository-id public-project --base BASE_REVISION --hea
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
 with the chosen graph revision. This port ships TreeSitterTool (declarations,
-file imports and name-matched calls); it does not pretend other original analyzers have already been
+file imports and name-matched calls) and the SCIP tool (TypeScript references
+and file dependencies); it does not pretend other original analyzers have already been
 ported. The embedded Python API can
 register tools through the existing registry.
 
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getFileImports`, `getFileImporters`,
-`explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `getFileDependencies`, `getFileDependents`, `explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access

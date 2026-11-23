@@ -2,8 +2,8 @@
 
 The optional MCP transport contains no Cypher construction or extraction logic.
 The three original tool names are preserved; queryGraph adapts the original
-HTTP Cypher capability. The call, import and explainEdge tools expose the
-ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
+HTTP Cypher capability. The call, import, reference, dependency and explainEdge
+tools expose the ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
 requires a dedicated snapshot database and database-enforced read-only access.
 """
 
@@ -197,6 +197,56 @@ def create_server():
             snapshot_id=snapshot_id,
             evidence_types=evidence_types,
             limit=max_elements,
+        )
+
+    @server.tool()
+    async def findReferences(
+        native_symbol: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        file_path: str | None = None,
+        after_reference_id: str = "",
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """List SCIP occurrences of a native symbol and the definitions they name.
+
+        Get native_symbol from searchCodeElements. Local symbols need file_path.
+        Continue a truncated list with the last reference_id.
+        """
+        return await ctx.request_context.lifespan_context.get_references(
+            native_symbol,
+            repository_id,
+            snapshot_id=snapshot_id,
+            file_path=file_path,
+            after_reference_id=after_reference_id,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getFileDependencies(
+        file_path: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get files declaring symbols this file references (SCIP, resolved)."""
+        return await ctx.request_context.lifespan_context.get_file_dependencies(
+            file_path, repository_id, snapshot_id=snapshot_id, limit=max_elements
+        )
+
+    @server.tool()
+    async def getFileDependents(
+        file_path: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get files that reference symbols declared in this file (SCIP, resolved)."""
+        return await ctx.request_context.lifespan_context.get_file_dependents(
+            file_path, repository_id, snapshot_id=snapshot_id, limit=max_elements
         )
 
     @server.tool()

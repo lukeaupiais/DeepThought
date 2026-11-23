@@ -15,6 +15,7 @@ from .contracts import StandardizedOutput, _text
 class ToolCapability(Enum):
     AST_EXTRACTION = "ast_extraction"
     SYMBOL_INDEXING = "symbol_indexing"
+    REFERENCE_INDEXING = "reference_indexing"
     TYPE_INFERENCE = "type_inference"
     CALL_GRAPH = "call_graph"
     DATA_FLOW = "data_flow"

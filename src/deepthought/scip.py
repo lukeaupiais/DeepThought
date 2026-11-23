@@ -29,10 +29,13 @@ def ingest_scip(
     repository_id: str,
     max_index_bytes: int = 50_000_000,
     path_prefix: str = "",
+    default_position_encoding: str | None = None,
 ) -> AnalysisResult:
     """Read a local artifact; never invoke an indexer or read indexed source files."""
     if not repository_id.strip() or max_index_bytes < 1:
         raise ValueError("Nonempty repository_id and positive max_index_bytes required")
+    if default_position_encoding not in {None, "utf-8", "utf-16", "utf-32"}:
+        raise ValueError("Explicit position encoding must be utf-8, utf-16 or utf-32")
     if not isinstance(path_prefix, str) or (
         path_prefix and not is_relative_file(path_prefix)
     ):
@@ -64,6 +67,10 @@ def ingest_scip(
                 raise ValueError("Index is missing producing-tool metadata")
             versions["protobuf"] = version("protobuf")
             versions[index.metadata.tool_info.name] = index.metadata.tool_info.version
+            if default_position_encoding is not None:
+                versions["unspecified_position_encoding_fallback"] = (
+                    default_position_encoding
+                )
             seen_files, seen_definitions = set(), set()
             for doc in sorted(index.documents, key=lambda item: item.relative_path):
                 file = doc.relative_path
@@ -87,7 +94,10 @@ def ingest_scip(
                 seen_files.add(file)
                 infos = {item.symbol: item for item in doc.symbols}
                 encoding = {1: "utf-8", 2: "utf-16", 3: "utf-32"}.get(
-                    doc.position_encoding, "unspecified"
+                    doc.position_encoding,
+                    default_position_encoding
+                    if doc.position_encoding == 0 and default_position_encoding
+                    else "unspecified",
                 )
                 before = len(diagnostics)
                 if encoding == "unspecified":
