@@ -776,12 +776,12 @@ class SpringConfig:
             self._modules[module] = (name, context)
         return self._modules[module]
 
-    def values(self, file, key):
-        """The distinct values of ``key`` in the file's module configuration
-        (the shared config-server files included), or None outside a module."""
+    def files(self, file):
+        """The configuration files of the file's module (the shared
+        config-server files included) that exist; [] outside a module."""
         module = _module_root(self.root, file)
         if module is None:
-            return None
+            return []
         name, _ = self.service(file)
         files = self._module_files(module)
         if name is not None:
@@ -791,7 +791,16 @@ class SpringConfig:
                 for stem in (name, "application")
                 for suffix in _CONFIG_SUFFIXES
             ]
-        return sorted({v for f in files for v in _read_values(f, key, raw=True)})
+        return [f for f in files if f.is_file()]
+
+    def values(self, file, key):
+        """The distinct values of ``key`` in the file's module configuration,
+        or None outside a module."""
+        if _module_root(self.root, file) is None:
+            return None
+        return sorted(
+            {v for f in self.files(file) for v in _read_values(f, key, raw=True)}
+        )
 
 
 def _receivers(root, content, imports, kinds):

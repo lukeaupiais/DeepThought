@@ -17,6 +17,7 @@ import time
 from .._version import __version__
 from ..engine import analyze_repository
 from ..service_contracts import resolve as contract_rules
+from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.messaging import extract_messaging
 from ..service_contracts.spring import (
@@ -177,7 +178,64 @@ REQUEST_RULES = {
             "repository; the host, base URL and gateway are not checked.",
         )
     ),
+    contract_rules.HTTP_GATEWAY: register_rule(
+        EvidenceRule(
+            contract_rules.HTTP_GATEWAY,
+            "pattern_matched",
+            "The request has no literal host and names no known service, its "
+            "path starts with the literal prefix of a gateway route (a Spring "
+            "Cloud Gateway Path predicate or an nginx location with "
+            "proxy_pass), and, with that prefix replaced as the route "
+            "declares, its method and path fit this route of the route's "
+            "target service (or of any service, when the target is not a "
+            "known service name) more specifically than any other.",
+        )
+    ),
 }
+
+
+def _gateways(root, config, sources):
+    """Gateway routes: Spring Cloud Gateway routes in the configuration of
+    the analyzed Java files' modules, and nginx proxy locations in ``*.conf``
+    and ``*.conf.template`` files outside hidden and dependency folders."""
+    routes, unread, seen = [], [], set()
+    for coverage, _, _ in sources:
+        if coverage.language != "java":
+            continue
+        for path in config.files(coverage.file):
+            if path in seen or path.suffix not in (".yml", ".yaml"):
+                continue
+            seen.add(path)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if "gateway" not in text:
+                continue
+            found = spring_gateway_routes(path, text, path.relative_to(root).as_posix())
+            routes.extend(found[0])
+            unread.extend(found[1])
+    for path in sorted(root.rglob("*.conf*")):
+        relative = path.relative_to(root)
+        if not path.is_file() or not (
+            path.name.endswith(".conf") or path.name.endswith(".conf.template")
+        ):
+            continue
+        if any(
+            part.startswith(".") or part in ("node_modules", "vendor")
+            for part in relative.parts[:-1]
+        ) or _is_test_source(relative.as_posix()):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "proxy_pass" not in text:
+            continue
+        found = nginx_routes(text, relative.as_posix())
+        routes.extend(found[0])
+        unread.extend(found[1])
+    return routes, unread
 
 
 def _is_test_source(path):
@@ -363,7 +421,8 @@ class ServiceContractTool(AnalysisTool):
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
             )
-        resolutions = contract_rules.resolve_requests(routes, requests)
+        gateways, gateway_unread = _gateways(root, config, sources)
+        resolutions = contract_rules.resolve_requests(routes, requests, gateways)
         self.last_facts = (result, routes, requests, unread, resolutions)
         self.last_messages = (endpoints, messaging_unread)
 
@@ -504,6 +563,11 @@ class ServiceContractTool(AnalysisTool):
                             if resolution.target_service
                             else {}
                         ),
+                        **(
+                            {"gateway": resolution.gateway}
+                            if resolution.gateway
+                            else {}
+                        ),
                         **_evidence(REQUEST_RULES[resolution.rule_id]),
                     },
                 )
@@ -558,6 +622,9 @@ class ServiceContractTool(AnalysisTool):
         for item in unread:
             key = f"{item.kind}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
+        for item in gateway_unread:
+            key = f"gateway:{item.reason}"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
         for item in messaging_unread:
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
@@ -591,6 +658,7 @@ class ServiceContractTool(AnalysisTool):
                 "http_requests": len(requests),
                 "http_request_resolution": dict(sorted(counts.items())),
                 "unread": dict(sorted(unread_counts.items())),
+                "gateway_routes": len(gateways),
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 "test_source_files_skipped": test_files,
