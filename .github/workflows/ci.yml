@@ -40,7 +40,7 @@ jobs:
           wheel=$(realpath dist/*.whl)
           python -m venv "$RUNNER_TEMP/deepthought-full"
           python -m venv "$RUNNER_TEMP/deepthought-core"
-          "$RUNNER_TEMP/deepthought-full/bin/python" -m pip install "$wheel[python,typescript,scip]"
+          "$RUNNER_TEMP/deepthought-full/bin/python" -m pip install "$wheel[javascript,python,typescript,scip]"
           "$RUNNER_TEMP/deepthought-core/bin/python" -m pip install --no-index --no-deps "$wheel"
       - name: Accept full installation offline
         run: python tools/verify_offline.py --privileged --python "$RUNNER_TEMP/deepthought-full/bin/python"
@@ -81,7 +81,7 @@ jobs:
         run: |
           python -m pip install 'build==1.4.3' 'hatchling==1.30.1'
           python -m build --no-isolation --wheel
-          python -m pip install "$(realpath dist/*.whl)[python,typescript,scip,neo4j,mcp]"
+          python -m pip install "$(realpath dist/*.whl)[javascript,python,typescript,scip,neo4j,mcp]"
       - name: Wait for the dedicated test database
         run: |
           python - <<'PY'
