@@ -2,13 +2,14 @@
 
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
 
-from deepthought import analyze_repository
+from deepthought import AnalysisResult, analyze_repository
 from deepthought.analysis_tools import TreeSitterTool
-from deepthought.calls import CALL_LEXICAL_NAME, resolve_calls
+from deepthought.calls import CALL_LEXICAL_NAME, CALL_PACKAGE_NAME, resolve_calls
 from deepthought.imports import resolve_imports
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -90,28 +91,121 @@ class GoTests(unittest.TestCase):
             {("unresolved", "go_module_path")},
         )
 
-    def test_calls_link_only_same_file_functions(self):
+    def test_calls_link_within_the_declared_package_only(self):
         result = analyze(
-            {"server.go": SOURCE, "other.go": "package server\nfunc Use() { New() }\n"}
+            {
+                "server.go": SOURCE,
+                "other.go": "package server\nfunc Use() { New(); plat() }\n",
+                "plat_linux.go": "package server\nfunc plat() {}\n",
+                "plat_darwin.go": "package server\nfunc plat() {}\n",
+                # An external test package sees only its own package's names.
+                "ext_test.go": "package server_test\nfunc T() { New(); fixture() }\n",
+                "fix_test.go": "package server_test\nfunc fixture() {}\n",
+                # Same package name in another directory is another package.
+                "sub/sub.go": "package server\nfunc S() { New() }\n",
+                "gen.go": "//go:build ignore\n\npackage main\nfunc G() { New() }\n",
+            }
+        )
+        self.assertEqual(
+            sorted((p.file, p.name, p.line) for p in result.packages),
+            [
+                ("ext_test.go", "server_test", 1),
+                ("fix_test.go", "server_test", 1),
+                ("gen.go", "main", 3),
+                ("other.go", "server", 1),
+                ("plat_darwin.go", "server", 1),
+                ("plat_linux.go", "server", 1),
+                ("server.go", "server", 1),
+                ("sub/sub.go", "server", 1),
+            ],
         )
         sites = {s.id: s for s in result.call_sites}
         definitions = {d.id: d for d in result.definitions}
         found = {
             (sites[r.call_id].file, sites[r.call_id].callee): (
                 r.status,
-                definitions[r.target_id].symbol if r.target_id else None,
+                (
+                    (definitions[r.target_id].file, definitions[r.target_id].symbol)
+                    if r.target_id
+                    else r.reason
+                ),
                 r.rule_id,
             )
             for r in resolve_calls(result)
         }
         self.assertEqual(
-            found[("server.go", "helper")], ("linked", "helper", CALL_LEXICAL_NAME)
+            found[("server.go", "helper")],
+            ("linked", ("server.go", "helper"), CALL_LEXICAL_NAME),
         )
+        self.assertEqual(
+            found[("other.go", "New")],
+            ("linked", ("server.go", "New"), CALL_PACKAGE_NAME),
+        )
+        self.assertEqual(
+            found[("ext_test.go", "fixture")],
+            ("linked", ("fix_test.go", "fixture"), CALL_PACKAGE_NAME),
+        )
+        # Build constraints are not evaluated: both platform files declare it.
+        self.assertEqual(
+            found[("other.go", "plat")], ("ambiguous", "multiple_declarations", None)
+        )
+        for file in ("ext_test.go", "sub/sub.go", "gen.go"):
+            with self.subTest(file=file):
+                self.assertEqual(
+                    found[(file, "New")], ("unresolved", "no_declaration", None)
+                )
         # Selector calls are recorded as written and not guessed.
         self.assertEqual(found[("server.go", "fmt.Println")][0], "unresolved")
         self.assertEqual(found[("server.go", "str.ToUpper")][0], "unresolved")
-        # Same-package calls across files need package facts; not linked yet.
-        self.assertEqual(found[("other.go", "New")][0], "unresolved")
+
+    def test_reindex_reuses_package_clauses_and_rejects_earlier_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "a.go").write_text("package a\nfunc A() { B() }\n")
+            (Path(directory) / "b.go").write_text("package a\nfunc B() {}\n")
+            full = analyze_repository(directory, repository_id="r", languages=("go",))
+            reuse = {}
+            again = analyze_repository(
+                directory,
+                repository_id="r",
+                languages=("go",),
+                previous=full,
+                reuse=reuse,
+            )
+            self.assertEqual((reuse["reused"], reuse["parsed"]), (2, 0))
+            self.assertEqual(again.to_json(), full.to_json())
+            data = full.to_dict()
+            del data["packages"]
+            data["capabilities"].remove("packages")
+            earlier = AnalysisResult.from_json(json.dumps(data))
+            reuse = {}
+            analyze_repository(
+                directory,
+                repository_id="r",
+                languages=("go",),
+                previous=earlier,
+                reuse=reuse,
+            )
+            self.assertEqual(reuse["previous_rejected"], "missing_fact_kinds")
+
+    def test_invalid_package_facts_are_rejected(self):
+        full = analyze({"a.go": "package a\n"})
+        data = full.to_dict()
+        self.assertEqual(AnalysisResult.from_json(json.dumps(data)), full)
+        for change, message in (
+            (lambda d: d["packages"].append(dict(d["packages"][0])), "Duplicate"),
+            (
+                lambda d: d["packages"].append({**d["packages"][0], "id": "x"}),
+                "at most one package",
+            ),
+            (lambda d: d["capabilities"].remove("packages"), "capability"),
+            (lambda d: d["packages"][0].update(file="b.go"), "coverage"),
+            (lambda d: d["packages"][0].update(name=""), "nonempty"),
+        ):
+            changed = json.loads(json.dumps(data))
+            change(changed)
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    AnalysisResult.from_json(json.dumps(changed))
 
     def test_go_is_opt_in_and_tool_projects_nesting(self):
         default = analyze({"server.go": SOURCE, "a.py": "x = 1\n"}, languages=None)
@@ -133,6 +227,9 @@ class GoTests(unittest.TestCase):
         self.assertEqual(
             nested, [("Reader", "Reader.Read"), ("helper", "helper.local")]
         )
+        files = [n.properties for n in output.nodes if "File" in n.labels]
+        self.assertEqual([f.get("package") for f in files], ["server"])
+        self.assertEqual(default.packages, ())
 
 
 if __name__ == "__main__":

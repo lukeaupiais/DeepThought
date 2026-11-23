@@ -114,6 +114,9 @@ _CALL_RULE_TEXT = {
     "import binding whose file declares that name at top level.",
     call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
     "method declared in the enclosing class body; inheritance is not followed.",
+    call_rules.CALL_PACKAGE_NAME: "A bare callee name equals a function declared "
+    "at top level by another file in the same directory with the same package "
+    "clause; build constraints are not evaluated.",
 }
 CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
@@ -226,6 +229,7 @@ class TreeSitterTool(AnalysisTool):
                 undisclosed.setdefault(item.file, {}).setdefault(
                     resolution.status + "_imports", set()
                 ).add(item.specifier)
+        declared_packages = {item.file: item.name for item in result.packages}
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"
             files[coverage.file] = file_name
@@ -240,6 +244,11 @@ class TreeSitterTool(AnalysisTool):
                         "name": coverage.file,
                         "language": coverage.language,
                         "coverage_status": coverage.status,
+                        **(
+                            {"package": declared_packages[coverage.file]}
+                            if coverage.file in declared_packages
+                            else {}
+                        ),
                         **{
                             key: sorted(values)
                             for key, values in sorted(

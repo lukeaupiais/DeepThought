@@ -217,6 +217,32 @@ class Supertype:
 
 
 @dataclass(frozen=True)
+class PackageClause:
+    """The package a source file declares (Go's ``package name``), as written."""
+
+    id: str
+    file: str
+    name: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    coordinate_encoding: str = "utf-8"
+
+    def __post_init__(self):
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
+        if not all(isinstance(v, str) and v for v in (self.id, self.name)):
+            raise ValueError("Package clause identity and name must be nonempty")
+
+
+@dataclass(frozen=True)
 class FileCoverage:
     file: str
     language: str
@@ -261,6 +287,7 @@ class AnalysisResult:
     imports: tuple[Import, ...] = ()
     call_sites: tuple[CallSite, ...] = ()
     supertypes: tuple[Supertype, ...] = ()
+    packages: tuple[PackageClause, ...] = ()
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
@@ -299,13 +326,20 @@ class AnalysisResult:
             raise ValueError("Supertype facts require the supertypes capability")
         if any(definitions.get(t.owner_id) != t.file for t in self.supertypes):
             raise ValueError("Supertype owners must be definitions in the same file")
+        if len({p.id for p in self.packages}) != len(self.packages):
+            raise ValueError("Duplicate package clause identities")
+        if len({p.file for p in self.packages}) != len(self.packages):
+            raise ValueError("A file declares at most one package")
+        if self.packages and "packages" not in self.capabilities:
+            raise ValueError("Package clauses require the packages capability")
         if self.schema_version == "2" and {
             "imports",
             "call_sites",
             "supertypes",
+            "packages",
         } & set(self.capabilities):
             raise ValueError(
-                "Schema 2 cannot contain imports, call sites or supertypes"
+                "Schema 2 cannot contain imports, call sites, supertypes or packages"
             )
         covered = {item.file for item in self.coverage}
         if any(
@@ -316,6 +350,7 @@ class AnalysisResult:
                 *self.imports,
                 *self.call_sites,
                 *self.supertypes,
+                *self.packages,
             )
         ):
             raise ValueError("Every fact requires source file coverage")
@@ -331,6 +366,8 @@ class AnalysisResult:
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
+        if not self.packages and "packages" not in self.capabilities:
+            del data["packages"]
         if self.schema_version == "2":
             # Schema 2 predates these facts; keep its serialized identity unchanged.
             del data["imports"], data["call_sites"]
@@ -359,9 +396,10 @@ class AnalysisResult:
                 data["schema_version"] = "2"
                 data["references"] = []
             if data["schema_version"] == "2":
-                if {"imports", "call_sites", "supertypes"} & data.keys():
+                if {"imports", "call_sites", "supertypes", "packages"} & data.keys():
                     raise ValueError(
-                        "Schema 2 cannot contain imports, call sites or supertypes"
+                        "Schema 2 cannot contain imports, call sites, supertypes "
+                        "or packages"
                     )
                 data["imports"] = []
                 data["call_sites"] = []
@@ -382,6 +420,9 @@ class AnalysisResult:
             )
             data["supertypes"] = tuple(
                 Supertype(**item) for item in data.get("supertypes", [])
+            )
+            data["packages"] = tuple(
+                PackageClause(**item) for item in data.get("packages", [])
             )
             data["definitions"] = tuple(
                 Definition(**item) for item in data["definitions"]

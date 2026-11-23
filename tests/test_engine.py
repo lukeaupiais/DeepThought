@@ -114,7 +114,8 @@ class EngineTests(unittest.TestCase):
         )
         self.assertTrue(all(item.status == "analyzed" for item in result.coverage))
         self.assertEqual(
-            result.capabilities, ("call_sites", "definitions", "imports", "supertypes")
+            result.capabilities,
+            ("call_sites", "definitions", "imports", "packages", "supertypes"),
         )
 
     def test_artifact_round_trip_and_relocation_are_stable(self):

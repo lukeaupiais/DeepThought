@@ -149,6 +149,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
+| `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
 A name bound both by an import and a local declaration, or declared more than
 once, is ambiguous and gets no edge. CALLS edges start at the calling
@@ -307,24 +308,33 @@ Import specs are facts (path, alias, `.` as `*`, `_` binds nothing) but are not
 linked to files: a Go import names a package by module path, which `go.mod`
 defines and the analysis does not read, so each stays `unresolved` with reason
 `go_module_path`. Calls are recorded as written, including selector calls such
-as `fmt.Println`, and the existing call rules apply: a bare call links only to
-a function declared in the same file. Calls to functions of the same package in
-other files, and method calls, are not linked yet; that needs package facts.
+as `fmt.Println`.
+
+Each Go file's `package` clause is a fact (`packages`, part of snapshot
+identity) and a `package` property on its File node. A Go package is the files
+of one directory that declare the same package, so an external test package
+(`package x_test`) and a `//go:build ignore` generator declaring `package main`
+are separate packages. A bare call `f()` links by
+`tree-sitter.call-package-name` to a function another file of the same package
+declares at top level. Build constraints are not evaluated: if
+`plat_linux.go` and `plat_darwin.go` both declare `plat`, the call is ambiguous
+and gets no edge. Method calls and package-qualified calls (`pkg.F()`) are not
+linked.
 
 Checked against scip-go 0.1.26 indexes with
 `tools/compare_go_declarations_with_scip.py` and
 `tools/compare_calls_with_scip.py --language go`:
 
-| Corpus | Declarations matched by scip-go (same file, line and name) | scip-go only | Receiver mismatches | Linked calls confirmed | Contradicted |
+| Corpus | Declarations matched by scip-go (same file, line and name) | scip-go only | Receiver mismatches | Linked calls confirmed (same file + package) | Contradicted |
 |---|---|---|---|---|---|
-| cobra 1.8.1 | 580 / 585 | 0 | 0 | 438 / 438 | 0 |
-| gorilla/mux 1.8.1 | 235 / 238 | 0 | 0 | 255 / 255 | 0 |
+| cobra 1.8.1 | 580 / 585 | 0 | 0 | 983 / 983 (438 + 545) | 0 |
+| gorilla/mux 1.8.1 | 235 / 238 | 0 | 0 | 398 / 398 (255 + 143) | 0 |
 
 The eight declarations scip-go has no global symbol for are five types declared
 inside test functions, two interface method elements, and `preExecHook` in
-`command_win.go`, which a Linux build excludes. Recall of calls is low (438 of
-2,096 and 255 of 820 calls with an in-repository SCIP target) because
-same-package calls across files and method calls are not linked.
+`command_win.go`, which a Linux build excludes. Recall of calls is 983 of
+2,096 and 398 of 820 calls with an in-repository SCIP target; the rest are
+method calls, conversions and package-qualified calls, which are not linked.
 
 ## SCIP references
 

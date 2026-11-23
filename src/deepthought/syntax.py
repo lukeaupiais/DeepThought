@@ -7,7 +7,7 @@ import importlib
 from hashlib import sha256
 import json
 
-from .models import CallSite, Definition, Import, Supertype
+from .models import CallSite, Definition, Import, PackageClause, Supertype
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
@@ -498,3 +498,30 @@ def extract_supertypes(
                 )
         stack.extend(reversed(node.named_children))
     return found
+
+
+def extract_packages(
+    tree, content: bytes, repository_id: str, file: str
+) -> list[PackageClause]:
+    """The package a Go file declares: its first top-level package clause."""
+    for node in tree.root_node.named_children:
+        if node.type != "package_clause":
+            continue
+        name = next(
+            (c for c in node.named_children if c.type == "package_identifier"), None
+        )
+        if name is None:
+            return []
+        text = _text(name, content)
+        return [
+            PackageClause(
+                id=identifier(repository_id, file, text, "Package", 0),
+                file=file,
+                name=text,
+                line=name.start_point.row + 1,
+                column=name.start_point.column,
+                end_line=name.end_point.row + 1,
+                end_column=name.end_point.column,
+            )
+        ]
+    return []
