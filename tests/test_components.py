@@ -300,7 +300,11 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
             self.repo, snapshot_id=self.snapshot, limit=50
         )
         rows = [
-            (item["element"]["kind"], item["element"]["root"], item["files"])
+            (
+                item["element"]["properties"]["kind"],
+                item["element"]["properties"]["root"],
+                item["files"],
+            )
             for item in listed["items"]
         ]
         self.assertEqual(
@@ -318,7 +322,8 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
             self.repo, snapshot_id=self.snapshot, kind="go_module"
         )
         self.assertEqual(
-            [item["element"]["name"] for item in go["items"]], ["example.com/svc"]
+            [item["element"]["properties"]["name"] for item in go["items"]],
+            ["example.com/svc"],
         )
 
     async def test_file_components_and_component_files(self):
@@ -326,11 +331,13 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
             "web/nested/a.ts", self.repo, snapshot_id=self.snapshot
         )
         self.assertEqual(
-            sorted(item["element"]["root"] for item in found["items"]),
+            sorted(item["element"]["properties"]["root"] for item in found["items"]),
             ["", "web/nested"],
         )
         for item in found["items"]:
-            self.assertEqual(item["relationship"]["rule_id"], "components.nearest-root")
+            self.assertEqual(
+                item["relationship"]["properties"]["rule_id"], "components.nearest-root"
+            )
         web = "%s::web/package.json::node_package::component" % self.repo
         first = await self.service.get_component_files(
             web, self.repo, snapshot_id=self.snapshot, limit=1
