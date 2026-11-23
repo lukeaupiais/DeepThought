@@ -380,7 +380,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Get components that transitively require a component, each with its path and weakest evidence."""
+        """Get components that transitively require, deploy or select a component, each with its path and weakest evidence."""
         return await ctx.request_context.lifespan_context.get_component_impact(
             qualified_name,
             repository_id,

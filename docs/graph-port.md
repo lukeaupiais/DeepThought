@@ -359,7 +359,11 @@ registry may supply that name instead, at another version.
 `get_component_dependencies` (`component-requires`/`component-required-by
 --component`, MCP getComponentDependencies) lists either direction with the
 declaration, and `get_component_impact` (`component-impact`, getComponentImpact)
-follows REQUIRES backwards like the other impact queries.
+follows REQUIRES, DEPLOYS and SELECTS backwards like the other impact queries:
+a package change reaches the Compose services and Kubernetes workloads that
+build or run it, and the Kubernetes Services that select those workloads,
+each hop with its own evidence (a `name_matched` image-name deployment marks
+the whole path `name_matched`).
 
 The same comparison tool checks REQUIRES against `cargo metadata
 --all-features` resolve graphs, `go mod edit -json` replacements and a Yarn
