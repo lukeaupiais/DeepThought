@@ -114,6 +114,8 @@ def parser():
         "subtypes",
         "members",
         "owner",
+        "impact",
+        "file-impact",
         "imports",
         "importers",
         "references",
@@ -156,9 +158,30 @@ def parser():
             )
         if name == "context":
             q.add_argument("--line", type=int)
-        if name in {"callers", "callees", "bases", "subtypes", "members", "owner"}:
+        if name in {
+            "callers",
+            "callees",
+            "bases",
+            "subtypes",
+            "members",
+            "owner",
+            "impact",
+        }:
             q.add_argument("--symbol", required=True, help="Qualified name")
-        if name in {"callers", "callees", "bases", "subtypes", "imports", "importers"}:
+        if name == "file-impact":
+            q.add_argument("--file", required=True)
+        if name in {"impact", "file-impact"}:
+            q.add_argument("--max-depth", type=int, default=3, help="1 to 5 hops")
+        if name in {
+            "callers",
+            "callees",
+            "bases",
+            "subtypes",
+            "imports",
+            "importers",
+            "impact",
+            "file-impact",
+        }:
             q.add_argument(
                 "--evidence",
                 action="append",
@@ -335,6 +358,18 @@ async def execute(args):
                 args.repository_id,
                 file_path=args.file,
                 after_reference_id=args.after_reference_id,
+                **kwargs,
+            )
+        if args.command in {"impact", "file-impact"}:
+            if args.command == "impact":
+                method, subject = service.get_impact, args.symbol
+            else:
+                method, subject = service.get_file_impact, args.file
+            return await method(
+                subject,
+                args.repository_id,
+                max_depth=args.max_depth,
+                evidence_types=args.evidence,
                 **kwargs,
             )
         if args.command in {"members", "owner"}:

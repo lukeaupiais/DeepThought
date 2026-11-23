@@ -22,6 +22,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/storage/.../graph/updater.py file-level incremental update (`get_changed_files`, file hashes) | deepthought.engine `previous=` + `deepthought analyze --previous` + `deepthought-graph index --previous-artifact` | Unchanged files reuse an earlier analysis's facts; the result is a new snapshot equal to a full run, not an in-place update (see below) |
 | libs/storage/.../graph/updater.py AST change detection (`apply_ast_diff`) | GraphQueryService.diff_snapshots | Read-only comparison of two immutable snapshots instead of mutating one graph (see below) |
 | libs/analysis/.../engine/data_access/graph_repository.py calls/imports (not exposed to agents in the original) | deepthought.graph_mcp + graph_cli | getFunctionCallers, getFunctionCalls, getFileImports, getFileImporters and explainEdge (see below) |
+| applications/unified-server/src/main.py `/api/v1/analysis/impact` (a chat prompt to the model) | GraphQueryService.get_impact/get_file_impact + graph_cli/graph_mcp | Bounded traversal of stored edges with each dependent's path and evidence; no model is asked (see below) |
 | applications/unified-server/src/main.py /api/v1/graph/query | deepthought.graph_queries + graph_cli/graph_mcp | Cypher execution, adapted to CLI and optional queryGraph MCP transport |
 | Original analyzer repository/file projection | deepthought.analysis_tools.tree_sitter | Repository -> CONTAINS -> File -> DEFINES -> declaration |
 | libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
@@ -174,6 +175,38 @@ checked: on Django 5.1.4 `django/` (7,932 edges), rxjs 7.8.1 `src/` (260) and
 preact 10.25.4 (32), every inner name is its owner's name plus one or more
 segments, every declaration whose name prefix is declared in the same file has
 an owner, and none has two.
+
+## Impact
+
+The original impact endpoint passed "Analyze the impact of changes to: ..." to
+the chat model. The port answers from stored edges only:
+
+- `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
+  getImpact): the change set is the declaration and every declaration it
+  CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM and
+  IMPLEMENTS.
+- `get_file_impact(path)` (`deepthought-graph file-impact --file`, MCP
+  getFileImpact): dependent files backwards over IMPORTS and DEPENDS_ON.
+
+Both take `--max-depth` (1 to 5, default 3) and an optional evidence filter
+that limits which edges may be crossed. Each dependent is listed once, with
+the declaration or file it reaches in the change set, its depth, the edges of
+its path (type, edge ID, evidence type, rule ID) and the path's evidence,
+which is its weakest edge. When several paths reach a dependent, the one with
+the strongest evidence wins, then the shortest, then the first by edge IDs, so
+the answer is the same on every run. Results are ordered by depth, evidence
+and name; a response that exceeds its byte budget drops whole items and says
+it was truncated. The answer is a lower bound: dynamic dispatch, reflection,
+unanalyzed files and relations no tool records are not seen, and a
+`name_matched` path is only as good as its weakest name match.
+
+`tools/check_impact.py` writes a workspace to Neo4j and compares `get_impact`
+for a sample of declarations with a breadth-first recomputation over the
+tool's own output that never reads Neo4j. Every compared seed matched exactly
+(same dependents, depths and evidence) at `--max-depth 5`: 2,742 Django
+5.1.4 declarations (every fourth; 3,213 dependents) and 925 of the 937 in rxjs 7.8.1 `src/` (627
+dependents). 7 and 12 seeds with more than 100 dependents or 64 KB of output
+were truncated and not compared.
 
 ## Declared bases
 
@@ -551,7 +584,7 @@ register tools through the existing registry.
 
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
-(`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getFileImports`, `getFileImporters`,
+(`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
 `findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
