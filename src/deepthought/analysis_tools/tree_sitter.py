@@ -2,7 +2,7 @@
 
 This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX,
 Go and Java declarations, static file imports, name-matched calls, and
-declared bases (not yet for Java).
+declared bases.
 It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
@@ -209,6 +209,10 @@ _BASE_RULE_TEXT = {
     "module file declares a class or interface of that name at top level.",
     base_rules.BASE_MODULE_ATTRIBUTE: "A base 'module.Name' uses a module import "
     "binding whose file declares a class or interface of that name at top level.",
+    base_rules.JAVA_BASE_TYPE: "A Java extends or implements entry names a "
+    "type by Java's lookup order (enclosing and local types, single-type "
+    "imports, the package, wildcard imports, then a fully qualified name), "
+    "evaluated where the declaration appears.",
 }
 BASE_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))

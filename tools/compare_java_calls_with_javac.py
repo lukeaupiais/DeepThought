@@ -1,9 +1,11 @@
-"""Compare Java call links with javac's own attribution.
+"""Compare Java call (or, with --bases, declared base) links with javac.
 
 For every source root the analysis finds, tools/JavaCallOracle.java attributes
 that root's files with javac (the root first on the source path, every other
 root after it) and reports the declaration each method call and ``new``
-expression binds to. A ``new`` expression binds the class it creates.
+expression binds to. A ``new`` expression binds the class it creates. With
+``--bases``, each extends or implements entry is compared instead, by the
+type javac binds it to.
 
 Each call site is classified by its outcome here against javac's:
 
@@ -16,7 +18,7 @@ Each call site is classified by its outcome here against javac's:
 - ``both_unbound``: neither binds a repository declaration.
 
 Usage:
-  python tools/compare_java_calls_with_javac.py ROOT [--java JAVA]
+  python tools/compare_java_calls_with_javac.py ROOT [--bases] [--java JAVA]
 """
 
 import argparse
@@ -28,6 +30,7 @@ import subprocess
 import deepthought
 from deepthought.calls import resolve_calls
 from deepthought.imports import _java_index
+from deepthought.inheritance import resolve_supertypes
 from compare_java_declarations_with_javac import _offsets
 
 ORACLE = Path(__file__).with_name("JavaCallOracle.java")
@@ -37,6 +40,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
     parser.add_argument("--java", default="java")
+    parser.add_argument("--bases", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
     result = deepthought.analyze_repository(
@@ -67,6 +71,8 @@ def main():
             text=True,
         ).stdout
         for row in map(json.loads, output.splitlines()):
+            if row.get("base", False) != args.bases:
+                continue
             target = (
                 (row["target_file"], row["target_symbol"], row["target_line"])
                 if "target_file" in row
@@ -76,10 +82,12 @@ def main():
                 target
             )
     by_id = {d.id: d for d in result.definitions}
-    sites = {s.id: s for s in result.call_sites}
+    facts = result.supertypes if args.bases else result.call_sites
+    sites = {s.id: s for s in facts}
+    resolve = resolve_supertypes if args.bases else resolve_calls
     offsets = {}
     outcomes, by_rule, examples = Counter(), Counter(), {}
-    for resolution in resolve_calls(result):
+    for resolution in resolve(result):
         site = sites[resolution.call_id]
         if site.file not in offsets:
             offsets[site.file] = _offsets((root / site.file).read_text())
@@ -120,12 +128,12 @@ def main():
             "contradicted",
             "linked_javac_unbound",
             "ambiguous_excludes_javac",
-        }:
+        } or (args.bases and outcome == "missed"):
             examples.setdefault(outcome, []).append(
                 [
                     site.file,
                     site.line,
-                    site.callee,
+                    site.name if args.bases else site.callee,
                     list(key(resolution.target_id)) if resolution.target_id else None,
                     list(expected) if expected else None,
                 ]
@@ -133,7 +141,7 @@ def main():
     print(
         json.dumps(
             {
-                "call_sites": len(result.call_sites),
+                "facts": len(facts),
                 "source_roots": len(source_roots),
                 **dict(sorted(outcomes.items())),
                 "by_rule": {

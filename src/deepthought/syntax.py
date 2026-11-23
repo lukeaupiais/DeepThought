@@ -498,6 +498,14 @@ _TYPE_DECLARATIONS = {
     "class_declaration",
     "abstract_class_declaration",
     "interface_declaration",
+    "enum_declaration",
+    "record_declaration",
+}
+# Java heritage clauses: the node holding each list, and its kind.
+_JAVA_HERITAGE = {
+    "superclass": "extends",
+    "super_interfaces": "implements",
+    "extends_interfaces": "extends",
 }
 
 
@@ -507,6 +515,11 @@ def _base_name(node, content):
     Calls, splats, keyword arguments (``metaclass=``) and other expressions
     name no declaration syntactically and are not recorded.
     """
+    if node.type in {"scoped_type_identifier"} or (
+        node.type == "generic_type" and node.child_by_field_name("name") is None
+    ):
+        # Java: a.b.Base and Base<T>.
+        return _java_dotted(node, content)
     if node.type in {"subscript", "generic_type"}:
         # Generic[T] and Base<T> name Generic and Base.
         node = node.child_by_field_name("value" if node.type == "subscript" else "name")
@@ -543,6 +556,12 @@ def _heritage(node):
         return [(child, "extends") for child in bases.named_children] if bases else []
     entries = []
     for child in node.named_children:
+        if child.type in _JAVA_HERITAGE:
+            kind = _JAVA_HERITAGE[child.type]
+            lists = [c for c in child.named_children if c.type == "type_list"]
+            types = lists[0].named_children if lists else child.named_children
+            entries.extend((t, kind) for t in types)
+            continue
         if child.type == "class_heritage":
             clauses = child.named_children
             if clauses and clauses[0].type not in {
@@ -576,7 +595,7 @@ def extract_supertypes(
     owners = {
         (d.line, d.column, d.end_line, d.end_column): d.id
         for d in definitions
-        if d.file == file and d.kind in {"Class", "Interface"}
+        if d.file == file and d.kind in {"Class", "Interface", "Enum", "Record"}
     }
     found, ordinals = [], {}
     stack = [tree.root_node]

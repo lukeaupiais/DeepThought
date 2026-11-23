@@ -152,6 +152,11 @@ class _JavaScope:
             for p in result.packages
             if p.kind == "package" and p.file in self.roots
         }
+        owners = {d.id: (d.file, d.symbol) for d in result.definitions}
+        self.bases = defaultdict(list)  # (file, type symbol) -> base names
+        for item in result.supertypes:
+            if item.file in self.roots and item.owner_id in owners:
+                self.bases[owners[item.owner_id]].append(item.name)
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
         self.static = defaultdict(list)  # (file, member) -> type FQNs
@@ -175,37 +180,66 @@ class _JavaScope:
         by_root = self.types.get(name)
         if not by_root:
             return []
-        files = by_root.get(root) or (
-            next(iter(by_root.values())) if len(by_root) == 1 else []
-        )
+        # Another root's copy only when the importer's root has none; copies
+        # in several other roots are all candidates (only the build decides).
+        files = by_root.get(root) or [f for fs in by_root.values() for f in fs]
         found = []
         for file in sorted(set(files)):
             symbol = name[len(self.package[file]) + 1 :]
             found.extend(self._defs(file, symbol, _JAVA_TYPES))
         return found
 
-    def type(self, file, scope, name):
+    def member(self, file, symbol, name, seen):
+        """Member types ``name`` of a type: declared, else inherited."""
+        found = self._defs(file, f"{symbol}.{name}", _JAVA_TYPES)
+        if found or (file, symbol) in seen:
+            return found
+        seen = seen | {(file, symbol)}
+        # A type's bases are named in the scope that encloses it.
+        outer = symbol.split(".")[:-1]
+        for base in self.bases.get((file, symbol), ()):
+            for d in self.type(file, outer, base, seen):
+                found.extend(
+                    n
+                    for n in self.member(d.file, d.symbol, name, seen)
+                    if n not in found
+                )
+        return found
+
+    def type(self, file, scope, name, seen=frozenset()):
         """Declarations a type name denotes from a file and scope."""
         first, *rest = name.split(".")
         root = self.roots.get(file)
         found = []
         for depth in range(len(scope), -1, -1):
             prefix = ".".join(scope[:depth])
-            found = self._defs(
-                file, f"{prefix}.{first}" if prefix else first, _JAVA_TYPES
-            )
+            if prefix and self._defs(file, prefix, _JAVA_TYPES):
+                found = self.member(file, prefix, first, seen)
+            else:  # top level, or a local class in a method
+                found = self._defs(
+                    file, f"{prefix}.{first}" if prefix else first, _JAVA_TYPES
+                )
             if found:
                 break
-        if not found and root is not None:
-            for spec in self.single.get((file, first), ()):
+        # A single-type import binds its name even to a type outside the
+        # repository, shadowing the package and every later lookup.
+        imported = not found and bool(self.single.get((file, first)))
+        if imported:
+            for spec in self.single[(file, first)]:
                 found.extend(self.qualified(spec, root))
+        elif not found and root is not None:
+            # A static import can name a member type; a method it names
+            # (or a type outside the repository) does not stop the lookup.
+            for spec in self.static.get((file, first), ()):
+                for d in self.qualified(spec, root):
+                    found.extend(self.member(d.file, d.symbol, first, seen))
             package = self.package.get(file)
             if not found and package is not None:
                 found = self.qualified(f"{package}.{first}", root)
             if not found:
                 for spec in self.on_demand.get(file, ()):
                     found.extend(self.qualified(f"{spec}.{first}", root))
-        if not found and rest and root is not None:
+        if not found and rest and root is not None and not imported:
             # A fully qualified name: the longest package prefix that names it.
             parts = name.split(".")
             for size in range(len(parts), 1, -1):
@@ -217,9 +251,7 @@ class _JavaScope:
                 return []
         for part in rest:
             found = [
-                n
-                for d in found
-                for n in self._defs(d.file, f"{d.symbol}.{part}", _JAVA_TYPES)
+                n for d in found for n in self.member(d.file, d.symbol, part, seen)
             ]
         return found
 
