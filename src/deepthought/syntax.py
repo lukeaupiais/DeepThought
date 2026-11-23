@@ -7,7 +7,7 @@ import importlib
 from hashlib import sha256
 import json
 
-from .models import CallSite, Definition, Import
+from .models import CallSite, Definition, Import, Supertype
 
 LANGUAGES = {
     "python": ((".py",), "tree_sitter_python", "language"),
@@ -301,3 +301,127 @@ def extract_call_sites(
                 )
         stack.extend(reversed(node.named_children))
     return sites
+
+
+_TYPE_DECLARATIONS = {
+    "class_definition",
+    "class_declaration",
+    "abstract_class_declaration",
+    "interface_declaration",
+}
+
+
+def _base_name(node, content):
+    """Dotted name of one heritage entry, without type arguments; else None.
+
+    Calls, splats, keyword arguments (``metaclass=``) and other expressions
+    name no declaration syntactically and are not recorded.
+    """
+    if node.type in {"subscript", "generic_type"}:
+        # Generic[T] and Base<T> name Generic and Base.
+        node = node.child_by_field_name("value" if node.type == "subscript" else "name")
+        if node is None:
+            return None
+    if node.type in {"type_identifier", "identifier"}:
+        return _text(node, content)
+    if node.type == "nested_type_identifier":
+        module = node.child_by_field_name("module")
+        name = node.child_by_field_name("name")
+        if module is None or name is None:
+            return None
+        head = (
+            _text(module, content)
+            if module.type == "identifier"
+            else _base_name(module, content)
+            if module.type == "nested_type_identifier"
+            else None
+        )
+        if head is None and module.type == "nested_identifier":
+            parts = [_text(part, content) for part in module.named_children]
+            head = ".".join(parts) if all(parts) else None
+        return None if head is None else head + "." + _text(name, content)
+    if node.type in {"attribute", "member_expression"}:
+        name = _dotted(node, content)
+        return None if name is None or "this" in name.split(".") else name
+    return None
+
+
+def _heritage(node):
+    """(entry node, kind) for each base a type declaration names, in order."""
+    if node.type == "class_definition":
+        bases = node.child_by_field_name("superclasses")
+        return [(child, "extends") for child in bases.named_children] if bases else []
+    entries = []
+    for child in node.named_children:
+        if child.type == "class_heritage":
+            clauses = child.named_children
+            if clauses and clauses[0].type not in {
+                "extends_clause",
+                "implements_clause",
+            }:
+                # JavaScript: class_heritage holds the extended expression.
+                entries.extend((clause, "extends") for clause in clauses[:1])
+                continue
+            for clause in clauses:
+                if clause.type == "extends_clause":
+                    value = clause.child_by_field_name("value")
+                    if value is not None:
+                        entries.append((value, "extends"))
+                elif clause.type == "implements_clause":
+                    entries.extend((t, "implements") for t in clause.named_children)
+        elif child.type == "extends_type_clause":
+            entries.extend((t, "extends") for t in child.named_children)
+    return entries
+
+
+def extract_supertypes(
+    tree, content: bytes, repository_id: str, file: str, definitions
+) -> list[Supertype]:
+    """Bases named by each class and interface declaration, as written.
+
+    Python bases, TypeScript ``extends`` and JavaScript ``extends`` are
+    ``extends``; TypeScript ``implements`` entries are ``implements``. Only
+    plain or dotted names are recorded; type arguments are dropped.
+    """
+    owners = {
+        (d.line, d.column, d.end_line, d.end_column): d.id
+        for d in definitions
+        if d.file == file and d.kind in {"Class", "Interface"}
+    }
+    found, ordinals = [], {}
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in _TYPE_DECLARATIONS:
+            owner = owners.get(
+                (
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                    node.end_point.row + 1,
+                    node.end_point.column,
+                )
+            )
+            for entry, kind in _heritage(node) if owner else ():
+                name = _base_name(entry, content)
+                if name is None:
+                    continue
+                key = (owner, name, kind)
+                ordinal = ordinals.get(key, 0)
+                ordinals[key] = ordinal + 1
+                found.append(
+                    Supertype(
+                        id=identifier(
+                            repository_id, file, f"{owner}:{name}", kind, ordinal
+                        ),
+                        file=file,
+                        owner_id=owner,
+                        name=name,
+                        kind=kind,
+                        line=entry.start_point.row + 1,
+                        column=entry.start_point.column,
+                        end_line=entry.end_point.row + 1,
+                        end_column=entry.end_point.column,
+                    )
+                )
+        stack.extend(reversed(node.named_children))
+    return found

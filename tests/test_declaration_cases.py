@@ -101,7 +101,8 @@ class DeclarationTests(unittest.TestCase):
                 )
                 self.assertEqual([d.symbol for d in result.definitions], ["consume"])
                 self.assertEqual(
-                    result.capabilities, ("call_sites", "definitions", "imports")
+                    result.capabilities,
+                    ("call_sites", "definitions", "imports", "supertypes"),
                 )
                 self.assertEqual(
                     [i.specifier for i in result.imports],

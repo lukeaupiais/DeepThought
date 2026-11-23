@@ -1,8 +1,9 @@
 """TreeSitterTool backed by the existing standalone declaration extractor.
 
 This bounded port supports Python, TypeScript/TSX and (opt-in) JavaScript/JSX
-declarations, static file imports and name-matched calls. It does not port the legacy confidence-scored
-CALLS output, CFG/data-flow output or claim additional languages.
+declarations, static file imports, and name-matched calls and declared bases.
+It does not port the legacy confidence-scored CALLS output, CFG/data-flow
+output or claim additional languages.
 """
 
 import importlib.util
@@ -12,6 +13,7 @@ from copy import deepcopy
 from .._version import __version__
 from .. import calls as call_rules
 from .. import imports as import_rules
+from .. import inheritance as base_rules
 from ..engine import analyze_repository
 from ..syntax import DEFAULT_LANGUAGES
 from .base import AnalysisTool, ToolCapability, ToolMetadata
@@ -108,6 +110,20 @@ _CALL_RULE_TEXT = {
 CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
     for rule_id, text in _CALL_RULE_TEXT.items()
+}
+
+_BASE_RULE_TEXT = {
+    base_rules.BASE_LEXICAL_NAME: "A base named in a class or interface "
+    "declaration equals a class or interface declared in an enclosing lexical "
+    "scope of the same file.",
+    base_rules.BASE_IMPORTED_NAME: "A base name is bound by an import whose "
+    "module file declares a class or interface of that name at top level.",
+    base_rules.BASE_MODULE_ATTRIBUTE: "A base 'module.Name' uses a module import "
+    "binding whose file declares a class or interface of that name at top level.",
+}
+BASE_RULES = {
+    rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))
+    for rule_id, text in _BASE_RULE_TEXT.items()
 }
 
 
@@ -330,6 +346,36 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        bases = {item.id: item for item in result.supertypes}
+        base_counts = {}
+        for resolution in base_rules.resolve_supertypes(result):
+            key = resolution.status + (
+                ":" + resolution.reason if resolution.reason else ""
+            )
+            base_counts[key] = base_counts.get(key, 0) + 1
+            if resolution.status != "linked":
+                continue
+            item = bases[resolution.call_id]
+            relationships.append(
+                RelationshipData(
+                    "INHERITS_FROM",
+                    [kinds[item.owner_id], "Symbol"],
+                    {"qualified_name": qualified[item.owner_id], "repo_url": repo_url},
+                    [kinds[resolution.target_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[resolution.target_id],
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "supertype_id": item.id,
+                        "base": item.name,
+                        "heritage": item.kind,
+                        "line": item.line,
+                        "column": item.column,
+                        **_evidence(BASE_RULES[resolution.rule_id]),
+                    },
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -359,8 +405,10 @@ class TreeSitterTool(AnalysisTool):
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
-                "scope": "named declarations, static file imports and "
-                "name-matched calls; no control or data-flow inference",
+                "supertype_resolution": dict(sorted(base_counts.items())),
+                "scope": "named declarations, static file imports, and "
+                "name-matched calls and declared bases; no control or data-flow "
+                "inference",
             },
         )
         output = StandardizedOutput(

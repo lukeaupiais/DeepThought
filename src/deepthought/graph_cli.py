@@ -110,6 +110,8 @@ def parser():
         "structure",
         "callers",
         "callees",
+        "bases",
+        "subtypes",
         "imports",
         "importers",
         "references",
@@ -152,9 +154,9 @@ def parser():
             )
         if name == "context":
             q.add_argument("--line", type=int)
-        if name in {"callers", "callees"}:
+        if name in {"callers", "callees", "bases", "subtypes"}:
             q.add_argument("--symbol", required=True, help="Qualified name")
-        if name in {"callers", "callees", "imports", "importers"}:
+        if name in {"callers", "callees", "bases", "subtypes", "imports", "importers"}:
             q.add_argument(
                 "--evidence",
                 action="append",
@@ -349,15 +351,24 @@ async def execute(args):
                 else service.get_file_dependents
             )
             return await method(args.file, args.repository_id, **kwargs)
-        if args.command in {"callers", "callees", "imports", "importers"}:
+        if args.command in {
+            "callers",
+            "callees",
+            "bases",
+            "subtypes",
+            "imports",
+            "importers",
+        }:
             method = {
                 "callers": service.get_function_callers,
                 "callees": service.get_function_calls,
+                "bases": service.get_base_types,
+                "subtypes": service.get_subtypes,
                 "imports": service.get_file_imports,
                 "importers": service.get_file_importers,
             }[args.command]
             subject = (
-                args.symbol if args.command in {"callers", "callees"} else args.file
+                args.file if args.command in {"imports", "importers"} else args.symbol
             )
             return await method(
                 subject, args.repository_id, evidence_types=args.evidence, **kwargs

@@ -664,6 +664,88 @@ class GraphQueryService:
             raise ValueError("Query response exceeds output byte budget")
         return response
 
+    async def get_base_types(
+        self,
+        type_qname,
+        repo_url,
+        *,
+        snapshot_id,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Classes and interfaces a declaration names as its direct bases."""
+        return await self._bases(
+            type_qname,
+            repo_url,
+            snapshot_id,
+            False,
+            evidence_types,
+            limit,
+            max_output_bytes,
+            timeout,
+        )
+
+    async def get_subtypes(
+        self,
+        type_qname,
+        repo_url,
+        *,
+        snapshot_id,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Classes and interfaces that name this declaration as a direct base."""
+        return await self._bases(
+            type_qname,
+            repo_url,
+            snapshot_id,
+            True,
+            evidence_types,
+            limit,
+            max_output_bytes,
+            timeout,
+        )
+
+    async def _bases(
+        self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
+    ):
+        _text(qname, "type_qname")
+        evidence = _evidence_filter(evidence)
+        pattern = (
+            "(other)-[r:INHERITS_FROM]->(t)"
+            if incoming
+            else "(t)-[r:INHERITS_FROM]->(other)"
+        )
+        response = await self._read(
+            "MATCH (t:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$qname}) "
+            "MATCH "
+            + pattern
+            + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
+            "AND ($evidence IS NULL OR r.evidence_type IN $evidence) "
+            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "ORDER BY other.qualified_name,r.line,r.column,r._dt_edge_id LIMIT $fetch_limit",
+            {"qname": qname, "evidence": evidence},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=budget,
+            timeout=timeout,
+        )
+        if not response["items"] and "supertypes" not in response["capabilities"]:
+            response["status"] = "unsupported_or_unobserved"
+        response["evidence_types"] = evidence
+        response["semantics"] = (
+            "Observed INHERITS_FROM edges for bases named in declarations only; "
+            "absence does not prove that no subtype relation exists."
+        )
+        if len(_json(response).encode()) > budget:
+            raise ValueError("Query response exceeds output byte budget")
+        return response
+
     async def get_file_imports(
         self,
         file_path,
@@ -1102,16 +1184,23 @@ class GraphQueryService:
         max_output_bytes=16000,
         timeout=5,
     ):
-        """Port INHERITS_FROM ancestry/descendancy with a finite depth bound."""
+        """Port INHERITS_FROM ancestry/descendancy with a finite depth bound.
+
+        Classes and interfaces both take part, so TypeScript ``implements`` and
+        interface ``extends`` edges are followed too.
+        """
         _text(class_qname, "class_qname")
         if type(max_depth) is not int or not 1 <= max_depth <= 10:
             raise ValueError("max_depth must be an integer from 1 to 10")
-        statement = """MATCH (c:Class {qualified_name:$qname,repo_url:$repo_url,snapshot_id:$snapshot_id})
+        statement = """MATCH (c:Symbol {qualified_name:$qname,repo_url:$repo_url,snapshot_id:$snapshot_id})
+            WHERE c:Class OR c:Interface
             CALL {
-                WITH c MATCH p=(c)-[:INHERITS_FROM*1..DEPTH]->(other:Class)
+                WITH c MATCH p=(c)-[:INHERITS_FROM*1..DEPTH]->(other)
+                WHERE other:Class OR other:Interface
                 RETURN p,other,'ancestor' AS direction
                 UNION ALL
-                WITH c MATCH p=(c)<-[:INHERITS_FROM*1..DEPTH]-(other:Class)
+                WITH c MATCH p=(c)<-[:INHERITS_FROM*1..DEPTH]-(other)
+                WHERE other:Class OR other:Interface
                 RETURN p,other,'descendant' AS direction
             }
             WITH p,other,direction

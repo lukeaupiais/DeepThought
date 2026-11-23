@@ -71,7 +71,9 @@ class PythonImportTests(unittest.TestCase):
             "python",
         )
         self.assertEqual(result.schema_version, "3")
-        self.assertEqual(result.capabilities, ("call_sites", "definitions", "imports"))
+        self.assertEqual(
+            result.capabilities, ("call_sites", "definitions", "imports", "supertypes")
+        )
         self.assertEqual(
             [
                 (i.specifier, i.kind, i.names, i.local_names, i.line)
@@ -290,7 +292,7 @@ class ImportSchemaTests(unittest.TestCase):
         item = Import("i1", "a.py", "os", "import", 1, 0, 1, 9)
         current = self.base(
             schema_version="3",
-            capabilities=("call_sites", "definitions", "imports"),
+            capabilities=("call_sites", "definitions", "imports", "supertypes"),
             imports=(item,),
         )
         self.assertEqual(AnalysisResult.from_json(current.to_json()), current)
@@ -306,17 +308,19 @@ class ImportSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "capability"):
             self.base(schema_version="3", imports=(item,))
         with self.assertRaisesRegex(ValueError, "Schema 2"):
-            self.base(capabilities=("call_sites", "definitions", "imports"))
+            self.base(
+                capabilities=("call_sites", "definitions", "imports", "supertypes")
+            )
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             self.base(
                 schema_version="3",
-                capabilities=("call_sites", "definitions", "imports"),
+                capabilities=("call_sites", "definitions", "imports", "supertypes"),
                 imports=(item, item),
             )
         with self.assertRaisesRegex(ValueError, "coverage"):
             self.base(
                 schema_version="3",
-                capabilities=("call_sites", "definitions", "imports"),
+                capabilities=("call_sites", "definitions", "imports", "supertypes"),
                 imports=(Import("i2", "b.py", "os", "import", 1, 0, 1, 9),),
             )
         for bad in (

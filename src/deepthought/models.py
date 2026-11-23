@@ -176,6 +176,46 @@ class CallSite:
             raise ValueError("Caller identity must be a nonempty string or None")
 
 
+SUPERTYPE_KINDS = frozenset({"extends", "implements"})
+
+
+@dataclass(frozen=True)
+class Supertype:
+    """A base named in a class or interface declaration, as written; not resolved.
+
+    ``kind`` is the clause that names it: Python bases and TypeScript
+    ``extends`` are ``extends``; a TypeScript class's ``implements`` entries are
+    ``implements``.
+    """
+
+    id: str
+    file: str
+    owner_id: str
+    name: str
+    kind: str
+    line: int
+    column: int
+    end_line: int
+    end_column: int
+    coordinate_encoding: str = "utf-8"
+
+    def __post_init__(self):
+        validate_location(
+            self.file,
+            self.line,
+            self.column,
+            self.end_line,
+            self.end_column,
+            self.coordinate_encoding,
+        )
+        if not all(
+            isinstance(v, str) and v for v in (self.id, self.owner_id, self.name)
+        ):
+            raise ValueError("Supertype identity, owner and name must be nonempty")
+        if self.kind not in SUPERTYPE_KINDS:
+            raise ValueError("Unsupported supertype kind")
+
+
 @dataclass(frozen=True)
 class FileCoverage:
     file: str
@@ -213,13 +253,14 @@ class AnalysisResult:
     analyzer: str
     analyzer_versions: tuple[tuple[str, str], ...]
     capabilities: tuple[str, ...] = ("definitions",)
-    # Schema 3 adds import and call-site facts; producers without them keep
-    # emitting schema 2.
+    # Schema 3 adds import, call-site and supertype facts; producers without
+    # them keep emitting schema 2.
     schema_version: str = "2"
     coordinate_encoding: str = "utf-8"
     references: tuple[Reference, ...] = ()
     imports: tuple[Import, ...] = ()
     call_sites: tuple[CallSite, ...] = ()
+    supertypes: tuple[Supertype, ...] = ()
 
     def __post_init__(self):
         if self.status not in {"succeeded", "partial", "failed", "cancelled"}:
@@ -252,10 +293,20 @@ class AnalysisResult:
             for c in self.call_sites
         ):
             raise ValueError("Call-site callers must be definitions in the same file")
-        if self.schema_version == "2" and {"imports", "call_sites"} & set(
-            self.capabilities
-        ):
-            raise ValueError("Schema 2 cannot contain imports or call sites")
+        if len({t.id for t in self.supertypes}) != len(self.supertypes):
+            raise ValueError("Duplicate supertype identities")
+        if self.supertypes and "supertypes" not in self.capabilities:
+            raise ValueError("Supertype facts require the supertypes capability")
+        if any(definitions.get(t.owner_id) != t.file for t in self.supertypes):
+            raise ValueError("Supertype owners must be definitions in the same file")
+        if self.schema_version == "2" and {
+            "imports",
+            "call_sites",
+            "supertypes",
+        } & set(self.capabilities):
+            raise ValueError(
+                "Schema 2 cannot contain imports, call sites or supertypes"
+            )
         covered = {item.file for item in self.coverage}
         if any(
             item.file not in covered
@@ -264,6 +315,7 @@ class AnalysisResult:
                 *self.references,
                 *self.imports,
                 *self.call_sites,
+                *self.supertypes,
             )
         ):
             raise ValueError("Every fact requires source file coverage")
@@ -276,6 +328,9 @@ class AnalysisResult:
 
     def to_dict(self) -> dict:
         data = json.loads(json.dumps(asdict(self)))
+        if not self.supertypes and "supertypes" not in self.capabilities:
+            # Artifacts without supertype facts keep their serialized identity.
+            del data["supertypes"]
         if self.schema_version == "2":
             # Schema 2 predates these facts; keep its serialized identity unchanged.
             del data["imports"], data["call_sites"]
@@ -304,8 +359,10 @@ class AnalysisResult:
                 data["schema_version"] = "2"
                 data["references"] = []
             if data["schema_version"] == "2":
-                if "imports" in data or "call_sites" in data:
-                    raise ValueError("Schema 2 cannot contain imports or call sites")
+                if {"imports", "call_sites", "supertypes"} & data.keys():
+                    raise ValueError(
+                        "Schema 2 cannot contain imports, call sites or supertypes"
+                    )
                 data["imports"] = []
                 data["call_sites"] = []
             data["references"] = tuple(Reference(**item) for item in data["references"])
@@ -322,6 +379,9 @@ class AnalysisResult:
             # Schema 3 artifacts written before call sites existed have no key.
             data["call_sites"] = tuple(
                 CallSite(**item) for item in data.get("call_sites", [])
+            )
+            data["supertypes"] = tuple(
+                Supertype(**item) for item in data.get("supertypes", [])
             )
             data["definitions"] = tuple(
                 Definition(**item) for item in data["definitions"]
