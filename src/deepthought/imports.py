@@ -531,25 +531,14 @@ class _RustIndex:
                 self.types.setdefault((d.file, parts[:-1]), set()).add(parts[-1])
             if d.kind == "Module" and (d.file, parts) not in bodyless:
                 inline.setdefault(d.file, set()).add(parts)
-        # A use in a function body binds its names in that body only.
-        bodies = {}
-        for d in result.definitions:
-            if d.kind in {"Function", "Method"}:
-                bodies.setdefault(d.file, []).append(
-                    ((d.line, d.column), (d.end_line, d.end_column))
-                )
-
-        def in_body(i):
-            return any(
-                start < (i.line, i.column) < end
-                for start, end in bodies.get(i.file, ())
-            )
-
         # Names other uses bind in each (file, inline modules) scope, and the
         # globs there.
         self.bindings, self.globs, self.externs = {}, {}, {}
+        # Uses written in blocks, by file: they bind names in the block only.
+        self.body_uses = {}
         for i in rust:
-            if in_body(i):
+            if i.block is not None:
+                self.body_uses.setdefault(i.file, []).append(i)
                 continue
             if i.kind == "extern_crate":
                 scope = self.externs.setdefault((i.file, i.names), {})
@@ -622,11 +611,11 @@ class _RustIndex:
             return None, ("ambiguous", "crate_ambiguous", (), tuple(sorted(roots)))
         return None, ("unresolved", "external_crate", (), ())
 
-    def _walk(self, item: Import, root, path):
-        """Where a use path leads in one crate's module: the failure outcome,
-        or (crate root, module path, remaining names)."""
-        module = path + item.names
-        segments = item.specifier.split("::")
+    def _walk(self, segments, names, root, path):
+        """Where a path written in a file's inline modules ``names`` leads in
+        one crate's module: the failure outcome, or (crate root, module path,
+        remaining names)."""
+        module = path + names
         first = segments[0]
         if first == "":
             # `::name`: a crate.
@@ -666,10 +655,12 @@ class _RustIndex:
         name several meanings; all are kept. Returns (meanings, failures):
         a meaning is (what, file, root, module, followed) where what is
         "module" (the path names the module in file), "item" (file declares
-        the name), "exported" (file defines a ``#[macro_export]`` macro of
+        the name, given last), "through" (file declares an item, such as a
+        type, that the rest of the path names something inside), "exported" (file defines a ``#[macro_export]`` macro of
         that name, which the crate root holds) or "undeclared" (file's module
         neither declares nor binds it); followed says whether a use was
-        followed on the way.
+        followed on the way. The last element is the name as declared (after
+        any aliases), or None for a module.
         """
         meanings, failures = set(), []
         # Each state has fewer names left than the one it came from.
@@ -683,7 +674,7 @@ class _RustIndex:
                 continue
             if not rest:
                 meanings.update(
-                    ("module", file, root, module, followed) for file, _ in scopes
+                    ("module", file, root, module, followed, None) for file, _ in scopes
                 )
                 continue
             name, last = rest[0], len(rest) == 1
@@ -691,7 +682,8 @@ class _RustIndex:
             exported = self.exported.get(root, {}).get(name, ()) if last else ()
             if not module:
                 meanings.update(
-                    ("exported", file, root, module, followed) for file in exported
+                    ("exported", file, root, module, followed, name)
+                    for file in exported
                 )
             for where in scopes:
                 found = bool(exported) and not module
@@ -705,16 +697,18 @@ class _RustIndex:
                 if kinds and (last or kinds & _RUST_TYPE_KINDS):
                     # A name inside an item (a variant, an associated item)
                     # is declared with it.
-                    meanings.add(("item", where[0], root, module, followed))
+                    what = "item" if last else "through"
+                    meanings.add((what, where[0], root, module, followed, name))
                     found = True
                 for meaning in self._bound(root, module, where, name, visiting):
                     found = True
                     if meaning[0] == "module":
                         states.append((meaning[2], meaning[3], rest[1:], True))
                     else:
-                        meanings.add(meaning[:4] + (True,))
+                        what = meaning[0] if last else "through"
+                        meanings.add((what, *meaning[1:4], True, meaning[5]))
                 if not found:
-                    meanings.add(("undeclared", where[0], root, module, followed))
+                    meanings.add(("undeclared", where[0], root, module, followed, name))
         return meanings, failures
 
     def _bound(self, root, module, where, name, visiting):
@@ -730,15 +724,15 @@ class _RustIndex:
         for item in self.externs.get(where, {}).get(name, ()):
             library, failed = self._library(item.specifier)
             if library:
-                found.add(("module", library, library, (), True))
+                found.add(("module", library, library, (), True, None))
         for item in self.bindings.get(where, {}).get(name, ()):
-            walked = self._walk(item, root, path)
+            walked = self._walk(item.specifier.split("::"), item.names, root, path)
             if len(walked) == 3:
                 found |= self._follow(*walked, visiting)[0]
         if found:
             return found
         for item in self.globs.get(where, ()):
-            walked = self._walk(item, root, path)
+            walked = self._walk(item.specifier.split("::"), item.names, root, path)
             if len(walked) != 3:
                 continue
             for glob in self._follow(*walked, visiting)[0]:
@@ -757,7 +751,7 @@ class _RustIndex:
             if failed:
                 return failed
             return "linked", None, (ImportLink(library, RUST_EXTERN_CRATE),), ()
-        walked = self._walk(item, root, path)
+        walked = self._walk(item.specifier.split("::"), item.names, root, path)
         if len(walked) != 3:
             return walked
         meanings, failures = self._follow(*walked, frozenset())
@@ -768,7 +762,7 @@ class _RustIndex:
             RUST_USE_MODULE: 3,
         }
         rules = {}
-        for what, file, _, _, followed in meanings:
+        for what, file, _, _, followed, _ in meanings:
             rule = (
                 RUST_USE_MODULE
                 if what == "undeclared"

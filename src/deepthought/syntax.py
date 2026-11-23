@@ -666,6 +666,11 @@ def extract_imports(
             if language == "rust"
             else visit(node, content)
         )
+        block = (
+            _rust_block(node)
+            if node.type in {"use_declaration", "extern_crate_declaration"}
+            else None
+        )
         for specifier, kind, names, local_names in found:
             ordinal = ordinals.get(specifier, 0)
             ordinals[specifier] = ordinal + 1
@@ -681,10 +686,27 @@ def extract_imports(
                     end_column=node.end_point.column,
                     names=names,
                     local_names=local_names,
+                    block=block,
                 )
             )
         stack.extend(reversed(children(node)))
     return imports
+
+
+def _rust_block(node):
+    """The span of the innermost block a Rust declaration is written in (a
+    function body, or a block in one), or None when a module holds it."""
+    outer = node.parent
+    while outer is not None and outer.type not in {"mod_item", "source_file"}:
+        if outer.type == "block":
+            return (
+                outer.start_point.row + 1,
+                outer.start_point.column,
+                outer.end_point.row + 1,
+                outer.end_point.column,
+            )
+        outer = outer.parent
+    return None
 
 
 _CHAIN_PARTS = {"identifier", "property_identifier", "field_identifier", "this"}
@@ -748,7 +770,72 @@ def _java_arguments(node):
     )
 
 
-def _callee(node, content):
+def _rust_call_path(node, content):
+    """Segments of a Rust call path, or None: ``a::b::f`` -> ["a", "b", "f"],
+    ``Vec::<u8>::new`` -> ["Vec", "new"]; a leading ``::`` is an empty first
+    segment, and a qualified path (``<T as Trait>::f``) is None."""
+    if node.type == "scoped_identifier":
+        path = node.child_by_field_name("path")
+        name = node.child_by_field_name("name")
+        prefix = [""] if path is None else _rust_call_path(path, content)
+        if prefix is None or name is None:
+            return None
+        return prefix + [_text(name, content).removeprefix("r#")]
+    if node.type == "generic_type":
+        inner = node.child_by_field_name("type")
+        return None if inner is None else _rust_call_path(inner, content)
+    if node.type in {
+        "identifier",
+        "type_identifier",
+        "self",
+        "super",
+        "crate",
+    }:
+        return [_text(node, content).removeprefix("r#")]
+    return None
+
+
+def _rust_receiver(node, content):
+    """A method call's receiver as a dotted name (``self``, ``x``,
+    ``self.a.b``), or None for any other expression."""
+    if node.type in {"self", "identifier"}:
+        return _text(node, content).removeprefix("r#")
+    if node.type == "field_expression":
+        value = node.child_by_field_name("value")
+        field = node.child_by_field_name("field")
+        head = None if value is None else _rust_receiver(value, content)
+        if head is None or field is None or field.type != "field_identifier":
+            return None
+        return head + "." + _text(field, content).removeprefix("r#")
+    return None
+
+
+def _rust_callee(node, content):
+    """A Rust call's callee: a path joined by ``::`` (a leading ``::`` kept),
+    or a method call on a dotted receiver as ``receiver.name``; else None."""
+    function = node.child_by_field_name("function")
+    if function is not None and function.type == "generic_function":
+        function = function.child_by_field_name("function")
+    if function is None:
+        return None
+    if function.type == "field_expression":
+        value = function.child_by_field_name("value")
+        field = function.child_by_field_name("field")
+        head = None if value is None else _rust_receiver(value, content)
+        if head is None or field is None or field.type != "field_identifier":
+            return None
+        return head + "." + _text(field, content).removeprefix("r#")
+    path = _rust_call_path(function, content)
+    return None if path is None else "::".join(path)
+
+
+def _callee(node, content, rust=False):
+    if rust:
+        return (
+            (_rust_callee(node, content), "call")
+            if node.type == "call_expression"
+            else None
+        )
     if node.type == "method_invocation":
         name = node.child_by_field_name("name")
         receiver = node.child_by_field_name("object")
@@ -800,13 +887,23 @@ def _java_anonymous(node, content, spans, symbols):
 
 
 def extract_call_sites(
-    tree, content: bytes, repository_id: str, file: str, definitions
+    tree,
+    content: bytes,
+    repository_id: str,
+    file: str,
+    definitions,
+    *,
+    expander: "RustExpander | None" = None,
 ) -> list[CallSite]:
     """Named call sites with their innermost enclosing declaration.
 
     Calls whose callee is not a plain or dotted name (for example ``f()()`` or
-    ``x[0]()``) are not recorded.
+    ``x[0]()``) are not recorded. A Rust callee is a path joined by ``::`` or
+    a method call ``receiver.name`` on a dotted receiver; an ``expander``
+    reads Rust items written in item macro invocations.
     """
+    rust = expander is not None
+    children = expander.children if expander else (lambda node: node.named_children)
     spans = sorted(
         (
             ((d.line, d.column), (d.end_line, d.end_column), d.id)
@@ -820,7 +917,7 @@ def extract_call_sites(
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
-        found = _callee(node, content)
+        found = _callee(node, content, rust)
         if found is not None:
             callee, kind = found
             if callee is not None:
@@ -845,7 +942,7 @@ def extract_call_sites(
                         anonymous=_java_anonymous(node, content, spans, symbols),
                     )
                 )
-        stack.extend(reversed(node.named_children))
+        stack.extend(reversed(children(node)))
     return sites
 
 
