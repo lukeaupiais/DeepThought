@@ -28,6 +28,8 @@ import tree_sitter
 import tree_sitter_rust
 
 import deepthought
+from deepthought.engine import RUST_ITEM_MACROS
+from deepthought.syntax import RustExpander
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # Descriptor endings of the declarations compared: functions and methods
@@ -65,29 +67,46 @@ def _owners(descriptor):
 class _Source:
     """Parse trees of the compared files, for classifying differences."""
 
-    def __init__(self, root):
+    def __init__(self, root, item_macros, gating_macros):
         self.root = root
+        self.item_macros = item_macros
+        self.gating_macros = gating_macros
         self.files = {}
 
     def line(self, file, line):
         if file not in self.files:
             content = (self.root / file).read_bytes()
-            self.files[file] = (_PARSER.parse(content), content.split(b"\n"))
+            # The file's tree and the bodies of the item macros it invokes,
+            # each parsed in place as the analysis reads them.
+            expander = RustExpander(content, self.item_macros)
+            stack = [_PARSER.parse(content).root_node]
+            roots = stack[:]
+            while stack:
+                stack.extend(expander.children(stack.pop()))
+            roots += [tree.root_node for tree in expander.trees]
+            self.files[file] = (roots, content.split(b"\n"), expander)
         lines = self.files[file][1]
         return lines[line - 1] if line <= len(lines) else b""
 
     def node(self, file, line, name):
-        """The innermost node at the first occurrence of ``name`` on the line."""
+        """The innermost node at the first occurrence of ``name`` on the line,
+        in the innermost expanded macro body that holds it."""
         found = re.search(
             rb"\b" + re.escape(name.encode()) + rb"\b", self.line(file, line)
         )
         point = (line - 1, found.start() if found else 0)
-        return self.files[file][0].root_node.named_descendant_for_point_range(
-            point, point
+        root = min(
+            (r for r in self.files[file][0] if r.start_point <= point < r.end_point),
+            key=lambda r: r.end_byte - r.start_byte,
+            default=self.files[file][0][0],
         )
+        return root.named_descendant_for_point_range(point, point)
 
-    @staticmethod
-    def cfg_gated(node):
+    def invocation(self, file, node):
+        """The item macro invocation an expanded body's root stands for."""
+        return self.files[file][2].invocation(node)
+
+    def cfg_gated(self, file, node):
         """Whether the node or an item around it carries a #[cfg] attribute,
         or its file an inner #![cfg]."""
         while node is not None:
@@ -102,6 +121,13 @@ class _Source:
                 ):
                     return True
                 sibling = sibling.prev_named_sibling
+            if node.type == "source_file" and self.invocation(file, node):
+                node = self.invocation(file, node)
+                # An item macro whose transcriber adds a #[cfg].
+                name = node.child_by_field_name("macro")
+                if name.text.split(b"::")[-1].decode() in self.gating_macros:
+                    return True
+                continue
             if node.type == "source_file":
                 return any(
                     c.type == "inner_attribute_item" and c.text.startswith(b"#![cfg")
@@ -159,7 +185,23 @@ def main():
             if owner not in {o for x in scip[key] for o in _owners(x)}:
                 owners.append([d.file, d.line, d.symbol, scip[key]])
     indexed_files = {file for file, _, _ in scip}
-    files = _Source(root)
+    files = _Source(
+        root,
+        [
+            m
+            for m in dict(result.analyzer_versions).get(RUST_ITEM_MACROS, "").split(",")
+            if m
+        ],
+        {
+            d.symbol.split(".")[-1]
+            for d in result.definitions
+            if d.kind == "Macro"
+            and b"#[cfg"
+            in b"\n".join(
+                (root / d.file).read_bytes().split(b"\n")[d.line - 1 : d.end_line]
+            )
+        },
+    )
     unmatched, examples = Counter(), []
     for key in sorted(ours.keys() - scip.keys()):
         file, line, name = key
@@ -172,7 +214,7 @@ def main():
             # `mod name;`: rust-analyzer defines the module at line 1 of its
             # file instead.
             reason = "file_module_declaration"
-        elif files.cfg_gated(node):
+        elif files.cfg_gated(file, node):
             reason = "cfg_gated"
         elif file not in indexed_files:
             reason = "file_not_indexed"

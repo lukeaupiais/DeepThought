@@ -17,8 +17,14 @@ from .._version import __version__
 from .. import calls as call_rules
 from .. import imports as import_rules
 from .. import inheritance as base_rules
-from ..engine import analyze_repository
-from ..syntax import DEFAULT_LANGUAGES, LANGUAGES, declaration_sources, make_parser
+from ..engine import RUST_ITEM_MACROS, analyze_repository
+from ..syntax import (
+    DEFAULT_LANGUAGES,
+    LANGUAGES,
+    RustExpander,
+    declaration_sources,
+    make_parser,
+)
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -208,6 +214,11 @@ def _declaration_sources(root, result):
     the one the analysis recorded, so stored text always matches the facts.
     """
     sources, changed, parsers = {}, [], {}
+    item_macros = [
+        name
+        for name in dict(result.analyzer_versions).get(RUST_ITEM_MACROS, "").split(",")
+        if name
+    ]
     for item in result.coverage:
         suffix = Path(item.file).suffix
         if (
@@ -228,7 +239,13 @@ def _declaration_sources(root, result):
             parsers[key] = make_parser(item.language, suffix)
         sources.update(
             declaration_sources(
-                parsers[key].parse(content), content, result.repository_id, item.file
+                parsers[key].parse(content),
+                content,
+                result.repository_id,
+                item.file,
+                expander=RustExpander(content, item_macros)
+                if item.language == "rust"
+                else None,
             )
         )
     return sources, sorted(changed)

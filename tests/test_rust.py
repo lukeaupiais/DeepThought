@@ -836,6 +836,147 @@ class RustTests(unittest.TestCase):
             },
         )
 
+    def test_item_macro_bodies_are_read_as_items(self):
+        files = {
+            "src/macros.rs": "macro_rules! cfg_a {\n"
+            '    ($($item:item)*) => { $( #[cfg(feature = "a")] $item )* }\n'
+            "}\n"
+            "macro_rules! cfg_b {\n"
+            "    (#![$m:meta] $($i:item)*) => {\n"
+            "        $( #[cfg($m)] #[allow(unused)] $i )*\n"
+            "    }\n"
+            "}\n"
+            "macro_rules! two { ($($i:item)*) => { $($i)* }; () => {} }\n"
+            "macro_rules! wrap { ($($i:item)*) => { mod w { $($i)* } } }\n"
+            "macro_rules! split { ($($i:item)*) => { $($i)* } }\n"
+            "macro_rules! extra { ($($i:item)*) => { $($i)* fn more() {} } }\n",
+            "src/other.rs": "macro_rules! split { ($e:expr) => {} }\n",
+            "src/lib.rs": "#[macro_use]\nmod macros;\nmod other;\n"
+            "cfg_a! {\n"
+            "    mod inside;\n"
+            "    pub fn shown() {}\n"
+            "    pub use inside::Thing;\n"
+            "}\n"
+            "mod m {\n"
+            "    cfg_b! {\n"
+            "        #![unix]\n"
+            "        pub fn deep() {}\n"
+            "        cfg_a! { pub fn deeper() {} }\n"
+            "        mod sub;\n"
+            "        pub use self::sub::S;\n"
+            "    }\n"
+            "}\n"
+            "two! { pub fn not_two() {} }\n"
+            "wrap! { pub fn not_wrapped() {} }\n"
+            "split! { pub fn not_split() {} }\n"
+            "fn body() { cfg_a! { fn in_fn() {} } }\n"
+            "crate::cfg_a! { pub fn via_path() {} }\n"
+            "extra! { pub fn not_extra() {} }\n"
+            "cfg_a! { pub fn kept() {} pub fn broken( }\n",
+            "src/m/sub.rs": "pub struct S;\n",
+            "src/inside.rs": "pub struct Thing;\n",
+        }
+        result = analyze(files)
+        self.assertEqual(
+            dict(result.analyzer_versions)["rust-item-macros"], "cfg_a,cfg_b"
+        )
+        self.assertEqual(
+            sorted(
+                (d.symbol, d.line, d.column)
+                for d in result.definitions
+                if d.file == "src/lib.rs" and d.kind != "Macro"
+            ),
+            [
+                ("body", 21, 0),
+                ("inside", 5, 4),
+                ("m", 9, 0),
+                ("m.deep", 12, 8),
+                ("m.deeper", 13, 17),
+                ("m.sub", 14, 8),
+                ("macros", 2, 0),
+                ("other", 3, 0),
+                ("shown", 6, 4),
+                ("via_path", 22, 16),
+            ],
+        )
+        imports = {i.id: i for i in result.imports}
+        self.assertEqual(
+            sorted(
+                (
+                    imports[r.import_id].line,
+                    imports[r.import_id].names,
+                    [(link.target_file, link.rule_id) for link in r.links],
+                )
+                for r in resolve_imports(result)
+                if imports[r.import_id].file == "src/lib.rs"
+            ),
+            [
+                (2, (), [("src/macros.rs", RUST_MODULE_FILE)]),
+                (3, (), [("src/other.rs", RUST_MODULE_FILE)]),
+                (5, (), [("src/inside.rs", RUST_MODULE_FILE)]),
+                (7, (), [("src/inside.rs", RUST_USE_DECLARED)]),
+                (14, (), [("src/m/sub.rs", RUST_MODULE_FILE)]),
+                (15, ("m",), [("src/m/sub.rs", RUST_USE_DECLARED)]),
+            ],
+        )
+        # Declaration text is read from the expanded body too.
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in files.items():
+                path = Path(directory) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            output = asyncio.run(
+                TreeSitterTool(directory).analyze("r", languages=("rust",))
+            )
+            sources = {
+                n.properties["name"]: n.properties.get("source_code")
+                for n in output.nodes
+                if "Symbol" in n.labels
+            }
+            self.assertEqual(sources["m.deeper"], "pub fn deeper() {}")
+            # A changed macro set parses every Rust file again.
+            (Path(directory) / "src/other.rs").write_text(
+                "macro_rules! cfg_a { ($e:expr) => {} }\n"
+            )
+            again = analyze_repository(
+                directory,
+                repository_id="fixture",
+                languages=("rust",),
+                previous=result,
+            )
+        self.assertEqual(
+            dict(again.analyzer_versions)["rust-item-macros"], "cfg_b,split"
+        )
+        symbols = [d.symbol for d in again.definitions]
+        self.assertNotIn("shown", symbols)
+        self.assertIn("not_split", symbols)
+
+    def test_item_macros_come_from_the_selected_sources(self):
+        through = "macro_rules! m { ($($i:item)*) => { $($i)* } }\n"
+        other = "macro_rules! m { ($e:expr) => {} }\n"
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in {
+                "src/lib.rs": through,
+                "skip/a.rs": other,
+                "src/notes.txt": other,
+                "other/b.rs": other,
+                "big/c.rs": other + "// " + "x" * 200 + "\n",
+            }.items():
+                path = Path(directory) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            result = analyze_repository(
+                directory,
+                repository_id="fixture",
+                languages=("rust",),
+                include=("src/*", "skip/*", "big/*"),
+                exclude=("skip/*",),
+                max_file_bytes=100,
+            )
+        # Files that are not Rust, excluded, not included or oversized define
+        # no macros.
+        self.assertEqual(dict(result.analyzer_versions)["rust-item-macros"], "m")
+
 
 if __name__ == "__main__":
     unittest.main()
