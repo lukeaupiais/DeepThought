@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "f98d09c2e1f556e1f5e0132438d84ec95c976d5a0d69fa69114dfdb5a5668fd2",
+    "output_bytes": 8939,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"pwd && rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' && rg -n '\\\\btypeFromAST\\\\b' src\"",
+    "exit_code": 1,
+    "output_sha256": "547ce7285ed3faf3e97088ea77a2a45c32bc63e4c4fae8d9ef94790871c89637",
+    "output_bytes": 51,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc 'cat tsconfig.json package.json; for p in /AGENTS.md /home/AGENTS.md /home/luke/AGENTS.md /home/luke/.cache/AGENTS.md /home/luke/.cache/deepthought-tool-eval/AGENTS.md /home/luke/.cache/deepthought-tool-eval/graphql-js/AGENTS.md; do if test -f \"$p\"; then cat \"$p\"; fi; done'",
+    "exit_code": 0,
+    "output_sha256": "4dfb8b7e714738eeb1442ffdb04455b58a64108559877ecfb7eea257f4ba4708",
+    "output_bytes": 5171,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"rg -n '\\\\btypeFromAST\\\\b' src\"",
+    "exit_code": 0,
+    "output_sha256": "89af337b16d607feecf0e9d0ee8f70ee86dd7845ce7963aa7655606f9fc444b3",
+    "output_bytes": 4930,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = context.workspace;\nconst sourcePaths = context.files.filter(f => f.endsWith('.ts')).map(f => path.join(root, f));\nconst allowed = new Set(context.files.map(f => path.join(root, f)));\nconst dirs = new Set();\nfor (const f of allowed) for (let d = path.dirname(f); d.startsWith(root); d = path.dirname(d)) dirs.add(d);\nconst config = ts.parseConfigFileTextToJson('tsconfig.json', fs.readFileSync(path.join(root, 'tsconfig.json'), 'utf8')).config;\nconst options = {...ts.convertCompilerOptionsFromJson(config.compilerOptions, root).options, noLib: true, types: [], noEmit: true};\nconst host = ts.createCompilerHost(options);\nhost.readFile = f => allowed.has(path.resolve(f)) ? fs.readFileSync(f, 'utf8') : undefined;\nhost.fileExists = f => allowed.has(path.resolve(f));\nhost.directoryExists = d => dirs.has(path.resolve(d));\nhost.getSourceFile = (f, version) => { const text = host.readFile(f); return text === undefined ? undefined : ts.createSourceFile(f, text, version, true); };\nconst program = ts.createProgram(sourcePaths, options, host);\nconst checker = program.getTypeChecker();\nconst targetFile = program.getSourceFile(path.join(root, 'src/utilities/typeFromAST.ts'));\nconst target = checker.getExportsOfModule(checker.getSymbolAtLocation(targetFile)).find(s => s.name === 'typeFromAST');\nfunction canonical(s) { const seen = new Set(); while (s && s.flags & ts.SymbolFlags.Alias && \"'!seen.has(s)) { seen.add(s); s = checker.getAliasedSymbol(s); } return s; }\nconst refs = [];\nconst exclusions = [];\nfor (const f of sourcePaths) {\n const sf = program.getSourceFile(f);\n function walk(n) {\n  if (ts.isIdentifier(n)) {\n   const symbol = canonical(checker.getSymbolAtLocation(n));\n   if (symbol === target) {\n    const start = sf.getLineAndCharacterOfPosition(n.getStart(sf));\n    const end = sf.getLineAndCharacterOfPosition(n.getEnd());\n    const row = {target:'\"'typeFromAST',file:path.relative(root,f),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n    if (ts.isFunctionDeclaration(n.parent) && n.parent.name === n) exclusions.push(row);\n    else refs.push(row);\n   }\n  }\n  ts.forEachChild(n, walk);\n }\n walk(sf);\n}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:refs,limitations:[]},null,2));\nconsole.log('AUDIT '+JSON.stringify({sourceFiles:sourcePaths.length,programFiles:program.getSourceFiles().length,targetDeclarations:target.declarations.length,excludedDeclarations:exclusions,referenceCount:refs.length,syntaxErrors:program.getSyntacticDiagnostics().length}));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "e0bea8577bedba1b1a4b8a145b7ecba2464c41128e8bbb156f85097d69f55d9b",
+    "output_bytes": 5607,
+    "compiler_reference_scan": true
+  }
+]

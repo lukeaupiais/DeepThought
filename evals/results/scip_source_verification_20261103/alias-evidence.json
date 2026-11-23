@@ -1,0 +1,257 @@
+{
+  "fixture": "tests/fixtures/scip_alias_reexport",
+  "scope": {
+    "profile": "typescript-symbol-references-v1",
+    "compiler_version": "6.0.3",
+    "runtime_sha256": "66923cae79cc20b60873010f9cda7bf117b5db30485441ba955970cbf965ff61",
+    "files": [
+      "a.ts",
+      "b.ts",
+      "c.ts"
+    ],
+    "files_sha256": "ec10dad27e30dae0b69de157acd08072e79df410b4c1608f9adcbf9aecd80b87",
+    "source_sha256": "f4258f15baeb597d7f7362cd103b5c32b5835a5fa6b5273574c695bfe5551d55",
+    "index_sha256": "6dec7e07de5bbd13a453715df10b480e3faa093c5381ca870eeeb846be9bd34b",
+    "source_receipt_sha256": "9b6ad3a87720514a56d771b5a073ed0b29732b371487ebfc5e8aaba4d9ea4f14",
+    "compiler_sha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+    "scope_definition": "Compiler-symbol identity and alias closure over selected files, excluding target declaration names",
+    "checked_symbols": 6,
+    "unavailable_symbols": 2
+  },
+  "evidence": {
+    "symbol_key": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+    "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+    "file_scope": "",
+    "verification_status": "checked",
+    "compiler_symbol_id": "5fd400dc7d9084ee6eaf463da11ee571445caeee0e838615e1c7c83dfac6d15e",
+    "exports": [
+      {
+        "name": "alpha",
+        "file": "a.ts"
+      },
+      {
+        "name": "outward",
+        "file": "b.ts"
+      }
+    ],
+    "export_names": [
+      "alpha",
+      "outward"
+    ],
+    "export_keys": [
+      "[\"a.ts\", \"alpha\"]",
+      "[\"b.ts\", \"outward\"]"
+    ],
+    "references": [
+      {
+        "file_path": "b.ts",
+        "start_line": 1,
+        "column": 9,
+        "end_line": 1,
+        "end_column": 14,
+        "reference_id": "123dcc9056a64eea1af55e5bab7c5bcf57de93c8724578079a46a17f2ace0d2a"
+      },
+      {
+        "file_path": "b.ts",
+        "start_line": 1,
+        "column": 18,
+        "end_line": 1,
+        "end_column": 25,
+        "reference_id": "1c044440fae9904273ff1c9f3b187c0976940b2240209552a94892cd3b9bc790"
+      },
+      {
+        "file_path": "c.ts",
+        "start_line": 1,
+        "column": 20,
+        "end_line": 1,
+        "end_column": 28,
+        "reference_id": "384dc0bd500b0292304b69a1ce6fbffae455099833301dc9e644290f96441717"
+      },
+      {
+        "file_path": "c.ts",
+        "start_line": 2,
+        "column": 0,
+        "end_line": 2,
+        "end_column": 8,
+        "reference_id": "3e962403579dabd935501b886ef45020b47eaf21e08b65269fcc8218f704bdba"
+      },
+      {
+        "file_path": "c.ts",
+        "start_line": 1,
+        "column": 9,
+        "end_line": 1,
+        "end_column": 16,
+        "reference_id": "6e40e92cffbddc588f09cc3371ad42fb7389346e1786fcc13a9cfefbae3e8f80"
+      },
+      {
+        "file_path": "b.ts",
+        "start_line": 2,
+        "column": 20,
+        "end_line": 2,
+        "end_column": 27,
+        "reference_id": "7475941c2ff1d24e8ee204b2cd8beac99ad2885bb032c7f6dbf359df22899277"
+      },
+      {
+        "file_path": "b.ts",
+        "start_line": 2,
+        "column": 9,
+        "end_line": 2,
+        "end_column": 16,
+        "reference_id": "902807ba3eecd5a17a55ba69eb9dccf2d95369546af1893857022fab38a751cd"
+      },
+      {
+        "file_path": "b.ts",
+        "start_line": 4,
+        "column": 0,
+        "end_line": 4,
+        "end_column": 7,
+        "reference_id": "d68719e5b541a2f56eef8092f41702c7dc410603bca0a651f3576d375728544d"
+      }
+    ],
+    "references_sha256": "3614ab32fb5260407e9653797e058311d2f71f7e7fc4c78e8b04d3868350a0ef",
+    "indexed_count": 7,
+    "missing_in_scip": 1,
+    "extra_in_scip": 0,
+    "target_ids": [
+      "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7",
+      "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2"
+    ],
+    "qualified_name": "public-alias-control::reference-evidence::1ef4b6b90c5ab5125ca2a1c32bf48b1cee196dbb83581ff850e006ebd04ddb02",
+    "repo_url": "public-alias-control"
+  },
+  "original_scip_references": [
+    {
+      "qualified_name": "public-alias-control::scip-reference::15d94c55aa6c341b9ace02a6223449e92fada4aeaa678190fafce1462fcc6088",
+      "repo_url": "public-alias-control",
+      "reference_id": "15d94c55aa6c341b9ace02a6223449e92fada4aeaa678190fafce1462fcc6088",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "b.ts",
+      "start_line": 2,
+      "column": 20,
+      "end_line": 2,
+      "end_column": 27,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    },
+    {
+      "qualified_name": "public-alias-control::scip-reference::b0d5fb7bff2f3fb769a6bc81b315037a5d33e67e5d0231f375a80b5d612a45d6",
+      "repo_url": "public-alias-control",
+      "reference_id": "b0d5fb7bff2f3fb769a6bc81b315037a5d33e67e5d0231f375a80b5d612a45d6",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "c.ts",
+      "start_line": 1,
+      "column": 20,
+      "end_line": 1,
+      "end_column": 28,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    },
+    {
+      "qualified_name": "public-alias-control::scip-reference::d9b98e5b6597d06cc85b11ab24bfb95cdf5cb2c8b47c77ee30daa23f7a9866ee",
+      "repo_url": "public-alias-control",
+      "reference_id": "d9b98e5b6597d06cc85b11ab24bfb95cdf5cb2c8b47c77ee30daa23f7a9866ee",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "b.ts",
+      "start_line": 1,
+      "column": 18,
+      "end_line": 1,
+      "end_column": 25,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    },
+    {
+      "qualified_name": "public-alias-control::scip-reference::eceff745e47606c7ab0d6fe8479df76554acbc05076b8acce6f52413222e818b",
+      "repo_url": "public-alias-control",
+      "reference_id": "eceff745e47606c7ab0d6fe8479df76554acbc05076b8acce6f52413222e818b",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "b.ts",
+      "start_line": 1,
+      "column": 9,
+      "end_line": 1,
+      "end_column": 14,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    },
+    {
+      "qualified_name": "public-alias-control::scip-reference::bb050e38fc8a685b273aba8143bdca1c53061b091886df5316b0d6fd0e3a1a3b",
+      "repo_url": "public-alias-control",
+      "reference_id": "bb050e38fc8a685b273aba8143bdca1c53061b091886df5316b0d6fd0e3a1a3b",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "c.ts",
+      "start_line": 2,
+      "column": 0,
+      "end_line": 2,
+      "end_column": 8,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    },
+    {
+      "qualified_name": "public-alias-control::scip-reference::a62141be3a048418c7c3e744c555172b353f8a158011b177556228f8c381224a",
+      "repo_url": "public-alias-control",
+      "reference_id": "a62141be3a048418c7c3e744c555172b353f8a158011b177556228f8c381224a",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "b.ts",
+      "start_line": 4,
+      "column": 0,
+      "end_line": 4,
+      "end_column": 7,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    },
+    {
+      "qualified_name": "public-alias-control::scip-reference::72be6acd305aeee37c85c45031529f6cdcb0353c9728d982b67b583a4ed8667e",
+      "repo_url": "public-alias-control",
+      "reference_id": "72be6acd305aeee37c85c45031529f6cdcb0353c9728d982b67b583a4ed8667e",
+      "native_id": "scip-typescript npm deepthought-scip-alias-control 0.0.0 `a.ts`/alpha().",
+      "file_path": "b.ts",
+      "start_line": 2,
+      "column": 9,
+      "end_line": 2,
+      "end_column": 16,
+      "coordinate_encoding": "utf-16",
+      "symbol_roles": 0,
+      "resolution": "resolved",
+      "declaration_resolution": "multiple",
+      "target_ids": [
+        "00054d2401f23d6fc053940d33d34c1299e5c14d9edef0db6d0726eea8e2bef2",
+        "a2a68a6c8ad40ad549d1a8aa06b856b0390585a617fbc8f66d8e46da8825a0a7"
+      ]
+    }
+  ]
+}

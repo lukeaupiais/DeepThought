@@ -1,0 +1,146 @@
+[
+  {
+    "run": "deepthought-scip-v4-typeFromAST-1-baseline",
+    "condition": "baseline",
+    "block": 0,
+    "quality": {
+      "quality_pass": true,
+      "correct_count": 26,
+      "expected_count": 26,
+      "precision": 1.0,
+      "recall": 1.0,
+      "missing": [],
+      "extra": [],
+      "invalid": [],
+      "duplicates": []
+    },
+    "usage": {
+      "input_tokens": 78072,
+      "cached_input_tokens": 61056,
+      "output_tokens": 2034,
+      "reasoning_output_tokens": 251
+    },
+    "wall_seconds": 36.902847456003656,
+    "graph_reads": 0
+  },
+  {
+    "run": "deepthought-scip-v4-typeFromAST-2-tree",
+    "condition": "tree",
+    "block": 0,
+    "quality": {
+      "quality_pass": true,
+      "correct_count": 26,
+      "expected_count": 26,
+      "precision": 1.0,
+      "recall": 1.0,
+      "missing": [],
+      "extra": [],
+      "invalid": [],
+      "duplicates": []
+    },
+    "usage": {
+      "input_tokens": 106161,
+      "cached_input_tokens": 85504,
+      "output_tokens": 2339,
+      "reasoning_output_tokens": 151
+    },
+    "wall_seconds": 37.74998606101144,
+    "graph_reads": 2
+  },
+  {
+    "run": "deepthought-scip-v4-typeFromAST-3-scip",
+    "condition": "scip",
+    "block": 0,
+    "quality": {
+      "quality_pass": true,
+      "correct_count": 26,
+      "expected_count": 26,
+      "precision": 1.0,
+      "recall": 1.0,
+      "missing": [],
+      "extra": [],
+      "invalid": [],
+      "duplicates": []
+    },
+    "usage": {
+      "input_tokens": 103466,
+      "cached_input_tokens": 75136,
+      "output_tokens": 2071,
+      "reasoning_output_tokens": 138
+    },
+    "wall_seconds": 61.55942230099754,
+    "graph_reads": 1
+  },
+  {
+    "run": "deepthought-scip-v4-typeFromAST-4-scip",
+    "condition": "scip",
+    "block": 1,
+    "quality": {
+      "quality_pass": true,
+      "correct_count": 26,
+      "expected_count": 26,
+      "precision": 1.0,
+      "recall": 1.0,
+      "missing": [],
+      "extra": [],
+      "invalid": [],
+      "duplicates": []
+    },
+    "usage": {
+      "input_tokens": 103563,
+      "cached_input_tokens": 87424,
+      "output_tokens": 2061,
+      "reasoning_output_tokens": 106
+    },
+    "wall_seconds": 55.91864465000981,
+    "graph_reads": 1
+  },
+  {
+    "run": "deepthought-scip-v4-typeFromAST-5-tree",
+    "condition": "tree",
+    "block": 1,
+    "quality": {
+      "quality_pass": true,
+      "correct_count": 26,
+      "expected_count": 26,
+      "precision": 1.0,
+      "recall": 1.0,
+      "missing": [],
+      "extra": [],
+      "invalid": [],
+      "duplicates": []
+    },
+    "usage": {
+      "input_tokens": 103670,
+      "cached_input_tokens": 80896,
+      "output_tokens": 2167,
+      "reasoning_output_tokens": 76
+    },
+    "wall_seconds": 39.78266182099469,
+    "graph_reads": 2
+  },
+  {
+    "run": "deepthought-scip-v4-typeFromAST-6-baseline",
+    "condition": "baseline",
+    "block": 1,
+    "quality": {
+      "quality_pass": true,
+      "correct_count": 26,
+      "expected_count": 26,
+      "precision": 1.0,
+      "recall": 1.0,
+      "missing": [],
+      "extra": [],
+      "invalid": [],
+      "duplicates": []
+    },
+    "usage": {
+      "input_tokens": 89636,
+      "cached_input_tokens": 70656,
+      "output_tokens": 2458,
+      "reasoning_output_tokens": 355
+    },
+    "wall_seconds": 48.2590296480048,
+    "graph_reads": 0
+  }
+]

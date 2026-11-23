@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "544f61cd4034e0c5eca3e6a1b4b9bd75ed490dfd5f9d68a4e6bfc9786608f344",
+    "output_bytes": 10862,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "3ae82eae67f902a4398b0f5f90d1be13018d1f4d290017d1336d9bfe922b3a60",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1,210p' src/harness.ts; sed -n '510,535p' src/index.ts; sed -n '120,155p' src/utilities/typeFromAST.ts\"",
+    "exit_code": 0,
+    "output_sha256": "0a5c11c353ff2efe13e352153e952ca728cab4dbdc00b1b1c64930e7afaeba4b",
+    "output_bytes": 3530,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);\nconst parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, process.cwd());\nconst program = ts.createProgram(context.files.filter(f => f.endsWith('.ts')), parsed.options);\nconst checker = program.getTypeChecker();\nconst root = program.getSourceFile('src/index.ts');\nconst resolve = s => s && (s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s);\nconst target = resolve(checker.getExportsOfModule(checker.getSymbolAtLocation(root)).find(s => s.name === 'typeFromAST'));\nconst references = [];\nfor (const file of context.files.filter(f => f.endsWith('.ts'))) {\n  const source = program.getSourceFile(file);\n  function visit(node) {\n    if (ts.isIdentifier(node) && resolve(checker.getSymbolAtLocation(node)) === target) {\n      const declaration = ts.isFunctionDeclaration(node.parent) && node.parent.name === node;\n      if (\"'!declaration) {\n        const start = source.getLineAndCharacterOfPosition(node.getStart(source));\n        const end = source.getLineAndCharacterOfPosition(node.end);\n        references.push({ target: '\"'typeFromAST', file, line: start.line + 1, column: start.character, end_line: end.line + 1, end_column: end.character });\n      }\n    }\n    ts.forEachChild(node, visit);\n  }\n  visit(source);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({ references, limitations: [] }, null, 2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "05ea7593f91c5bd871b7ddde406430fa9862b5007d5d738b43cf3a6a329834a2",
+    "output_bytes": 4898,
+    "compiler_reference_scan": true
+  }
+]

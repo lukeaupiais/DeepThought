@@ -1,0 +1,14 @@
+{
+  "run": "typeFromAST-4-scip",
+  "native_usage_matches": true,
+  "trace_hashes_match": true,
+  "server_read_count": 3,
+  "server_reads_matched_to_client": 3,
+  "graph_evidence": {
+    "status": "verified_neo4j_access",
+    "successful_calls": 3,
+    "response_bytes": 30599,
+    "query_wall_seconds": 0.04493403401284013,
+    "receipt_provenance": "observed_server_events_not_signed_attestations"
+  }
+}

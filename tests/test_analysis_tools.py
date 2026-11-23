@@ -32,10 +32,10 @@ GRAMMARS = all(
 class RegistryTests(unittest.TestCase):
     def test_builtin_is_discoverable_with_truthful_capabilities(self):
         metadata = tool_registry.list_tools()
-        self.assertEqual([m.name for m in metadata], ["tree-sitter"])
-        self.assertEqual(metadata[0].supported_languages, {"python", "typescript"})
+        self.assertEqual([m.name for m in metadata], ["scip", "tree-sitter"])
+        self.assertEqual(metadata[1].supported_languages, {"python", "typescript"})
         self.assertEqual(
-            metadata[0].capabilities,
+            metadata[1].capabilities,
             {ToolCapability.AST_EXTRACTION, ToolCapability.SYMBOL_INDEXING},
         )
         self.assertFalse(tool_registry.get_tools_for_language("go", Path(".")))
@@ -77,7 +77,7 @@ import deepthought.storage.graph
 import deepthought.graph_queries
 import deepthought.graph_cli
 import deepthought.graph_mcp
-assert [m.name for m in tools.tool_registry.list_tools()] == ['tree-sitter']
+assert [m.name for m in tools.tool_registry.list_tools()] == ['scip', 'tree-sitter']
 for module in ('tree_sitter', 'tree_sitter_python', 'tree_sitter_typescript', 'neo4j', 'mcp', 'torch'):
     assert module not in sys.modules, module
 """
@@ -175,7 +175,7 @@ class TreeSitterTests(unittest.TestCase):
             properties = [n.properties for n in result.nodes if "Symbol" in n.labels]
             self.assertEqual(
                 [r.type for r in result.relationships],
-                ["CONTAINS", "DEFINES", "DEFINES"],
+                ["CONTAINS", "DEFINES", "DEFINES", "CONTAINS", "CONTAINS"],
             )
             by_name = {n.properties["qualified_name"]: n for n in result.nodes}
             for edge in result.relationships:
@@ -193,7 +193,7 @@ class TreeSitterTests(unittest.TestCase):
             )
             self.assertEqual(len({p["qualified_name"] for p in properties}), 2)
             self.assertEqual(
-                result.metadata.custom_metrics["snapshot_id"], sdk.snapshot_id
+                result.metadata.custom_metrics["source_snapshot_id"], sdk.snapshot_id
             )
             self.assertEqual(
                 result.metadata.custom_metrics["coverage"], sdk.to_dict()["coverage"]

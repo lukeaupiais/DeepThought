@@ -1,0 +1,57 @@
+{
+  "installed_live_suite": {
+    "tests": 223,
+    "passed": 222,
+    "skipped": 1,
+    "skip_reason": "Existing opt-in public DeepAgents corpus case not enabled"
+  },
+  "offline_full_suite": {
+    "tests": 223,
+    "skipped": 28,
+    "status": "passed"
+  },
+  "offline_core_only": "passed",
+  "source_hidden": "passed",
+  "network_disabled": "passed",
+  "lint": "passed",
+  "format": "passed",
+  "current_and_archived_server_package_hashes": "all match frozen manifests",
+  "driver_grader_and_server_helper_hashes": "unchanged during batch",
+  "source_binding_after_batch": {
+    "unchanged": true,
+    "bound_inputs": 11793,
+    "index_sha256": "649ed88d417fc0cf76300df274af0b49daa450a645c000d413bf7fc0188ab9ea"
+  },
+  "native_sessions": 16,
+  "all_native_receipts_audited": true,
+  "server_reads_matched_to_clients": 28,
+  "reference_conformance": {
+    "getNamedType": 20,
+    "typeFromAST": 26,
+    "all_exact": true,
+    "new_cross_file_dependency_witnesses": 44
+  },
+  "independent_alias_control": {
+    "status": "failed",
+    "expected_semantic_references": 8,
+    "native_symbol_references": 7,
+    "unresolved_occurrence_preserved": true,
+    "upstream_index_relationship_missing": true,
+    "source_binding_unchanged": true
+  },
+  "usage_granularity": "session_terminal_only",
+  "hosted_ci": "not run for uncommitted changes",
+  "logs": {
+    "final-installed-tests.log": "52dba8c1316ebb6882bfc034c66b9eba4d9305b8eab4683a1dab09e98c336d38",
+    "offline-full-final.log": "7fde607d36980dcf74bae390bd3aafc6fb79ba94360f6650087dae140b263705",
+    "offline-core.log": "9caa0540bfad1029baf3bd52cba2af2be30d7021a071d4dd359b6754a554aadc",
+    "final-build.log": "86bd6c6fa0ede3c463dc8e2dc8dd85e56ca6c83d8d99569437945f91a32e96f3",
+    "preparation.log": "5dd24f08b4bc7933506977367999443940182b96d1195f252ca5aa5721546b46",
+    "index-recovery.log": "50e1e5613ad73289f285b1374927a6c830af1ef6bef820d6b62fe6fa5acf26e0",
+    "native-evaluation.log": "20cc4eb3b0929183b0f0b109c8ff454fa7c002795941f3118f7456c5513e221c",
+    "alias-recheck.log": "63e4e968eb4be822871452d2fca29465ac21a31ce89bf38db914e1eeed60bd15"
+  },
+  "sdist_pinned_alias_fixture": "all seven required source/index/receipt files present",
+  "sdist_sha256": "01eeb187f46c4c7c8bb4d848571466d5f4b215a96ca98bbfaa0f299262dbd063",
+  "archived_v1_alias_gap": "same 7/8 gap confirmed with original installed tool"
+}

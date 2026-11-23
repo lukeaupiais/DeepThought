@@ -1,0 +1,26 @@
+[
+  {
+    "target": "getNamedType",
+    "expected": 20,
+    "source_oracle_matches": true,
+    "controls_rejected": {
+      "missing": true,
+      "wrong_location": true,
+      "own_declaration_as_extra": true,
+      "duplicate": true,
+      "invalid": true
+    }
+  },
+  {
+    "target": "typeFromAST",
+    "expected": 26,
+    "source_oracle_matches": true,
+    "controls_rejected": {
+      "missing": true,
+      "wrong_location": true,
+      "own_declaration_as_extra": true,
+      "duplicate": true,
+      "invalid": true
+    }
+  }
+]

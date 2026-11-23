@@ -1,0 +1,8 @@
+{
+  "wall_seconds": 5.852704354998423,
+  "model_tokens": 0,
+  "reused_graph_receipt": "/home/luke/.cache/deepthought-scip-v3/getNamedType/scip.preparation.json",
+  "new_analysis": false,
+  "same_baseline_context": true,
+  "input_id": "1fd9127e6e674fbab5f4e6adcd614ffbbb2c79be1ad4dcfbbdc07367c2185290"
+}

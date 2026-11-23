@@ -1,0 +1,16 @@
+{
+  "stage": "combined graph import",
+  "status": "failed",
+  "cause": "Default Neo4j transaction memory cap358.4MiB reached on54546node/91205relationship graph",
+  "native_model_calls": 0,
+  "observed_database_after_rollback": {
+    "nodes": 0,
+    "snapshots": 0
+  },
+  "elapsed_seconds": null,
+  "elapsed_provenance": "Initial operator helper did not persist failed-attempt timer; raw log retained. Not zero.",
+  "retries": "Driver transient retries retained in log",
+  "new_graph_container_memory": "3g",
+  "new_heap_max": "1536m",
+  "new_transaction_total_max": "1g"
+}

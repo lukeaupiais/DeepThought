@@ -1,0 +1,45 @@
+{
+  "status": "completed",
+  "elapsed_seconds": 61.85634521400789,
+  "indexes": [
+    {
+      "name": "code_search",
+      "state": "ONLINE"
+    },
+    {
+      "name": "deepthought_file_path",
+      "state": "ONLINE"
+    },
+    {
+      "name": "deepthought_native_reference",
+      "state": "ONLINE"
+    },
+    {
+      "name": "deepthought_native_symbol",
+      "state": "ONLINE"
+    },
+    {
+      "name": "deepthought_node_identity",
+      "state": "ONLINE"
+    },
+    {
+      "name": "deepthought_snapshot_identity",
+      "state": "ONLINE"
+    },
+    {
+      "name": "deepthought_symbol_name",
+      "state": "ONLINE"
+    },
+    {
+      "name": "index_343aff4e",
+      "state": "ONLINE"
+    },
+    {
+      "name": "index_f7700477",
+      "state": "ONLINE"
+    }
+  ],
+  "nodes_match": true,
+  "content_hash_matches": true,
+  "write_rejected": true
+}

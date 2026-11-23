@@ -1,0 +1,7 @@
+{
+  "status": "failed",
+  "elapsed_seconds": 60.64025917000254,
+  "peak_process_rss_kib": 1004148,
+  "preparation": null,
+  "neo4j": null
+}

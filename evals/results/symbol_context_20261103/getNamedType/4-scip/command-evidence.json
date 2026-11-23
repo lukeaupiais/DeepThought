@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "2fcee392a2794a64c6a19c083c77e51a0dd9d8964f4c630341ee0b8d3ed1ef11",
+    "output_bytes": 10864,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType' src/type/definition.ts src/index.ts src/type/index.ts src --glob '*.ts' --glob '\"'!**/__tests__/**'\"' && cat tsconfig.json\"",
+    "exit_code": 0,
+    "output_sha256": "9473b63548937e26ad72991c9b5a62d8a2f93830920fd9db26a034ec95d5acac",
+    "output_bytes": 8350,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1830,1875p' src/type/definition.ts; sed -n '130,185p' src/index.ts; cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "822b33bbeeba25e599f014f09cefad6af14f2db903a1d8ce98fe8cde96276706",
+    "output_bytes": 5910,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst config = ts.readConfigFile(path.join(ctx.workspace, 'tsconfig.json'), ts.sys.readFile);\nconst options = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, ctx.workspace).options;\nconst files = ctx.files.filter(f => f.endsWith('.ts')).map(f => path.join(ctx.workspace, f));\nconst program = ts.createProgram(files, options);\nconst checker = program.getTypeChecker();\nconst publicModule = program.getSourceFile(path.join(ctx.workspace, 'src/index.ts'));\nconst exported = checker.getExportsOfModule(checker.getSymbolAtLocation(publicModule)).find(s => s.name === 'getNamedType');\nfunction resolve(s) {\n  const seen = new Set();\n  while (s && (s.flags & ts.SymbolFlags.Alias) && \"'!seen.has(s)) {\n    seen.add(s);\n    s = checker.getAliasedSymbol(s);\n  }\n  return s;\n}\nconst target = resolve(exported);\nconst references = [];\nfor (const file of files) {\n  const sf = program.getSourceFile(file);\n  function visit(node) {\n    if (ts.isIdentifier(node) && resolve(checker.getSymbolAtLocation(node)) === target) {\n      if (!(ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) {\n        const start = sf.getLineAndCharacterOfPosition(node.getStart(sf));\n        const end = sf.getLineAndCharacterOfPosition(node.getEnd());\n        references.push({target: '\"'getNamedType', file: path.relative(ctx.workspace, file), line: start.line + 1, column: start.character, end_line: end.line + 1, end_column: end.character});\n      }\n    }\n    ts.forEachChild(node, visit);\n  }\n  visit(sf);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references, diagnostics: ts.getPreEmitDiagnostics(program).length}, null, 2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "fdd2ca404ebd6d6b9bf7af6d4b7f8c37aa30ae2d4b019984d51318fdf9a6f5dc",
+    "output_bytes": 3642,
+    "compiler_reference_scan": true
+  }
+]

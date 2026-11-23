@@ -51,12 +51,18 @@ def make_parser(language: str, suffix: str):
     return Parser(Language(getattr(grammar, factory)()))
 
 
-def extract(tree, content: bytes, repository_id: str, file: str) -> list[Definition]:
+def extract(
+    tree, content: bytes, repository_id: str, file: str, *, declaration_context=None
+) -> list[Definition]:
     definitions = []
     ordinals = {}
-    stack = [(tree.root_node, (), False)]
+    stack = [(tree.root_node, (), False, None, 0)]
+    lines = content.split(b"\n") if declaration_context is not None else None
+    file_digest = (
+        sha256(content).hexdigest() if declaration_context is not None else None
+    )
     while stack:
-        node, scope, in_class = stack.pop()
+        node, scope, in_class, parent_id, lod = stack.pop()
         kind = KINDS.get(node.type)
         if node.type == "variable_declarator":
             value = node.child_by_field_name("value")
@@ -76,21 +82,62 @@ def extract(tree, content: bytes, repository_id: str, file: str) -> list[Definit
                 kind = "Method"
             ordinal = ordinals.get((symbol, kind), 0)
             ordinals[(symbol, kind)] = ordinal + 1
-            definitions.append(
-                Definition(
-                    id=identifier(repository_id, file, symbol, kind, ordinal),
-                    file=file,
-                    symbol=symbol,
-                    kind=kind,
-                    line=node.start_point.row + 1,
-                    column=node.start_point.column,
-                    end_line=node.end_point.row + 1,
-                    end_column=node.end_point.column,
-                )
+            definition = Definition(
+                id=identifier(repository_id, file, symbol, kind, ordinal),
+                file=file,
+                symbol=symbol,
+                kind=kind,
+                line=node.start_point.row + 1,
+                column=node.start_point.column,
+                end_line=node.end_point.row + 1,
+                end_column=node.end_point.column,
             )
+            definitions.append(definition)
+            if declaration_context is not None:
+                source_node = node
+                if node.parent is not None and node.parent.type in {
+                    "decorated_definition",
+                    "export_statement",
+                }:
+                    source_node = node.parent
+                ranges = {}
+                for encoding, width in (("utf-8", 1), ("utf-16", 2), ("utf-32", 4)):
+                    columns = []
+                    for point in (name_node.start_point, name_node.end_point):
+                        prefix = lines[point.row][: point.column].decode("utf-8")
+                        columns.append(
+                            len(prefix.encode(encoding + "-le")) // width
+                            if encoding != "utf-8"
+                            else point.column
+                        )
+                    ranges[encoding] = [
+                        name_node.start_point.row + 1,
+                        columns[0],
+                        name_node.end_point.row + 1,
+                        columns[1],
+                    ]
+                source_code = content[
+                    source_node.start_byte : source_node.end_byte
+                ].decode("utf-8")
+                declaration_context[definition.id] = {
+                    "source_context_schema": "1",
+                    "source_code": source_code,
+                    "source_sha256": sha256(source_code.encode()).hexdigest(),
+                    "file_sha256": file_digest,
+                    "source_start_line": source_node.start_point.row + 1,
+                    "source_start_column": source_node.start_point.column,
+                    "source_end_line": source_node.end_point.row + 1,
+                    "source_end_column": source_node.end_point.column,
+                    "name_ranges": ranges,
+                    "parent_definition_id": parent_id,
+                    "lod": lod,
+                }
+            parent_id = definition.id
+            lod += 1
             scope = (*scope, name)
             in_class = kind == "Class"
         stack.extend(
-            (child, scope, in_class) for child in reversed(node.named_children)
+            (child, scope, in_class, parent_id, lod)
+            for child in reversed(node.named_children)
         )
     return definitions

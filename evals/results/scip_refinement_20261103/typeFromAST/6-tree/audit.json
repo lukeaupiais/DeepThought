@@ -1,0 +1,14 @@
+{
+  "run": "deepthought-scip-v2-typeFromAST-6-tree",
+  "native_usage_matches": true,
+  "trace_hashes_match": true,
+  "server_read_count": 2,
+  "server_reads_matched_to_client": 2,
+  "graph_evidence": {
+    "status": "verified_neo4j_access",
+    "successful_calls": 2,
+    "response_bytes": 12111,
+    "query_wall_seconds": 0.07104378499207087,
+    "receipt_provenance": "observed_server_events_not_signed_attestations"
+  }
+}

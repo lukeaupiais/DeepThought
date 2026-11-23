@@ -40,7 +40,14 @@ def _output(data):
 
 
 def prepare_neo4j(
-    scenario, workspace, *, tool_access=None, settings=None, registry=None
+    scenario,
+    workspace,
+    *,
+    tool_access=None,
+    settings=None,
+    registry=None,
+    additional_tools=(),
+    verification_timeout=30,
 ):
     """Extract once, import through the shared coordinator and verify DB readback.
 
@@ -50,6 +57,14 @@ def prepare_neo4j(
     """
     from ..graph_cli import connection_settings
 
+    if (
+        type(verification_timeout) not in (int, float)
+        or not math.isfinite(verification_timeout)
+        or not 0 < verification_timeout <= 300
+    ):
+        raise ValueError(
+            "Verification timeout must be finite, positive and at most 300 seconds"
+        )
     settings = dict(connection_settings() if settings is None else settings)
     if settings.get("database", "neo4j") == "system":
         raise ValueError("The system database is not an evaluation graph")
@@ -64,7 +79,61 @@ def prepare_neo4j(
         }
     )
     prepared = prepare(scenario, workspace, registry=registry, tool_access=access)
+    if not isinstance(additional_tools, (list, tuple)) or any(
+        not isinstance(name, str) or not name for name in additional_tools
+    ):
+        raise ValueError("Additional evaluation tools require a sequence of names")
     output = _output(prepared["private_tool_output"])
+    outputs = [output]
+    if additional_tools:
+        from ..storage.graph.write_coordinator import _combine, WriteCoordinatorConfig
+
+        if (
+            len(set(additional_tools)) != len(additional_tools)
+            or prepared["scenario"]["tool"] in additional_tools
+        ):
+            raise ValueError("Each evaluation tool may contribute once")
+        for name in additional_tools:
+            supplemental_scenario = deepcopy(prepared["scenario"])
+            supplemental_scenario["tool"] = name
+            extra = prepare(
+                supplemental_scenario, workspace, registry=registry, tool_access=access
+            )
+            if extra["provenance"]["source"] != prepared["provenance"]["source"]:
+                raise ValueError(
+                    "Evaluation tool contributions have different source inputs"
+                )
+            outputs.append(_output(extra["private_tool_output"]))
+            prepared["preparation"]["wall_seconds"] += extra["preparation"][
+                "wall_seconds"
+            ]
+        revision = _digest(
+            [item.metadata.custom_metrics["snapshot_id"] for item in outputs]
+        )
+        output, _ = _combine(
+            outputs,
+            prepared["scenario"]["source"].get(
+                "repository", "synthetic://" + prepared["scenario"]["id"]
+            ),
+            revision,
+            WriteCoordinatorConfig(),
+        )
+        prepared["private_tool_output"] = output.to_dict()
+        prepared["provenance"].update(
+            tool_output_sha256=_digest(prepared["private_tool_output"]),
+            tool_status=output.metadata.custom_metrics["analysis_status"],
+            contributing_tools=[
+                {
+                    "name": item.metadata.tool_name,
+                    "version": item.metadata.tool_version,
+                    "source_snapshot_id": item.metadata.custom_metrics["snapshot_id"],
+                }
+                for item in outputs
+            ],
+        )
+        prepared["preparation"]["model_tokens"] = output.metadata.custom_metrics[
+            "model_tokens"
+        ]
     repo = prepared["scenario"]["source"].get(
         "repository", "synthetic://" + prepared["scenario"]["id"]
     )
@@ -96,16 +165,21 @@ def prepare_neo4j(
                         "Neo4j evaluations require a dedicated repository/snapshot database"
                     )
             await setup_schema(manager.driver, database=database)
-            result = await WriteCoordinator(
-                manager.driver, database=database
-            ).write_tool_output(output.metadata.tool_name, output, repo)
+            coordinator = WriteCoordinator(manager.driver, database=database)
+            result = (
+                await coordinator.write_outputs(outputs, repo, snapshot_id=snapshot)
+                if additional_tools
+                else await coordinator.write_tool_output(
+                    output.metadata.tool_name, output, repo
+                )
+            )
             if not result.success:
                 raise ValueError(
                     "Neo4j evaluation import failed: " + "; ".join(result.errors)
                 )
             scope = {"repo_url": repo, "snapshot_id": snapshot}
             async with manager.driver.session(database=database) as session:
-                tx = await session.begin_transaction(timeout=30)
+                tx = await session.begin_transaction(timeout=verification_timeout)
                 try:
                     rows = await tx.run(
                         "MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,status:'complete'}) RETURN s.content_hash AS hash",
@@ -184,6 +258,9 @@ def prepare_neo4j(
             "database": receipt["database"],
             "repository_id": repo,
             "snapshot_id": snapshot,
+            "available_capabilities": output.metadata.custom_metrics.get(
+                "capabilities", []
+            ),
         }
     )
     provenance = prepared["provenance"]

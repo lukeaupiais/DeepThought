@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "35b6d4883115cd63fba6ecd798b9bdc3ea343411948d51b535c6be9283bf1b0c",
+    "output_bytes": 10457,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType' src\"",
+    "exit_code": 0,
+    "output_sha256": "0cbb41193ba783eac66efd2217eb0f22c3835ea56ec38b5f54e42f7d501a1419",
+    "output_bytes": 5306,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"cat tsconfig.json; sed -n '1820,1870p' src/type/definition.ts; sed -n '145,185p' src/index.ts; sed -n '60,90p' src/type/index.ts\"",
+    "exit_code": 0,
+    "output_sha256": "9ff462d8ce6ecfa7705156c4d899811b8b5ba36b76af42de811a26c2a39fe5dd",
+    "output_bytes": 4319,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst config = ts.readConfigFile('tsconfig.json', ts.sys.readFile);\nconst options = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, process.cwd()).options;\nconst files = context.files.filter(f => f.endsWith('.ts'));\nconst program = ts.createProgram(files, options);\nconst checker = program.getTypeChecker();\nconst sf = program.getSourceFile('src/index.ts');\nconst exp = checker.getExportsOfModule(checker.getSymbolAtLocation(sf)).find(s => s.name === 'getNamedType');\nfunction canonical(s) { const seen = new Set(); while (s && s.flags & ts.SymbolFlags.Alias && \"'!seen.has(s)) { seen.add(s); s = checker.getAliasedSymbol(s); } return s; }\nconst target = canonical(exp);\nconst references = [];\nconst declarations = [];\nfor (const file of files) {\n const source = program.getSourceFile(file);\n function visit(node) {\n  if (ts.isIdentifier(node) && canonical(checker.getSymbolAtLocation(node)) === target) {\n   const start = source.getLineAndCharacterOfPosition(node.getStart(source));\n   const end = source.getLineAndCharacterOfPosition(node.getEnd());\n   const row = {target:'\"'getNamedType',file,line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n   if (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) declarations.push(row); else references.push(row);\n  }\n  ts.forEachChild(node, visit);\n }\n visit(source);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references, excludedDeclarationCount:declarations.length}, null, 2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "982f6a90491bfd86a127df373c701248743c53876324116e62b623827749f2b9",
+    "output_bytes": 3655,
+    "compiler_reference_scan": true
+  }
+]

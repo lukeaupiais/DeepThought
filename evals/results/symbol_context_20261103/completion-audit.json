@@ -1,0 +1,21 @@
+{
+  "native_sessions": 12,
+  "all_native_exit_codes_zero": true,
+  "terminal_usage_answers_and_comparisons_complete": true,
+  "outer_exec_session_exit_code": 143,
+  "outer_session_exit_explanation": "The orchestration tool returned 143 when resumed after all native summaries and comparisons had been written. All twelve native subprocess receipts independently show exit 0. No model rerun was performed.",
+  "receipts": [
+    "getNamedType/runs/6-baseline/native-receipt.json",
+    "getNamedType/runs/2-tree/native-receipt.json",
+    "getNamedType/runs/4-scip/native-receipt.json",
+    "getNamedType/runs/1-baseline/native-receipt.json",
+    "getNamedType/runs/5-tree/native-receipt.json",
+    "getNamedType/runs/3-scip/native-receipt.json",
+    "typeFromAST/runs/6-baseline/native-receipt.json",
+    "typeFromAST/runs/2-tree/native-receipt.json",
+    "typeFromAST/runs/4-scip/native-receipt.json",
+    "typeFromAST/runs/1-baseline/native-receipt.json",
+    "typeFromAST/runs/5-tree/native-receipt.json",
+    "typeFromAST/runs/3-scip/native-receipt.json"
+  ]
+}

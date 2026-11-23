@@ -1,0 +1,26 @@
+{
+  "input_binding_unchanged": true,
+  "compiler_diagnostics": 0,
+  "expected": 8,
+  "actual": 7,
+  "missing": [
+    [
+      "c.ts",
+      1,
+      9,
+      1,
+      16
+    ]
+  ],
+  "extra": [],
+  "all_symbol_bindings_resolved": true,
+  "declarations": 2,
+  "reference_source_spellings": [
+    "alpha",
+    "consumer",
+    "outward",
+    "renamed"
+  ],
+  "indexer": "scip-typescript0.6.0",
+  "scope": "Owned semantic correctness control, excluded from agent performance benchmark"
+}

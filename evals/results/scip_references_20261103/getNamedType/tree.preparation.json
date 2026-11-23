@@ -1,0 +1,22 @@
+{
+  "elapsed_seconds": 19.659463878997485,
+  "peak_process_rss_kib": 86960,
+  "preparation": {
+    "wall_seconds": 0.892841929991846,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 18.203317128994968
+  },
+  "neo4j": {
+    "backend": "neo4j",
+    "interface": "deepthought.graph_queries.GraphQueryService",
+    "database": "neo4j",
+    "repo_url": "https://github.com/graphql/graphql-js",
+    "snapshot_id": "994d5084b93dd675c34c043a7c2eee8e4f3f2a7bd9e931aa663cba11fcea996c",
+    "content_hash": "df8820ba51c5e0eed22a8f6e9db9896722fea2421fe2b63e753d2917745ec6f0",
+    "nodes": 1764,
+    "relationships": 1763,
+    "verified": true,
+    "wall_seconds": 18.203317128994968
+  },
+  "input_id": "326485bb7e5076192d226c6d65157d98ca636307de7395848f7c130a631d15c7"
+}

@@ -1,0 +1,69 @@
+[
+  {
+    "tool": "findDefinitions",
+    "server": "deepthought",
+    "arguments": {
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "72689cbb863acb11db0e09b54ed1ac8e6954ee68fd7f7944c35c6a1b7adafe97",
+      "symbol": "getNamedType",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "e6c62fe82609336d7ace173d9fc55967f3500a03c00954cde760f6b140612a8b",
+        "status": "succeeded",
+        "bytes": 14343,
+        "returned": 16,
+        "truncated": false
+      }
+    ],
+    "text_errors": []
+  },
+  {
+    "tool": "findReferences",
+    "server": "deepthought",
+    "arguments": {
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "72689cbb863acb11db0e09b54ed1ac8e6954ee68fd7f7944c35c6a1b7adafe97",
+      "native_symbol": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "be0b9aa1c4a26f8574ddda31f385f7d3b606d489b9dff28f41cac93bdc3f29d0",
+        "status": "succeeded",
+        "bytes": 15932,
+        "returned": 19,
+        "truncated": true
+      }
+    ],
+    "text_errors": []
+  },
+  {
+    "tool": "findReferences",
+    "server": "deepthought",
+    "arguments": {
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "72689cbb863acb11db0e09b54ed1ac8e6954ee68fd7f7944c35c6a1b7adafe97",
+      "native_symbol": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+      "max_elements": 100,
+      "after_reference_id": "f5dc3ed73c076d98e9b8fe810e6c5bba4a7ca0cb7f88fd15ead31c211817f602"
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "231c7d875ee883e972a4f8e95bae0e4426c213cb14c1e27732dd268b048c19a3",
+        "status": "succeeded",
+        "bytes": 1287,
+        "returned": 1,
+        "truncated": false
+      }
+    ],
+    "text_errors": []
+  }
+]

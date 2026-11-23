@@ -1,0 +1,11 @@
+{
+  "compiler": "6.0.3",
+  "files": 166,
+  "selected_declarations": 1587,
+  "verified_ownership_edges": 1587,
+  "matched_declarations": 1587,
+  "source_body_and_ownership_pass": true,
+  "failures": [],
+  "parse_diagnostics": [],
+  "scope": "All stored selected AST declarations, compared with independently parsed TypeScript name ranges, body boundaries, source hashes and nearest selected declaration ancestry."
+}

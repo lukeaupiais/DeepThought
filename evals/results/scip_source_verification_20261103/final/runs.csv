@@ -1,0 +1,13 @@
+case,run,condition,block,quality_pass,correct,expected,input_tokens,cached_input_tokens,uncached_input_tokens,output_tokens,total_tokens,estimated_standard_credits,wall_seconds,graph_reads,graph_response_bytes,graph_query_seconds,shell_commands,compiler_scans,compiler_scan_session,reasoning_output_tokens,shell_output_bytes,mcp_calls,verified_source_reads,mcp_errors,graph_evidence_status
+getNamedType,1-baseline,baseline,0,True,20,20,96431,83328,13103,2090,98521,1.38597,43.26301419100491,0,0,0,6,1,True,215,33988,0,0,0,graph_not_used_or_unverified
+getNamedType,2-tree,tree,0,True,20,20,110843,83072,27771,1832,112675,2.05423,38.654005076998146,2,12757,0.6002256850042613,4,1,True,126,40208,2,0,0,verified_neo4j_access
+getNamedType,3-scip,scip,0,True,20,20,99736,77184,22552,1755,101491,1.75931,43.00575244400534,1,6558,1.2991623660054756,4,1,True,164,23737,1,1,0,verified_neo4j_access
+getNamedType,4-scip,scip,1,True,20,20,127368,111360,16008,2065,129433,1.59505,81.703756161005,1,6558,6.989546830009203,5,1,True,185,30368,1,1,0,verified_neo4j_access
+getNamedType,5-tree,tree,1,True,20,20,137191,115712,21479,2042,139233,1.87373,40.55429092900886,2,12757,0.1506294400023762,5,1,True,173,34401,2,0,0,verified_neo4j_access
+getNamedType,6-baseline,baseline,1,True,20,20,98714,84096,14618,1939,100653,1.42589,33.46636022000166,0,0,0,4,1,True,147,33399,0,0,0,graph_not_used_or_unverified
+typeFromAST,1-baseline,baseline,0,True,26,26,78072,61056,17016,2034,80106,1.51194,36.902847456003656,0,0,0,5,1,True,251,50378,0,0,0,graph_not_used_or_unverified
+typeFromAST,2-tree,tree,0,True,26,26,106161,85504,20657,2339,108500,1.83136,37.74998606101144,2,12110,0.05352986000070814,5,1,True,151,31973,2,0,0,verified_neo4j_access
+typeFromAST,3-scip,scip,0,True,26,26,103466,75136,28330,2071,105537,2.12209,61.55942230099754,1,8004,1.215554851005436,3,1,True,138,25531,1,1,0,verified_neo4j_access
+typeFromAST,4-scip,scip,1,True,26,26,103563,87424,16139,2061,105624,1.54076,55.91864465000981,1,8004,14.146444149999297,4,1,True,106,29242,1,1,0,verified_neo4j_access
+typeFromAST,5-tree,tree,1,True,26,26,103670,80896,22774,2167,105837,1.88269,39.78266182099469,2,12110,0.1343234389933059,4,1,True,76,30493,2,0,0,verified_neo4j_access
+typeFromAST,6-baseline,baseline,1,True,26,26,89636,70656,18980,2458,92094,1.74014,48.2590296480048,0,0,0,5,1,True,355,24698,0,0,0,graph_not_used_or_unverified

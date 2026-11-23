@@ -18,9 +18,9 @@ class ToolRegistry:
         self._tools[metadata.name] = tool_class
         return tool_class
 
-    def get_tool(self, name: str, repo_path: Path) -> AnalysisTool | None:
+    def get_tool(self, name: str, repo_path: Path, **options) -> AnalysisTool | None:
         tool_class = self._tools.get(name)
-        return None if tool_class is None else tool_class(repo_path)
+        return None if tool_class is None else tool_class(repo_path, **options)
 
     def list_tools(self):
         return [self._tools[name](Path(".")).metadata for name in sorted(self._tools)]

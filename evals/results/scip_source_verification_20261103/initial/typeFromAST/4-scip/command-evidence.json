@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "40778a2bcb92c36f1ec4f4a53b44de59b4775de22504a9c6de62283889804d54",
+    "output_bytes": 10061,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "24f44c7dc85812967f501a587e9170600d254d23accb9d7b7ac18caf3fc55ef0",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1,180p' src/utilities/typeFromAST.ts && sed -n '495,545p' src/index.ts && cat src/diagnostics.ts && cat src/harness.ts\"",
+    "exit_code": 0,
+    "output_sha256": "c8d756bc20bfb4c6ec04464ea1c42bbb183fa66f812d523e422fe73c997356fb",
+    "output_bytes": 24843,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json','utf8'));\nconst root = context.workspace;\nconst cfg = ts.parseConfigFileTextToJson('tsconfig.json',fs.readFileSync(path.join(root,'tsconfig.json'),'utf8'));\nconst options = ts.convertCompilerOptionsFromJson(cfg.config.compilerOptions,root).options;\nconst files = context.files.filter(f=>f.endsWith('.ts')).map(f=>path.join(root,f));\nconst program = ts.createProgram(files,options);\nconst checker = program.getTypeChecker();\nconst sf = program.getSourceFile(path.join(root,'src/index.ts'));\nconst resolve = s => s && (s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s);\nconst target = resolve(checker.getExportsOfModule(checker.getSymbolAtLocation(sf)).find(s=>s.name==='typeFromAST'));\nconsole.log(JSON.stringify({targetDeclarations:target.declarations.map(d=>({file:path.relative(root,d.getSourceFile().fileName),line:d.getSourceFile().getLineAndCharacterOfPosition(d.getStart()).line+1}))}));\nconst refs=[]; const excluded=[];\nfor(const file of files){\n const source=program.getSourceFile(file);\n function walk(n){\n  if(ts.isIdentifier(n)){\n   const symbol=resolve(checker.getSymbolAtLocation(n));\n   if(symbol===target){\n    const start=source.getLineAndCharacterOfPosition(n.getStart(source));\n    const end=source.getLineAndCharacterOfPosition(n.getEnd());\n    const row={target:'typeFromAST',file:path.relative(root,file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n    if(target.declarations.some(d=>d.name===n)) excluded.push(row);\n    else refs.push(row);\n   }\n  }\n  ts.forEachChild(n,walk);\n }\n walk(source);\n}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconst diagnostics=ts.getPreEmitDiagnostics(program);\nconsole.log(JSON.stringify({references:refs,excluded_declarations:excluded,reference_count:refs.length,diagnostic_count:diagnostics.length,diagnostics:diagnostics.slice(0,10).map(d=>ts.flattenDiagnosticMessageText(d.messageText,'\\\\n'))},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "9ebb6f1c6930fc821f24848d3ee6fb38825a99e493146f590c3e5855aa640d82",
+    "output_bytes": 6127,
+    "compiler_reference_scan": true
+  }
+]

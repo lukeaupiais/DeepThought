@@ -1,0 +1,218 @@
+{
+  "all_sixteen_native_receipts_validated": true,
+  "all_server_reads_matched_to_native_client_responses": true,
+  "runs": [
+    {
+      "run": "deepthought-scip-v2-getNamedType-1-baseline",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 0,
+      "server_reads_matched_to_client": 0,
+      "graph_evidence": {
+        "status": "graph_not_used_or_unverified",
+        "successful_calls": 0
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-2-raw",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 3,
+      "server_reads_matched_to_client": 3,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 3,
+        "response_bytes": 31562,
+        "query_wall_seconds": 0.051098126990837045,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-3-tree",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12758,
+        "query_wall_seconds": 0.0387306539923884,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-4-scip",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12757,
+        "query_wall_seconds": 0.04398940499231685,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-5-scip",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12757,
+        "query_wall_seconds": 0.044742783007677644,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-6-tree",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 20135,
+        "query_wall_seconds": 0.03559786800178699,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-7-raw",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 3,
+      "server_reads_matched_to_client": 3,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 3,
+        "response_bytes": 31562,
+        "query_wall_seconds": 0.08769388200016692,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-getNamedType-8-baseline",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 0,
+      "server_reads_matched_to_client": 0,
+      "graph_evidence": {
+        "status": "graph_not_used_or_unverified",
+        "successful_calls": 0
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-1-baseline",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 0,
+      "server_reads_matched_to_client": 0,
+      "graph_evidence": {
+        "status": "graph_not_used_or_unverified",
+        "successful_calls": 0
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-2-raw",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 3,
+      "server_reads_matched_to_client": 3,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 3,
+        "response_bytes": 30599,
+        "query_wall_seconds": 0.05301613500341773,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-3-tree",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12111,
+        "query_wall_seconds": 0.08144099601486232,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-4-scip",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12110,
+        "query_wall_seconds": 0.06317632498394232,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-5-scip",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12110,
+        "query_wall_seconds": 0.037695872990298085,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-6-tree",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 2,
+      "server_reads_matched_to_client": 2,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 2,
+        "response_bytes": 12111,
+        "query_wall_seconds": 0.07104378499207087,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-7-raw",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 3,
+      "server_reads_matched_to_client": 3,
+      "graph_evidence": {
+        "status": "verified_neo4j_access",
+        "successful_calls": 3,
+        "response_bytes": 30599,
+        "query_wall_seconds": 0.0872341049980605,
+        "receipt_provenance": "observed_server_events_not_signed_attestations"
+      }
+    },
+    {
+      "run": "deepthought-scip-v2-typeFromAST-8-baseline",
+      "native_usage_matches": true,
+      "trace_hashes_match": true,
+      "server_read_count": 0,
+      "server_reads_matched_to_client": 0,
+      "graph_evidence": {
+        "status": "graph_not_used_or_unverified",
+        "successful_calls": 0
+      }
+    }
+  ]
+}

@@ -55,7 +55,11 @@ class Neo4jEvaluationTests(unittest.TestCase):
         self.prepared = prepare_neo4j(
             PACK,
             SOURCE,
-            tool_access={"command": "graph", "help": "Query the actual Neo4j graph"},
+            tool_access={
+                "command": "graph",
+                "help": "Query the actual Neo4j graph",
+                "available_capabilities": ["invented"],
+            },
         )
         self.graph = self.prepared["neo4j"]
         self.answer = {
@@ -115,8 +119,16 @@ class Neo4jEvaluationTests(unittest.TestCase):
         )
 
     def test_real_import_readback_and_observed_query_allow_integration(self):
+        self.assertEqual(
+            self.prepared["contexts"]["treatment"]["tool_access"][
+                "available_capabilities"
+            ],
+            self.prepared["private_tool_output"]["metadata"]["custom_metrics"][
+                "capabilities"
+            ],
+        )
         self.assertEqual(self.graph["nodes"], 18)
-        self.assertEqual(self.graph["relationships"], 17)
+        self.assertEqual(self.graph["relationships"], 32)
         self.assertNotIn("tool_output", self.prepared["contexts"]["treatment"])
         self.assertEqual(
             self.prepared["contexts"]["treatment"]["tool_access"]["backend"], "neo4j"

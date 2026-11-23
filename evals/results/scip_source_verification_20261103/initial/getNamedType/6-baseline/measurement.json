@@ -1,0 +1,44 @@
+{
+  "status": "completed",
+  "wall_seconds": 46.96096252500138,
+  "returncode": 0,
+  "terminal_events": [
+    {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 99617,
+        "cached_input_tokens": 86400,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2142,
+        "reasoning_output_tokens": 253
+      }
+    }
+  ],
+  "usage_granularity": "session_terminal_only",
+  "tool_payloads": [
+    {
+      "item_id": "item_1",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 8941
+    },
+    {
+      "item_id": "item_2",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 10477
+    },
+    {
+      "item_id": "item_3",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 9011
+    },
+    {
+      "item_id": "item_4",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 5944
+    }
+  ]
+}

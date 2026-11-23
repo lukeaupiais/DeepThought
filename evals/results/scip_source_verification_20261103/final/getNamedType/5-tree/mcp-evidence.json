@@ -1,0 +1,589 @@
+[
+  {
+    "tool": "findDefinitions",
+    "server": "deepthought",
+    "arguments": {
+      "symbol": "getNamedType",
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "a1570102a24fe38b381ab098bdfd80e270cdd4d39e8eaaeebedad8527e924df9",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "17041873c942fdff8c9bd48dcad09d584d495e9f4992063736e8344ac5ee1296",
+        "status": "succeeded",
+        "bytes": 6966,
+        "returned": 11,
+        "truncated": false,
+        "source_verification": null,
+        "response": {
+          "repo_url": "https://github.com/graphql/graphql-js",
+          "snapshot_id": "a1570102a24fe38b381ab098bdfd80e270cdd4d39e8eaaeebedad8527e924df9",
+          "status": "succeeded",
+          "scope": "repository_snapshot",
+          "capabilities": [
+            "definitions",
+            "dependencies",
+            "references"
+          ],
+          "analysis_status": "succeeded",
+          "items": [
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::1b5caab7bfc0ca85e9a4ae01da466d82a7ea201482dc8f6264de25cd705f4e85",
+              "native_id": null,
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "1b5caab7bfc0ca85e9a4ae01da466d82a7ea201482dc8f6264de25cd705f4e85",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 1841,
+                  "analyzed_by": null,
+                  "end_line": 1851,
+                  "end_column": 1
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::43ff530849a7ccdc13e07a8862150e1b2c0f1e094979535d7605233dbbfc48ca",
+              "native_id": null,
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "43ff530849a7ccdc13e07a8862150e1b2c0f1e094979535d7605233dbbfc48ca",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 1800,
+                  "analyzed_by": null,
+                  "end_line": 1800,
+                  "end_column": 78
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+              "native_id": null,
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 1750,
+                  "analyzed_by": null,
+                  "end_line": 1750,
+                  "end_column": 59
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::952f157570ae6d34700f2e372d7dbc9d7292e445e48142e5600f0880fd0d1147",
+              "native_id": null,
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "952f157570ae6d34700f2e372d7dbc9d7292e445e48142e5600f0880fd0d1147",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 1775,
+                  "analyzed_by": null,
+                  "end_line": 1775,
+                  "end_column": 76
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::955f865c3f37c45ca1e650e17af475ffe87f0e1bb88d51192c868d22c38ac7b0",
+              "native_id": null,
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "955f865c3f37c45ca1e650e17af475ffe87f0e1bb88d51192c868d22c38ac7b0",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 1821,
+                  "analyzed_by": null,
+                  "end_line": 1821,
+                  "end_column": 66
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::c19c6cb4f413c9c4cfcb5debb206e36fcb1fb85b01d23b7614852bf1eca2a278",
+              "native_id": null,
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "c19c6cb4f413c9c4cfcb5debb206e36fcb1fb85b01d23b7614852bf1eca2a278",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 1834,
+                  "analyzed_by": null,
+                  "end_line": 1836,
+                  "end_column": 32
+                }
+              ]
+            },
+            {
+              "symbol_id": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+              "native_id": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "f5b781d47eeaa9dcb50019ec6821d432637657bb4d0572a86406904d5a23dcda",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 1750,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 1750,
+                  "end_column": 28
+                },
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "bc1f2d5f45701000071311a56301021a86b49b9aab37cbaff415a3a9d0880256",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 1775,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 1775,
+                  "end_column": 28
+                },
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "ef953c8a56d6e82310b123469c1d750d7710451fabb4833f24ff9c1bbbdc192a",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 1800,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 1800,
+                  "end_column": 28
+                },
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "99b26cc1671d6579addc4b36e2faea75cda7a53a0b7ccb40826b8f3faae32f2a",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 1821,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 1821,
+                  "end_column": 28
+                },
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "1e064bdec60cd8cd1f829524f6e8bc99c4502a10f89b411a012813c0486f1163",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 1834,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 1834,
+                  "end_column": 28
+                },
+                {
+                  "file_path": "src/type/definition.ts",
+                  "definition_id": "f1d97bc1014b800172f43562bd096b5d454e8253b1f542d85707d57f550c2002",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 1841,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 1841,
+                  "end_column": 28
+                }
+              ]
+            },
+            {
+              "symbol_id": "scip-typescript npm graphql 17.0.2 src/utilities/`mapSchemaConfig.ts`/MappedSchemaContext#getNamedType.",
+              "native_id": "scip-typescript npm graphql 17.0.2 src/utilities/`mapSchemaConfig.ts`/MappedSchemaContext#getNamedType.",
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/mapSchemaConfig.ts",
+                  "definition_id": "f7275e181c419ba5b1f7b2b65835db1979aad2a79623cd9ad10b0a15880e4234",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Property",
+                  "column": 2,
+                  "start_line": 78,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 78,
+                  "end_column": 14
+                }
+              ]
+            },
+            {
+              "symbol_id": "src/utilities/buildClientSchema.ts::local 39",
+              "native_id": "local 39",
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/buildClientSchema.ts",
+                  "definition_id": "21d23df64ce309688459d84bb38ea433a745b242b274fe53c87c00c7d49d4d02",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 11,
+                  "start_line": 169,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 169,
+                  "end_column": 23
+                }
+              ]
+            },
+            {
+              "symbol_id": "src/utilities/extendSchema.ts::local 55",
+              "native_id": "local 55",
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/extendSchema.ts",
+                  "definition_id": "134b1bed9e34896810b37c24738b4f0a5e13626f7d4e115c07d94125fb8aefed",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Constant",
+                  "column": 12,
+                  "start_line": 266,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 266,
+                  "end_column": 24
+                }
+              ]
+            },
+            {
+              "symbol_id": "src/utilities/mapSchemaConfig.ts::local 42",
+              "native_id": "local 42",
+              "name": "getNamedType",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/mapSchemaConfig.ts",
+                  "definition_id": "c1afcd657822ad9dc6c629ffbf0087519a40ad31840e79348a538862c7c4b63f",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 11,
+                  "start_line": 250,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 250,
+                  "end_column": 23
+                }
+              ]
+            }
+          ],
+          "returned": 11,
+          "truncated": false,
+          "response_format": "definitions-v2"
+        }
+      }
+    ],
+    "text_errors": []
+  },
+  {
+    "tool": "findReferences",
+    "server": "deepthought",
+    "arguments": {
+      "native_symbol": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "a1570102a24fe38b381ab098bdfd80e270cdd4d39e8eaaeebedad8527e924df9",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "2f5a8c239ccaba40416fdbcef5961c8273d172144bf6f969b8ecca6dff54bd90",
+        "status": "succeeded",
+        "bytes": 5791,
+        "returned": 20,
+        "truncated": false,
+        "source_verification": null,
+        "response": {
+          "repo_url": "https://github.com/graphql/graphql-js",
+          "snapshot_id": "a1570102a24fe38b381ab098bdfd80e270cdd4d39e8eaaeebedad8527e924df9",
+          "status": "succeeded",
+          "scope": "repository_snapshot",
+          "capabilities": [
+            "definitions",
+            "dependencies",
+            "references"
+          ],
+          "analysis_status": "succeeded",
+          "items": [
+            {
+              "reference": {
+                "file_path": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+                "reference_id": "1b244c9060c63edfee4383721b6dfd7430df3ed900d4e2d9d4e25b16f32132e7",
+                "column": 9,
+                "start_line": 7,
+                "end_line": 7,
+                "end_column": 21
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/type/validate.ts",
+                "reference_id": "1c753a99a4e63c5982fbfdad6d79b0b6570221e7b738aeed103b258428893dd0",
+                "column": 29,
+                "start_line": 986,
+                "end_line": 986,
+                "end_column": 41
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "1d65e0ba39d57d4cef423c0f7d26d57af73abf8dd398c9cee1d69062e7c97d68",
+                "column": 34,
+                "start_line": 789,
+                "end_line": 789,
+                "end_column": 46
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/ScalarLeafsRule.ts",
+                "reference_id": "23a5af07ed8826275488e67b43d7f621b2cd0fb7ef1da25dda4367e6cddb5b2c",
+                "column": 23,
+                "start_line": 51,
+                "end_line": 51,
+                "end_column": 35
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "3d70bfc5c07558cb7f0dcbc7892d71b240dfc2fa50a8b6c1e32ba5bbfbb146f0",
+                "column": 15,
+                "start_line": 985,
+                "end_line": 985,
+                "end_column": 27
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "42badce6b6ffe5a2f8fbe256e67412d18221bb43f68a0a22a4b4d659645bafea",
+                "column": 12,
+                "start_line": 717,
+                "end_line": 717,
+                "end_column": 24
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "4a041777fdccbea9d50c47e325b8a5443127dd1f57a4f9b7ec55ea69f053e578",
+                "column": 2,
+                "start_line": 29,
+                "end_line": 29,
+                "end_column": 14
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+                "reference_id": "4bf84c4f92f9d6cbc9f06dbc2e537b9559e1b3ae50703e367abc446c4228dcbf",
+                "column": 19,
+                "start_line": 57,
+                "end_line": 57,
+                "end_column": 31
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/type/validate.ts",
+                "reference_id": "4f2131311a9bd8091a10da557dbd01c12c53c5dcf548bf31a265ebd7c722fd58",
+                "column": 2,
+                "start_line": 52,
+                "end_line": 52,
+                "end_column": 14
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/index.ts",
+                "reference_id": "4f6d03b19625d15311e3a64eafe9144348224a90011ed137ba0c6acd20991425",
+                "column": 2,
+                "start_line": 171,
+                "end_line": 171,
+                "end_column": 14
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/type/schema.ts",
+                "reference_id": "5dd6b20d3267c043a58d4d4985d36f2a4aa9e68f2cd6350764aec33cea061a1d",
+                "column": 2,
+                "start_line": 27,
+                "end_line": 27,
+                "end_column": 14
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+                "reference_id": "7613f816c6951ae22025b7f33edd56adb62020194d7618d818815c015da385c2",
+                "column": 29,
+                "start_line": 88,
+                "end_line": 88,
+                "end_column": 41
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+                "reference_id": "8e2db3de126ceff039cd0d82f0132cf3f19045241c7d86709d92dd2c36edceb9",
+                "column": 9,
+                "start_line": 8,
+                "end_line": 8,
+                "end_column": 21
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/type/index.ts",
+                "reference_id": "8f70a628984826d8d543bd084ff0a7a8c099b54d066448f36fe656279509c69b",
+                "column": 2,
+                "start_line": 77,
+                "end_line": 77,
+                "end_column": 14
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/type/validate.ts",
+                "reference_id": "90326353748c3c88cdea83ca3a0753842965d5ab57966096b2332ada11ad5829",
+                "column": 29,
+                "start_line": 1026,
+                "end_line": 1026,
+                "end_column": 41
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/type/schema.ts",
+                "reference_id": "b2ac6664bb6fa8a272d42f463f1d7123397e0357e23085dc7a2c135edeff93af",
+                "column": 20,
+                "start_line": 945,
+                "end_line": 945,
+                "end_column": 32
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "cb1ad28615139733e411c557d1889008142d1754587c9f9b8234daf24af27155",
+                "column": 35,
+                "start_line": 678,
+                "end_line": 678,
+                "end_column": 47
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/validation/rules/ScalarLeafsRule.ts",
+                "reference_id": "f02b0d2014160b745e4d57e0b751d29248e5ddf7fbd014ee2df251612064d766",
+                "column": 9,
+                "start_line": 10,
+                "end_line": 10,
+                "end_column": 21
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "f5dc3ed73c076d98e9b8fe810e6c5bba4a7ca0cb7f88fd15ead31c211817f602",
+                "column": 2,
+                "start_line": 27,
+                "end_line": 27,
+                "end_column": 14
+              }
+            },
+            {
+              "reference": {
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "fd564343605d5f1252ce2c82c67825f17de4685505f26ef637c627fb1f3c863c",
+                "column": 36,
+                "start_line": 771,
+                "end_line": 771,
+                "end_column": 48
+              }
+            }
+          ],
+          "returned": 20,
+          "truncated": false,
+          "reference_coverage": [
+            {
+              "tool": "scip",
+              "graph_status": "partial",
+              "resolution_counts": {
+                "ambiguous": 0,
+                "resolved": 34635,
+                "unresolved": 9498
+              },
+              "resolution_semantics": "native_symbol_binding",
+              "indexed_files": 176,
+              "source_binding": {
+                "receipt_sha256": "8a2b807a9b00a31cf23d2298646889d18a10176ad0e7c5e5328d4b81773aecb3",
+                "checked_at": null,
+                "workspace_freshness": "unverified_at_query"
+              }
+            }
+          ],
+          "response_format": "references-v2",
+          "reference_common": {
+            "symbol_roles": 0,
+            "native_id": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+            "target_ids": [
+              "1e064bdec60cd8cd1f829524f6e8bc99c4502a10f89b411a012813c0486f1163",
+              "99b26cc1671d6579addc4b36e2faea75cda7a53a0b7ccb40826b8f3faae32f2a",
+              "bc1f2d5f45701000071311a56301021a86b49b9aab37cbaff415a3a9d0880256",
+              "ef953c8a56d6e82310b123469c1d750d7710451fabb4833f24ff9c1bbbdc192a",
+              "f1d97bc1014b800172f43562bd096b5d454e8253b1f542d85707d57f550c2002",
+              "f5b781d47eeaa9dcb50019ec6821d432637657bb4d0572a86406904d5a23dcda"
+            ],
+            "resolution": "resolved",
+            "coordinate_encoding": "utf-16",
+            "declaration_resolution": "multiple"
+          },
+          "next_cursor": null
+        }
+      }
+    ],
+    "text_errors": []
+  }
+]

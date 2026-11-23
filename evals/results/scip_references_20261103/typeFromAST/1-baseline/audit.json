@@ -1,0 +1,11 @@
+{
+  "run": "typeFromAST-1-baseline",
+  "native_usage_matches": true,
+  "trace_hashes_match": true,
+  "server_read_count": 0,
+  "server_reads_matched_to_client": 0,
+  "graph_evidence": {
+    "status": "graph_not_used_or_unverified",
+    "successful_calls": 0
+  }
+}

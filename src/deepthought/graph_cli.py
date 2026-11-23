@@ -43,6 +43,24 @@ def query_observer():
     return query_recorder_from_environment()
 
 
+def reference_validator():
+    keys = (
+        "DEEPTHOUGHT_REFERENCE_WORKSPACE",
+        "DEEPTHOUGHT_REFERENCE_INDEX",
+        "DEEPTHOUGHT_REFERENCE_NODE",
+        "DEEPTHOUGHT_REFERENCE_TYPESCRIPT",
+        "DEEPTHOUGHT_REFERENCE_REPOSITORY_ID",
+    )
+    values = [os.environ.get(key) for key in keys]
+    if not any(values):
+        return None
+    if not all(values):
+        raise ValueError("Configure all five DEEPTHOUGHT_REFERENCE_* source bindings")
+    from .typescript_reference_evidence import ReferenceSourceValidator
+
+    return ReferenceSourceValidator(*values)
+
+
 def parser():
     p = argparse.ArgumentParser(
         description="DeepThought Neo4j graph import and queries"
@@ -62,7 +80,24 @@ def parser():
     index.add_argument("--language", action="append", choices=("python", "typescript"))
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
-    for name in ("search", "context", "structure", "callers", "callees", "cypher"):
+    index.add_argument(
+        "--scip-index",
+        type=Path,
+        help="Source-bound SCIP artifact, default workspace/index.scip",
+    )
+    index.add_argument("--reference-node", type=Path)
+    index.add_argument("--reference-typescript", type=Path)
+    for name in (
+        "search",
+        "context",
+        "structure",
+        "definitions",
+        "callers",
+        "callees",
+        "references",
+        "dependencies",
+        "cypher",
+    ):
         q = commands.add_parser(name)
         q.add_argument("--repository-id", required=True)
         q.add_argument("--snapshot", required=True)
@@ -70,12 +105,28 @@ def parser():
         q.add_argument("--max-output-bytes", type=int, default=16000)
         if name in {"search", "cypher"}:
             q.add_argument("--query", required=True)
-        if name in {"context", "structure"}:
+        if name in {"context", "structure", "dependencies"}:
             q.add_argument("--file", required=True)
         if name == "context":
             q.add_argument("--line", type=int)
-        if name in {"callers", "callees"}:
+            q.add_argument("--definition-id")
+            q.add_argument("--native-symbol")
+            q.add_argument("--source-offset", type=int, default=0)
+            q.add_argument("--max-source-characters", type=int, default=1200)
+        if name in {"definitions", "callers", "callees"}:
             q.add_argument("--symbol", required=True)
+        if name == "references":
+            selector = q.add_mutually_exclusive_group(required=True)
+            selector.add_argument("--symbol")
+            selector.add_argument("--export-name")
+            q.add_argument("--export-file")
+            q.set_defaults(limit=100)
+            q.add_argument(
+                "--file", help="Required document scope for local SCIP identities"
+            )
+            q.add_argument("--after-reference-id", default="")
+        if name in {"references", "definitions"}:
+            q.add_argument("--include-evidence", action="store_true")
         if name == "cypher":
             q.add_argument("--parameters", default="{}", help="JSON parameter object")
             q.add_argument(
@@ -108,7 +159,17 @@ async def execute(args):
                 raise ValueError("Multiple tools require --snapshot graph revision")
             outputs = []
             for name in names:
-                tool = tool_registry.get_tool(name, args.workspace)
+                options = (
+                    {"index_path": args.scip_index}
+                    if name == "scip" and args.scip_index is not None
+                    else {}
+                )
+                if name == "scip":
+                    options.update(
+                        reference_node=args.reference_node,
+                        reference_typescript=args.reference_typescript,
+                    )
+                tool = tool_registry.get_tool(name, args.workspace, **options)
                 if tool is None:
                     raise ValueError("Unknown AnalysisTool: " + name)
                 try:
@@ -146,6 +207,7 @@ async def execute(args):
             driver,
             database=config["database"],
             observer=query_observer(),
+            reference_validator=reference_validator(),
         )
         kwargs = dict(
             snapshot_id=args.snapshot,
@@ -158,10 +220,39 @@ async def execute(args):
             )
         if args.command == "context":
             return await service.get_code_context(
-                args.file, args.repository_id, line_number=args.line, **kwargs
+                args.file,
+                args.repository_id,
+                line_number=args.line,
+                definition_id=args.definition_id,
+                native_symbol=args.native_symbol,
+                source_offset=args.source_offset,
+                max_source_characters=args.max_source_characters,
+                **kwargs,
             )
         if args.command == "structure":
             return await service.get_file_structure(
+                args.file, args.repository_id, **kwargs
+            )
+        if args.command == "definitions":
+            return await service.find_symbol_by_name(
+                args.symbol,
+                args.repository_id,
+                compact=not args.include_evidence,
+                **kwargs,
+            )
+        if args.command == "references":
+            return await service.get_references(
+                args.symbol,
+                args.repository_id,
+                file_path=args.file,
+                after_reference_id=args.after_reference_id,
+                compact=not args.include_evidence,
+                export_name=args.export_name,
+                export_file=args.export_file,
+                **kwargs,
+            )
+        if args.command == "dependencies":
+            return await service.get_file_dependencies(
                 args.file, args.repository_id, **kwargs
             )
         if args.command in {"callers", "callees"}:

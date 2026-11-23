@@ -1,0 +1,31 @@
+{
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "order": [
+    "baseline",
+    "tree",
+    "scip",
+    "scip",
+    "tree",
+    "baseline"
+  ],
+  "timeout_seconds": 420,
+  "prompt": "Read /work/context.json and complete its reference investigation. Use the supplied production sources and ordinary search/Python/Node tools. The project configuration and installed public dependencies are read-only and TypeScript is available via require('/opt/typescript/lib/typescript.js'). Use only source and any DeepThought connection described in your context. Do not discover unrelated connectors or use the network for task answers. Do not install, build, execute project modules, alter source or read authentication, prior answers or evaluation materials. Return the complete requested JSON answer only.\n",
+  "automatic_retries": 0,
+  "fresh_sessions": true,
+  "baseline_shared_within_block": true,
+  "disabled_common_features": [
+    "apps",
+    "plugins",
+    "memories"
+  ],
+  "ordinary_tools": "Source/search, Python AST, TypeScript compiler6.0.3 and identical installed project dependencies",
+  "driver_sha256": "b4b20135a5227fe2218c72aa569f06b9feae50c058f85f8f25d10fca0629845a",
+  "grader_sha256": "00b6cdde271b8427d28f8898c3d6b747d39399bd6bd963e8d9c8971a78ecac44",
+  "condition_names": {
+    "baseline": "source/compiler",
+    "raw": "expanded-v1",
+    "tree": "compact-v2",
+    "scip": "source-evidence-v4"
+  }
+}

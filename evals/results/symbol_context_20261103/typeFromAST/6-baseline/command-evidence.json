@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "f98d09c2e1f556e1f5e0132438d84ec95c976d5a0d69fa69114dfdb5a5668fd2",
+    "output_bytes": 8939,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src --glob '*.ts' --glob '\"'!**/__tests__/**'\"'\"",
+    "exit_code": 0,
+    "output_sha256": "61e6048a95fd5572ccca7b2f17d0964c1a26daca87e05df548f276a0622586b9",
+    "output_bytes": 4930,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc 'cat tsconfig.json package.json'",
+    "exit_code": 0,
+    "output_sha256": "4dfb8b7e714738eeb1442ffdb04455b58a64108559877ecfb7eea257f4ba4708",
+    "output_bytes": 5171,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"cat src/harness.ts src/utilities/typeFromAST.ts; sed -n '500,540p' src/index.ts; sed -n '385,430p' src/utilities/extendSchema.ts\"",
+    "exit_code": 0,
+    "output_sha256": "394f91439ad6a5c0d0e0c0900d786de65b70faf032d3f1767ab4bb52e22fa173",
+    "output_bytes": 9515,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = context.workspace;\nconst sourceFiles = context.files.filter(f => f.endsWith('.ts'));\nconst allowed = new Set(context.files.map(f => path.resolve(root, f)));\nconst config = ts.readConfigFile(path.join(root, 'tsconfig.json'), ts.sys.readFile);\nconst options = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, root).options;\nconst host = ts.createCompilerHost(options);\nconst originalRead = host.readFile;\nconst originalExists = host.fileExists;\nconst canRead = file => \"'!path.resolve(file).startsWith(root + path.sep) || allowed.has(path.resolve(file)) || path.resolve(file).startsWith(path.join(root, '\"'node_modules') + path.sep);\nhost.readFile = file => canRead(file) ? originalRead(file) : undefined;\nhost.fileExists = file => canRead(file) && originalExists(file);\nconst program = ts.createProgram(sourceFiles.map(f => path.join(root, f)), options, host);\nconst checker = program.getTypeChecker();\nconst targetSource = program.getSourceFile(path.join(root, 'src/utilities/typeFromAST.ts'));\nconst mod = checker.getSymbolAtLocation(targetSource);\nconst target = checker.getExportsOfModule(mod).find(s => s.name === 'typeFromAST');\nfunction resolve(s) { return s && (s.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(s) : s; }\nconst refs = [];\nconst excludedDeclarations = [];\nfor (const file of sourceFiles) {\n const sf = program.getSourceFile(path.join(root, file));\n function visit(node) {\n  if (ts.isIdentifier(node) && resolve(checker.getSymbolAtLocation(node)) === target) {\n   const p = node.parent;\n   const start = sf.getLineAndCharacterOfPosition(node.getStart(sf));\n   const end = sf.getLineAndCharacterOfPosition(node.getEnd());\n   const row = { target: 'typeFromAST', file, line: start.line + 1, column: start.character, end_line: end.line + 1, end_column: end.character };\n   if (ts.isFunctionDeclaration(p) && p.name === node) excludedDeclarations.push(row);\n   else refs.push(row);\n  }\n  ts.forEachChild(node, visit);\n }\n visit(sf);\n}\nrefs.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references:refs, limitations:[]}, null, 2));\nconsole.error(JSON.stringify({referenceCount:refs.length,excludedDeclarationCount:excludedDeclarations.length,sourceFileCount:sourceFiles.length}));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "712fcae07f00a713e52f2d73f153f358e6de1f5f44c9bab553f7b3701d7330bd",
+    "output_bytes": 4971,
+    "compiler_reference_scan": true
+  }
+]

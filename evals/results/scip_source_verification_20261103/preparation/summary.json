@@ -1,0 +1,95 @@
+{
+  "observed_attempt_elapsed_seconds": 619.5308273640112,
+  "model_tokens": 0,
+  "attempts": [
+    {
+      "label": "attempt-01-failed",
+      "status": "failed",
+      "elapsed_seconds": 217.2376913820044,
+      "peak_process_rss_kib": 1167892,
+      "preparation": null,
+      "neo4j": null
+    },
+    {
+      "label": "attempt-02-getNamedType",
+      "status": "completed",
+      "elapsed_seconds": 125.40564294799697,
+      "peak_process_rss_kib": 1192172,
+      "preparation": {
+        "wall_seconds": 44.55190962998313,
+        "model_tokens": 0,
+        "neo4j_wall_seconds": 64.93093483899429
+      },
+      "neo4j": {
+        "backend": "neo4j",
+        "interface": "deepthought.graph_queries.GraphQueryService",
+        "database": "neo4j",
+        "repo_url": "https://github.com/graphql/graphql-js",
+        "snapshot_id": "264ec826354b0fe09890d9152cb43b927f29d22aa91e1e087be961ab9e9892e6",
+        "content_hash": "766a5181c40c60d30df9d6902a96199512eadfe340ed232650af85ad0bc3e854",
+        "nodes": 63381,
+        "relationships": 92894,
+        "verified": true,
+        "wall_seconds": 64.93093483899429
+      }
+    },
+    {
+      "label": "attempt-02-typeFromAST-failed",
+      "status": "failed",
+      "elapsed_seconds": 69.02382921200478,
+      "peak_process_rss_kib": 1218832,
+      "preparation": null,
+      "neo4j": null
+    },
+    {
+      "label": "final-getNamedType",
+      "status": "completed",
+      "elapsed_seconds": 126.52118976700876,
+      "peak_process_rss_kib": 1192172,
+      "preparation": {
+        "wall_seconds": 44.26917710798443,
+        "model_tokens": 0,
+        "neo4j_wall_seconds": 64.0288498410082
+      },
+      "neo4j": {
+        "backend": "neo4j",
+        "interface": "deepthought.graph_queries.GraphQueryService",
+        "database": "neo4j",
+        "repo_url": "https://github.com/graphql/graphql-js",
+        "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+        "content_hash": "52cc0796a9ac459972cb1e834a59bf66f341af32ef9eb4ea28bd007b25f8d826",
+        "nodes": 63381,
+        "relationships": 92894,
+        "verified": true,
+        "wall_seconds": 64.0288498410082
+      }
+    },
+    {
+      "label": "final-typeFromAST",
+      "status": "completed",
+      "elapsed_seconds": 81.34247405499627,
+      "peak_process_rss_kib": 1218508,
+      "preparation": {
+        "wall_seconds": 36.64219614499598,
+        "model_tokens": 0,
+        "neo4j_wall_seconds": 32.46944731401163
+      },
+      "neo4j": {
+        "backend": "neo4j",
+        "interface": "deepthought.graph_queries.GraphQueryService",
+        "database": "neo4j",
+        "repo_url": "https://github.com/graphql/graphql-js",
+        "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+        "content_hash": "52cc0796a9ac459972cb1e834a59bf66f341af32ef9eb4ea28bd007b25f8d826",
+        "nodes": 63381,
+        "relationships": 92894,
+        "verified": true,
+        "wall_seconds": 32.46944731401163
+      }
+    }
+  ],
+  "limitations": [
+    "Service setup/restart, all coordinator and reviewer work, prior indexing and installation costs are outside these elapsed receipts.",
+    "Final batch reused unchanged fully verified graph facts. Only the treatment handoff and query adapter changed."
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 78072,
+      "cached_input_tokens": 61056,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 2034,
+      "reasoning_output_tokens": 251
+    }
+  },
+  "returncode": 0,
+  "stdout_sha256": "d52fe60f6f5fe16f8288b208d33fd3ea7eb7508f4bf82514121986223ba94981",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "answer_sha256": "3d0b4016cc2b5f56a3524a91cea782178b0d78ad6dabec35ae1f118ff565a6f0",
+  "graph_evidence": {
+    "status": "graph_not_used_or_unverified",
+    "successful_calls": 0
+  },
+  "native_condition": "baseline",
+  "control_block": 0
+}

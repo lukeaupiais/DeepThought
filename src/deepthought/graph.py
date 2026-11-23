@@ -50,6 +50,7 @@ class GraphSnapshot:
     definitions: tuple[GraphDefinition, ...]
     references: tuple[GraphReference, ...]
     edges: tuple[DependencyEdge, ...]
+    composer_version: str = COMPOSER_VERSION
 
     @property
     def resolution_counts(self) -> dict[str, int]:
@@ -90,7 +91,7 @@ class GraphSnapshot:
                 {
                     "artifact_type": "graph",
                     "schema_version": "1",
-                    "composer_version": COMPOSER_VERSION,
+                    "composer_version": self.composer_version,
                     **asdict(self),
                 }
             )
@@ -108,12 +109,16 @@ class GraphSnapshot:
             not isinstance(data, dict)
             or data.get("artifact_type") != "graph"
             or data.get("schema_version") != "1"
-            or data.get("composer_version") != COMPOSER_VERSION
+            or data.get("composer_version") not in ("1", "2")
         ):
             raise ValueError("Unsupported graph artifact schema")
         try:
             graph = compose_graph(
-                AnalysisResult.from_json(json.dumps(item)) for item in data["sources"]
+                (
+                    AnalysisResult.from_json(json.dumps(item))
+                    for item in data["sources"]
+                ),
+                composer_version=data["composer_version"],
             )
             if graph.to_dict() != data:
                 raise ValueError("Graph does not agree with its source facts")
@@ -127,12 +132,16 @@ def _symbol_key(repository_id: str, file: str, native: str) -> tuple[str, ...]:
     return (repository_id, file, native) if native.startswith("local ") else (native,)
 
 
-def compose_graph(results: Iterable[AnalysisResult]) -> GraphSnapshot:
+def compose_graph(
+    results: Iterable[AnalysisResult], *, composer_version: str = COMPOSER_VERSION
+) -> GraphSnapshot:
     """Compose one selected full analysis snapshot per repository.
 
     Full native symbols are the sole resolution evidence. Definitions without
     native IDs remain queryable but cannot resolve compiler-backed references.
     """
+    if composer_version not in ("1", "2"):
+        raise ValueError("Unsupported graph composer contract")
     sources = tuple(results)
     if any(not isinstance(item, AnalysisResult) for item in sources):
         raise ValueError("Graph sources must be analysis artifacts")
@@ -170,11 +179,17 @@ def compose_graph(results: Iterable[AnalysisResult]) -> GraphSnapshot:
                 [],
             )
             target_ids = tuple(sorted(node.id for node in targets))
+            candidate_scopes = {
+                (node.repository_id, node.source_snapshot_id) for node in targets
+            }
+            unique_binding = len(targets) == 1 or (
+                composer_version == "2" and len(candidate_scopes) == 1
+            )
             resolution = (
                 "unresolved"
                 if not targets
                 else "resolved"
-                if len(targets) == 1
+                if unique_binding
                 else "ambiguous"
             )
             ref = GraphReference(
@@ -192,7 +207,10 @@ def compose_graph(results: Iterable[AnalysisResult]) -> GraphSnapshot:
                 target_ids,
             )
             references.append(ref)
-            if resolution == "resolved":
+            destinations = {
+                (node.repository_id, node.definition.file) for node in targets
+            }
+            if resolution == "resolved" and len(destinations) == 1:
                 target = targets[0]
                 if (source.repository_id, reference.file) != (
                     target.repository_id,
@@ -226,9 +244,15 @@ def compose_graph(results: Iterable[AnalysisResult]) -> GraphSnapshot:
     )
     manifest = {
         "sources": [source.to_dict() for source in sources],
-        "composer_version": COMPOSER_VERSION,
+        "composer_version": composer_version,
     }
     snapshot_id = sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
     return GraphSnapshot(
-        snapshot_id, status, sources, tuple(definitions), tuple(references), edges
+        snapshot_id,
+        status,
+        sources,
+        tuple(definitions),
+        tuple(references),
+        edges,
+        composer_version,
     )

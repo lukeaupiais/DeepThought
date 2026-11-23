@@ -190,3 +190,44 @@ establish lower cost, broader language coverage or improved agent reasoning.
 Actual performance claims need independently reviewed outcomes and retained
 native usage evidence on repeated, comparable agent investigations, including
 preparation and refresh costs.
+
+## Source-bound SCIP pilot
+
+The [SCIP reference pilot](../evals/results/scip_references_20261103/README.md)
+adds a three-condition comparison against the same source/compiler baseline.
+All twelve answers were exact. TreeSitter+SCIP used 102.63% more total tokens,
+67.70% more estimated Standard credits and 21.11% more actor time. Every SCIP
+session used the production Neo4j interface. Integration correctness passed,
+while agent-efficiency benefit remains unproven. The report retains failed
+preparation overhead, shared-control counting and limited quality scope.
+
+The [response and binding refinement](../evals/results/scip_refinement_20261103/README.md)
+ran sixteen fresh sessions across source/compiler, expanded-v1, compact-v1 and
+compact-v2 conditions. The final condition reduced tokens by 45.13% against the
+expanded control while remaining 27.91% above the source/compiler baseline.
+All requested locations were exact and 44 cross-file occurrences gained
+dependency witnesses. A separate actual-producer alias/re-export control failed
+at 7/8 semantic references. Its unresolved occurrence remains explicit. These
+findings limit both usefulness and completeness claims. Per-tool payload sizes
+are recorded, while native CLI usage remains session-terminal only.
+
+The [source-evidence and reliance evaluation](../evals/results/scip_source_verification_20261103/README.md)
+retains two further twelve-session batches. Compiler-backed alias evidence,
+current-input verification, direct export lookup and corrected tool handoff all
+passed local integration checks. In the final batch all graph-assisted agents
+obtained verified results in one call, then all four still reconstructed the
+references with TypeScript. Their exact answers used 19.04% more total tokens,
+15.72% more estimated credits and 49.60% more actor time than fresh ordinary
+source/compiler controls. The reliance and baseline efficiency gates remain
+failed. The report also records variable source-validation latency and all
+preparation failures. Verification and ordinary compiler access were retained.
+
+The [symbol-context restoration](../evals/results/symbol_context_20261103/README.md)
+verified full selected declaration source, AST ownership and exact SCIP-to-AST
+associations. Independent AST checks cover all 1,587 stored declarations and
+ownership edges. Twelve fresh native sessions retained the same reference tasks
+and strong baseline. All answers were exact. Candidate tokens were 30.04% above
+baseline, estimated credits 2.08% above and actor time 2.60% below. All four
+candidate agents still reconstructed references and none requested source
+context. Body-dependent task usefulness remains open. The report distinguishes
+the frozen model candidate from final context-compatibility checks through MCP.

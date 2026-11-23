@@ -1,0 +1,141 @@
+{
+  "all_match": true,
+  "files": [
+    {
+      "path": "__init__.py",
+      "sha256": "f0cb994ba0813349b4fbc99cf59453aebc10112e2315a08397f8a61f96c1071d"
+    },
+    {
+      "path": "__main__.py",
+      "sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d"
+    },
+    {
+      "path": "_scip/__init__.py",
+      "sha256": "0b410b9d811bb9314e681d9fa18af74fd8f1d3643264e8dbcb6fdabd1436203d"
+    },
+    {
+      "path": "_scip/scip.proto",
+      "sha256": "b855eb9abdb3fe7f07600ee92f24a6c40f75fceef37136ccdc6844b300936a31"
+    },
+    {
+      "path": "_scip/scip_pb2.py",
+      "sha256": "d651d7872ddd1b6a1be62b31dce143e1a2d9797f7faac8233d977e915665323b"
+    },
+    {
+      "path": "_version.py",
+      "sha256": "f576fbc018a36074f0cdfac9e7467a29c23a4a7044ab9d4d4b4077c6a9fcd8de"
+    },
+    {
+      "path": "analysis_tools/__init__.py",
+      "sha256": "03015d6f5d28091efed6d3adadfd37f00d43c6a03fb6d2f76395b720db416b96"
+    },
+    {
+      "path": "analysis_tools/base.py",
+      "sha256": "dfffd4ce5b1503ea378862db45f561960cd4693f4cd2864214cc58f879faf095"
+    },
+    {
+      "path": "analysis_tools/contracts.py",
+      "sha256": "7677e48ea3ef57f42f1874c2b45015434431b625d4acadab3b55134a7b3b040c"
+    },
+    {
+      "path": "analysis_tools/registry.py",
+      "sha256": "96698827a6e2b1b262c3a5931cfd277858b592b3a22913b35dbdf257f52c8f01"
+    },
+    {
+      "path": "analysis_tools/scip.py",
+      "sha256": "04568e1b2cc0658651a3482d30826cc6c5e4e2cdf7d243de6ff9cc46073524c1"
+    },
+    {
+      "path": "analysis_tools/tree_sitter.py",
+      "sha256": "a0041d0b9b2be3889e41c79bffd7618f0bc886e75046f32c3ea6a386746cef05"
+    },
+    {
+      "path": "cli.py",
+      "sha256": "4baf5b76454766f4198e9bf968e5c95f24d3a02e9a59bcc3087a4e28974420a4"
+    },
+    {
+      "path": "consistency.py",
+      "sha256": "f6a44011e4464b6b1b281ee91c55719bf800bc402fa05e1e8b08f586c29eb89c"
+    },
+    {
+      "path": "engine.py",
+      "sha256": "0ae118fa4cf8a52752d6b573523b94804f671187a21203f0e0cf20dda8fbc25c"
+    },
+    {
+      "path": "evaluation/__init__.py",
+      "sha256": "9f96bf258d759f5e4530f1149bd2f51541d2e6bc65090384c4140f0dfede4419"
+    },
+    {
+      "path": "evaluation/__main__.py",
+      "sha256": "d7a90900e2afecd801cfc6a625c1ded1621972bf942d81925f6f193c71eae318"
+    },
+    {
+      "path": "evaluation/neo4j.py",
+      "sha256": "cb7b7c68bb3dae4f3afc07aaba99ebd28c6522759b59ad54d56db011a8e320d2"
+    },
+    {
+      "path": "graph.py",
+      "sha256": "10db7aa48c528fe2055fe36bbc7dd9beef3be4ece5c04808f583bd72917a171f"
+    },
+    {
+      "path": "graph_cli.py",
+      "sha256": "a6b3c0a4ef4b3ecf6db660272a61b9ff3d0ac3f3206866e126895fe29a1f25d2"
+    },
+    {
+      "path": "graph_mcp.py",
+      "sha256": "767b26462beee0b46ef42bc55067ebf93ab3fa789c758aabcc4f5235db81b57c"
+    },
+    {
+      "path": "graph_queries.py",
+      "sha256": "e87ab4cbd3b075b3de2ff173798ca5087b3d902a8a025480926f804473774c67"
+    },
+    {
+      "path": "models.py",
+      "sha256": "dadd5b0ec1c732dcc76570c2c07403be0cf8e301234a3564aa78705846e82d9e"
+    },
+    {
+      "path": "query.py",
+      "sha256": "9b20525c85232391e11e97c218eda4f12b232ce5b5248f8ec05f0b41800ae26e"
+    },
+    {
+      "path": "scip.py",
+      "sha256": "e6f565602c1facaf54f69c5fd36b8634219ed3cfa4e01524d779c54f91d4abda"
+    },
+    {
+      "path": "scip_indexing.py",
+      "sha256": "ee0dd9ed061ba199befd22fb47de2402ba3b14a72812bb197ecc7997ead5f9c4"
+    },
+    {
+      "path": "storage/__init__.py",
+      "sha256": "81c5583c233667f2b111958a2d0e99b87462c5677f97e4588005b4dfc1192ce7"
+    },
+    {
+      "path": "storage/graph/__init__.py",
+      "sha256": "40dce1e3e77ab159ecfd5e2e10114a8feb663810fdf33d6b4ed6ff83c222fa53"
+    },
+    {
+      "path": "storage/graph/connection.py",
+      "sha256": "cc2f642364e3b140af52b2f12ad9a480b81a1d441d14e9805454062595f242a8"
+    },
+    {
+      "path": "storage/graph/encoding.py",
+      "sha256": "4cb69668b4c2d6a2eba7fbf2295c0b7b313921f30df65fdbcfe954461e27b9b4"
+    },
+    {
+      "path": "storage/graph/schema.py",
+      "sha256": "62cf2b6b1cb2c7b5d30bc19337ae7a7560477079847958053dc01c1cacee0235"
+    },
+    {
+      "path": "storage/graph/write_coordinator.py",
+      "sha256": "c72d87f7e85d289e2d882373fd6a752af85c4093dbf78c698cfd3f16997b7eca"
+    },
+    {
+      "path": "storage/graph/writer.py",
+      "sha256": "72bdb939d074b83dff63a46a06f5e52fa906a03655e76ebee872c830e2841f63"
+    },
+    {
+      "path": "syntax.py",
+      "sha256": "b88aa9aa3ca3740b9cae0f38bea3dfd18f40591384971277850dbfe23f8fb768"
+    }
+  ]
+}

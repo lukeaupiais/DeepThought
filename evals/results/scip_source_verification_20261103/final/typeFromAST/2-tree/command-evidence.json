@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "22037a43c590a37e589d00d15aeca9b7e7e0977c394fe2c1c9efc110281a1cdc",
+    "output_bytes": 10061,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!integrationTests'\"' /home/luke/.cache/deepthought-tool-eval /work 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output_bytes": 0,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src; cat tsconfig.json\"",
+    "exit_code": 0,
+    "output_sha256": "76735630a4adc3df8b4dd2f6d55353043161ddd5e200d7171f23c4f8bd1ab26e",
+    "output_bytes": 6450,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1,190p' src/utilities/typeFromAST.ts; sed -n '490,550p' src/index.ts; cat src/harness.ts; for f in /AGENTS.md /home/AGENTS.md /home/luke/AGENTS.md /home/luke/.cache/AGENTS.md /home/luke/.cache/deepthought-tool-eval/AGENTS.md; do if test -f \\\"\"'$f\"; then cat \"$f\"; fi; done'",
+    "exit_code": 0,
+    "output_sha256": "e25900ec29e7b6bbdf6cc97fcc21487b183974d402bcd221da9847f32b48a463",
+    "output_bytes": 8691,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst options = ts.convertCompilerOptionsFromJson(ts.readConfigFile('tsconfig.json', ts.sys.readFile).config.compilerOptions, process.cwd()).options;\nconst program = ts.createProgram(ctx.files.filter(f=>f.endsWith('.ts')), options);\nconst checker = program.getTypeChecker();\nconst targetFile = program.getSourceFile(path.resolve('src/utilities/typeFromAST.ts'));\nconst targetDecl = targetFile.statements.find(n=>ts.isFunctionDeclaration(n) && n.name?.text==='typeFromAST');\nconst target = checker.getSymbolAtLocation(targetDecl.name);\nconst references = [];\nconst excluded = [];\nfor (const f of ctx.files.filter(f=>f.endsWith('.ts'))) {\n  const sf = program.getSourceFile(path.resolve(f));\n  if (\"'!sf) throw Error('\"'Missing source: '+f);\n  function visit(n) {\n    if (ts.isIdentifier(n)) {\n      let symbol = checker.getSymbolAtLocation(n);\n      if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = checker.getAliasedSymbol(symbol);\n      if (symbol===target) {\n        const ownDeclaration = ts.isFunctionDeclaration(n.parent) && n.parent.name===n;\n        const start = sf.getLineAndCharacterOfPosition(n.getStart(sf));\n        const end = sf.getLineAndCharacterOfPosition(n.end);\n        const row = {target:'typeFromAST',file:f,line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n        (ownDeclaration ? excluded : references).push(row);\n      } else if (n.text==='typeFromAST') {\n        const p = sf.getLineAndCharacterOfPosition(n.getStart(sf));\n        excluded.push({file:f,line:p.line+1,column:p.character,reason:'different symbol',symbol: symbol && checker.symbolToString(symbol)});\n      }\n    }\n    ts.forEachChild(n,visit);\n  }\n  visit(sf);\n}\nreferences.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references,excluded,count:references.length},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "20c92acc3e0e0d7352f67fe7e98a5970b0f33a74ad8761808661a3385c9dde8f",
+    "output_bytes": 6771,
+    "compiler_reference_scan": true
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "9ad7cf63df7bb01114531607b7ca107fadf4a2b33a05ca8de077fe9079b781a1",
+    "output_bytes": 10455,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "8b4fe2f13049ef0b1ca97aca9f933b82af5861b4b1255999c448257eb5c095cc",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst cwd = context.workspace;\nconst config = ts.parseConfigFileTextToJson('tsconfig.json', fs.readFileSync(path.join(cwd, 'tsconfig.json'), 'utf8'));\nconst converted = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, cwd);\nconst roots = context.files.filter(f => f.endsWith('.ts')).map(f => path.join(cwd, f));\nconst program = ts.createProgram(roots, converted.options);\nconst checker = program.getTypeChecker();\nconst canonical = symbol => {\n  const seen = new Set();\n  while (symbol && (symbol.flags & ts.SymbolFlags.Alias) && \"'!seen.has(symbol)) {\n    seen.add(symbol);\n    symbol = checker.getAliasedSymbol(symbol);\n  }\n  return symbol;\n};\nconst index = program.getSourceFile(path.join(cwd, '\"'src/index.ts'));\nconst target = canonical(checker.getExportsOfModule(checker.getSymbolAtLocation(index)).find(s => s.name === 'typeFromAST'));\nif (\"'!target) throw new Error('\"'Public export not found');\nconst references = [];\nconst excluded = [];\nfor (const file of roots) {\n  const source = program.getSourceFile(file);\n  function visit(node) {\n    if (ts.isIdentifier(node) && canonical(checker.getSymbolAtLocation(node)) === target) {\n      const start = source.getLineAndCharacterOfPosition(node.getStart(source));\n      const end = source.getLineAndCharacterOfPosition(node.getEnd());\n      const row = {target:'typeFromAST',file:path.relative(cwd,file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n      if (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) excluded.push(row);\n      else references.push(row);\n    }\n    ts.forEachChild(node,visit);\n  }\n  visit(source);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({compiler:ts.version,configErrors:converted.errors.length,diagnostics:ts.getPreEmitDiagnostics(program).map(d=>({code:d.code,message:ts.flattenDiagnosticMessageText(d.messageText,' ')})),excludedDeclarationNames:excluded.length,references},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "28cdca6cb99cfe090ba86161787e2f22fa7f5f002276534b420ff22dc9551d4a",
+    "output_bytes": 4975,
+    "compiler_reference_scan": true
+  }
+]

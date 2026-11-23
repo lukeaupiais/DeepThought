@@ -1,0 +1,1014 @@
+{
+  "kind": "operator_actual_mcp_validation",
+  "model_calls": 0,
+  "wall_seconds": 16.766007694997825,
+  "results": {
+    "getNamedType": {
+      "frozen_native_reference_response_identical": true,
+      "default_mcp_source_context": {
+        "repo_url": "https://github.com/graphql/graphql-js",
+        "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+        "status": "succeeded",
+        "scope": "repository_snapshot",
+        "capabilities": [
+          "definitions",
+          "dependencies",
+          "ownership",
+          "references",
+          "symbol_context",
+          "verified_references"
+        ],
+        "analysis_status": "succeeded",
+        "items": [
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/type/definition.ts",
+              "source_context_schema": "1",
+              "start_line": 1750,
+              "source_total_characters": 59,
+              "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+              "end_line": 1750,
+              "source_next_offset": null,
+              "definition_id": "4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+              "source_end_column": 59,
+              "source_end_line": 1750,
+              "source_start_line": 1750,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "getNamedType",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+              "source_sha256": "de22315b0bbd0ca58a936c1cf1f945bb1cd6d1504192b8024d8475fab3c70450",
+              "name": "getNamedType",
+              "source_start_column": 0,
+              "source_code": "export function getNamedType(type: undefined | null): void;",
+              "end_column": 59,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/type/definition.ts",
+              "source_context_schema": "1",
+              "start_line": 1775,
+              "source_total_characters": 76,
+              "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+              "end_line": 1775,
+              "source_next_offset": null,
+              "definition_id": "952f157570ae6d34700f2e372d7dbc9d7292e445e48142e5600f0880fd0d1147",
+              "source_end_column": 76,
+              "source_end_line": 1775,
+              "source_start_line": 1775,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "getNamedType",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::952f157570ae6d34700f2e372d7dbc9d7292e445e48142e5600f0880fd0d1147",
+              "source_sha256": "176e3bbd50b4977d79288a09f728446c95b9674add16b93cabc78947ddac8ae0",
+              "name": "getNamedType",
+              "source_start_column": 0,
+              "source_code": "export function getNamedType(type: GraphQLInputType): GraphQLNamedInputType;",
+              "end_column": 76,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/type/definition.ts",
+              "source_context_schema": "1",
+              "start_line": 1800,
+              "source_total_characters": 78,
+              "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+              "end_line": 1800,
+              "source_next_offset": null,
+              "definition_id": "43ff530849a7ccdc13e07a8862150e1b2c0f1e094979535d7605233dbbfc48ca",
+              "source_end_column": 78,
+              "source_end_line": 1800,
+              "source_start_line": 1800,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "getNamedType",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::43ff530849a7ccdc13e07a8862150e1b2c0f1e094979535d7605233dbbfc48ca",
+              "source_sha256": "f905c4a561b5690e1eefe9234e30738f4161a2bceb33791fb8e1124309c2e01a",
+              "name": "getNamedType",
+              "source_start_column": 0,
+              "source_code": "export function getNamedType(type: GraphQLOutputType): GraphQLNamedOutputType;",
+              "end_column": 78,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/type/definition.ts",
+              "source_context_schema": "1",
+              "start_line": 1821,
+              "source_total_characters": 66,
+              "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+              "end_line": 1821,
+              "source_next_offset": null,
+              "definition_id": "955f865c3f37c45ca1e650e17af475ffe87f0e1bb88d51192c868d22c38ac7b0",
+              "source_end_column": 66,
+              "source_end_line": 1821,
+              "source_start_line": 1821,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "getNamedType",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::955f865c3f37c45ca1e650e17af475ffe87f0e1bb88d51192c868d22c38ac7b0",
+              "source_sha256": "e84f320e27ca3a123a0a2d8317b0d01cd493cd502c735b9c9d716f12ca1edf67",
+              "name": "getNamedType",
+              "source_start_column": 0,
+              "source_code": "export function getNamedType(type: GraphQLType): GraphQLNamedType;",
+              "end_column": 66,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/type/definition.ts",
+              "source_context_schema": "1",
+              "start_line": 1834,
+              "source_total_characters": 90,
+              "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+              "end_line": 1836,
+              "source_next_offset": null,
+              "definition_id": "c19c6cb4f413c9c4cfcb5debb206e36fcb1fb85b01d23b7614852bf1eca2a278",
+              "source_end_column": 32,
+              "source_end_line": 1836,
+              "source_start_line": 1834,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "getNamedType",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::c19c6cb4f413c9c4cfcb5debb206e36fcb1fb85b01d23b7614852bf1eca2a278",
+              "source_sha256": "9ea976a946bcb9953007c1b6d7bc01d6ee45a1bbc9c4c8abb380def3aac9d830",
+              "name": "getNamedType",
+              "source_start_column": 0,
+              "source_code": "export function getNamedType(\n  type: Maybe<GraphQLType>,\n): GraphQLNamedType | undefined;",
+              "end_column": 32,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/type/definition.ts",
+              "source_context_schema": "1",
+              "start_line": 1841,
+              "source_total_characters": 261,
+              "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+              "end_line": 1851,
+              "source_next_offset": null,
+              "definition_id": "1b5caab7bfc0ca85e9a4ae01da466d82a7ea201482dc8f6264de25cd705f4e85",
+              "source_end_column": 1,
+              "source_end_line": 1851,
+              "source_start_line": 1841,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "getNamedType",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::1b5caab7bfc0ca85e9a4ae01da466d82a7ea201482dc8f6264de25cd705f4e85",
+              "source_sha256": "f3647cd32438e2ac0db769800da056eb422457535fbc83827a1ded1c899d30d6",
+              "name": "getNamedType",
+              "source_start_column": 0,
+              "source_code": "export function getNamedType(\n  type: Maybe<GraphQLType>,\n): GraphQLNamedType | undefined {\n  if (type) {\n    let unwrappedType = type;\n    while (isWrappingType(unwrappedType)) {\n      unwrappedType = unwrappedType.ofType;\n    }\n    return unwrappedType;\n  }\n}",
+              "end_column": 1,
+              "source_truncated": false
+            }
+          }
+        ],
+        "returned": 6,
+        "truncated": true,
+        "response_format": "symbol-context-v1",
+        "source_scope": "stored_snapshot",
+        "source_offset_encoding": "unicode_codepoints",
+        "source_verification": {
+          "status": "verified",
+          "freshness": "checked_before_and_after_query"
+        },
+        "relationships": [
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:94238",
+              "type": "CONTAINS",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63299",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16904",
+              "properties": {
+                "ownership": "ast",
+                "source_context_schema": "1"
+              }
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63299",
+              "properties": {
+                "source_code": null,
+                "file_path": "src/type/definition.ts",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "coverage_status": "analyzed",
+                "path": "src/type/definition.ts",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::file",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "name": "src/type/definition.ts",
+                "language": "typescript"
+              },
+              "labels": [
+                "File",
+                "GraphNode"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16904",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/type/definition.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 1750,
+                "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+                "end_line": 1750,
+                "definition_id": "4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                "name_ranges": {
+                  "utf-16": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ],
+                  "utf-32": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ],
+                  "utf-8": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ]
+                },
+                "source_end_column": 59,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 1750,
+                "source_start_line": 1750,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "getNamedType",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                "source_sha256": "de22315b0bbd0ca58a936c1cf1f945bb1cd6d1504192b8024d8475fab3c70450",
+                "name": "getNamedType",
+                "source_start_column": 0,
+                "end_column": 59
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          },
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:84211",
+              "type": "DEFINES",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63299",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16904",
+              "properties": {}
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63299",
+              "properties": {
+                "source_code": null,
+                "file_path": "src/type/definition.ts",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "coverage_status": "analyzed",
+                "path": "src/type/definition.ts",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::file",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "name": "src/type/definition.ts",
+                "language": "typescript"
+              },
+              "labels": [
+                "File",
+                "GraphNode"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16904",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/type/definition.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 1750,
+                "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+                "end_line": 1750,
+                "definition_id": "4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                "name_ranges": {
+                  "utf-16": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ],
+                  "utf-32": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ],
+                  "utf-8": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ]
+                },
+                "source_end_column": 59,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 1750,
+                "source_start_line": 1750,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "getNamedType",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                "source_sha256": "de22315b0bbd0ca58a936c1cf1f945bb1cd6d1504192b8024d8475fab3c70450",
+                "name": "getNamedType",
+                "source_start_column": 0,
+                "end_column": 59
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          },
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:92791",
+              "type": "HAS_AST_DECLARATION",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16600",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16904",
+              "properties": {
+                "resolution": "exact_name_range_and_source_digest"
+              }
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16600",
+              "properties": {
+                "source_code": null,
+                "ast_candidate_ids": [
+                  "4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008"
+                ],
+                "file_path": "src/type/definition.ts",
+                "ast_binding_status": "resolved",
+                "source_definition_id": "a3c2bd7271983cef6ab0b831447fa2d472ddeea14828a3c436098ef6b0051d8b",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "native_id": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "kind": "Function",
+                "column": 16,
+                "start_line": 1750,
+                "display_name": "getNamedType",
+                "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+                "end_line": 1750,
+                "definition_id": "f5b781d47eeaa9dcb50019ec6821d432637657bb4d0572a86406904d5a23dcda",
+                "coordinate_encoding": "utf-16",
+                "qualified_name": "https://github.com/graphql/graphql-js::scip-definition::f5b781d47eeaa9dcb50019ec6821d432637657bb4d0572a86406904d5a23dcda",
+                "name": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+                "analyzed_by": [
+                  "scip"
+                ],
+                "end_column": 28
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16904",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/type/definition.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 1750,
+                "file_sha256": "e3d45472f1a90f69f3c1a05b1b3d283bf7b86d4c0d05da9b5e62bf08bfa5a152",
+                "end_line": 1750,
+                "definition_id": "4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                "name_ranges": {
+                  "utf-16": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ],
+                  "utf-32": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ],
+                  "utf-8": [
+                    1750,
+                    16,
+                    1750,
+                    28
+                  ]
+                },
+                "source_end_column": 59,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 1750,
+                "source_start_line": 1750,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "getNamedType",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/type/definition.ts::getNamedType::4db11e19ce39741efa8c3044b781cd85681dbaa3c7d10953440c88b4bd66d008",
+                "source_sha256": "de22315b0bbd0ca58a936c1cf1f945bb1cd6d1504192b8024d8475fab3c70450",
+                "name": "getNamedType",
+                "source_start_column": 0,
+                "end_column": 59
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          }
+        ]
+      },
+      "full_body_pages": 2,
+      "full_body_sha256_matches": true,
+      "relationship_node_envelope_preserved": true
+    },
+    "typeFromAST": {
+      "frozen_native_reference_response_identical": true,
+      "default_mcp_source_context": {
+        "repo_url": "https://github.com/graphql/graphql-js",
+        "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+        "status": "succeeded",
+        "scope": "repository_snapshot",
+        "capabilities": [
+          "definitions",
+          "dependencies",
+          "ownership",
+          "references",
+          "symbol_context",
+          "verified_references"
+        ],
+        "analysis_status": "succeeded",
+        "items": [
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/utilities/typeFromAST.ts",
+              "source_context_schema": "1",
+              "start_line": 43,
+              "source_total_characters": 113,
+              "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+              "end_line": 46,
+              "source_next_offset": null,
+              "definition_id": "a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+              "source_end_column": 32,
+              "source_end_line": 46,
+              "source_start_line": 43,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "typeFromAST",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+              "source_sha256": "7e152f4db27ef8b05c22fe9330172663ee99415c985ba13e18bd10ca01820f84",
+              "name": "typeFromAST",
+              "source_start_column": 0,
+              "source_code": "export function typeFromAST(\n  schema: GraphQLSchema,\n  typeNode: NamedTypeNode,\n): GraphQLNamedType | undefined;",
+              "end_column": 32,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/utilities/typeFromAST.ts",
+              "source_context_schema": "1",
+              "start_line": 68,
+              "source_total_characters": 112,
+              "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+              "end_line": 71,
+              "source_next_offset": null,
+              "definition_id": "40d10e46d5176d4b5e0e33dce3e1808ac227eec0a1830f99543ca57a58de0809",
+              "source_end_column": 32,
+              "source_end_line": 71,
+              "source_start_line": 68,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "typeFromAST",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::40d10e46d5176d4b5e0e33dce3e1808ac227eec0a1830f99543ca57a58de0809",
+              "source_sha256": "0e10e9151c59b0d146414fb6fc659300918de29fc318d490c60f84c861508bb9",
+              "name": "typeFromAST",
+              "source_start_column": 0,
+              "source_code": "export function typeFromAST(\n  schema: GraphQLSchema,\n  typeNode: ListTypeNode,\n): GraphQLList<any> | undefined;",
+              "end_column": 32,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/utilities/typeFromAST.ts",
+              "source_context_schema": "1",
+              "start_line": 93,
+              "source_total_characters": 118,
+              "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+              "end_line": 96,
+              "source_next_offset": null,
+              "definition_id": "daf6845d77c71d3f30ad28b2bcd70aa0f3e904af3481f15748b5bb433b28f38d",
+              "source_end_column": 35,
+              "source_end_line": 96,
+              "source_start_line": 93,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "typeFromAST",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::daf6845d77c71d3f30ad28b2bcd70aa0f3e904af3481f15748b5bb433b28f38d",
+              "source_sha256": "d6540758b0334c2cc325b7e31258d2ebcab488b7fd66fd0c4098a757f738d9f9",
+              "name": "typeFromAST",
+              "source_start_column": 0,
+              "source_code": "export function typeFromAST(\n  schema: GraphQLSchema,\n  typeNode: NonNullTypeNode,\n): GraphQLNonNull<any> | undefined;",
+              "end_column": 35,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/utilities/typeFromAST.ts",
+              "source_context_schema": "1",
+              "start_line": 123,
+              "source_total_characters": 103,
+              "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+              "end_line": 126,
+              "source_next_offset": null,
+              "definition_id": "34a8130e01fbb4f3534940325da33c6145ebd171e4d3c58db0a9aefa03aed943",
+              "source_end_column": 27,
+              "source_end_line": 126,
+              "source_start_line": 123,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "typeFromAST",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::34a8130e01fbb4f3534940325da33c6145ebd171e4d3c58db0a9aefa03aed943",
+              "source_sha256": "6bcd0a4a90d03b7a20e4f3e1610c90a43a06684b11d3f4e0c14471533cfcb190",
+              "name": "typeFromAST",
+              "source_start_column": 0,
+              "source_code": "export function typeFromAST(\n  schema: GraphQLSchema,\n  typeNode: TypeNode,\n): GraphQLType | undefined;",
+              "end_column": 27,
+              "source_truncated": false
+            }
+          },
+          {
+            "element": {
+              "lod": 0,
+              "ast_binding_status": null,
+              "file_path": "src/utilities/typeFromAST.ts",
+              "source_context_schema": "1",
+              "start_line": 131,
+              "source_total_characters": 567,
+              "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+              "end_line": 149,
+              "source_next_offset": null,
+              "definition_id": "56977a6714b48c24b8bd7217b0594a2105c1cf23327a63318f689abe19ffc32c",
+              "source_end_column": 1,
+              "source_end_line": 149,
+              "source_start_line": 131,
+              "kind": "Function",
+              "source_offset": 0,
+              "parent_definition_id": null,
+              "column": 7,
+              "source_available": true,
+              "display_name": "typeFromAST",
+              "coordinate_encoding": "utf-8",
+              "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::56977a6714b48c24b8bd7217b0594a2105c1cf23327a63318f689abe19ffc32c",
+              "source_sha256": "8fb314c752008ca737bebec20d0a50b6a5a48ec5baa46e8bd3765e37dad907a4",
+              "name": "typeFromAST",
+              "source_start_column": 0,
+              "source_code": "export function typeFromAST(\n  schema: GraphQLSchema,\n  typeNode: TypeNode,\n): GraphQLType | undefined {\n  switch (typeNode.kind) {\n    case Kind.LIST_TYPE: {\n      const innerType = typeFromAST(schema, typeNode.type);\n      return innerType && new GraphQLList(innerType);\n    }\n    case Kind.NON_NULL_TYPE: {\n      const innerType = typeFromAST(schema, typeNode.type) as\n        | GraphQLNullableType\n        | undefined;\n      return innerType && new GraphQLNonNull(innerType);\n    }\n    case Kind.NAMED_TYPE:\n      return schema.getType(typeNode.name.value);\n  }\n}",
+              "end_column": 1,
+              "source_truncated": false
+            }
+          }
+        ],
+        "returned": 5,
+        "truncated": true,
+        "response_format": "symbol-context-v1",
+        "source_scope": "stored_snapshot",
+        "source_offset_encoding": "unicode_codepoints",
+        "source_verification": {
+          "status": "verified",
+          "freshness": "checked_before_and_after_query"
+        },
+        "relationships": [
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:95615",
+              "type": "CONTAINS",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63328",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17123",
+              "properties": {
+                "ownership": "ast",
+                "source_context_schema": "1"
+              }
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63328",
+              "properties": {
+                "source_code": null,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "coverage_status": "analyzed",
+                "path": "src/utilities/typeFromAST.ts",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::file",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "name": "src/utilities/typeFromAST.ts",
+                "language": "typescript"
+              },
+              "labels": [
+                "File",
+                "GraphNode"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17123",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 43,
+                "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+                "end_line": 46,
+                "definition_id": "a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                "name_ranges": {
+                  "utf-16": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ],
+                  "utf-32": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ],
+                  "utf-8": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ]
+                },
+                "source_end_column": 32,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 46,
+                "source_start_line": 43,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "typeFromAST",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                "source_sha256": "7e152f4db27ef8b05c22fe9330172663ee99415c985ba13e18bd10ca01820f84",
+                "name": "typeFromAST",
+                "source_start_column": 0,
+                "end_column": 32
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          },
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:85309",
+              "type": "DEFINES",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63328",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17123",
+              "properties": {}
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63328",
+              "properties": {
+                "source_code": null,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "coverage_status": "analyzed",
+                "path": "src/utilities/typeFromAST.ts",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::file",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "name": "src/utilities/typeFromAST.ts",
+                "language": "typescript"
+              },
+              "labels": [
+                "File",
+                "GraphNode"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17123",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 43,
+                "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+                "end_line": 46,
+                "definition_id": "a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                "name_ranges": {
+                  "utf-16": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ],
+                  "utf-32": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ],
+                  "utf-8": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ]
+                },
+                "source_end_column": 32,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 46,
+                "source_start_line": 43,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "typeFromAST",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                "source_sha256": "7e152f4db27ef8b05c22fe9330172663ee99415c985ba13e18bd10ca01820f84",
+                "name": "typeFromAST",
+                "source_start_column": 0,
+                "end_column": 32
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          },
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:93683",
+              "type": "HAS_AST_DECLARATION",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16319",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17123",
+              "properties": {
+                "resolution": "exact_name_range_and_source_digest"
+              }
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:16319",
+              "properties": {
+                "source_code": null,
+                "ast_candidate_ids": [
+                  "a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21"
+                ],
+                "file_path": "src/utilities/typeFromAST.ts",
+                "ast_binding_status": "resolved",
+                "source_definition_id": "3257900a662a14ab048aba10152546ece0f08390f91bb013b20f632df37afa21",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "native_id": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "kind": "Function",
+                "column": 16,
+                "start_line": 43,
+                "display_name": "typeFromAST",
+                "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+                "end_line": 43,
+                "definition_id": "83dab4e182c5e05ce3f94e515cc96bea6f4b5c6a1f12c6ff29140931c055b9a0",
+                "coordinate_encoding": "utf-16",
+                "qualified_name": "https://github.com/graphql/graphql-js::scip-definition::83dab4e182c5e05ce3f94e515cc96bea6f4b5c6a1f12c6ff29140931c055b9a0",
+                "name": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+                "analyzed_by": [
+                  "scip"
+                ],
+                "end_column": 27
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17123",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 43,
+                "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+                "end_line": 46,
+                "definition_id": "a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                "name_ranges": {
+                  "utf-16": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ],
+                  "utf-32": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ],
+                  "utf-8": [
+                    43,
+                    16,
+                    43,
+                    27
+                  ]
+                },
+                "source_end_column": 32,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 46,
+                "source_start_line": 43,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "typeFromAST",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                "source_sha256": "7e152f4db27ef8b05c22fe9330172663ee99415c985ba13e18bd10ca01820f84",
+                "name": "typeFromAST",
+                "source_start_column": 0,
+                "end_column": 32
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          },
+          {
+            "relationship": {
+              "element_id": "5:bc3e9be3-d515-482a-8b3c-136e09c26078:95188",
+              "type": "CONTAINS",
+              "source": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63328",
+              "target": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17121",
+              "properties": {
+                "ownership": "ast",
+                "source_context_schema": "1"
+              }
+            },
+            "source": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:63328",
+              "properties": {
+                "source_code": null,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "coverage_status": "analyzed",
+                "path": "src/utilities/typeFromAST.ts",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::file",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "name": "src/utilities/typeFromAST.ts",
+                "language": "typescript"
+              },
+              "labels": [
+                "File",
+                "GraphNode"
+              ]
+            },
+            "target": {
+              "element_id": "4:bc3e9be3-d515-482a-8b3c-136e09c26078:17121",
+              "properties": {
+                "source_code": null,
+                "lod": 0,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "snapshot_id": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+                "source_context_schema": "1",
+                "start_line": 68,
+                "file_sha256": "04d60680caab57e45f0e11022148a3da0eb886897d791f506f5d4a5b14b86ad0",
+                "end_line": 71,
+                "definition_id": "40d10e46d5176d4b5e0e33dce3e1808ac227eec0a1830f99543ca57a58de0809",
+                "name_ranges": {
+                  "utf-16": [
+                    68,
+                    16,
+                    68,
+                    27
+                  ],
+                  "utf-32": [
+                    68,
+                    16,
+                    68,
+                    27
+                  ],
+                  "utf-8": [
+                    68,
+                    16,
+                    68,
+                    27
+                  ]
+                },
+                "source_end_column": 32,
+                "repo_url": "https://github.com/graphql/graphql-js",
+                "source_end_line": 71,
+                "source_start_line": 68,
+                "kind": "Function",
+                "column": 7,
+                "display_name": "typeFromAST",
+                "coordinate_encoding": "utf-8",
+                "qualified_name": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::40d10e46d5176d4b5e0e33dce3e1808ac227eec0a1830f99543ca57a58de0809",
+                "source_sha256": "0e10e9151c59b0d146414fb6fc659300918de29fc318d490c60f84c861508bb9",
+                "name": "typeFromAST",
+                "source_start_column": 0,
+                "end_column": 32
+              },
+              "labels": [
+                "Function",
+                "GraphNode",
+                "Symbol"
+              ]
+            }
+          }
+        ]
+      },
+      "full_body_pages": 2,
+      "full_body_sha256_matches": true,
+      "relationship_node_envelope_preserved": true
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "status": "completed",
+  "wall_seconds": 54.74273137698765,
+  "returncode": 0,
+  "terminal_events": [
+    {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 172091,
+        "cached_input_tokens": 139904,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2589,
+        "reasoning_output_tokens": 216
+      }
+    }
+  ]
+}

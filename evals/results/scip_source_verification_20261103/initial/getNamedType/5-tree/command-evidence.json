@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "ea940c242949442a634947d9894f140efac0aa6aa1c93ccbe97caa269b00a5fe",
+    "output_bytes": 10063,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' /work /home/luke/.cache/deepthought-tool-eval/graphql-js 2>/dev/null; rg -n '\\\\bgetNamedType\\\\b' src; cat tsconfig.json\"",
+    "exit_code": 0,
+    "output_sha256": "b4de953b13821bf8033ea2b3da9964109c3816bca3c4d7fdaafb5d8e3723fc6a",
+    "output_bytes": 6511,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"sed -n '1720,1875p' src/type/definition.ts; cat src/harness.ts; cat src/diagnostics.ts; sed -n '140,195p' src/index.ts; sed -n '50,90p' src/type/index.ts; cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "b0beacb276e2f273b990f24bacb348666e518e3202fc358efb65cedf1ed4e1f8",
+    "output_bytes": 28216,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst fs = require('fs');\nconst path = require('path');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json','utf8'));\nconst files = ctx.files.filter(f=>f.endsWith('.ts')).map(f=>path.resolve(ctx.workspace,f));\nconst config = ts.readConfigFile(path.join(ctx.workspace,'tsconfig.json'), ts.sys.readFile).config;\nconst options = ts.convertCompilerOptionsFromJson(config.compilerOptions,ctx.workspace).options;\nconst allowed = new Set(files);\nconst host = ts.createCompilerHost(options);\nconst originalReadFile = host.readFile;\nhost.readFile = file => allowed.has(path.resolve(file)) || file.startsWith('/opt/typescript/') || file.includes('/node_modules/') || path.basename(file)==='package.json' ? originalReadFile(file) : undefined;\nconst program = ts.createProgram(files, options, host);\nconst checker = program.getTypeChecker();\nconst definition = program.getSourceFile(path.resolve(ctx.workspace,'src/type/definition.ts'));\nconst canonical = checker.getExportsOfModule(checker.getSymbolAtLocation(definition)).find(s=>s.name==='getNamedType');\nfunction resolve(s) { return s && (s.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(s) : s; }\nconst refs=[];\nconst unrelated=[];\nfor(const file of files){\n const sf = program.getSourceFile(file);\n function walk(n){\n  if(ts.isIdentifier(n)){\n   const sym = resolve(checker.getSymbolAtLocation(n));\n   const pos=sf.getLineAndCharacterOfPosition(n.getStart(sf));\n   const end=sf.getLineAndCharacterOfPosition(n.getEnd());\n   const row={target:'getNamedType',file:path.relative(ctx.workspace,file),line:pos.line+1,column:pos.character,end_line:end.line+1,end_column:end.character};\n   if(sym === canonical && \"'!(ts.isFunctionDeclaration(n.parent)&& n.parent.name===n)) refs.push(row);\n   else if(n.text==='\"'getNamedType') unrelated.push({...row,kind:ts.SyntaxKind[n.parent.kind],declaration:sym?.declarations?.map(d=>({file:path.relative(ctx.workspace,d.getSourceFile().fileName),line:d.getSourceFile().getLineAndCharacterOfPosition(d.getStart()).line+1}))});\n  }\n  ts.forEachChild(n,walk);\n }\n walk(sf);\n}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:refs,excluded:unrelated},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "0a72b3e26cd7a7af2888f32a17c8160ee7f5c0646c2bb5f6739d642dda8399fe",
+    "output_bytes": 14714,
+    "compiler_reference_scan": true
+  }
+]

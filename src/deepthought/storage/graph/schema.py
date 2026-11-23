@@ -5,6 +5,9 @@ AnalysisTool records. Composite identity adds explicit immutable snapshot scope.
 """
 
 SCHEMA_QUERIES = (
+    "CREATE INDEX deepthought_reference_evidence IF NOT EXISTS FOR (n:ReferenceEvidence) ON (n.repo_url,n.snapshot_id,n.native_id,n.file_scope)",
+    "CREATE INDEX deepthought_native_reference IF NOT EXISTS FOR (n:Reference) ON (n.repo_url,n.snapshot_id,n.native_id,n.reference_id)",
+    "CREATE INDEX deepthought_native_symbol IF NOT EXISTS FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.native_id)",
     (
         "CREATE CONSTRAINT deepthought_node_identity IF NOT EXISTS "
         "FOR (n:GraphNode) REQUIRE (n.repo_url,n.snapshot_id,n.qualified_name) IS UNIQUE"

@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "f98d09c2e1f556e1f5e0132438d84ec95c976d5a0d69fa69114dfdb5a5668fd2",
+    "output_bytes": 8939,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"pwd && rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' /work /home/luke/.cache/deepthought-tool-eval/graphql-js 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "547ce7285ed3faf3e97088ea77a2a45c32bc63e4c4fae8d9ef94790871c89637",
+    "output_bytes": 51,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n '\\\\btypeFromAST\\\\b' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "225a935866adf5f653723655d334085afa90cbe6a2f875f22088ca9e29ac423a",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = context.workspace;\nconst fileNames = context.files.filter(f => f.endsWith('.ts')).map(f => path.join(root,f));\nconst config = ts.readConfigFile(path.join(root,'tsconfig.json'), ts.sys.readFile);\nconst options = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, root).options;\nconst program = ts.createProgram(fileNames, options);\nconst checker = program.getTypeChecker();\nconst targetFile = program.getSourceFile(path.join(root,'src/utilities/typeFromAST.ts'));\nconst moduleSymbol = checker.getSymbolAtLocation(targetFile);\nconst target = checker.getExportsOfModule(moduleSymbol).find(s => s.name === 'typeFromAST');\nfunction canonical(symbol) {\n  const seen = new Set();\n  while(symbol && (symbol.flags & ts.SymbolFlags.Alias) && \"'!seen.has(symbol)) {\n    seen.add(symbol); symbol = checker.getAliasedSymbol(symbol);\n  }\n  return symbol;\n}\nconst references = [];\nconst exclusions = [];\nfor (const name of fileNames) {\n  const sf = program.getSourceFile(name);\n  function visit(node) {\n    if (ts.isIdentifier(node)) {\n      const symbol = checker.getSymbolAtLocation(node);\n      if (canonical(symbol) === target) {\n        const start = sf.getLineAndCharacterOfPosition(node.getStart(sf));\n        const end = sf.getLineAndCharacterOfPosition(node.getEnd());\n        const row = {target:'\"'typeFromAST',file:path.relative(root,name),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n        if (target.declarations.some(d => d.name === node)) exclusions.push(row);\n        else references.push(row);\n      }\n    }\n    ts.forEachChild(node, visit);\n  }\n  visit(sf);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references,exclusions,count:references.length,sourceFiles:program.getSourceFiles().filter(f => f.fileName.startsWith(root+'/src/')).length},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "47d8e64615cd9b347bf0ffab9387d6808dfe591f7e3a10cd1451b7185e0f680d",
+    "output_bytes": 5805,
+    "compiler_reference_scan": true
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"sed -n '505,540p' src/index.ts && sed -n '55,72p' src/utilities/index.ts && sed -n '123,155p' src/utilities/typeFromAST.ts && sed -n '385,430p' src/utilities/extendSchema.ts\"",
+    "exit_code": 0,
+    "output_sha256": "3d3b0a8915aec00905d9d2951aaa9990e564b2cfa79d8a456e16c493d53a8d7e",
+    "output_bytes": 4404,
+    "compiler_reference_scan": false
+  }
+]

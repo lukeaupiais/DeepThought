@@ -1,0 +1,24 @@
+[
+  {
+    "tool": "findDefinitions",
+    "server": "deepthought",
+    "arguments": {
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "994d5084b93dd675c34c043a7c2eee8e4f3f2a7bd9e931aa663cba11fcea996c",
+      "symbol": "getNamedType",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "39360b14ce018db2e666a7195cab4968024c7e8d5209cdee84ba7642655e2df4",
+        "status": "succeeded",
+        "bytes": 4729,
+        "returned": 6,
+        "truncated": false
+      }
+    ],
+    "text_errors": []
+  }
+]

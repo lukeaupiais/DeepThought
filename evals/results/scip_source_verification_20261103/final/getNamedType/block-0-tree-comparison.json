@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "status": "observed_caller_reported_no_reduction",
+  "token_reduction": -0.1436648024279088,
+  "absolute_tokens_saved": -14154,
+  "benefit_demonstrated": false,
+  "usage_provenance": "caller_reported_not_authenticated",
+  "arms": {
+    "baseline": {
+      "quality": {
+        "quality_pass": true,
+        "correct_count": 20,
+        "expected_count": 20,
+        "precision": 1.0,
+        "recall": 1.0,
+        "missing": [],
+        "extra": [],
+        "invalid": [],
+        "duplicates": []
+      },
+      "execution": {
+        "status": "completed",
+        "wall_seconds": 43.26301419100491
+      },
+      "usage": {
+        "input_tokens": 96431,
+        "cached_input_tokens": 83328,
+        "output_tokens": 2090,
+        "reasoning_output_tokens": 215
+      },
+      "total_tokens": 98521,
+      "reported_tokens": 98521,
+      "primary_usage_complete": true,
+      "source_unchanged": true,
+      "kind": "agent",
+      "record_id": "fb368a030edfd448c210e90bcc95f116cdcd6083ba5e6d92670633df5491f88e"
+    },
+    "treatment": {
+      "quality": {
+        "quality_pass": true,
+        "correct_count": 20,
+        "expected_count": 20,
+        "precision": 1.0,
+        "recall": 1.0,
+        "missing": [],
+        "extra": [],
+        "invalid": [],
+        "duplicates": []
+      },
+      "execution": {
+        "status": "completed",
+        "wall_seconds": 38.654005076998146
+      },
+      "usage": {
+        "input_tokens": 110843,
+        "cached_input_tokens": 83072,
+        "output_tokens": 1832,
+        "reasoning_output_tokens": 126
+      },
+      "total_tokens": 112675,
+      "reported_tokens": 112675,
+      "primary_usage_complete": true,
+      "source_unchanged": true,
+      "kind": "agent",
+      "record_id": "1d1b49f32e7d08e120a7603d8656154b2a6625e48c1cfce3444782626688a8e4"
+    }
+  },
+  "limits": [
+    "One descriptive pair is not statistical or enterprise validation.",
+    "Actor context separation is not a sandbox or oracle confidentiality guarantee.",
+    "Record hashes identify content, not authenticity; independent receipts/review remain required.",
+    "Preparation time is separate and must be counted for cold-use conclusions."
+  ],
+  "graph_interface": {
+    "status": "verified_neo4j_access",
+    "successful_calls": 2,
+    "response_bytes": 12757,
+    "query_wall_seconds": 0.6002256850042613,
+    "receipt_provenance": "observed_server_events_not_signed_attestations"
+  },
+  "analysis_tool_evaluation_accepted": true,
+  "observed_pair_tokens": 211196,
+  "known_reported_tokens": 211196,
+  "known_reported_tokens_scope": "Known caller-reported counts only; incomplete/unknown activity may add cost.",
+  "unknown_or_incomplete_usage": false,
+  "preparation": {
+    "wall_seconds": 43.66003114198975,
+    "model_tokens": 0,
+    "neo4j_wall_seconds": 59.761550019000424
+  },
+  "token_reduction_scope": "actor_input_plus_output_only",
+  "pipeline_tokens": {
+    "baseline": 98521,
+    "treatment": 112675,
+    "scope": "One cold preparation charged to treatment; actor usage remains caller-reported."
+  }
+}

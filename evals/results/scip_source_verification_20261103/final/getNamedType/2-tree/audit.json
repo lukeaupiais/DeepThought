@@ -1,0 +1,14 @@
+{
+  "run": "deepthought-scip-v4-getNamedType-2-tree",
+  "native_usage_matches": true,
+  "trace_hashes_match": true,
+  "server_read_count": 2,
+  "server_reads_matched_to_client": 2,
+  "graph_evidence": {
+    "status": "verified_neo4j_access",
+    "successful_calls": 2,
+    "response_bytes": 12757,
+    "query_wall_seconds": 0.6002256850042613,
+    "receipt_provenance": "observed_server_events_not_signed_attestations"
+  }
+}

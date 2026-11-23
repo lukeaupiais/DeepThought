@@ -1,0 +1,14 @@
+{
+  "run": "deepthought-symbol-context-v1-getNamedType-5-tree",
+  "native_usage_matches": true,
+  "trace_hashes_match": true,
+  "server_read_count": 1,
+  "server_reads_matched_to_client": 1,
+  "graph_evidence": {
+    "status": "verified_neo4j_access",
+    "successful_calls": 1,
+    "response_bytes": 6558,
+    "query_wall_seconds": 0.7856217779917642,
+    "receipt_provenance": "observed_server_events_not_signed_attestations"
+  }
+}

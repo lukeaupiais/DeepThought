@@ -130,6 +130,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(context["items"][0]["element"]["name"], "Reader.parse")
         self.assertTrue(context["relationships"])
+        self.assertIn('return "reader"', context["items"][0]["element"]["source_code"])
         structure = self.command("structure", *self.scope_args(), "--file", "cases.py")
         self.assertEqual(structure["returned"], 1)
         message = self.command(
@@ -186,6 +187,9 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             "getCodeContext",
                             "getFileStructure",
                             "searchCodeElements",
+                            "findDefinitions",
+                            "findReferences",
+                            "getFileDependencies",
                         }
                         if raw_enabled:
                             expected.add("queryGraph")
@@ -251,6 +255,17 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             )
                             self.assertEqual(
                                 context["items"][0]["element"]["name"], "Reader.parse"
+                            )
+                            body = context["items"][0]["element"]
+                            self.assertIn('return "reader"', body["source_code"])
+                            expanded = await call(
+                                "getCodeContext",
+                                file_path="cases.py",
+                                definition_id=body["definition_id"],
+                                max_source_characters=5,
+                            )
+                            self.assertTrue(
+                                expanded["items"][0]["element"]["source_truncated"]
                             )
                             structure = await call(
                                 "getFileStructure", file_path="cases.py"

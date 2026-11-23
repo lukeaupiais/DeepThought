@@ -1,0 +1,49 @@
+{
+  "state": "frozen before native agent dispatch",
+  "cases": [
+    "getNamedType",
+    "typeFromAST"
+  ],
+  "conditions": [
+    "baseline",
+    "tree-sitter",
+    "tree-sitter+scip"
+  ],
+  "sessions_per_condition_per_case": 2,
+  "order_per_case": [
+    "baseline",
+    "tree",
+    "scip",
+    "scip",
+    "tree",
+    "baseline"
+  ],
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "timeout_seconds": 420,
+  "automatic_retries": 0,
+  "primary_metric": "Cumulative input+output tokens with exact reference-location correctness guardrail; cached input included in input, reasoning included in output",
+  "secondary_metrics": [
+    "cached/uncached input",
+    "output",
+    "estimated Standard Codex credits",
+    "actor wall time",
+    "graph reads/query bytes",
+    "index/projection/import/refresh overhead",
+    "source/compiler tool use and retained failures"
+  ],
+  "scope": "176pinned public production TSfiles plus3projectconfig files and identical read-only public dependencies; ERP excluded",
+  "oracle": "Source/compiler root export symbol identity and exact UTF16 ranges; complete in-memory rename vs missing-call compiler negative controls; same compiler family as indexer, limitation explicit",
+  "source_reference_sha256": "8255e1b8620b40064875fb7d1edd02e6a91786acb8743d8279054223dd15786f",
+  "rename_controls_sha256": "dce27dbfd568ed9a47484357890a0133aa5a3206d9f2d70326b44dedf537f6f5",
+  "driver_sha256": "6c67cae4559f3b57ba63992da3dfefa9e045b9e5b6a9b45816ea05a0af3d58b7",
+  "grader_sha256": "00b6cdde271b8427d28f8898c3d6b747d39399bd6bd963e8d9c8971a78ecac44",
+  "graph_import_failure": "One retained1GiB-container transaction-memory failure, database rollback zero nodes verified; both graph cohorts now3GiB with same limits",
+  "limits": [
+    "Two known tasks, two sessions per condition, no statistical or enterprise-wide effectiveness claim.",
+    "No guaranteed positive result or outcome-dependent stopping.",
+    "First failed-preparation stage timer unavailable, retained as unknown, so complete economic break-even remains unestablished.",
+    "Actual dollars, reviewer/coordinator consumption and infrastructure price remain unavailable.",
+    "Graph queries use selected historical snapshot; source freshness validated at preparation and batch boundaries, not by automatic live repository watching."
+  ]
+}

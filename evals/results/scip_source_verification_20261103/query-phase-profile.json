@@ -1,0 +1,40 @@
+{
+  "kind": "post_batch_operator_probe",
+  "model_calls": 0,
+  "verification_unchanged": true,
+  "samples": [
+    {
+      "target": "getNamedType",
+      "api_wall_seconds": 32.92446577300143,
+      "phases": [
+        {
+          "phase": "capture",
+          "seconds": 31.503629789003753
+        },
+        {
+          "phase": "post_query_validation",
+          "seconds": 1.3690275469998596
+        }
+      ],
+      "observer_wall_seconds": 1.4194107450020965,
+      "returned": 20
+    },
+    {
+      "target": "typeFromAST",
+      "api_wall_seconds": 2.582202026009327,
+      "phases": [
+        {
+          "phase": "capture",
+          "seconds": 1.2289892459957628
+        },
+        {
+          "phase": "post_query_validation",
+          "seconds": 1.2820800030021928
+        }
+      ],
+      "observer_wall_seconds": 1.352365729995654,
+      "returned": 26
+    }
+  ],
+  "limit": "Separate local timing samples, not exact attribution of native actor time."
+}

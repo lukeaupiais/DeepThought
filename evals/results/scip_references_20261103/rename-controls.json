@@ -1,0 +1,39 @@
+{
+  "compiler": "6.0.3",
+  "baseline_diagnostics": 0,
+  "method": "Actual compiler programs on in-memory modified project source; positive full rename and deliberately omitted true call. No SCIP data read.",
+  "targets": {
+    "getNamedType": {
+      "positive_all_project_rename_diagnostics": [],
+      "negative_missing_call_diagnostics": [
+        {
+          "code": 2304,
+          "file": "src/type/validate.ts",
+          "message": "Cannot find name 'getNamedType'."
+        }
+      ],
+      "changed_files": 12,
+      "omitted_call": {
+        "file": "src/type/validate.ts",
+        "offset": 30002
+      },
+      "source_mutations": 0
+    },
+    "typeFromAST": {
+      "positive_all_project_rename_diagnostics": [],
+      "negative_missing_call_diagnostics": [
+        {
+          "code": 2304,
+          "file": "src/utilities/typeFromAST.ts",
+          "message": "Cannot find name 'typeFromAST'."
+        }
+      ],
+      "changed_files": 12,
+      "omitted_call": {
+        "file": "src/utilities/typeFromAST.ts",
+        "offset": 4081
+      },
+      "source_mutations": 0
+    }
+  }
+}

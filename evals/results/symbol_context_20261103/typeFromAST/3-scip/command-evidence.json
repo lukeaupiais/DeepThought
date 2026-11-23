@@ -1,0 +1,26 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "544f61cd4034e0c5eca3e6a1b4b9bd75ed490dfd5f9d68a4e6bfc9786608f344",
+    "output_bytes": 10862,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "02f028b16c01508cb3f96665a23ccdcc9fc6e1078197b40691e33a53c68e7689",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst config = ts.readConfigFile(path.join(ctx.workspace, 'tsconfig.json'), ts.sys.readFile);\nconst converted = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, ctx.workspace);\nconst files = ctx.files.filter(f => f.endsWith('.ts')).map(f => path.join(ctx.workspace, f));\nconst program = ts.createProgram(files, converted.options);\nconst checker = program.getTypeChecker();\nconst entry = program.getSourceFile(path.join(ctx.workspace, 'src/index.ts'));\nfunction resolve(s) { while (s && (s.flags & ts.SymbolFlags.Alias)) s = checker.getAliasedSymbol(s); return s; }\nconst target = resolve(checker.getExportsOfModule(checker.getSymbolAtLocation(entry)).find(s => s.name === 'typeFromAST'));\nconst references = [];\nconst excluded = [];\nfor (const file of files) {\n const sf = program.getSourceFile(file);\n function visit(node) {\n  if (ts.isIdentifier(node)) {\n   const symbol = resolve(checker.getSymbolAtLocation(node));\n   if (symbol === target) {\n    if (\"'!(ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) {\n     const start = sf.getLineAndCharacterOfPosition(node.getStart(sf));\n     const end = sf.getLineAndCharacterOfPosition(node.end);\n     references.push({target:'\"'typeFromAST', file:path.relative(ctx.workspace, file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character});\n    }\n   } else if (node.text === 'typeFromAST') {\n    excluded.push({file:path.relative(ctx.workspace,file),line:sf.getLineAndCharacterOfPosition(node.getStart(sf)).line+1});\n   }\n  }\n  ts.forEachChild(node, visit);\n }\n visit(sf);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references, unrelated_identifiers:excluded}, null, 2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "5ba03fbb44c9c8676ad24380586226cf3ac03ea3a01bb74648a95a7d306a8fd9",
+    "output_bytes": 5378,
+    "compiler_reference_scan": true
+  }
+]

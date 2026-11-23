@@ -1,0 +1,55 @@
+{
+  "live_installed_suite": {
+    "tests": 220,
+    "passed": 219,
+    "skipped": 1,
+    "skipped_reason": "Existing opt-in public DeepAgents corpus check not enabled"
+  },
+  "offline_full_suite": {
+    "tests": 220,
+    "expected_skips": 27
+  },
+  "offline_core_only": "passed",
+  "source_hidden": "passed",
+  "network_disabled": "passed",
+  "installed_package_files_match": 34,
+  "lint": "passed",
+  "format": "passed",
+  "javascript_syntax": "passed",
+  "fresh_public_oracles": "passed",
+  "grader_falsification_cases_per_task": 5,
+  "post_batch_source_binding": {
+    "unchanged": true,
+    "input_count": 11793,
+    "index_sha256": "649ed88d417fc0cf76300df274af0b49daa450a645c000d413bf7fc0188ab9ea",
+    "receipt_sha256": "78dd1a838df1db145989ee563efbac186c68f8391a9f8ca287cd94993931d737",
+    "producer": {
+      "entry_sha256": "bf7797467bccd76f8e802eb62a470d0ccc83fc3cf6564e1f1ffbba9225b4e083",
+      "name": "scip-typescript",
+      "node_sha256": "904a6d3484241d466989f9df9ba3aab822b1496191bdb28230eb491a55c32a52",
+      "version": "0.6.0"
+    },
+    "profile": "scip-typescript-v1"
+  },
+  "hosted_ci": "not run for uncommitted changes",
+  "logs": {
+    "final-unit-tests.log": {
+      "sha256": "aee67c74245f69ef895a52f2285bb83908cfff0db145304e9bd211776beedfc4"
+    },
+    "final-live-tests.log": {
+      "sha256": "9614fc26247f895dfab6bad6277deea33ff5d467d8cc1236e5c0945ee2ed290f"
+    },
+    "final-offline-full.log": {
+      "sha256": "87efc130ac2d70eb75150df8d8655aa9ece56271a1c906131c1fa81de8a56f30"
+    },
+    "final-offline-core.log": {
+      "sha256": "9caa0540bfad1029baf3bd52cba2af2be30d7021a071d4dd359b6754a554aadc"
+    },
+    "final-build.log": {
+      "sha256": "86bd6c6fa0ede3c463dc8e2dc8dd85e56ca6c83d8d99569437945f91a32e96f3"
+    },
+    "native-evaluation.log": {
+      "sha256": "30e9688bd46f5b693a468d387ab5401a3545bc8a8c5d745612ebef24cb2382c8"
+    }
+  }
+}

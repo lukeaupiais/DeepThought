@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "35b6d4883115cd63fba6ecd798b9bdc3ea343411948d51b535c6be9283bf1b0c",
+    "output_bytes": 10457,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' /work /home/luke/.cache/deepthought-tool-eval/graphql-js 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output_bytes": 0,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "30b7930ead19c953af2a7c9ee5e0028d9136ebdb1698ec918d60f791b62713ae",
+    "output_bytes": 10477,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1725,1870p' src/type/definition.ts; cat src/harness.ts; rg --files /home/luke/.cache/AGENTS.md /home/luke/AGENTS.md /home/AGENTS.md /AGENTS.md 2>/dev/null\"",
+    "exit_code": 2,
+    "output_sha256": "63481d40f3c41576992d0eda8e7954f8bf6c816718cab3bf94b6fccd18963251",
+    "output_bytes": 5757,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_7",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst configPath = path.join(ctx.workspace, 'tsconfig.json');\nconst config = ts.readConfigFile(configPath, ts.sys.readFile);\nconst rootNames = ctx.files.filter(f => f.endsWith('.ts')).map(f => path.join(ctx.workspace, f));\nconst options = ts.parseJsonConfigFileContent(config.config, {...ts.sys, readDirectory: () => rootNames}, ctx.workspace).options;\nconst program = ts.createProgram(rootNames, options);\nconst checker = program.getTypeChecker();\nconst publicFile = program.getSourceFile(path.join(ctx.workspace, 'src/index.ts'));\nconst publicSymbol = checker.getExportsOfModule(checker.getSymbolAtLocation(publicFile)).find(s => s.name === 'getNamedType');\nfunction canonical(s) { return s && (s.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(s) : s; }\nconst target = canonical(publicSymbol);\nconst refs = [];\nconst excluded = [];\nfor (const filename of rootNames) {\n  const sf = program.getSourceFile(filename);\n  function visit(node) {\n    if (ts.isIdentifier(node)) {\n      const symbol = canonical(checker.getSymbolAtLocation(node));\n      if (symbol === target) {\n        const start = sf.getLineAndCharacterOfPosition(node.getStart(sf));\n        const end = sf.getLineAndCharacterOfPosition(node.getEnd());\n        const row = {target:'getNamedType',file:path.relative(ctx.workspace,filename),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n        if (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) excluded.push(row);\n        else refs.push(row);\n      }\n    }\n    ts.forEachChild(node, visit);\n  }\n  visit(sf);\n}\nrefs.sort((a,b)=> a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconst diagnostics = ts.getPreEmitDiagnostics(program);\nconsole.log(JSON.stringify({references:refs,own_declarations_excluded:excluded.length,diagnostics:diagnostics.map(d=>({code:d.code,message:ts.flattenDiagnosticMessageText(d.messageText,' ')}))},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "60737c9579da52772d0cb4d24802a89b8a10b14ba94e59f781099655102c7b59",
+    "output_bytes": 3677,
+    "compiler_reference_scan": true
+  }
+]

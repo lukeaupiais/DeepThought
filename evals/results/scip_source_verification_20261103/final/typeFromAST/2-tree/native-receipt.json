@@ -1,0 +1,25 @@
+{
+  "terminal_event": {
+    "type": "turn.completed",
+    "usage": {
+      "input_tokens": 106161,
+      "cached_input_tokens": 85504,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 2339,
+      "reasoning_output_tokens": 151
+    }
+  },
+  "returncode": 0,
+  "stdout_sha256": "8aca8e2ee44a92cc399669e2c04657e8b80e002a5b912d7043d3e0de61c6745a",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "answer_sha256": "41fa2ca9c44e3c5934772d092fb3b055e2639c4139c0245ef05dfbc10e1caefa",
+  "graph_evidence": {
+    "status": "verified_neo4j_access",
+    "successful_calls": 2,
+    "response_bytes": 12110,
+    "query_wall_seconds": 0.05352986000070814,
+    "receipt_provenance": "observed_server_events_not_signed_attestations"
+  },
+  "native_condition": "tree",
+  "control_block": 0
+}

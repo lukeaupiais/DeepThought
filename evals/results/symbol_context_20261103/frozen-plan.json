@@ -1,0 +1,17 @@
+{
+  "conditions": ["source/compiler baseline", "archived source-evidence-v4", "symbol-context-v1"],
+  "cases": ["getNamedType", "typeFromAST"],
+  "order_per_case": ["baseline", "source-evidence-v4", "symbol-context-v1", "symbol-context-v1", "source-evidence-v4", "baseline"],
+  "sessions": 12,
+  "repetitions_per_condition_per_case": 2,
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "timeout_seconds": 420,
+  "automatic_retries": 0,
+  "unchanged": ["task", "actor prompt", "gold coordinates", "source/configuration files", "ordinary TypeScript compiler access", "grading", "namespace isolation"],
+  "primary_gate": "Fewer total tokens at exact reference quality. Report all outcomes, including unchanged or worse performance.",
+  "secondary_measures": ["cached/uncached input", "output", "estimated Standard credits", "native actor seconds", "agent-authored compiler reconstruction", "source reads", "context tool use", "graph receipt integrity", "preparation, storage and failure costs"],
+  "preflight": ["231 installed/live tests, 230 passed, one optional corpus skip", "independent TypeScript AST verification of 1587 declaration bodies and selected ownership chains", "exact 20/26 reference ranges", "6/5 source declaration bodies by native identity", "source body integrity and source-page reassembly", "both databases reject writes", "old package and snapshot hash unchanged"],
+  "resource_amendment_before_models": "Initial shared-snapshot preparation was rejected. A dedicated candidate import then exceeded the 1 GiB transaction pool and rolled back to zero graph nodes. Both dedicated graph conditions now use 4 GiB container limits, 2048 MiB max heap and 1536 MiB transaction pools. Full readback remains mandatory. All failures retained.",
+  "limits": "Two related reference-inventory tasks on one public TypeScript corpus. General architecture understanding, other languages and broad refactor safety remain unvalidated. Source checks are point-in-time checks."
+}

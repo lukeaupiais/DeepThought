@@ -1,0 +1,594 @@
+[
+  {
+    "tool": "findDefinitions",
+    "server": "deepthought",
+    "arguments": {
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+      "symbol": "typeFromAST",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "79f76a31c6162f360e8743420d7d4a0c2c21808ca202d12df741284aec2044a7",
+        "status": "succeeded",
+        "bytes": 4896,
+        "returned": 7,
+        "truncated": false,
+        "source_verification": null,
+        "response": {
+          "repo_url": "https://github.com/graphql/graphql-js",
+          "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+          "status": "succeeded",
+          "scope": "repository_snapshot",
+          "capabilities": [
+            "definitions",
+            "dependencies",
+            "references",
+            "verified_references"
+          ],
+          "analysis_status": "succeeded",
+          "items": [
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::34a8130e01fbb4f3534940325da33c6145ebd171e4d3c58db0a9aefa03aed943",
+              "native_id": null,
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "34a8130e01fbb4f3534940325da33c6145ebd171e4d3c58db0a9aefa03aed943",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 123,
+                  "analyzed_by": null,
+                  "end_line": 126,
+                  "end_column": 27
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::40d10e46d5176d4b5e0e33dce3e1808ac227eec0a1830f99543ca57a58de0809",
+              "native_id": null,
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "40d10e46d5176d4b5e0e33dce3e1808ac227eec0a1830f99543ca57a58de0809",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 68,
+                  "analyzed_by": null,
+                  "end_line": 71,
+                  "end_column": 32
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::56977a6714b48c24b8bd7217b0594a2105c1cf23327a63318f689abe19ffc32c",
+              "native_id": null,
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "56977a6714b48c24b8bd7217b0594a2105c1cf23327a63318f689abe19ffc32c",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 131,
+                  "analyzed_by": null,
+                  "end_line": 149,
+                  "end_column": 1
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+              "native_id": null,
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "a2e7c768c431da558968fc8222e2b79eb66c7ab05d7e3b148d4bc6a68428ad21",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 43,
+                  "analyzed_by": null,
+                  "end_line": 46,
+                  "end_column": 32
+                }
+              ]
+            },
+            {
+              "symbol_id": "https://github.com/graphql/graphql-js::src/utilities/typeFromAST.ts::typeFromAST::daf6845d77c71d3f30ad28b2bcd70aa0f3e904af3481f15748b5bb433b28f38d",
+              "native_id": null,
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "daf6845d77c71d3f30ad28b2bcd70aa0f3e904af3481f15748b5bb433b28f38d",
+                  "coordinate_encoding": "utf-8",
+                  "kind": "Function",
+                  "column": 7,
+                  "start_line": 93,
+                  "analyzed_by": null,
+                  "end_line": 96,
+                  "end_column": 35
+                }
+              ]
+            },
+            {
+              "symbol_id": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+              "native_id": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "83dab4e182c5e05ce3f94e515cc96bea6f4b5c6a1f12c6ff29140931c055b9a0",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 43,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 43,
+                  "end_column": 27
+                },
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "d45ac17857c680eee448a1fbafb808dfb0a0fdb6eb1b17e40651491da6cbcd06",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 68,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 68,
+                  "end_column": 27
+                },
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "e19eb02a907f43b187654569a27cd6a3ee597d17d45519aa7103d72d515cf39e",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 93,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 93,
+                  "end_column": 27
+                },
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "59a4196c852429faab3d5684163851162676fa190f7a65460d6e65237567f9f9",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 123,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 123,
+                  "end_column": 27
+                },
+                {
+                  "file_path": "src/utilities/typeFromAST.ts",
+                  "definition_id": "024c2b1b1304f15d9d0b2dd02a5e148805903ed121a5d02682e064a3cdc24340",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 16,
+                  "start_line": 131,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 131,
+                  "end_column": 27
+                }
+              ]
+            },
+            {
+              "symbol_id": "src/utilities/extendSchema.ts::local 139",
+              "native_id": "local 139",
+              "name": "typeFromAST",
+              "declarations": [
+                {
+                  "file_path": "src/utilities/extendSchema.ts",
+                  "definition_id": "d51a3ee12486c1335077186dc478b98a7ca8be8ee6aa170d21906f79ae7b5112",
+                  "coordinate_encoding": "utf-16",
+                  "kind": "Function",
+                  "column": 13,
+                  "start_line": 412,
+                  "analyzed_by": [
+                    "scip"
+                  ],
+                  "end_line": 412,
+                  "end_column": 24
+                }
+              ]
+            }
+          ],
+          "returned": 7,
+          "truncated": false,
+          "response_format": "definitions-v2"
+        }
+      }
+    ],
+    "text_errors": []
+  },
+  {
+    "tool": "findReferences",
+    "server": "deepthought",
+    "arguments": {
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+      "native_symbol": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "b6ad09b0dd928363d09b76024b335b0cdfc99060050449c70ab5d3d970de0632",
+        "status": "succeeded",
+        "bytes": 7993,
+        "returned": 26,
+        "truncated": false,
+        "source_verification": {
+          "status": "verified",
+          "freshness": "checked_before_and_after_query",
+          "profile": "typescript-symbol-references-v1",
+          "compiler_version": "6.0.3",
+          "diagnostics": 0,
+          "selected_files": 176,
+          "files_sha256": "9f485e2702467419ecd55b288658a990112d6352756ef17d85f01b138091d3ff",
+          "source_sha256": "15371556b4fb9627c2dcb29707ee36c41898673702254531c8b46632794049ad",
+          "compiler_sha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+          "scope_definition": "Compiler-symbol identity and alias closure over selected files, excluding target declaration names",
+          "total_references": 26,
+          "comparison": {
+            "indexed_count": 26,
+            "missing_in_scip": 0,
+            "extra_in_scip": 0
+          },
+          "reference_set_sha256": "9154172ef507e3d7a10e17b2c90b2e3875c83000e5975005b89816854a139582"
+        },
+        "response": {
+          "repo_url": "https://github.com/graphql/graphql-js",
+          "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+          "status": "succeeded",
+          "scope": "repository_snapshot",
+          "capabilities": [
+            "definitions",
+            "dependencies",
+            "references",
+            "verified_references"
+          ],
+          "analysis_status": "succeeded",
+          "items": [
+            {
+              "reference": {
+                "column": 28,
+                "end_column": 39,
+                "end_line": 96,
+                "file_path": "src/validation/rules/VariablesInAllowedPositionRule.ts",
+                "reference_id": "0cb45e3527e9cef7fafef3b9c568335fe79de55acb8d3c3e6f089d94091c2b42",
+                "start_line": 96
+              }
+            },
+            {
+              "reference": {
+                "column": 23,
+                "end_column": 34,
+                "end_line": 1217,
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "11a9db716e594003c8c80577c35d42b0a2a584fd697e04ada3151f7ff0ea3542",
+                "start_line": 1217
+              }
+            },
+            {
+              "reference": {
+                "column": 19,
+                "end_column": 30,
+                "end_line": 72,
+                "file_path": "src/validation/rules/FragmentsOnCompositeTypesRule.ts",
+                "reference_id": "1577c9b41e1d18790d65b64b762eaf3363818bc932b690aa546d06078d4472ee",
+                "start_line": 72
+              }
+            },
+            {
+              "reference": {
+                "column": 17,
+                "end_column": 28,
+                "end_line": 112,
+                "file_path": "src/validation/rules/PossibleFragmentSpreadsRule.ts",
+                "reference_id": "180a765dd0f1bd8221b89778c85df23a5ad9299f4d2c7b9d45bf054ba2acd119",
+                "start_line": 112
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 24,
+                "file_path": "src/execution/collectFields.ts",
+                "reference_id": "29a4b51df3af464ee287f13d3e7f8d62cfe995133e2de887fce94a782be2ea16",
+                "start_line": 24
+              }
+            },
+            {
+              "reference": {
+                "column": 21,
+                "end_column": 32,
+                "end_line": 59,
+                "file_path": "src/validation/rules/FragmentsOnCompositeTypesRule.ts",
+                "reference_id": "3002803abc577c1fc942f1644461c070a858a41381a962848ffbb1c41b3bd2f1",
+                "start_line": 59
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 65,
+                "file_path": "src/utilities/index.ts",
+                "reference_id": "3899d86c8e1d8b9ff8e4b6f48172134ddedace23b5477b33ada72c12c32e5731",
+                "start_line": 65
+              }
+            },
+            {
+              "reference": {
+                "column": 12,
+                "end_column": 23,
+                "end_line": 1275,
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "58c89d1f9f4e46213f422966abf5273e8d282dcabc75f31ce65645aff655b15a",
+                "start_line": 1275
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 11,
+                "file_path": "src/validation/rules/VariablesAreInputTypesRule.ts",
+                "reference_id": "6d9a99fb1d707cbbdd1562de1f48c11c75779adb0de86e4dda9c42224095ef89",
+                "start_line": 11
+              }
+            },
+            {
+              "reference": {
+                "column": 19,
+                "end_column": 30,
+                "end_line": 61,
+                "file_path": "src/validation/rules/VariablesAreInputTypesRule.ts",
+                "reference_id": "770c5244be5570777cf42625320cf1f11cde7457d170aab4a1c5e3f8f9efccb2",
+                "start_line": 61
+              }
+            },
+            {
+              "reference": {
+                "column": 20,
+                "end_column": 31,
+                "end_line": 755,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "7a2c86f512ac1de2d4bc3ecd7162f4b3a3ea7e93972008039dc380be0da87a65",
+                "start_line": 755
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 37,
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "8dbd28bc33fc9d376a7f1e68eec47b19429ed224a84aa078782cde0a34c102f1",
+                "start_line": 37
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 13,
+                "end_line": 524,
+                "file_path": "src/index.ts",
+                "reference_id": "932472d13e82efc5d05e9d869ab0f5ee5f3a39364d55599f6869f22cf49ad56a",
+                "start_line": 524
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 14,
+                "file_path": "src/validation/rules/PossibleFragmentSpreadsRule.ts",
+                "reference_id": "a3aa6f2d3c8a8ee41c937d8f766c4d2e3e66b6041241cbe9997f83dbd7502455",
+                "start_line": 14
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 10,
+                "file_path": "src/validation/rules/FragmentsOnCompositeTypesRule.ts",
+                "reference_id": "a3cff8da63aa21e2092fb1471b6699fa43a1f646f9b1dd121850791161cefe8d",
+                "start_line": 10
+              }
+            },
+            {
+              "reference": {
+                "column": 25,
+                "end_column": 36,
+                "end_line": 115,
+                "file_path": "src/validation/rules/ProvidedRequiredArgumentsRule.ts",
+                "reference_id": "ab2516d62b20e60bbea0e3da81f40ea486eb723596b86cd10027b10f327e702a",
+                "start_line": 115
+              }
+            },
+            {
+              "reference": {
+                "column": 24,
+                "end_column": 35,
+                "end_line": 137,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "reference_id": "ac259c4340cdf8b4bd5772ab38a8a81fc04d0fe6c6a720af31b76ff4afeefdd6",
+                "start_line": 137
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 20,
+                "file_path": "src/validation/rules/VariablesInAllowedPositionRule.ts",
+                "reference_id": "c031250ccce14f271aec490a68c7a41f920519e7eab09c9223a239e118a6c137",
+                "start_line": 20
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 40,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "c3414290369e2fac78ba397e5b48e291063c96ddbcb9b420a926fcee36b06b5d",
+                "start_line": 40
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 12,
+                "file_path": "src/execution/getVariableSignature.ts",
+                "reference_id": "cac6effc8dfcebc1dcd64535a5f4fb78cdbbbccded7a642707259c246e5a212c",
+                "start_line": 12
+              }
+            },
+            {
+              "reference": {
+                "column": 12,
+                "end_column": 23,
+                "end_line": 716,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "cb1288ebb0a8c903224eee5be61ab46edc87533bff294f274668c7e72a14346e",
+                "start_line": 716
+              }
+            },
+            {
+              "reference": {
+                "column": 18,
+                "end_column": 29,
+                "end_line": 35,
+                "file_path": "src/execution/getVariableSignature.ts",
+                "reference_id": "d76e6d5f64cc0af4a38cc2cd96c9c0d7743d1fa05b9d36ae197183e16abf5544",
+                "start_line": 35
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 20,
+                "end_line": 19,
+                "file_path": "src/validation/rules/ProvidedRequiredArgumentsRule.ts",
+                "reference_id": "db92418fc8fd3beb28c38bfc2a482e5571fdd6c8e53e35b9343cb0533c873bed",
+                "start_line": 19
+              }
+            },
+            {
+              "reference": {
+                "column": 24,
+                "end_column": 35,
+                "end_line": 141,
+                "file_path": "src/utilities/typeFromAST.ts",
+                "reference_id": "eff86116f08273802bc6d183703ff78465a294213d81ec00e3732816e530f0e7",
+                "start_line": 141
+              }
+            },
+            {
+              "reference": {
+                "column": 26,
+                "end_column": 37,
+                "end_line": 452,
+                "file_path": "src/execution/collectFields.ts",
+                "reference_id": "f75110650443c21c789d0928cdb1227981b3266f5219e1da31e6e713c3c81247",
+                "start_line": 452
+              }
+            },
+            {
+              "reference": {
+                "column": 35,
+                "end_column": 46,
+                "end_line": 722,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "f7ccceed746861c69d1b50ea100f38dc45df9833f5e0a5e72a6c217a59f0ce4d",
+                "start_line": 722
+              }
+            }
+          ],
+          "returned": 26,
+          "truncated": false,
+          "reference_coverage": [
+            {
+              "tool": "scip",
+              "graph_status": "partial",
+              "resolution_counts": {
+                "ambiguous": 0,
+                "resolved": 34635,
+                "unresolved": 9498
+              },
+              "resolution_semantics": "native_symbol_binding",
+              "indexed_files": 176,
+              "source_binding": {
+                "receipt_sha256": "8a2b807a9b00a31cf23d2298646889d18a10176ad0e7c5e5328d4b81773aecb3",
+                "checked_at": null,
+                "workspace_freshness": "unverified_at_query"
+              }
+            }
+          ],
+          "response_format": "source-references-v1",
+          "reference_common": {
+            "native_id": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+            "coordinate_encoding": "utf-16",
+            "resolution": "resolved",
+            "target_ids": [
+              "024c2b1b1304f15d9d0b2dd02a5e148805903ed121a5d02682e064a3cdc24340",
+              "d45ac17857c680eee448a1fbafb808dfb0a0fdb6eb1b17e40651491da6cbcd06",
+              "83dab4e182c5e05ce3f94e515cc96bea6f4b5c6a1f12c6ff29140931c055b9a0",
+              "e19eb02a907f43b187654569a27cd6a3ee597d17d45519aa7103d72d515cf39e",
+              "59a4196c852429faab3d5684163851162676fa190f7a65460d6e65237567f9f9"
+            ]
+          },
+          "source_verification": {
+            "status": "verified",
+            "freshness": "checked_before_and_after_query",
+            "profile": "typescript-symbol-references-v1",
+            "compiler_version": "6.0.3",
+            "diagnostics": 0,
+            "selected_files": 176,
+            "files_sha256": "9f485e2702467419ecd55b288658a990112d6352756ef17d85f01b138091d3ff",
+            "source_sha256": "15371556b4fb9627c2dcb29707ee36c41898673702254531c8b46632794049ad",
+            "compiler_sha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+            "scope_definition": "Compiler-symbol identity and alias closure over selected files, excluding target declaration names",
+            "total_references": 26,
+            "comparison": {
+              "indexed_count": 26,
+              "missing_in_scip": 0,
+              "extra_in_scip": 0
+            },
+            "reference_set_sha256": "9154172ef507e3d7a10e17b2c90b2e3875c83000e5975005b89816854a139582"
+          },
+          "next_cursor": null
+        }
+      }
+    ],
+    "text_errors": []
+  }
+]

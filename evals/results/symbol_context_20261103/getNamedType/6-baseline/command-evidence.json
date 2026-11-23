@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "3cb8342d14707116f5cd38c107b3201cadba16d8709c42919f40bccba487fe31",
+    "output_bytes": 8941,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType' src --glob '*.ts'\"",
+    "exit_code": 0,
+    "output_sha256": "5ceca5685547bd70145c8b852fa1d0ee39bec642012f2598b1cdd2c107e2ea1c",
+    "output_bytes": 5306,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc 'cat tsconfig.json'",
+    "exit_code": 0,
+    "output_sha256": "034a858db0899a95245aab16a70b1d8aeb4e12a668b1cc4117d8e08e351e582b",
+    "output_bytes": 1520,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1820,1870p' src/type/definition.ts\nsed -n '140,185p' src/index.ts\nsed -n '60,90p' src/type/index.ts\nsed -n '1,65p' src/type/schema.ts\nsed -n '920,960p' src/type/schema.ts\"",
+    "exit_code": 0,
+    "output_sha256": "44ac5a8f62e288725c7c874b2992ff7541442902438e66b6cb2b287e1eb33e22",
+    "output_bytes": 6157,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = context.workspace;\nconst files = context.files.filter(f => f.endsWith('.ts')).map(f => path.join(root, f));\nconst allowed = new Set(files);\nconst config = ts.parseConfigFileTextToJson(path.join(root, 'tsconfig.json'), fs.readFileSync(path.join(root, 'tsconfig.json'), 'utf8'));\nconst options = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, root).options;\nconst host = ts.createCompilerHost(options);\nconst originalRead = host.readFile;\nconst originalExists = host.fileExists;\nconst permitted = f => \"'!f.startsWith(root + path.sep) || allowed.has(f) || f.includes('\"'/node_modules/') || f === path.join(root, 'package.json');\nhost.readFile = f => permitted(f) ? originalRead(f) : undefined;\nhost.fileExists = f => permitted(f) && originalExists(f);\nconst program = ts.createProgram(files, options, host);\nconst checker = program.getTypeChecker();\nconst sf = program.getSourceFile(path.join(root, 'src/type/definition.ts'));\nconst decl = sf.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'getNamedType');\nconst target = checker.getSymbolAtLocation(decl.name);\nconst resolve = s => s && (s.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(s) : s;\nconst references = [], excluded = [];\nfor (const file of files) {\n const source = program.getSourceFile(file);\n function visit(n) {\n  if (ts.isIdentifier(n)) {\n   const sym = checker.getSymbolAtLocation(n);\n   if (resolve(sym) === target) {\n    const start = source.getLineAndCharacterOfPosition(n.getStart(source));\n    const end = source.getLineAndCharacterOfPosition(n.getEnd());\n    const row = {target:'getNamedType',file:path.relative(root,file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n    if (ts.isFunctionDeclaration(n.parent) && n.parent.name === n) excluded.push(row); else references.push(row);\n   }\n  }\n  ts.forEachChild(n, visit);\n }\n visit(source);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references, excluded_declarations:excluded, count:references.length}, null, 2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "6cd734d8bdabcbfb57f798837e0d8db4476fc4d4afbb11e37f7914df49bc0bf6",
+    "output_bytes": 4702,
+    "compiler_reference_scan": true
+  }
+]

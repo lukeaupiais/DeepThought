@@ -1,0 +1,46 @@
+[
+  {
+    "tool": "findDefinitions",
+    "server": "deepthought",
+    "arguments": {
+      "symbol": "typeFromAST",
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "a1570102a24fe38b381ab098bdfd80e270cdd4d39e8eaaeebedad8527e924df9",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "e7cf0b55dd46d6a5a46f3e2bcc8fbacf35e7e16157c10c192691befb6a13e986",
+        "status": "succeeded",
+        "bytes": 4873,
+        "returned": 7,
+        "truncated": false
+      }
+    ],
+    "text_errors": []
+  },
+  {
+    "tool": "findReferences",
+    "server": "deepthought",
+    "arguments": {
+      "native_symbol": "scip-typescript npm graphql 17.0.2 src/utilities/`typeFromAST.ts`/typeFromAST().",
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "a1570102a24fe38b381ab098bdfd80e270cdd4d39e8eaaeebedad8527e924df9",
+      "max_elements": 100
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "613ca2b63ca6f02bebfa1c77b359169ba5f42f71b210695e087132f28a6d0bff",
+        "status": "succeeded",
+        "bytes": 7237,
+        "returned": 26,
+        "truncated": false
+      }
+    ],
+    "text_errors": []
+  }
+]

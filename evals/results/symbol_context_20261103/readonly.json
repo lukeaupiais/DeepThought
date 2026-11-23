@@ -1,0 +1,13 @@
+{
+  "write_rejected": true,
+  "code": "Neo.ClientError.General.WriteOnReadOnlyAccessDatabase",
+  "previous_snapshot_markers_unchanged": true,
+  "old_snapshots": [],
+  "all_snapshots": [
+    {
+      "repo": "https://github.com/graphql/graphql-js",
+      "snapshot": "4e3df9b5541709edc2df9253c18ccbf8c4f26ebac26e042d9ae2e2f87da63d68",
+      "hash": "2e3d27b77f5d2b334f55735cbac35e80a05c56c44babd14f07ed55b8277c58ff"
+    }
+  ]
+}

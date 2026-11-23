@@ -1,0 +1,68 @@
+{
+  "status": "completed",
+  "wall_seconds": 48.62193313300668,
+  "returncode": 0,
+  "terminal_events": [
+    {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 220222,
+        "cached_input_tokens": 189696,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2326,
+        "reasoning_output_tokens": 39
+      }
+    }
+  ],
+  "usage_granularity": "session_terminal_only",
+  "tool_payloads": [
+    {
+      "item_id": "item_1",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 10063
+    },
+    {
+      "item_id": "item_2",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 10477
+    },
+    {
+      "item_id": "item_3",
+      "type": "mcp_tool_call",
+      "tool": "findDefinitions",
+      "text_bytes": 18551
+    },
+    {
+      "item_id": "item_4",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 5392
+    },
+    {
+      "item_id": "item_5",
+      "type": "mcp_tool_call",
+      "tool": "findReferences",
+      "text_bytes": 281
+    },
+    {
+      "item_id": "item_6",
+      "type": "command_execution",
+      "tool": null,
+      "text_bytes": 4687
+    },
+    {
+      "item_id": "item_7",
+      "type": "mcp_tool_call",
+      "tool": "findReferences",
+      "text_bytes": 19496
+    },
+    {
+      "item_id": "item_8",
+      "type": "mcp_tool_call",
+      "tool": "findReferences",
+      "text_bytes": 1575
+    }
+  ]
+}

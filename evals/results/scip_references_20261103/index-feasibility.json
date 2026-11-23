@@ -1,0 +1,15 @@
+{
+  "exit_code": 0,
+  "wall_seconds": 9.083478635002393,
+  "max_rss_kib": 556576,
+  "command": [
+    "/home/luke/.cache/deepthought-scip/runtime/node_modules/node-linux-x64/bin/node",
+    "/home/luke/.cache/deepthought-scip/runtime/node_modules/@sourcegraph/scip-typescript/dist/src/main.js",
+    "index",
+    "--cwd",
+    "/home/luke/.cache/deepthought-tool-eval/graphql-js",
+    "--output",
+    "/home/luke/.cache/deepthought-scip/graphql-initial.scip",
+    "--no-progress-bar"
+  ]
+}

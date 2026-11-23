@@ -1,0 +1,170 @@
+{
+  "references": [
+    {
+      "target": "getNamedType",
+      "file": "src/index.ts",
+      "line": 171,
+      "column": 2,
+      "end_line": 171,
+      "end_column": 14
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/type/index.ts",
+      "line": 77,
+      "column": 2,
+      "end_line": 77,
+      "end_column": 14
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/type/schema.ts",
+      "line": 27,
+      "column": 2,
+      "end_line": 27,
+      "end_column": 14
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/type/schema.ts",
+      "line": 945,
+      "column": 20,
+      "end_line": 945,
+      "end_column": 32
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/type/validate.ts",
+      "line": 52,
+      "column": 2,
+      "end_line": 52,
+      "end_column": 14
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/type/validate.ts",
+      "line": 986,
+      "column": 29,
+      "end_line": 986,
+      "end_column": 41
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/type/validate.ts",
+      "line": 1026,
+      "column": 29,
+      "end_line": 1026,
+      "end_column": 41
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/utilities/TypeInfo.ts",
+      "line": 27,
+      "column": 2,
+      "end_line": 27,
+      "end_column": 14
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/utilities/TypeInfo.ts",
+      "line": 678,
+      "column": 35,
+      "end_line": 678,
+      "end_column": 47
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/utilities/TypeInfo.ts",
+      "line": 717,
+      "column": 12,
+      "end_line": 717,
+      "end_column": 24
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/utilities/TypeInfo.ts",
+      "line": 771,
+      "column": 36,
+      "end_line": 771,
+      "end_column": 48
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/utilities/TypeInfo.ts",
+      "line": 789,
+      "column": 34,
+      "end_line": 789,
+      "end_column": 46
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+      "line": 29,
+      "column": 2,
+      "end_line": 29,
+      "end_column": 14
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+      "line": 985,
+      "column": 15,
+      "end_line": 985,
+      "end_column": 27
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/ScalarLeafsRule.ts",
+      "line": 10,
+      "column": 9,
+      "end_line": 10,
+      "end_column": 21
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/ScalarLeafsRule.ts",
+      "line": 51,
+      "column": 23,
+      "end_line": 51,
+      "end_column": 35
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+      "line": 7,
+      "column": 9,
+      "end_line": 7,
+      "end_column": 21
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+      "line": 88,
+      "column": 29,
+      "end_line": 88,
+      "end_column": 41
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+      "line": 8,
+      "column": 9,
+      "end_line": 8,
+      "end_column": 21
+    },
+    {
+      "target": "getNamedType",
+      "file": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+      "line": 57,
+      "column": 19,
+      "end_line": 57,
+      "end_column": 31
+    }
+  ],
+  "limitations": [
+    "Scoped to the supplied production files. TypeScript symbol resolution independently confirmed all 20 occurrences returned by the paginated DeepThought reference query.",
+    "DeepThought marks these references ambiguous among six declarations of the same overloaded public function; each source occurrence is listed once.",
+    "The public implementation unwraps types with a loop and contains no recursive reference. Same-spelling helpers in buildClientSchema.ts, mapSchemaConfig.ts and extendSchema.ts bind to distinct symbols and are excluded.",
+    "Source references do not establish runtime execution or complete runtime impact."
+  ]
+}

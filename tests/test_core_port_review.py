@@ -157,7 +157,9 @@ class CorePortIndependentReview(unittest.TestCase):
                 file = files[owns[node.properties["qualified_name"]]]
                 self.assertEqual(file.properties["path"], node.properties["file_path"])
             contains = [
-                edge for edge in output.relationships if edge.type == "CONTAINS"
+                edge
+                for edge in output.relationships
+                if edge.type == "CONTAINS" and edge.source_labels == ["Repository"]
             ]
             self.assertEqual(
                 {edge.source_match["qualified_name"] for edge in contains}, repositories
@@ -172,7 +174,7 @@ class CorePortIndependentReview(unittest.TestCase):
                 output.metadata.custom_metrics["coverage"], sdk.to_dict()["coverage"]
             )
             self.assertEqual(
-                output.metadata.custom_metrics["snapshot_id"], sdk.snapshot_id
+                output.metadata.custom_metrics["source_snapshot_id"], sdk.snapshot_id
             )
 
 

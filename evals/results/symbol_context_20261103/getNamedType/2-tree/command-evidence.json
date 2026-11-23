@@ -1,0 +1,26 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "35b6d4883115cd63fba6ecd798b9bdc3ea343411948d51b535c6be9283bf1b0c",
+    "output_bytes": 10457,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n '\\\\bgetNamedType\\\\b' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "8b61dadbe5d85dc4fcb5dec17f4b02f6b9fd3078711d258fde47f1b3c5dfe7ae",
+    "output_bytes": 10162,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst config = ts.readConfigFile(path.join(ctx.workspace,'tsconfig.json'), ts.sys.readFile);\nconst optionsResult = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, ctx.workspace);\nif (optionsResult.errors.length) throw new Error(ts.formatDiagnosticsWithColorAndContext(optionsResult.errors, {getCurrentDirectory:()=>ctx.workspace,getCanonicalFileName:x=>x,getNewLine:()=> '\\\\n'}));\nconst roots = ctx.files.filter(f=>f.endsWith('.ts')).map(f=>path.join(ctx.workspace,f));\nconst allowed = new Set(ctx.files.map(f=>path.join(ctx.workspace,f)));\nconst host = ts.createCompilerHost(optionsResult.options, true);\nconst baseRead = host.readFile;\nhost.readFile = file => {\n const p = path.resolve(file);\n if (allowed.has(p) || p.startsWith('/opt/typescript/') || p.includes('/node_modules/')) return baseRead(file);\n return undefined;\n};\nconst program = ts.createProgram(roots, optionsResult.options, host);\nconst checker = program.getTypeChecker();\nconst entry = program.getSourceFile(path.join(ctx.workspace,'src/index.ts'));\nconst exp = checker.getExportsOfModule(checker.getSymbolAtLocation(entry)).find(s=>s.name==='getNamedType');\nfunction canonical(s) { return s && (s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s); }\nconst target = canonical(exp);\nconst refs = [];\nconst declarations = [];\nfor (const root of roots) {\n const sf = program.getSourceFile(root);\n function visit(node) {\n  if (ts.isIdentifier(node)) {\n   const sym = canonical(checker.getSymbolAtLocation(node));\n   const shorthand = ts.isShorthandPropertyAssignment(node.parent) ? canonical(checker.getShorthandAssignmentValueSymbol(node.parent)) : undefined;\n   if (sym===target || shorthand===target) {\n    const start = sf.getLineAndCharacterOfPosition(node.getStart(sf));\n    const end = sf.getLineAndCharacterOfPosition(node.getEnd());\n    const row = {target:'getNamedType',file:path.relative(ctx.workspace,root),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n    if (target.declarations.some(d=>d.name===node)) declarations.push(row); else refs.push(row);\n   }\n  }\n  ts.forEachChild(node, visit);\n }\n visit(sf);\n}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({compiler_version:ts.version, diagnostics: ts.getPreEmitDiagnostics(program).map(d=>({code:d.code,file:d.file&&path.relative(ctx.workspace,d.file.fileName),message:ts.flattenDiagnosticMessageText(d.messageText,'\\\\n')})),declarations,references:refs},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "311e54f021cdb76f559e1d6df3e65b1c2fae47045820468ca94e36d9d8cf06db",
+    "output_bytes": 4730,
+    "compiler_reference_scan": true
+  }
+]

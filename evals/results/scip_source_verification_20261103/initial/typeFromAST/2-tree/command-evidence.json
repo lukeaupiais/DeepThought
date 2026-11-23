@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "22037a43c590a37e589d00d15aeca9b7e7e0977c394fe2c1c9efc110281a1cdc",
+    "output_bytes": 10061,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src; cat tsconfig.json; cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "ed1af206c597aaa6470b5bfdc3515d953f2e7ad2abc268f531d6e938ba21c3be",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"sed -n '1,180p' src/utilities/typeFromAST.ts; sed -n '505,535p' src/index.ts; sed -n '385,430p' src/utilities/extendSchema.ts\"",
+    "exit_code": 0,
+    "output_sha256": "00c7a4794b03cb55e0a48d3f94dab6e3174952b7e7f7ef9db448faed0d2492fc",
+    "output_bytes": 7325,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst ts=require('/opt/typescript/lib/typescript.js');\nconst fs=require('fs');\nconst path=require('path');\nconst ctx=JSON.parse(fs.readFileSync('/work/context.json','utf8'));\nconst files=ctx.files.filter(f=>f.endsWith('.ts')).map(f=>path.resolve(ctx.workspace,f));\nconst config=ts.readConfigFile(path.resolve(ctx.workspace,'tsconfig.json'),ts.sys.readFile);\nconst options=ts.convertCompilerOptionsFromJson(config.config.compilerOptions,ctx.workspace).options;\nconst allowed=new Set([...files,path.resolve(ctx.workspace,'package.json'),path.resolve(ctx.workspace,'tsconfig.json'),path.resolve(ctx.workspace,'package-lock.json')]);\nconst host=ts.createCompilerHost(options);\nconst read=host.readFile.bind(host), exists=host.fileExists.bind(host);\nhost.readFile=f=>allowed.has(path.resolve(f))||f.startsWith('/opt/typescript/')||f.includes('/node_modules/')?read(f):undefined;\nhost.fileExists=f=>(allowed.has(path.resolve(f))||f.startsWith('/opt/typescript/')||f.includes('/node_modules/'))&&exists(f);\nconst program=ts.createProgram(files,options,host), checker=program.getTypeChecker();\nconst source=program.getSourceFile(path.resolve(ctx.workspace,'src/utilities/typeFromAST.ts'));\nconst decl=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name.text==='typeFromAST');\nconst target=checker.getSymbolAtLocation(decl.name);\nfunction resolve(s){const seen=new Set();while(s&&(s.flags&ts.SymbolFlags.Alias)&&\"'!seen.has(s)){seen.add(s);s=checker.getAliasedSymbol(s);}return s;}\nconst refs=[], excluded=[];\nfor(const file of files){const sf=program.getSourceFile(file);if(!sf)throw Error('\"'Missing file '+file);function visit(n){if(ts.isIdentifier(n)){const symbol=resolve(checker.getSymbolAtLocation(n));if(symbol===target){if(\"'!(ts.isFunctionDeclaration(n.parent)&&n.parent.name===n)){const start=sf.getLineAndCharacterOfPosition(n.getStart(sf)),end=sf.getLineAndCharacterOfPosition(n.getEnd());refs.push({target:'\"'typeFromAST',file:path.relative(ctx.workspace,file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character});}}else if(n.text==='typeFromAST'){excluded.push({file:path.relative(ctx.workspace,file),line:sf.getLineAndCharacterOfPosition(n.getStart(sf)).line+1,kind:ts.SyntaxKind[n.parent.kind],symbol:symbol?.getName()});}}ts.forEachChild(n,visit);}visit(sf);}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:refs,excluded,count:refs.length},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "99ec5ea639fdbe5423a9b8184570e175f60a56374050087a407a334e424d005f",
+    "output_bytes": 5763,
+    "compiler_reference_scan": true
+  }
+]

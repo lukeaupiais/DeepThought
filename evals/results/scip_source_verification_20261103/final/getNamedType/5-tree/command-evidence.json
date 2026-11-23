@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "ea940c242949442a634947d9894f140efac0aa6aa1c93ccbe97caa269b00a5fe",
+    "output_bytes": 10063,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n '\\\\bgetNamedType\\\\b' src/type/definition.ts src/index.ts src/type/index.ts; cat tsconfig.json; cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "5f081f4337e2dca6051705a8d2bdcc05aea349e95ad17d5e374bc76f988d0b02",
+    "output_bytes": 6695,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"python - <<'PY'\nimport json,re\nfrom pathlib import Path\nctx=json.load(open('/work/context.json'))\nfor f in ctx['files']:\n if f.endswith('.ts'):\n  for n,l in enumerate(Path(f).read_text().splitlines(),1):\n   if re.search(r'\\\\bgetNamedType\\\\b',l):print(f'{f}:{n}: {l}')\nPY\"",
+    "exit_code": 0,
+    "output_sha256": "43722db61b7c3a47f81579bd8261ced71be1decd7d0df5839297e5f512e6ae4d",
+    "output_bytes": 5048,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"sed -n '1820,1865p' src/type/definition.ts; sed -n '1,160p' src/harness.ts; sed -n '1,160p' src/diagnostics.ts\"",
+    "exit_code": 0,
+    "output_sha256": "858123b54d3b010e3dbc30f709b8ba8d5c3f3e43265e043411e86ee8d47bc530",
+    "output_bytes": 8920,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_7",
+    "command": "/bin/bash -lc \"node <<'JS'\nconst fs=require('fs'), path=require('path'), ts=require('/opt/typescript/lib/typescript.js');\nconst context=JSON.parse(fs.readFileSync('/work/context.json','utf8'));\nconst root=process.cwd(), files=context.files.filter(f=>f.endsWith('.ts')).map(f=>path.resolve(root,f)), allowed=new Set(files);\nconst config=ts.readConfigFile(path.resolve(root,'tsconfig.json'),ts.sys.readFile);\nconst opts=ts.convertCompilerOptionsFromJson(config.config.compilerOptions,root).options;\nconst host=ts.createCompilerHost(opts,true), read=host.readFile;\nhost.readFile=f=>allowed.has(path.resolve(f)) || f.startsWith('/opt/typescript/lib/') || f.includes('/node_modules/') ? read(f):undefined;\nconst program=ts.createProgram(files,opts,host), checker=program.getTypeChecker();\nconst def=program.getSourceFile(path.resolve(root,'src/type/definition.ts'));\nconst target=checker.getExportsOfModule(checker.getSymbolAtLocation(def)).find(s=>s.name==='getNamedType');\nconst rows=[], excluded=[];\nfor(const f of files){ const sf=program.getSourceFile(f); if(\"'!sf)throw Error('\"'missing '+f);\n function walk(n){\n  if(ts.isIdentifier(n)){\n   let s=checker.getSymbolAtLocation(n);\n   if(s && (s.flags & ts.SymbolFlags.Alias))s=checker.getAliasedSymbol(s);\n   if(s===target){\n    const start=sf.getLineAndCharacterOfPosition(n.getStart(sf)), end=sf.getLineAndCharacterOfPosition(n.getEnd());\n    const row={target:'getNamedType',file:path.relative(root,f),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n    if(ts.isFunctionDeclaration(n.parent)&&n.parent.name===n)excluded.push(row);else rows.push(row);\n   }\n  }\n  ts.forEachChild(n,walk);\n }\n walk(sf);\n}\nrows.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:rows,excludedDeclarations:excluded.length,referenceCount:rows.length},null,2));\nJS\"",
+    "exit_code": 0,
+    "output_sha256": "c14fb93840fa1c3a2b135d852f54c75b50bfd0271433b4f859b7c47b5de30f2e",
+    "output_bytes": 3675,
+    "compiler_reference_scan": true
+  }
+]

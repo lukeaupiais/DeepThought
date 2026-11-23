@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "40778a2bcb92c36f1ec4f4a53b44de59b4775de22504a9c6de62283889804d54",
+    "output_bytes": 10061,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc 'cat tsconfig.json && cat src/utilities/typeFromAST.ts'",
+    "exit_code": 0,
+    "output_sha256": "61252ae74b697db11030b9a2e2482cd1f4d5a100e8c3ab93da90574e131c8565",
+    "output_bytes": 5986,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src\"",
+    "exit_code": 0,
+    "output_sha256": "3038473c05ecceb40b82923e856f34a7c67341ccdc58637204360046e619e08c",
+    "output_bytes": 4930,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst fs = require('fs');\nconst path = require('path');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst roots = context.files.filter(f=>f.endsWith('.ts')).map(f=>path.join(context.workspace, f));\nconst cfg = ts.parseConfigFileTextToJson('tsconfig.json', fs.readFileSync('tsconfig.json','utf8'));\nconst options = ts.convertCompilerOptionsFromJson(cfg.config.compilerOptions, context.workspace).options;\nconst program = ts.createProgram(roots, options);\nconst checker = program.getTypeChecker();\nconst source = program.getSourceFile(path.join(context.workspace,'src/utilities/typeFromAST.ts'));\nconst decl = source.statements.find(n=>ts.isFunctionDeclaration(n) && n.name.text==='typeFromAST');\nconst target = checker.getSymbolAtLocation(decl.name);\nconst rows=[];\nconst excluded=[];\nfor(const f of roots){\nconst sf=program.getSourceFile(f);\nfunction walk(n){\nif(ts.isIdentifier(n)){\nlet sym=checker.getSymbolAtLocation(n);\nif(sym && (sym.flags & ts.SymbolFlags.Alias))sym=checker.getAliasedSymbol(sym);\nif(sym===target){\nconst start=sf.getLineAndCharacterOfPosition(n.getStart(sf));\nconst end=sf.getLineAndCharacterOfPosition(n.getEnd());\nconst row={target:'typeFromAST',file:path.relative(context.workspace,f),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\nif(ts.isFunctionDeclaration(n.parent)&&n.parent.name===n)excluded.push(row);else rows.push(row);\n}\n}\nts.forEachChild(n,walk);\n}walk(sf);\n}\nrows.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:rows,excludedDeclarations:excluded},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "0b6a0f8ac19d1d735d45c16068b1cae2f51e7303bf8df15a1cad0f538cd33cd1",
+    "output_bytes": 5778,
+    "compiler_reference_scan": true
+  }
+]

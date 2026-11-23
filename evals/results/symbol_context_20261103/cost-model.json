@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-03",
+  "source": "https://learn.chatgpt.com/docs/pricing#token-rates",
+  "model": "gpt-6.1-sol",
+  "service_tier": "Standard",
+  "credits_per_million": {
+    "uncached_input": 50,
+    "cached_input": 2.5,
+    "output": 250
+  },
+  "formula": "((input-cached_input)*50+cached_input*2.5+output*250)/1000000",
+  "excluded_unknown": [
+    "invoiced dollars",
+    "marginal subscription spend",
+    "coordinator and reviewer model usage",
+    "infrastructure charges",
+    "setup and restart durations outside retained receipts"
+  ],
+  "rate_basis": "Frozen from the preceding same-day evaluation; identical rates for both batches."
+}

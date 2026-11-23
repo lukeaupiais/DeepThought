@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "3cb8342d14707116f5cd38c107b3201cadba16d8709c42919f40bccba487fe31",
+    "output_bytes": 8941,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n '\\\\bgetNamedType\\\\b' src --glob '*.ts'\"",
+    "exit_code": 0,
+    "output_sha256": "bcee8d7dfffa4be95cedfa95490017f03bf5ed015fb8ebf4a0aa632a0b8cdf9e",
+    "output_bytes": 4991,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc 'cat tsconfig.json'",
+    "exit_code": 0,
+    "output_sha256": "034a858db0899a95245aab16a70b1d8aeb4e12a668b1cc4117d8e08e351e582b",
+    "output_bytes": 1520,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"cat src/harness.ts\nsed -n '1720,1875p' src/type/definition.ts\nsed -n '135,190p' src/index.ts\nsed -n '55,90p' src/type/index.ts\"",
+    "exit_code": 0,
+    "output_sha256": "6569e491a44a0ea5e083beb0877135578556287b2159f39f0045c564440c6ec9",
+    "output_bytes": 7910,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst path = require('path');\nconst allowed = new Set(ctx.files.map(f => path.resolve(ctx.workspace,f)));\nconst opts = {target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.Node16, moduleResolution: ts.ModuleResolutionKind.Node16, allowImportingTsExtensions:true, noEmit:true, strict:true, skipLibCheck:true};\nconst host = ts.createCompilerHost(opts);\nconst readFile = host.readFile;\nhost.readFile = p => allowed.has(path.resolve(p)) || p.startsWith('/opt/typescript/lib/') || p.includes('/node_modules/') ? readFile(p) : undefined;\nconst program = ts.createProgram([...allowed].filter(f=>f.endsWith('.ts')),opts,host);\nconst checker = program.getTypeChecker();\nconst def = program.getSourceFile(path.join(ctx.workspace,'src/type/definition.ts'));\nconst decl = def.statements.find(n=>ts.isFunctionDeclaration(n) && n.name?.text==='getNamedType');\nconst target = checker.getSymbolAtLocation(decl.name);\nfunction resolve(s) {let seen = new Set();while (s && (s.flags & ts.SymbolFlags.Alias) && \"'!seen.has(s)) {seen.add(s);s=checker.getAliasedSymbol(s);}return s;}\nconst refs=[], excluded=[];\nfor(const sf of program.getSourceFiles()) {\n if(!allowed.has(path.resolve(sf.fileName))) continue;\n function visit(n) {\n  if(ts.isIdentifier(n)) {\n   let sym=resolve(checker.getSymbolAtLocation(n));\n   if(sym===target) {\n    const start=n.getStart(sf),end=n.getEnd();\n    const p=sf.getLineAndCharacterOfPosition(start),q=sf.getLineAndCharacterOfPosition(end);\n    const row={target:'\"'getNamedType',file:path.relative(ctx.workspace,sf.fileName),line:p.line+1,column:p.character,end_line:q.line+1,end_column:q.character};\n    if(ts.isFunctionDeclaration(n.parent) && n.parent.name===n)excluded.push(row);\n    else refs.push({...row,text:n.text,kind:ts.SyntaxKind[n.parent.kind]});\n   }\n  }\n  ts.forEachChild(n,visit);\n }\n visit(sf);\n}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:refs, excludedDeclarations:excluded},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "ac2f78be2f6921413d3f5a3b155dba3d1891ab70cab5236c01a91dc5f3e169bb",
+    "output_bytes": 5935,
+    "compiler_reference_scan": true
+  }
+]

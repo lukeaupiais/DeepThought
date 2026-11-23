@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "22037a43c590a37e589d00d15aeca9b7e7e0977c394fe2c1c9efc110281a1cdc",
+    "output_bytes": 10061,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' /home/luke/.cache/deepthought-tool-eval 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output_bytes": 0,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n 'typeFromAST' src; cat tsconfig.json; cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "080ad588cc39aa17c340f5b1b53e34421ac00da9f558fd037949bc8ef66f0b78",
+    "output_bytes": 10101,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"sed -n '1,180p' src/utilities/typeFromAST.ts; sed -n '505,540p' src/index.ts; cat src/harness.ts\"",
+    "exit_code": 0,
+    "output_sha256": "9e4859570766a9ef3c0f9339f9bc98fdd0081db72cf4241b70a6ec66022b065c",
+    "output_bytes": 7703,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_7",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst fs = require('fs');\nconst path = require('path');\nconst context = JSON.parse(fs.readFileSync('/work/context.json','utf8'));\nconst rootNames = context.files.filter(f => f.endsWith('.ts')).map(f => path.resolve(f));\nconst options = {target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.Node16,moduleResolution:ts.ModuleResolutionKind.Node16,allowImportingTsExtensions:true,noEmit:true,skipLibCheck:true,types:[]};\nconst program = ts.createProgram(rootNames,options);\nconst checker = program.getTypeChecker();\nconst targetFile = program.getSourceFile(path.resolve('src/utilities/typeFromAST.ts'));\nconst declaration = targetFile.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'typeFromAST');\nconst target = checker.getSymbolAtLocation(declaration.name);\nconst refs = [],excluded = [];\nfunction canonical(symbol) {\n  const seen = new Set();\n  while(symbol && (symbol.flags & ts.SymbolFlags.Alias) && \"'!seen.has(symbol)) {seen.add(symbol); symbol=checker.getAliasedSymbol(symbol);}\n  return symbol;\n}\nfor(const file of rootNames) {\n const sf = program.getSourceFile(file);\n function walk(n) {\n  if(ts.isIdentifier(n)) {\n   const symbol = canonical(checker.getSymbolAtLocation(n));\n   if(symbol === target) {\n    const isDeclaration = ts.isFunctionDeclaration(n.parent) && n.parent.name === n;\n    const start = sf.getLineAndCharacterOfPosition(n.getStart(sf));\n    const end = sf.getLineAndCharacterOfPosition(n.end);\n    const row={target:'\"'typeFromAST',file:path.relative(process.cwd(),file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\n    (isDeclaration ? excluded:refs).push(row);\n   }\n  }\n  ts.forEachChild(n,walk);\n }\n walk(sf);\n}\nrefs.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references:refs,excluded_declarations:excluded,count:refs.length},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "743f4c6ac482ecaefb861264564b9772b90ccfee7a27660bebc85c1187b341ea",
+    "output_bytes": 5794,
+    "compiler_reference_scan": true
+  }
+]

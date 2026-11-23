@@ -1,0 +1,313 @@
+[
+  {
+    "tool": "findReferences",
+    "server": "deepthought",
+    "arguments": {
+      "export_name": "getNamedType",
+      "export_file": "src/index.ts",
+      "max_elements": 100,
+      "repository_id": "https://github.com/graphql/graphql-js",
+      "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec"
+    },
+    "status": "completed",
+    "error": null,
+    "response_matches": [
+      {
+        "response_sha256": "59260afeb3864616f774fe5a5b84b74059371c79056ffb359581cb4b773a9266",
+        "status": "succeeded",
+        "bytes": 6558,
+        "returned": 20,
+        "truncated": false,
+        "source_verification": {
+          "status": "verified",
+          "freshness": "checked_before_and_after_query",
+          "profile": "typescript-symbol-references-v1",
+          "compiler_version": "6.0.3",
+          "diagnostics": 0,
+          "selected_files": 176,
+          "files_sha256": "9f485e2702467419ecd55b288658a990112d6352756ef17d85f01b138091d3ff",
+          "source_sha256": "15371556b4fb9627c2dcb29707ee36c41898673702254531c8b46632794049ad",
+          "compiler_sha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+          "scope_definition": "Compiler-symbol identity and alias closure over selected files, excluding target declaration names",
+          "total_references": 20,
+          "comparison": {
+            "indexed_count": 20,
+            "missing_in_scip": 0,
+            "extra_in_scip": 0
+          },
+          "reference_set_sha256": "699ad79627861c4538757f78e6a51b392126cccfb39c7263b5e5920dcc94fe1e"
+        },
+        "response": {
+          "repo_url": "https://github.com/graphql/graphql-js",
+          "snapshot_id": "6418ac99e5f316a53e2fab185326b94b2c9a949799d1ebd019376f9b402973ec",
+          "status": "succeeded",
+          "scope": "repository_snapshot",
+          "capabilities": [
+            "definitions",
+            "dependencies",
+            "references",
+            "verified_references"
+          ],
+          "analysis_status": "succeeded",
+          "items": [
+            {
+              "reference": {
+                "column": 29,
+                "end_column": 41,
+                "end_line": 1026,
+                "file_path": "src/type/validate.ts",
+                "reference_id": "0b477244f278e1160ddf09d8ac9021fd16997cf8b51fd17b894f2ffd3b2e9e12",
+                "start_line": 1026
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 21,
+                "end_line": 7,
+                "file_path": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+                "reference_id": "0c0449d04c0ebef942b51be060ff3e21ab41b16b3b768a02df5f1a159381f478",
+                "start_line": 7
+              }
+            },
+            {
+              "reference": {
+                "column": 12,
+                "end_column": 24,
+                "end_line": 717,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "0da9ada676e3200ea2cf5f7d4376eacd85c9491b6eff371002138c882e26a472",
+                "start_line": 717
+              }
+            },
+            {
+              "reference": {
+                "column": 29,
+                "end_column": 41,
+                "end_line": 986,
+                "file_path": "src/type/validate.ts",
+                "reference_id": "1480bd0217e0154cdc5fc97caf5c30053aaf7211d2b4c28d691495cfb21b3af5",
+                "start_line": 986
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 14,
+                "end_line": 27,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "35abe7d4c4d2a2310edb3b7fcc4922e383766944922212a3e6f67c9af2013d73",
+                "start_line": 27
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 14,
+                "end_line": 171,
+                "file_path": "src/index.ts",
+                "reference_id": "3c39e1de928f948971d572aa5919c1df69e960998e704f78a0083961e7feccf8",
+                "start_line": 171
+              }
+            },
+            {
+              "reference": {
+                "column": 19,
+                "end_column": 31,
+                "end_line": 57,
+                "file_path": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+                "reference_id": "4a8431338c471fe35b39b1bbfdb2f08104dc389bdeb59a4bd5407ef4bddc515d",
+                "start_line": 57
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 14,
+                "end_line": 77,
+                "file_path": "src/type/index.ts",
+                "reference_id": "4fa6e320c9efd1865b126532202de4127a37d16a1b4fa668283f09c7740f8f98",
+                "start_line": 77
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 14,
+                "end_line": 29,
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "6311c1e7e9c68e0327129439980885da426eeb6198b60197042d5a1793f8efe1",
+                "start_line": 29
+              }
+            },
+            {
+              "reference": {
+                "column": 20,
+                "end_column": 32,
+                "end_line": 945,
+                "file_path": "src/type/schema.ts",
+                "reference_id": "6f424e12f40cd0a1a8da95dc171cadb9a8ff7742b766ba5214b00fa22ae28695",
+                "start_line": 945
+              }
+            },
+            {
+              "reference": {
+                "column": 23,
+                "end_column": 35,
+                "end_line": 51,
+                "file_path": "src/validation/rules/ScalarLeafsRule.ts",
+                "reference_id": "90ffcfd98f778678477569cad740ae42766e11dc00d934e52c6ab4551789aeb9",
+                "start_line": 51
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 14,
+                "end_line": 27,
+                "file_path": "src/type/schema.ts",
+                "reference_id": "97dbdbda2dc9072d22a22e79162886bc2668f9b35eaa3a0b1539849db6292b41",
+                "start_line": 27
+              }
+            },
+            {
+              "reference": {
+                "column": 2,
+                "end_column": 14,
+                "end_line": 52,
+                "file_path": "src/type/validate.ts",
+                "reference_id": "9d4923f992b67cd43f472dc90878b50d1c9e1b2beab790b3e447888b69e84339",
+                "start_line": 52
+              }
+            },
+            {
+              "reference": {
+                "column": 36,
+                "end_column": 48,
+                "end_line": 771,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "a4150bd27d250918a620717533ecc13563549a25a0b64534105247fda4b60b9e",
+                "start_line": 771
+              }
+            },
+            {
+              "reference": {
+                "column": 29,
+                "end_column": 41,
+                "end_line": 88,
+                "file_path": "src/validation/rules/custom/NoDeprecatedCustomRule.ts",
+                "reference_id": "bf325e202a549450d6589c6df92436d8fbf41f60c4f4a9f2348c9d391c93e59b",
+                "start_line": 88
+              }
+            },
+            {
+              "reference": {
+                "column": 15,
+                "end_column": 27,
+                "end_line": 985,
+                "file_path": "src/validation/rules/OverlappingFieldsCanBeMergedRule.ts",
+                "reference_id": "cc14f6e1d9624093dafb24ff1fb91fa00bcd41676916e454381daa88e9e307f2",
+                "start_line": 985
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 21,
+                "end_line": 10,
+                "file_path": "src/validation/rules/ScalarLeafsRule.ts",
+                "reference_id": "cf0b16bdc9e622eb3e8951ac90b57c43700271bfbb43d16f5182ad7c02431f75",
+                "start_line": 10
+              }
+            },
+            {
+              "reference": {
+                "column": 35,
+                "end_column": 47,
+                "end_line": 678,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "d69475f74e694db30c0acc4a69eeab9afd2f585e97e4fa148253b8fa7d279b73",
+                "start_line": 678
+              }
+            },
+            {
+              "reference": {
+                "column": 9,
+                "end_column": 21,
+                "end_line": 8,
+                "file_path": "src/validation/rules/custom/NoSchemaIntrospectionCustomRule.ts",
+                "reference_id": "e16e6b4c5ac2f8e69592b5551cea386c3fc3842f48f8e23e7bd096e5e6e1b9fb",
+                "start_line": 8
+              }
+            },
+            {
+              "reference": {
+                "column": 34,
+                "end_column": 46,
+                "end_line": 789,
+                "file_path": "src/utilities/TypeInfo.ts",
+                "reference_id": "efd26a236b98b24aac0b1a6baed3de2aee4b3d5219b8cc05ef0aac1e3f9f1ed7",
+                "start_line": 789
+              }
+            }
+          ],
+          "returned": 20,
+          "truncated": false,
+          "reference_coverage": [
+            {
+              "tool": "scip",
+              "graph_status": "partial",
+              "resolution_counts": {
+                "ambiguous": 0,
+                "resolved": 34635,
+                "unresolved": 9498
+              },
+              "resolution_semantics": "native_symbol_binding",
+              "indexed_files": 176,
+              "source_binding": {
+                "receipt_sha256": "8a2b807a9b00a31cf23d2298646889d18a10176ad0e7c5e5328d4b81773aecb3",
+                "checked_at": null,
+                "workspace_freshness": "checked_before_and_after_query"
+              }
+            }
+          ],
+          "response_format": "source-references-v1",
+          "reference_common": {
+            "native_id": "scip-typescript npm graphql 17.0.2 src/type/`definition.ts`/getNamedType().",
+            "coordinate_encoding": "utf-16",
+            "resolution": "resolved",
+            "target_ids": [
+              "f1d97bc1014b800172f43562bd096b5d454e8253b1f542d85707d57f550c2002",
+              "99b26cc1671d6579addc4b36e2faea75cda7a53a0b7ccb40826b8f3faae32f2a",
+              "ef953c8a56d6e82310b123469c1d750d7710451fabb4833f24ff9c1bbbdc192a",
+              "1e064bdec60cd8cd1f829524f6e8bc99c4502a10f89b411a012813c0486f1163",
+              "f5b781d47eeaa9dcb50019ec6821d432637657bb4d0572a86406904d5a23dcda",
+              "bc1f2d5f45701000071311a56301021a86b49b9aab37cbaff415a3a9d0880256"
+            ]
+          },
+          "source_verification": {
+            "status": "verified",
+            "freshness": "checked_before_and_after_query",
+            "profile": "typescript-symbol-references-v1",
+            "compiler_version": "6.0.3",
+            "diagnostics": 0,
+            "selected_files": 176,
+            "files_sha256": "9f485e2702467419ecd55b288658a990112d6352756ef17d85f01b138091d3ff",
+            "source_sha256": "15371556b4fb9627c2dcb29707ee36c41898673702254531c8b46632794049ad",
+            "compiler_sha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+            "scope_definition": "Compiler-symbol identity and alias closure over selected files, excluding target declaration names",
+            "total_references": 20,
+            "comparison": {
+              "indexed_count": 20,
+              "missing_in_scip": 0,
+              "extra_in_scip": 0
+            },
+            "reference_set_sha256": "699ad79627861c4538757f78e6a51b392126cccfb39c7263b5e5920dcc94fe1e"
+          },
+          "next_cursor": null
+        }
+      }
+    ],
+    "text_errors": []
+  }
+]

@@ -13,6 +13,7 @@ import json
 
 from ...analysis_tools.contracts import (
     NodeData,
+    RelationshipData,
     StandardizedOutput,
     ToolExecutionMetadata,
 )
@@ -192,6 +193,63 @@ def _combine(outputs, repo_url, snapshot_id, config):
                 )
             else:
                 edges[key] = rel
+    # Bind semantic declarations to AST ownership/body facts using exact source
+    # name coordinates. Different source digests never establish an association.
+    ast_index = {}
+    for node in nodes.values():
+        p = node.properties
+        if p.get("source_context_schema") == "1":
+            for encoding, location in p["name_ranges"].items():
+                key = (p["file_path"], p["file_sha256"], encoding, *location)
+                ast_index.setdefault(key, []).append(node)
+    if ast_index:
+        for node in list(nodes.values()):
+            p = node.properties
+            if "Symbol" not in node.labels or not p.get("native_id"):
+                continue
+            key = (
+                p.get("file_path"),
+                p.get("file_sha256"),
+                p.get("coordinate_encoding"),
+                p.get("start_line"),
+                p.get("column"),
+                p.get("end_line"),
+                p.get("end_column"),
+            )
+            candidates = ast_index.get(key, [])
+            p["ast_binding_status"] = (
+                "resolved"
+                if len(candidates) == 1
+                else "ambiguous"
+                if candidates
+                else "unmatched"
+            )
+            p["ast_candidate_ids"] = [c.properties["definition_id"] for c in candidates]
+            if len(candidates) == 1:
+                target = candidates[0]
+                relationship = RelationshipData(
+                    "HAS_AST_DECLARATION",
+                    node.labels,
+                    {
+                        "qualified_name": p["qualified_name"],
+                        "repo_url": repo_url,
+                        "snapshot_id": revision,
+                    },
+                    target.labels,
+                    {
+                        "qualified_name": target.properties["qualified_name"],
+                        "repo_url": repo_url,
+                        "snapshot_id": revision,
+                    },
+                    {"resolution": "exact_name_range_and_source_digest"},
+                )
+                edges[
+                    (
+                        "ast_binding",
+                        p["qualified_name"],
+                        target.properties["qualified_name"],
+                    )
+                ] = relationship
     contributions = [_semantic(output.metadata) for output in outputs]
     capabilities = sorted(
         {

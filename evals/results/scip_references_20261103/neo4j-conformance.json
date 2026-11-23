@@ -1,0 +1,36 @@
+{
+  "getNamedType": {
+    "expected": 20,
+    "actual": 20,
+    "exact_source_ranges": true,
+    "pages": 2,
+    "reference_coverage": [
+      {
+        "tool": "scip",
+        "graph_status": "partial",
+        "resolution_counts": {
+          "ambiguous": 288,
+          "resolved": 34347,
+          "unresolved": 9498
+        }
+      }
+    ]
+  },
+  "typeFromAST": {
+    "expected": 26,
+    "actual": 26,
+    "exact_source_ranges": true,
+    "pages": 2,
+    "reference_coverage": [
+      {
+        "tool": "scip",
+        "graph_status": "partial",
+        "resolution_counts": {
+          "ambiguous": 288,
+          "resolved": 34347,
+          "unresolved": 9498
+        }
+      }
+    ]
+  }
+}

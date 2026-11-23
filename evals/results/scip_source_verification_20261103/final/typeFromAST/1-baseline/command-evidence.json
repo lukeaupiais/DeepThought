@@ -1,0 +1,42 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "f98d09c2e1f556e1f5e0132438d84ec95c976d5a0d69fa69114dfdb5a5668fd2",
+    "output_bytes": 8939,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg --files -g 'AGENTS.md' -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' /work /home/luke/.cache/deepthought-tool-eval 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output_bytes": 0,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n '\\\\btypeFromAST\\\\b' src && cat tsconfig.json\"",
+    "exit_code": 0,
+    "output_sha256": "9e3fcfa5aa080fe3f55d73adecf67e49aa8fbbf248e79fa630684de7cefa0a10",
+    "output_bytes": 6450,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc \"cat src/harness.ts src/diagnostics.ts src/utilities/typeFromAST.ts; sed -n '505,535p' src/index.ts; cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "a748016c2382d329205350d56e66cead5e32172dd449b5a1eaa7c47f040fb196",
+    "output_bytes": 27613,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json','utf8'));\nconst root = ctx.workspace;\nconst paths = ctx.files.filter(f=>f.endsWith('.ts')).map(f=>path.join(root,f));\nconst options = {target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.Node16,moduleResolution:ts.ModuleResolutionKind.Node16,allowImportingTsExtensions:true,noEmit:true,strict:true};\nconst program = ts.createProgram(paths,options);\nconst checker = program.getTypeChecker();\nconst sf = program.getSourceFile(path.join(root,'src/utilities/typeFromAST.ts'));\nconst decl = sf.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='typeFromAST');\nconst target = checker.getSymbolAtLocation(decl.name);\nfunction canonical(s){const seen = new Set();while(s&&(s.flags&ts.SymbolFlags.Alias)&&\"'!seen.has(s)){seen.add(s);s=checker.getAliasedSymbol(s);}return s;}\nlet rows=[],excluded=[];\nfor(const file of paths){const source = program.getSourceFile(file); if(!source)continue; function visit(n){\nif(ts.isIdentifier(n)){\nlet s = checker.getSymbolAtLocation(n);\nif(canonical(s)===target){\nconst start=source.getLineAndCharacterOfPosition(n.getStart(source));const end=source.getLineAndCharacterOfPosition(n.end);\nconst row={target:'\"'typeFromAST',file:path.relative(root,file),line:start.line+1,column:start.character,end_line:end.line+1,end_column:end.character};\nif(ts.isFunctionDeclaration(n.parent)&&n.parent.name===n) excluded.push(row); else rows.push({...row,text:n.text,kind:ts.SyntaxKind[n.parent.kind]});\n}\n}\nts.forEachChild(n,visit);\n}visit(source);}\nrows.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nprocess.stdout.write(JSON.stringify({references:rows,excluded_declarations:excluded},null,2)+'\\\\n');\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "2acb156dbd42b6291e674eeabc0428d7334ac30865f5f80509bdd9c7a51d16b7",
+    "output_bytes": 7376,
+    "compiler_reference_scan": true
+  }
+]

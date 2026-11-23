@@ -1,0 +1,26 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "f8f1237c8a7a24442af54b3c9469292a980b08932c848eb279ad3dc1275a16b2",
+    "output_bytes": 10063,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType' src && cat tsconfig.json && cat package.json\"",
+    "exit_code": 0,
+    "output_sha256": "bb4676391baa7bc775e281d7ed9d7e0ef47bc1afb26d9548a0753519244e332f",
+    "output_bytes": 10477,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = ctx.workspace;\nconst roots = ctx.files.filter(f => f.endsWith('.ts')).map(f => path.join(root,f));\nconst cfg = ts.readConfigFile(path.join(root,'tsconfig.json'), ts.sys.readFile);\nconst parsed = ts.parseJsonConfigFileContent(cfg.config, {...ts.sys, readDirectory: () => roots}, root);\nconst program = ts.createProgram(roots, parsed.options);\nconst checker = program.getTypeChecker();\nconst index = program.getSourceFile(path.join(root,'src/index.ts'));\nconst exported = checker.getExportsOfModule(checker.getSymbolAtLocation(index)).find(s => s.name === 'getNamedType');\nfunction resolve(s) { return s && (s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s); }\nconst target = resolve(exported);\nconst references = [];\nconst declarations = [];\nfor (const file of roots) {\n const sf = program.getSourceFile(file);\n function visit(n) {\n  if (ts.isIdentifier(n) && resolve(checker.getSymbolAtLocation(n)) === target) {\n   const a = sf.getLineAndCharacterOfPosition(n.getStart(sf));\n   const b = sf.getLineAndCharacterOfPosition(n.end);\n   const row = {target:'getNamedType',file:path.relative(root,file),line:a.line+1,column:a.character,end_line:b.line+1,end_column:b.character};\n   if (ts.isFunctionDeclaration(n.parent) && n.parent.name === n) declarations.push(row);\n   else references.push(row);\n  }\n  ts.forEachChild(n, visit);\n }\n visit(sf);\n}\nreferences.sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line||a.column-b.column);\nconsole.log(JSON.stringify({references, excluded_declaration_count:declarations.length},null,2));\nconst sf = program.getSourceFile(path.join(root,'src/type/definition.ts'));\nconsole.log(sf.text.split('\\\\n').slice(1833,1852).join('\\\\n'));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "94e98316f33e5d3b29af4079fe5ed2ba885d17462dc2f87fd7576671510a3822",
+    "output_bytes": 4107,
+    "compiler_reference_scan": true
+  }
+]

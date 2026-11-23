@@ -1,0 +1,34 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "2fcee392a2794a64c6a19c083c77e51a0dd9d8964f4c630341ee0b8d3ed1ef11",
+    "output_bytes": 10864,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType|AGENTS' src tsconfig.json package.json\"",
+    "exit_code": 0,
+    "output_sha256": "4afe56075055973d9894d54253e3670edb2fd9848218740a94a1f14d020285b5",
+    "output_bytes": 5306,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"cat tsconfig.json\nsed -n '1830,1870p' src/type/definition.ts\nsed -n '1,240p' src/harness.ts\nrg --files -g AGENTS.md -g '\"'!node_modules'\"' /work /home/luke/.cache/deepthought-tool-eval 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "ee7e7bb0006460ba9435600d4b167a166b6c3bc7b2519e55335fe17df21acac4",
+    "output_bytes": 4258,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst context = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = context.workspace;\nconst configFile = path.join(root, 'tsconfig.json');\nconst raw = ts.parseConfigFileTextToJson(configFile, fs.readFileSync(configFile, 'utf8'));\nconst config = ts.parseJsonConfigFileContent({...raw.config, include: [], files: context.files.filter(f => f.endsWith('.ts'))}, ts.sys, root);\nconst program = ts.createProgram(config.fileNames, config.options);\nconst checker = program.getTypeChecker();\nfunction canonical(symbol) {\n  const seen = new Set();\n  while (symbol && (symbol.flags & ts.SymbolFlags.Alias) && \"'!seen.has(symbol)) {\n    seen.add(symbol);\n    symbol = checker.getAliasedSymbol(symbol);\n  }\n  return symbol;\n}\nconst entry = program.getSourceFile(path.join(root, '\"'src/index.ts'));\nconst target = canonical(checker.getExportsOfModule(checker.getSymbolAtLocation(entry)).find(s => s.name === 'getNamedType'));\nconst references = [];\nconst excludedDeclarations = [];\nfor (const file of context.files.filter(f => f.endsWith('.ts'))) {\n  const source = program.getSourceFile(path.join(root, file));\n  function visit(node) {\n    if (ts.isIdentifier(node) && canonical(checker.getSymbolAtLocation(node)) === target) {\n      const start = source.getLineAndCharacterOfPosition(node.getStart(source));\n      const end = source.getLineAndCharacterOfPosition(node.getEnd());\n      const row = {target: 'getNamedType', file, line: start.line + 1, column: start.character, end_line: end.line + 1, end_column: end.character};\n      if (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) excludedDeclarations.push(row);\n      else references.push(row);\n    }\n    ts.forEachChild(node, visit);\n  }\n  visit(source);\n}\nreferences.sort((a,b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column);\nconsole.log(JSON.stringify({references, excludedDeclarations, diagnostics: ts.getPreEmitDiagnostics(program).length}, null, 2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "9313dd3f89f38ac4f581486493b91ce09bdf1331aa4af70e04a6730bc1729a32",
+    "output_bytes": 4706,
+    "compiler_reference_scan": true
+  }
+]

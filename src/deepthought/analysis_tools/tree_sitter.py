@@ -6,6 +6,8 @@ legacy heuristic CALLS/CFG/data-flow output or claim additional languages.
 
 import importlib.util
 import time
+import json
+from hashlib import sha256
 from copy import deepcopy
 
 from .._version import __version__
@@ -51,6 +53,7 @@ class TreeSitterTool(AnalysisTool):
     ):
         self._definitions = {}
         started = time.monotonic()
+        declaration_context = {}
         result = analyze_repository(
             self.repo_path,
             repository_id=repo_url,
@@ -63,6 +66,7 @@ class TreeSitterTool(AnalysisTool):
             ),
             include=("*",) if file_patterns is None else tuple(file_patterns),
             exclude=() if skip_patterns is None else tuple(skip_patterns),
+            _declaration_context=declaration_context,
         )
         # Preserve the original engine's Repository -> File -> declaration
         # projection. Extraction still belongs to the unchanged SDK parser.
@@ -123,6 +127,7 @@ class TreeSitterTool(AnalysisTool):
                 "column": definition.column,
                 "end_column": definition.end_column,
                 "coordinate_encoding": definition.coordinate_encoding,
+                **declaration_context[definition.id],
             }
             nodes.append(
                 NodeData(labels=[definition.kind, "Symbol"], properties=properties)
@@ -134,6 +139,30 @@ class TreeSitterTool(AnalysisTool):
                     {"qualified_name": files[definition.file], "repo_url": repo_url},
                     [definition.kind, "Symbol"],
                     {"qualified_name": qualified_name, "repo_url": repo_url},
+                )
+            )
+        by_id = {
+            n.properties["definition_id"]: n for n in nodes if "Symbol" in n.labels
+        }
+        for node in by_id.values():
+            parent_id = node.properties["parent_definition_id"]
+            parent = by_id.get(parent_id)
+            relationships.append(
+                RelationshipData(
+                    "CONTAINS",
+                    parent.labels if parent is not None else ["File"],
+                    {
+                        "qualified_name": parent.properties["qualified_name"]
+                        if parent is not None
+                        else files[node.properties["file_path"]],
+                        "repo_url": repo_url,
+                    },
+                    node.labels,
+                    {
+                        "qualified_name": node.properties["qualified_name"],
+                        "repo_url": repo_url,
+                    },
+                    {"ownership": "ast", "source_context_schema": "1"},
                 )
             )
         artifact = result.to_dict()
@@ -153,12 +182,27 @@ class TreeSitterTool(AnalysisTool):
             custom_metrics={
                 "analysis_status": result.status,
                 "model_tokens": 0,
-                "snapshot_id": result.snapshot_id,
+                "snapshot_id": sha256(
+                    json.dumps(
+                        {
+                            "source_snapshot_id": result.snapshot_id,
+                            "declaration_context": declaration_context,
+                        },
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    ).encode()
+                ).hexdigest(),
+                "source_snapshot_id": result.snapshot_id,
                 "repository_id": result.repository_id,
                 "coverage": artifact["coverage"],
                 "diagnostics": diagnostics,
                 "analyzer_versions": artifact["analyzer_versions"],
-                "capabilities": artifact["capabilities"],
+                "capabilities": [
+                    *artifact["capabilities"],
+                    "symbol_context",
+                    "ownership",
+                ],
+                "source_context_schema": "1",
                 "source_facts_schema_version": result.schema_version,
                 "scope": "named declarations only; no call, control or data-flow inference",
             },

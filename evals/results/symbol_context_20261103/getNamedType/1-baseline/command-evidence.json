@@ -1,0 +1,50 @@
+[
+  {
+    "item_id": "item_1",
+    "command": "/bin/bash -lc 'cat /work/context.json'",
+    "exit_code": 0,
+    "output_sha256": "3cb8342d14707116f5cd38c107b3201cadba16d8709c42919f40bccba487fe31",
+    "output_bytes": 8941,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_2",
+    "command": "/bin/bash -lc \"rg --files -g AGENTS.md -g '\"'!node_modules'\"' -g '\"'!package-lock.json'\"' /work /home/luke/.cache/deepthought-tool-eval 2>/dev/null\"",
+    "exit_code": 1,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output_bytes": 0,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_3",
+    "command": "/bin/bash -lc \"rg -n 'getNamedType' src\"",
+    "exit_code": 0,
+    "output_sha256": "9c5d3546f29a34d43d5560db6b82f03a5789d680bf864d1c42b1b8ab4ce13567",
+    "output_bytes": 5306,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_4",
+    "command": "/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/luke/AGENTS.md /home/luke/.cache/AGENTS.md /home/luke/.cache/deepthought-tool-eval/AGENTS.md /home/luke/.cache/deepthought-tool-eval/graphql-js/AGENTS.md; do if test -f \"$p\"; then cat \"$p\"; fi; done'",
+    "exit_code": 0,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "output_bytes": 0,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_5",
+    "command": "/bin/bash -lc \"cat tsconfig.json; cat src/harness.ts; sed -n '1680,1880p' src/type/definition.ts; sed -n '135,190p' src/index.ts; sed -n '45,90p' src/type/index.ts\"",
+    "exit_code": 0,
+    "output_sha256": "92fe40f3026713a557bbd9cb0e7a9c352138cd0def911998f2864ce155406a22",
+    "output_bytes": 10910,
+    "compiler_reference_scan": false
+  },
+  {
+    "item_id": "item_6",
+    "command": "/bin/bash -lc \"node <<'NODE'\nconst fs = require('fs');\nconst path = require('path');\nconst ts = require('/opt/typescript/lib/typescript.js');\nconst ctx = JSON.parse(fs.readFileSync('/work/context.json', 'utf8'));\nconst root = ctx.workspace;\nconst allowed = new Set(ctx.files.map(f => path.join(root, f)));\nconst config = ts.readConfigFile(path.join(root, 'tsconfig.json'), ts.sys.readFile);\nconst converted = ts.convertCompilerOptionsFromJson(config.config.compilerOptions, root);\nconst options = {...converted.options, noEmit: true};\nconst host = ts.createCompilerHost(options);\nconst read = host.readFile.bind(host);\nhost.readFile = f => {\n const resolved = path.resolve(f);\n if (resolved.startsWith(root + '/') && \"'!allowed.has(resolved) && !resolved.includes('\"'/node_modules/')) return undefined;\n return read(f);\n};\nconst program = ts.createProgram(ctx.files.filter(f=>f.endsWith('.ts')).map(f=>path.join(root,f)), options, host);\nconst checker = program.getTypeChecker();\nconst def = program.getSourceFile(path.join(root,'src/type/definition.ts'));\nconst moduleSymbol = checker.getSymbolAtLocation(def);\nconst target = checker.getExportsOfModule(moduleSymbol).find(s => s.name === 'getNamedType');\nfunction canonical(s) { return s && (s.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(s) : s; }\nconst references = [];\nconst sameSpellingExcluded = [];\nfor (const file of ctx.files.filter(f => f.endsWith('.ts'))) {\n const sf = program.getSourceFile(path.join(root,file));\n function visit(n) {\n  if (ts.isIdentifier(n)) {\n   let s = checker.getSymbolAtLocation(n);\n   if (ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n) s = checker.getShorthandAssignmentValueSymbol(n.parent) || s;\n   const isTarget = canonical(s) === target;\n   const isDeclaration = isTarget && target.declarations.some(d=>d.name === n);\n   if (isTarget && \"'!isDeclaration) {\n    const a = sf.getLineAndCharacterOfPosition(n.getStart(sf));\n    const b = sf.getLineAndCharacterOfPosition(n.getEnd());\n    references.push({target:'\"'getNamedType',file,line:a.line+1,column:a.character,end_line:b.line+1,end_column:b.character});\n   } else if (n.text === 'getNamedType') {\n    sameSpellingExcluded.push({file,line:sf.getLineAndCharacterOfPosition(n.getStart(sf)).line+1,reason:isDeclaration?'own declaration':(s ? 'different symbol' : 'unresolved')});\n   }\n  }\n  ts.forEachChild(n,visit);\n }\n visit(sf);\n}\nreferences.sort((a,b)=> a.file.localeCompare(b.file) || a.line-b.line || a.column-b.column);\nconsole.log(JSON.stringify({references,limitations:[],audit:{count:references.length,sameSpellingExcluded,sourceFiles:program.getSourceFiles().filter(sf=>sf.fileName.startsWith(root+'/src/')).length,expected:ctx.files.filter(f=>f.startsWith('src/')).length,optionErrors:converted.errors.map(d=>ts.flattenDiagnosticMessageText(d.messageText,' '))}},null,2));\nNODE\"",
+    "exit_code": 0,
+    "output_sha256": "f5595cf37e3dc018dccf0e180359863bb487b7b263b45c4f45f6fc5ec2fb61ae",
+    "output_bytes": 6889,
+    "compiler_reference_scan": true
+  }
+]

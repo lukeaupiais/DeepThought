@@ -25,6 +25,7 @@ def analyze_repository(
     max_total_bytes: int = 100_000_000,
     include: tuple[str, ...] = ("*",),
     exclude: tuple[str, ...] = (),
+    _declaration_context: dict | None = None,
 ) -> AnalysisResult:
     """Extract named declarations; cancellation is cooperative between files."""
     root = Path(path).resolve(strict=True)
@@ -156,7 +157,15 @@ def analyze_repository(
                             relative, language, "analyzed", sha256(content).hexdigest()
                         )
                     )
-                definitions.extend(extract(tree, content, repository_id, relative))
+                definitions.extend(
+                    extract(
+                        tree,
+                        content,
+                        repository_id,
+                        relative,
+                        declaration_context=_declaration_context,
+                    )
+                )
             except ImportError:
                 coverage.append(FileCoverage(relative, language, "unavailable", digest))
                 diagnostics.append(

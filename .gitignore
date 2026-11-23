@@ -5,6 +5,7 @@ __pycache__/
 node_modules/
 *.scip
 !tests/fixtures/scip/*.scip
+!tests/fixtures/scip_alias_reexport/index.scip
 dist/
 build/
 *.egg-info/

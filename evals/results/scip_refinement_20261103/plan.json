@@ -1,0 +1,57 @@
+{
+  "state": "frozen before native dispatch",
+  "cases": [
+    "getNamedType",
+    "typeFromAST"
+  ],
+  "conditions": {
+    "baseline": "source/compiler",
+    "raw": "expanded responses, declaration-candidate semantics v1, archived original installed server",
+    "tree": "compact responses on same historical v1 graph, current installed server",
+    "scip": "compact responses plus native-symbol binding v2, current installed server"
+  },
+  "sessions_per_case_per_condition": 2,
+  "order": [
+    "baseline",
+    "raw",
+    "tree",
+    "scip",
+    "scip",
+    "tree",
+    "raw",
+    "baseline"
+  ],
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "timeout_seconds": 420,
+  "automatic_retries": 0,
+  "source_and_compiler_access": "Identical public production sources, configuration, dependencies, compiler6.0.3 and original task/prompt. ERP excluded. No forced graph use or suppressed independent checking.",
+  "baseline_shared_within_each_block": true,
+  "preparation": "Existing frozen v1 database and private preparations reused, new v2 snapshot fully read back and database-enforced readonly after retained index recovery.",
+  "primary_metric": "Total cumulative input+output tokens with exact source-reference quality guardrail",
+  "secondary_metrics": [
+    "cached and uncached input",
+    "output",
+    "estimated Standard credits",
+    "actor time",
+    "actual graph reads and payload text bytes",
+    "compiler reconstruction use",
+    "failures and preparation overhead"
+  ],
+  "usage_granularity": "Native CLI session terminal only; request-level allocation remains unavailable. Per-tool payload receipts retained.",
+  "driver_sha256": "5c4a1979ea277fb19efad8046dc033d6e8c16bb0087d9b1efba0999e69ccb38e",
+  "serve_helper_sha256": "4a0c2093fc5958dc0e8e2d95df0ee9cf1cc2bfa168f272d7d2f0eaa4066eafca",
+  "grader_sha256": "00b6cdde271b8427d28f8898c3d6b747d39399bd6bd963e8d9c8971a78ecac44",
+  "oracle_sha256": "8255e1b8620b40064875fb7d1edd02e6a91786acb8743d8279054223dd15786f",
+  "original_server_package_manifest_sha256": "b852c5ffd6461c94cbd5b44b3127e7e85434800c13b0d2b374e88dcb45234ee1",
+  "current_package_manifest_sha256": "655ac7e85c615affb0f449357e70eb54264671aca3b35564dd7ff66193675c35",
+  "raw_server_interpreter": "/home/luke/dev/.venvs/deepthought-scip/bin/python",
+  "current_server_interpreter": "/home/luke/dev/.venvs/deepthought-scip-v2/bin/python",
+  "limits": [
+    "Two known tasks and two sessions per condition are descriptive development evidence.",
+    "Provider caching is uncontrolled.",
+    "No inference that a smaller response guarantees lower agent usage.",
+    "Request-level token allocation remains unknown.",
+    "Raw and compact-v1 conditions share the exact original private context; original context mentions native_id in properties, while compact MCP documentation describes native_id at group level. This potential interface migration friction is retained rather than modifying frozen source/task contexts."
+  ]
+}

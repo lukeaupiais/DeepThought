@@ -1,0 +1,45 @@
+{
+  "conditions": [
+    "source/compiler baseline",
+    "archived compact-v2",
+    "source-evidence-v4"
+  ],
+  "cases": [
+    "getNamedType",
+    "typeFromAST"
+  ],
+  "order_per_case": [
+    "baseline",
+    "compact-v2",
+    "source-evidence-v3",
+    "source-evidence-v3",
+    "compact-v2",
+    "baseline"
+  ],
+  "sessions": 12,
+  "repetitions_per_condition_per_case": 2,
+  "unchanged": [
+    "task",
+    "actor prompt",
+    "gold references",
+    "source files",
+    "TypeScript 6.0.3 availability",
+    "grading",
+    "ordinary source tools",
+    "native model and effort"
+  ],
+  "primary_measure": "total tokens, conditional on unchanged exact-reference quality",
+  "secondary_measures": [
+    "cached and uncached input",
+    "output",
+    "Standard credit estimate",
+    "wall time",
+    "agent-authored compiler reconstruction",
+    "graph evidence",
+    "preparation time and failed attempts"
+  ],
+  "automatic_retries": 0,
+  "source_verification": "Live input/runtime binding before and after each verified read. Read-only Neo4j. Full stored-graph readback.",
+  "limits": "Two related symbol-reference cases on one 176-file production corpus. No cross-language or architecture-level effectiveness claim. Source checks are point-in-time checks, not atomic filesystem snapshots or formal proofs.",
+  "amendment": "Retain all v3 sessions. Update stale treatment help and derive capabilities from actual output. Make source freshness metadata consistent after successful live validation. Stabilize equivalent-symbol export selection for paging. Tasks, prompts, gold, tools and scoring unchanged. No instruction to omit independent verification. Reuse unchanged, fully read-back graph facts."
+}

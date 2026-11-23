@@ -1,0 +1,13 @@
+case,run,condition,block,quality_pass,correct,expected,input_tokens,cached_input_tokens,uncached_input_tokens,output_tokens,total_tokens,estimated_standard_credits,wall_seconds,graph_reads,graph_response_bytes,graph_query_seconds,shell_commands,shell_output_bytes,mcp_calls,mcp_errors,graph_evidence_status
+getNamedType,1-baseline,baseline,0,True,20,20,95367,81664,13703,1827,97194,1.34606,43.44978200600599,0,0,0,4,31590,0,0,graph_not_used_or_unverified
+getNamedType,2-tree,tree,0,True,20,20,80074,59008,21066,1962,82036,1.69132,54.879391170994495,1,4729,1.2889782249985728,5,36174,1,0,verified_neo4j_access
+getNamedType,3-scip,scip,0,True,20,20,216553,188800,27753,2658,219211,2.52415,60.24957323100534,3,31562,1.080758842988871,4,26940,4,1,verified_neo4j_access
+getNamedType,4-scip,scip,1,True,20,20,150982,123264,27718,2157,153139,2.23331,47.27653895900585,3,31562,0.10632668099424336,4,23264,3,0,verified_neo4j_access
+getNamedType,5-tree,tree,1,True,20,20,99344,72576,26768,2195,101539,2.06859,52.57200673199259,0,0,0,7,39915,0,0,graph_not_used_or_unverified
+getNamedType,6-baseline,baseline,1,True,20,20,95948,75776,20172,1670,97618,1.61554,38.45007114698819,0,0,0,4,46704,0,0,graph_not_used_or_unverified
+typeFromAST,1-baseline,baseline,0,True,26,26,74880,59008,15872,2331,77211,1.52387,41.61116202300764,0,0,0,6,29174,0,0,graph_not_used_or_unverified
+typeFromAST,2-tree,tree,0,True,26,26,77970,62720,15250,2072,80042,1.4373,40.30639491400507,0,0,0,4,46483,0,0,graph_not_used_or_unverified
+typeFromAST,3-scip,scip,0,True,26,26,172091,139904,32187,2589,174680,2.60636,54.74273137698765,3,30599,0.09833787700335961,4,28537,4,1,verified_neo4j_access
+typeFromAST,4-scip,scip,1,True,26,26,148424,116736,31688,2131,150555,2.40899,38.80065885098884,3,30599,0.04493403401284013,4,28327,3,0,verified_neo4j_access
+typeFromAST,5-tree,tree,1,True,26,26,70417,54272,16145,2000,72417,1.44293,42.206128589008586,0,0,0,3,21842,0,0,graph_not_used_or_unverified
+typeFromAST,6-baseline,baseline,1,True,26,26,70066,56960,13106,2178,72244,1.3422,42.50912402800168,0,0,0,4,21480,0,0,graph_not_used_or_unverified
