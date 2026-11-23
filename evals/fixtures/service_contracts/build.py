@@ -173,9 +173,9 @@ for f, pat, why in [
     ('src/currencyservice/client.js', 'client.getSupportedCurrencies(', 'developer test client inside currencyservice; not deployed, would be a self-link'),
     ('src/currencyservice/client.js', 'client.convert(', 'developer test client inside currencyservice'),
     ('src/recommendationservice/client.py', 'stub.ListRecommendations(request)', 'developer test client inside recommendationservice'),
-    ('src/adservice/src/main/java/hipstershop/AdServiceClient.java', 'public void getAds(String contextKey)', 'developer test client inside adservice'),
 ]:
     ob.dc(ob.loc(f, pat), why)
+ob.dc({'file': 'src/adservice/src/main/java/hipstershop/AdServiceClient.java', 'line': None}, 'developer test client inside adservice (any line)')
 ob.dc({'file': 'src/emailservice/email_client.py', 'line': None}, 'developer test client inside emailservice (any line)')
 ob.dc({'file': 'src/frontend/templates/assistant.html', 'line': None}, 'browser fetch() to the frontend itself')
 ob.write()
