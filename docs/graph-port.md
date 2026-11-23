@@ -413,6 +413,47 @@ build contexts and depends_on. No contradictions:
 | example-voting-app | 3 | 3/3, 17/17, 17/17 |
 | spring-petclinic-microservices | 1 | 1/1, 11/11, 11/11; its 8 image-only services DEPLOY their Maven modules by image name |
 
+### Kubernetes workloads
+
+With PyYAML, every other `.yaml`/`.yml` file is read for Kubernetes objects
+(including `List` items) and Skaffold configs; a file that holds neither, or
+does not parse (an unrendered Helm template, for instance), is not a manifest
+and is skipped without a diagnostic. Each file is read as written: Helm charts
+and Kustomize overlays are not rendered, so render them first when their
+output is what should be analyzed.
+
+- `k8s_workload`: Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob
+  and Pod, named `Kind/namespace/name` (or `Kind/name`), with the pod
+  template's labels and the container images. Its root is the build context
+  of the Skaffold artifacts its images name, when they name exactly one
+  context; otherwise it has no files.
+- `k8s_service`: Service, with its selector.
+
+| Edge | Rule | Evidence |
+|------|------|----------|
+| Service -> SELECTS -> workload | `components.k8s-service-selector`: the nonempty selector is a subset of the pod template labels, same namespace as written, same directory | resolved |
+| workload -> DEPLOYS -> package component | `components.k8s-skaffold-context`: the Skaffold context is the component's root | resolved |
+| workload -> DEPLOYS -> package component | `components.k8s-image-name`: one image and no Skaffold context; the image's last path segment equals exactly one package name | name_matched |
+
+Selection is limited to one directory because repositories often keep
+alternative manifest sets (raw, release bundle, Kustomize base) for the same
+application; mixing them would link every Service to every copy.
+
+`tools/kubernetes_selector_oracle` is a Go program that decodes every YAML
+file with the Kubernetes API types (client-go scheme) and matches selectors
+with apimachinery's `labels.SelectorFromSet`, under the same namespace and
+directory scope. With `--kubernetes-oracle BINARY` the comparison tool checks
+SELECTS in both directions. No contradictions:
+
+| Repository | Workloads / Services | SELECTS confirmed | Oracle pairs linked |
+|------------|----------------------|-------------------|---------------------|
+| GoogleCloudPlatform/microservices-demo | 39 / 39 | 38/38 | 38/38 |
+| kubernetes/examples | 89 / 56 | 39/39 | 39/39 |
+
+In microservices-demo, 12 workloads take their root from `skaffold.yaml`, and
+the one Service whose workload lives in another directory
+(`.github/release-cluster`) is not linked.
+
 ## Declared bases
 
 Tree-sitter extraction records each base a class or interface names as a
@@ -1157,6 +1198,65 @@ reference at the bound's last name confirms all 10 linked supertraits in
 tokio (37 named), and the other corpora's are outside the repository (7 in
 ripgrep, 28 in regex, 16 in serde, of which one, in a serde module that
 `crate_root!()` declares, is `module_context_unknown`).
+
+## C
+
+C sources (`.c` and `.h`) are analyzed when `c` is selected (`--language c`)
+and the `c` extra is installed (tree-sitter-c 0.24.1); the language is
+opt-in. Declarations are those at file scope, in every preprocessor branch:
+functions (`Function`, definitions and prototypes alike), structs, unions and
+enums that are named and have a body (`Struct`, `Union`, `Enum`, including
+those declared inside a struct's members, which C does not scope), typedef
+names (`TypeAlias`) and macros (`Macro`, wherever they are defined, since a
+macro holds for the rest of the file). Names are not qualified. Variables,
+enumerators, fields, forward declarations, unnamed types and types and
+prototypes declared in a function body are not declarations. Imports, calls
+and other facts are not recorded for C yet.
+
+Four shapes the grammar gives to code it does not fully read are read
+deterministically. A function declared after a macro the grammar does not
+know (`API T f(...)`) has its name in an error node before the parameters.
+`API int (f)(...)` parses as a function declarator applied to `int(f)`, which
+C does not allow without parentheses, so the name is that inner list's one
+type name. `namespace n {` in a C++ branch parses as a definition with no
+parameters, and its body is read as file scope, as is text in an error node.
+When the grammar cannot parse a stretch (braces opened in both branches of an
+`#if`), a function's declarator can stand alone in the error node, with its
+type and body as separate items: a function declarator found there declares a
+function, while one inside a pointer (a pointer to a function) does not.
+A macro that contains an error node (a comment in a continued line can make
+the grammar take a later word as the name) is left out.
+
+Checked against clang with `tools/compare_c_declarations_with_clang.py`
+(libclang 18.1.1): every `.c` and `.h` file is parsed by clang as a
+translation unit, with each directory holding a header, and each one above
+it, on the include path. A translation unit with a fatal error (an include
+not found, usually a header generated at build time) is left out, since what
+clang recovers after one is not the program. A declaration matches when
+clang reports one of the same kind and name at its name's line in the same
+file, and every difference is classified. A difference is put down to a
+grammar error only when the file-scope item holding it contains an error,
+when it lies in an error node, or (clang only) when the item before it does,
+since the grammar can end that item with a missing token and read the
+declaration as an expression:
+
+| Corpus | Translation units (fatal) | clang | Matched | Tree-sitter only: inactive `#if` / file not reported / clang error / name is a macro / grammar error | clang only: macro-generated / type in a function body / clang error / grammar error |
+|---|---|---|---|---|---|
+| lua/lua `c42d820` | 68 (0) | 2,909 | 2,904 | 322 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 5 |
+| jqlang/jq `5c001b1` | 79 (2) | 3,017 | 2,671 | 502 / 191 / 4 / 122 / 0 | 171 / 5 / 130 / 40 |
+| redis/redis `f1d498b` | 848 (278) | 19,610 | 18,284 | 1,723 / 6,564 / 12 / 3 / 161 | 1,024 / 19 / 182 / 101 |
+
+Inactive `#if` branches are those clang skipped in every translation unit;
+the declarations here cover every branch. A file is not reported when every
+translation unit that reaches it has a fatal error (most of redis's vendored
+jemalloc, which needs generated headers). A clang error on the line means the
+translation unit is missing a type from such a header. A name that is a macro
+(`#define yyrestart jq_yyrestart` before `void yyrestart(...)`, written by
+flex) is declared by clang under the macro's expansion. Grammar errors are
+regions tree-sitter-c does not parse, mostly macros that wrap declarations
+(`JEMALLOC_ALWAYS_INLINE`); those declarations are missed (clang only) or may
+be misread (Tree-sitter only, 161 in redis). Macro-generated declarations
+(clang only) are written by a macro invocation, as in jq's `LIBM_DD(...)`.
 
 ## SCIP references
 
