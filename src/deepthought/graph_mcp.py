@@ -2,7 +2,7 @@
 
 The optional MCP transport contains no Cypher construction or extraction logic.
 The three original tool names are preserved; queryGraph adapts the original
-HTTP Cypher capability. The call, base type, member/owner, import, reference, implementation,
+HTTP Cypher capability. The call, base type, member/owner, impact, import, reference, implementation,
 dependency and explainEdge
 tools expose the ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
 requires a dedicated snapshot database and database-enforced read-only access.
@@ -160,6 +160,50 @@ def create_server():
             qualified_name,
             repository_id,
             snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getImpact(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get what depends on a declaration and its members, transitively.
+
+        Follows CALLS, INHERITS_FROM and IMPLEMENTS backwards; each dependent
+        has its depth, its path's edges and the path's weakest evidence.
+        """
+        return await ctx.request_context.lifespan_context.get_impact(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            max_depth=max_depth,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getFileImpact(
+        file_path: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get files that depend on a file, transitively, over IMPORTS and DEPENDS_ON."""
+        return await ctx.request_context.lifespan_context.get_file_impact(
+            file_path,
+            repository_id,
+            snapshot_id=snapshot_id,
+            max_depth=max_depth,
             evidence_types=evidence_types,
             limit=max_elements,
         )
