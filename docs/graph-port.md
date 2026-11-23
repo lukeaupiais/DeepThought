@@ -255,6 +255,9 @@ the chat model. The port answers from stored edges only:
   handler HANDLES is affected, and so is every declaration (or file) that
   REQUESTS that route, so impact crosses service boundaries along the HTTP
   contracts the `service-contracts` tool records (see "Service contracts").
+  Message destinations work the same way: forwards over PUBLISHES, then
+  backwards over CONSUMES, so a publisher change reaches every consumer of
+  the destination.
   Those hops are `pattern_matched`, and the path's evidence says so. The
   traversal is a quantified path pattern, so this query needs Neo4j 5.9 or
   later.
@@ -372,18 +375,19 @@ each hop with its own evidence (a `name_matched` image-name deployment marks
 the whole path `name_matched`).
 
 When the `service-contracts` tool runs in the same revision, packages are also
-joined by the HTTP contracts between them: a package CONSUMES another when a
-declaration or file in it REQUESTS a route whose handler is in the other
-(`components.http-route-consumer`, `pattern_matched`, one edge per route,
-with the route's qualified name on the edge). Each file counts in its nearest
-package, the package component of any kind whose root is deepest above it,
-and requests within one package make no edge. The edges are made when
-outputs are combined, like PART_OF, since requests, handlers and components
-come from different tools. `get_component_impact` follows CONSUMES backwards,
-so a change to a service's package lists the packages that call its routes.
-On spring-petclinic-microservices, its 2 linked requests give 2 CONSUMES
-edges, api-gateway to customers-service and genai-service to vets-service,
-and both match the calling code (`CustomersServiceClient` and
+joined by the contracts between them: a package USES_CONTRACT_OF another when
+code in it REQUESTS an HTTP route that code in the other HANDLES, or CONSUMES a
+message destination the other PUBLISHES to (`components.contract-consumer`,
+`pattern_matched`, one edge per contract, with the contract's qualified name
+on the edge). Each file counts in its nearest package, the package component
+of any kind whose root is deepest above it, and contracts used within one
+package make no edge. The edges are made when outputs are combined, like
+PART_OF, since contracts and components come from different tools.
+`get_component_impact` follows USES_CONTRACT_OF backwards, so a change to a
+service's package lists the packages that use its routes and topics. On
+spring-petclinic-microservices, its 2 linked requests give 2 edges,
+api-gateway to customers-service and genai-service to vets-service, and both
+match the calling code (`CustomersServiceClient` and
 `VectorStoreController`).
 
 The same comparison tool checks REQUIRES against `cargo metadata

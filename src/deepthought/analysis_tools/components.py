@@ -260,92 +260,92 @@ def bind_components(nodes, repo_url):
     return relationships, {"files_linked": linked, "files_outside": unlinked}
 
 
-CONSUMES_RULE = register_rule(
+CONTRACT_RULE = register_rule(
     EvidenceRule(
-        "components.http-route-consumer",
+        "components.contract-consumer",
         "pattern_matched",
-        "A declaration (or file) in this package REQUESTS an HTTP route whose "
-        "handler is in that package. Each file counts in its nearest package: "
-        "the package component (of any kind) whose root is deepest above it. "
-        "As weak as the REQUESTS and HANDLES edges it joins, which match "
-        "service names and path templates, not traced values.",
+        "Code in this package uses a contract that code in that package "
+        "provides: it REQUESTS an HTTP route the other HANDLES, or CONSUMES a "
+        "message destination the other PUBLISHES to. Each file counts in its "
+        "nearest package: the package component (of any kind) whose root is "
+        "deepest above it. As weak as the contract edges it joins, which "
+        "match names and path templates, not traced values.",
     )
 )
+# Contract edges by role: (provider relation, consumer relation).
+CONTRACT_ROLES = (("HANDLES", "REQUESTS"), ("PUBLISHES", "CONSUMES"))
+
+
+def _depth(component):
+    return len(component.root.split("/")) if component.root else 0
 
 
 def _nearest_packages(path, packages, cache):
     if path not in cache:
         found = enclosing_components(path, packages)
-        deepest = max(
-            (len(c.root.split("/")) if c.root else 0 for c in found), default=None
-        )
-        cache[path] = [
-            c for c in found if (len(c.root.split("/")) if c.root else 0) == deepest
-        ]
+        deepest = max(map(_depth, found), default=None)
+        cache[path] = [c for c in found if _depth(c) == deepest]
     return cache[path]
 
 
-def bind_consumers(nodes, relationships, repo_url):
-    """CONSUMES edges between package components joined by HTTP contracts.
+def bind_contract_users(nodes, relationships, repo_url):
+    """USES_CONTRACT_OF edges between package components.
 
-    For each REQUESTS edge to a route and each HANDLES edge into that route,
-    the requesting file's nearest package CONSUMES the handler file's nearest
-    package (when they differ), once per route. Run when tool outputs are
-    combined, since the requests, handlers and components come from
-    different tools. Returns (relationships, counts).
+    For each contract node (an HTTP route or message destination), every
+    package holding a consumer (REQUESTS, CONSUMES) USES_CONTRACT_OF every
+    other package holding its provider (HANDLES, PUBLISHES), once per
+    contract. Run when tool outputs are combined, since the contracts and
+    components come from different tools. Returns (relationships, counts).
     """
     nodes = list(nodes)
-    packages = {}
+    packages, files = {}, {}
     for node in nodes:
         p = node.properties
         if "Component" in node.labels and p.get("kind") in PACKAGE_KINDS:
             packages[Component(p["kind"], p["manifest"], p.get("name"))] = node
-    files = {}
-    for node in nodes:
-        p = node.properties
         path = p.get("path") if "File" in node.labels else p.get("file_path")
         if path:
             files[p["qualified_name"]] = path
-    handlers, requests = {}, []
+    if not packages:
+        return [], {"contract_links": 0}
+    roles = {}
+    for provides, uses in CONTRACT_ROLES:
+        roles[provides], roles[uses] = 0, 1
+    sides = {}
     for rel in relationships:
-        if rel.type == "HANDLES":
-            handlers.setdefault(rel.target_match["qualified_name"], set()).add(
-                rel.source_match["qualified_name"]
-            )
-        elif rel.type == "REQUESTS" and "Contract" in rel.target_labels:
-            requests.append(rel)
-    found, cache = {}, {}
-    for rel in requests:
-        route = rel.target_match["qualified_name"]
-        source_path = files.get(rel.source_match["qualified_name"])
-        if source_path is None or not packages:
-            continue
-        for handler in sorted(handlers.get(route, ())):
-            handler_path = files.get(handler)
-            if handler_path is None:
-                continue
-            for consumer in _nearest_packages(source_path, packages, cache):
-                for provider in _nearest_packages(handler_path, packages, cache):
-                    if consumer != provider:
-                        found[
-                            (
-                                packages[consumer].properties["qualified_name"],
-                                packages[provider].properties["qualified_name"],
-                                route,
-                            )
-                        ] = True
+        if rel.type in roles and "Contract" in rel.target_labels:
+            path = files.get(rel.source_match["qualified_name"])
+            if path is not None:
+                sides.setdefault(rel.target_match["qualified_name"], ([], []))[
+                    roles[rel.type]
+                ].append(path)
+    found, cache = set(), {}
+    for contract, (providers, consumers) in sides.items():
+        provided = {
+            c for path in providers for c in _nearest_packages(path, packages, cache)
+        }
+        for path in consumers:
+            for consumer in _nearest_packages(path, packages, cache):
+                for provider in provided - {consumer}:
+                    found.add(
+                        (
+                            packages[consumer].properties["qualified_name"],
+                            packages[provider].properties["qualified_name"],
+                            contract,
+                        )
+                    )
     edges = [
         RelationshipData(
-            "CONSUMES",
+            "USES_CONTRACT_OF",
             ["Component"],
             {"qualified_name": consumer, "repo_url": repo_url},
             ["Component"],
             {"qualified_name": provider, "repo_url": repo_url},
-            {"route": route, **_evidence(CONSUMES_RULE)},
+            {"contract": contract, **_evidence(CONTRACT_RULE)},
         )
-        for consumer, provider, route in sorted(found)
+        for consumer, provider, contract in sorted(found)
     ]
-    return edges, {"consumes": len(edges)}
+    return edges, {"contract_links": len(edges)}
 
 
 @register_tool

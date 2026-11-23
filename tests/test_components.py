@@ -474,7 +474,7 @@ class ConsumerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             outputs = contract_outputs(directory, "repo")
         combined, _ = _combine(outputs, "repo", "rev", WriteCoordinatorConfig())
-        consumes = [r for r in combined.relationships if r.type == "CONSUMES"]
+        consumes = [r for r in combined.relationships if r.type == "USES_CONTRACT_OF"]
         # Two requests from web to one route make one edge; the request from
         # inside stats makes none.
         self.assertEqual(
@@ -482,7 +482,7 @@ class ConsumerTests(unittest.TestCase):
                 (
                     r.source_match["qualified_name"],
                     r.target_match["qualified_name"],
-                    r.properties["route"].split("::")[1],
+                    r.properties["contract"].split("::")[1],
                     r.properties["rule_id"],
                     r.properties["evidence_type"],
                 )
@@ -493,19 +493,95 @@ class ConsumerTests(unittest.TestCase):
                     "repo::web/pom.xml::maven_module::component",
                     "repo::stats/pom.xml::maven_module::component",
                     "stats/src/main/java/s/StatsController.java",
-                    "components.http-route-consumer",
+                    "components.contract-consumer",
                     "pattern_matched",
                 )
             ],
         )
         self.assertEqual(
-            combined.metadata.custom_metrics["component_consumers"], {"consumes": 1}
+            combined.metadata.custom_metrics["component_contracts"],
+            {"contract_links": 1},
         )
         # Without the components tool there is nothing to join.
         alone, _ = _combine(
             [outputs[0], outputs[2]], "repo", "rev", WriteCoordinatorConfig()
         )
-        self.assertFalse([r for r in alone.relationships if r.type == "CONSUMES"])
+        self.assertFalse(
+            [r for r in alone.relationships if r.type == "USES_CONTRACT_OF"]
+        )
+
+
+class MessagingContractTests(unittest.TestCase):
+    def test_consumers_use_the_publishers_package(self):
+        from deepthought.analysis_tools.components import bind_contract_users
+        from deepthought.analysis_tools.contracts import NodeData, RelationshipData
+
+        def package(root):
+            manifest = root + "/go.mod"
+            return NodeData(
+                ["Component"],
+                {
+                    "qualified_name": "r::%s::go_module::component" % manifest,
+                    "repo_url": "r",
+                    "kind": "go_module",
+                    "manifest": manifest,
+                    "name": root,
+                },
+            )
+
+        def symbol(name, path):
+            return NodeData(
+                ["Function", "Symbol"],
+                {"qualified_name": "r::" + name, "repo_url": "r", "file_path": path},
+            )
+
+        def edge(kind, source):
+            return RelationshipData(
+                kind,
+                ["Symbol"],
+                {"qualified_name": "r::" + source, "repo_url": "r"},
+                ["MessageDestination", "Contract"],
+                {"qualified_name": "r::orders-topic", "repo_url": "r"},
+                # Any registered rule; the binding reads only the edge type.
+                {
+                    "evidence_type": "pattern_matched",
+                    "rule_id": "service-contracts.http-path",
+                },
+            )
+
+        nodes = [
+            package("orders"),
+            package("billing"),
+            package("audit"),
+            symbol("publish", "orders/send.go"),
+            symbol("bill", "billing/recv.go"),
+            symbol("log", "audit/recv.go"),
+            symbol("self", "orders/recv.go"),
+        ]
+        relationships = [
+            edge("PUBLISHES", "publish"),
+            edge("CONSUMES", "bill"),
+            edge("CONSUMES", "log"),
+            edge("CONSUMES", "self"),
+        ]
+        edges, counts = bind_contract_users(nodes, relationships, "r")
+        self.assertEqual(
+            [
+                (r.source_match["qualified_name"], r.target_match["qualified_name"])
+                for r in edges
+            ],
+            [
+                (
+                    "r::audit/go.mod::go_module::component",
+                    "r::orders/go.mod::go_module::component",
+                ),
+                (
+                    "r::billing/go.mod::go_module::component",
+                    "r::orders/go.mod::go_module::component",
+                ),
+            ],
+        )
+        self.assertEqual(counts, {"contract_links": 2})
 
 
 @unittest.skipUnless(YAML, "Provision PyYAML")
@@ -889,8 +965,8 @@ class ComponentQueryTests(unittest.IsolatedAsyncioTestCase):
                     "web",
                     1,
                     "pattern_matched",
-                    ["CONSUMES"],
-                    ["components.http-route-consumer"],
+                    ["USES_CONTRACT_OF"],
+                    ["components.contract-consumer"],
                 )
             ],
         )

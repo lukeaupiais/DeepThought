@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 import json
 
 from ...analysis_tools.declaration_binding import bind_declarations
-from ...analysis_tools.components import bind_components, bind_consumers
+from ...analysis_tools.components import bind_components, bind_contract_users
 from ...analysis_tools.contracts import (
     NodeData,
     StandardizedOutput,
@@ -208,8 +208,10 @@ def _combine(outputs, repo_url, snapshot_id, config):
         ] = rel
     # Files from every tool belong to their enclosing components (resolved).
     part_of, membership = bind_components(nodes.values(), repo_url)
-    # Packages joined by HTTP contracts across tools (pattern matched).
-    consumes, consumers = bind_consumers(nodes.values(), list(edges.values()), repo_url)
+    # Packages joined by the contracts between them (pattern matched).
+    consumes, consumers = bind_contract_users(
+        nodes.values(), list(edges.values()), repo_url
+    )
     for rel in part_of + consumes:
         for match in (rel.source_match, rel.target_match):
             match["snapshot_id"] = revision
@@ -255,7 +257,7 @@ def _combine(outputs, repo_url, snapshot_id, config):
             "source_binding": "caller_selected_graph_revision",
             "declaration_binding": binding_counts,
             **({"component_membership": membership} if part_of else {}),
-            **({"component_consumers": consumers} if consumes else {}),
+            **({"component_contracts": consumers} if consumes else {}),
             "model_tokens": sum(
                 output.metadata.custom_metrics["model_tokens"] for output in outputs
             )
