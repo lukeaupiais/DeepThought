@@ -230,6 +230,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             "getFileStructure",
                             "getFunctionCallers",
                             "getFunctionCalls",
+                            "listSnapshots",
                             "searchCodeElements",
                         }
                         if raw_enabled:
@@ -325,6 +326,17 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             )
                             self.assertEqual(
                                 callers["status"], "unsupported_or_unobserved"
+                            )
+                            listed = await session.call_tool(
+                                "listSnapshots", {"repository_id": self.repo}
+                            )
+                            self.assertFalse(listed.isError, listed.content)
+                            payload = listed.structuredContent or json.loads(
+                                listed.content[0].text
+                            )
+                            self.assertIn(
+                                self.snapshot,
+                                [item["snapshot_id"] for item in payload["items"]],
                             )
 
         await session_journey(False)

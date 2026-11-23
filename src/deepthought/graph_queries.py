@@ -110,6 +110,18 @@ class GraphQueryService:
         self.database = _text(database, "database")
         self.observer = observer
 
+    @staticmethod
+    async def _marker(tx, repo_url, snapshot_id):
+        result = await tx.run(
+            "MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,status:'complete'}) RETURN s.metadata_json AS metadata,s.content_hash AS content_hash",
+            repo_url=repo_url,
+            snapshot_id=snapshot_id,
+        )
+        marker = await result.single()
+        if marker is None:
+            raise ValueError("Selected repository snapshot is missing or incomplete")
+        return marker
+
     async def _read(
         self,
         query,
@@ -121,9 +133,11 @@ class GraphQueryService:
         max_output_bytes=16000,
         timeout=5,
         database_scope=False,
+        repository_scope=False,
     ):
         _text(repo_url, "repo_url")
-        _text(snapshot_id, "snapshot_id")
+        if not repository_scope:
+            _text(snapshot_id, "snapshot_id")
         _bounds(limit, max_output_bytes, timeout)
         started = time.monotonic()
         parameters = dict(parameters)
@@ -138,16 +152,11 @@ class GraphQueryService:
             tx = await session.begin_transaction(timeout=timeout)
             event = None
             try:
-                marker_result = await tx.run(
-                    "MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,status:'complete'}) RETURN s.metadata_json AS metadata,s.content_hash AS content_hash",
-                    repo_url=repo_url,
-                    snapshot_id=snapshot_id,
-                )
-                marker = await marker_result.single()
-                if marker is None:
-                    raise ValueError(
-                        "Selected repository snapshot is missing or incomplete"
-                    )
+                if repository_scope:
+                    # Snapshot listing spans the repository's complete snapshots.
+                    marker = {"metadata": None, "content_hash": None}
+                else:
+                    marker = await self._marker(tx, repo_url, snapshot_id)
                 metadata = json.loads(marker["metadata"] or "{}")
                 if database_scope:
                     check = await tx.run(
@@ -171,13 +180,18 @@ class GraphQueryService:
                     "repo_url": repo_url,
                     "snapshot_id": snapshot_id,
                     "status": "succeeded",
-                    "scope": "database" if database_scope else "repository_snapshot",
+                    "scope": "database"
+                    if database_scope
+                    else ("repository" if repository_scope else "repository_snapshot"),
                     "capabilities": metrics.get("capabilities", []),
                     "analysis_status": metrics.get("analysis_status", "unknown"),
                     "items": [],
                     "returned": 0,
                     "truncated": False,
                 }
+                if repository_scope:
+                    # Several snapshots; their own analysis facts are per item.
+                    del response["capabilities"], response["analysis_status"]
                 async for record in result:
                     if len(response["items"]) >= limit:
                         response["truncated"] = True
@@ -217,6 +231,53 @@ class GraphQueryService:
                 if event is not None:
                     event["wall_seconds"] = time.monotonic() - started
                     self.observer(event)
+
+    async def list_snapshots(
+        self,
+        repo_url,
+        *,
+        commit=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """List a repository's complete snapshots, optionally those of one commit.
+
+        A snapshot lists every commit it was linked to; the same content analyzed
+        at several commits is one snapshot. Newest publication first.
+        """
+        from .revisions import is_commit
+
+        if commit is not None and not is_commit(commit):
+            raise ValueError("commit must be a full lowercase hex Git object name")
+        response = await self._read(
+            """MATCH (s:AnalysisSnapshot {repo_url:$repo_url,status:'complete'})
+            WHERE $commit IS NULL OR $commit IN coalesce(s.source_commits,[])
+            RETURN s.snapshot_id AS snapshot_id,s.content_hash AS content_hash,
+                s.tool_name AS tool_name,s.node_count AS nodes,
+                s.relationship_count AS relationships,s.completed_at AS completed_at,
+                coalesce(s.source_commits,[]) AS commits
+            ORDER BY s.completed_at DESC,s.snapshot_id LIMIT $fetch_limit""",
+            {"commit": commit},
+            repo_url,
+            None,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            repository_scope=True,
+        )
+        for item in response["items"]:
+            item["commits"] = sorted(item["commits"])
+        response["commit"] = commit
+        if not response["items"]:
+            response["status"] = "not_found"
+        response["semantics"] = (
+            "A commit is listed only when every analyzed file was tracked and "
+            "unchanged from it; unlinked snapshots may still match a commit."
+        )
+        if len(_json(response).encode()) > max_output_bytes:
+            raise ValueError("Query response exceeds output byte budget")
+        return response
 
     async def search_elements(
         self,

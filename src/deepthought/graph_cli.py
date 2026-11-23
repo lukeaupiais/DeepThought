@@ -62,6 +62,13 @@ def parser():
     index.add_argument("--language", action="append", choices=("python", "typescript"))
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
+    snapshots = commands.add_parser(
+        "snapshots", help="List complete snapshots and the commits they came from"
+    )
+    snapshots.add_argument("--repository-id", required=True)
+    snapshots.add_argument("--commit", help="Full commit hash")
+    snapshots.add_argument("--limit", type=int, default=20)
+    snapshots.add_argument("--max-output-bytes", type=int, default=16000)
     for name in (
         "search",
         "context",
@@ -126,6 +133,10 @@ async def execute(args):
                 raise ValueError("Each AnalysisTool may occur once")
             if len(names) > 1 and not args.snapshot:
                 raise ValueError("Multiple tools require --snapshot graph revision")
+            from .revisions import CommitLink, commit_link, head_commit
+
+            # Read HEAD before any file so a commit that moves mid-run is caught.
+            commit_before = head_commit(args.workspace)
             outputs = []
             for name in names:
                 tool = tool_registry.get_tool(name, args.workspace)
@@ -159,7 +170,22 @@ async def execute(args):
                 raise ValueError(
                     "Graph import did not complete: " + "; ".join(result.errors)
                 )
-            return asdict(result)
+            files = {
+                node.properties["path"]
+                for output in outputs
+                for node in output.nodes
+                if "File" in node.labels and "path" in node.properties
+            }
+            link = (
+                commit_link(args.workspace, files, commit_before)
+                if files
+                else CommitLink(commit_before, False, "no_analyzed_files")
+            )
+            if link.linked:
+                await coordinator.link_commit(
+                    args.repository_id, result.snapshot_id, link.commit
+                )
+            return {**asdict(result), "source_revision": link.to_dict()}
         from .graph_queries import GraphQueryService
 
         service = GraphQueryService(
@@ -167,6 +193,13 @@ async def execute(args):
             database=config["database"],
             observer=query_observer(),
         )
+        if args.command == "snapshots":
+            return await service.list_snapshots(
+                args.repository_id,
+                commit=args.commit,
+                limit=args.limit,
+                max_output_bytes=args.max_output_bytes,
+            )
         if args.command == "explain-edge":
             return await service.explain_edge(
                 args.edge_id,
