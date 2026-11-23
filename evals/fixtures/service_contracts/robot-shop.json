@@ -1,0 +1,1119 @@
+{
+  "corpus": "robot-shop",
+  "repo": "https://github.com/instana/robot-shop",
+  "commit": "55292e2199f2fb00a165b1f7d3045fe7f8922038",
+  "license": "Apache-2.0",
+  "languages": [
+    "JavaScript (Node.js/Express)",
+    "JavaScript (AngularJS browser)",
+    "Python (Flask, requests, pika, Locust)",
+    "Java (Spring Boot, Apache HttpClient)",
+    "Go (amqp)",
+    "PHP (Symfony, curl)",
+    "nginx config"
+  ],
+  "sources": [
+    "README.md service list and docker-compose.yaml (services and dependencies)",
+    "web/default.conf.template + web/Dockerfile ENV (*_HOST defaults) for the /api/<svc>/ proxy prefix mapping",
+    "manual reading of every outbound HTTP/AMQP call and every route/consumer at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "web",
+      "root": "web"
+    },
+    {
+      "name": "cart",
+      "root": "cart"
+    },
+    {
+      "name": "catalogue",
+      "root": "catalogue"
+    },
+    {
+      "name": "user",
+      "root": "user"
+    },
+    {
+      "name": "payment",
+      "root": "payment"
+    },
+    {
+      "name": "shipping",
+      "root": "shipping"
+    },
+    {
+      "name": "ratings",
+      "root": "ratings"
+    },
+    {
+      "name": "dispatch",
+      "root": "dispatch"
+    },
+    {
+      "name": "load-gen",
+      "root": "load-gen"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 42,
+      "out_of_scope": 6
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 1,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "cart",
+        "catalogue",
+        "http"
+      ],
+      [
+        "load-gen",
+        "cart",
+        "http"
+      ],
+      [
+        "load-gen",
+        "catalogue",
+        "http"
+      ],
+      [
+        "load-gen",
+        "payment",
+        "http"
+      ],
+      [
+        "load-gen",
+        "ratings",
+        "http"
+      ],
+      [
+        "load-gen",
+        "shipping",
+        "http"
+      ],
+      [
+        "load-gen",
+        "user",
+        "http"
+      ],
+      [
+        "payment",
+        "cart",
+        "http"
+      ],
+      [
+        "payment",
+        "dispatch",
+        "messaging"
+      ],
+      [
+        "payment",
+        "user",
+        "http"
+      ],
+      [
+        "ratings",
+        "catalogue",
+        "http"
+      ],
+      [
+        "shipping",
+        "cart",
+        "http"
+      ],
+      [
+        "web",
+        "cart",
+        "http"
+      ],
+      [
+        "web",
+        "catalogue",
+        "http"
+      ],
+      [
+        "web",
+        "payment",
+        "http"
+      ],
+      [
+        "web",
+        "ratings",
+        "http"
+      ],
+      [
+        "web",
+        "shipping",
+        "http"
+      ],
+      [
+        "web",
+        "user",
+        "http"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "cart",
+      "to_service": "catalogue",
+      "contract": "GET /product/{sku}",
+      "client": {
+        "file": "cart/server.js",
+        "line": 362
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 82
+      },
+      "evidence": "request() (npm 'request'); catalogueHost = process.env.CATALOGUE_HOST || 'catalogue'",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "robot-shop#1"
+    },
+    {
+      "kind": "http",
+      "from_service": "payment",
+      "to_service": "user",
+      "contract": "GET /check/{id}",
+      "client": {
+        "file": "payment/payment.py",
+        "line": 64
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 85
+      },
+      "evidence": "requests.get; USER = os.getenv(\"USER_HOST\", \"user\")",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "robot-shop#2"
+    },
+    {
+      "kind": "http",
+      "from_service": "payment",
+      "to_service": "user",
+      "contract": "POST /order/{id}",
+      "client": {
+        "file": "payment/payment.py",
+        "line": 106
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 183
+      },
+      "evidence": "requests.post",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "robot-shop#3"
+    },
+    {
+      "kind": "http",
+      "from_service": "payment",
+      "to_service": "cart",
+      "contract": "DELETE /cart/{id}",
+      "client": {
+        "file": "payment/payment.py",
+        "line": 116
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 101
+      },
+      "evidence": "requests.delete; CART = os.getenv(\"CART_HOST\", \"cart\")",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "robot-shop#4"
+    },
+    {
+      "kind": "http",
+      "from_service": "shipping",
+      "to_service": "cart",
+      "contract": "POST /shipping/{id}",
+      "client": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/CartHelper.java",
+        "line": 40
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 269
+      },
+      "evidence": "Apache HttpClient; baseUrl = CART_URL = String.format(\"http://%s/shipping/\", getenv(\"CART_ENDPOINT\", \"cart\")) (Controller.java), passed via new CartHelper(CART_URL)",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_url_def": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 24
+      },
+      "id": "robot-shop#5"
+    },
+    {
+      "kind": "http",
+      "from_service": "ratings",
+      "to_service": "catalogue",
+      "contract": "GET /product/{sku}",
+      "client": {
+        "file": "ratings/html/src/Service/CatalogueService.php",
+        "line": 27
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 82
+      },
+      "evidence": "PHP curl; catalogueUrl = getenv('CATALOGUE_URL') ?: 'http://catalogue:8080' (Kernel.php)",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "robot-shop#6"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "payment",
+      "to_service": "dispatch",
+      "contract": "amqp:exchange=robot-shop;routing_key=orders;queue=orders",
+      "client": {
+        "file": "payment/rabbitmq.py",
+        "line": 29
+      },
+      "server": {
+        "file": "dispatch/main.go",
+        "line": 219
+      },
+      "evidence": "pika basic_publish with class constants EXCHANGE=\"robot-shop\", ROUTING_KEY=\"orders\"; dispatch QueueBind(\"orders\",\"orders\",\"robot-shop\") then Consume(\"orders\")",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "payment/payment.py",
+        "line": 135
+      },
+      "consumer_binding": {
+        "file": "dispatch/main.go",
+        "line": 80
+      },
+      "id": "robot-shop#7"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "catalogue",
+      "contract": "GET /products/{cat}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 83
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 106
+      },
+      "evidence": "AngularJS $http({url: '/api/catalogue/products/' + category...}); nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#8"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "catalogue",
+      "contract": "GET /categories",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 102
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 125
+      },
+      "evidence": "AngularJS $http({url: '/api/catalogue/categories'...}); nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#9"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "user",
+      "contract": "GET /uniqueid",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 116
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 70
+      },
+      "evidence": "AngularJS $http({url: '/api/user/uniqueid'...}); nginx /api/user/ -> http://${USER_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#10"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "catalogue",
+      "contract": "GET /search/{text}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 175
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 140
+      },
+      "evidence": "AngularJS $http({url: '/api/catalogue/search/' + text...}); nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#11"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "cart",
+      "contract": "GET /add/{id}/{sku}/{qty}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 203
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 139
+      },
+      "evidence": "AngularJS $http({url: '/api/cart/add/'...}); nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#12"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "ratings",
+      "contract": "PUT /api/rate/{sku}/{score}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 221
+      },
+      "server": {
+        "file": "ratings/html/src/Controller/RatingsApiController.php",
+        "line": 42
+      },
+      "evidence": "AngularJS $http({url: '/api/ratings/api/rate/'...}); nginx /api/ratings/ -> http://${RATINGS_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#13"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "catalogue",
+      "contract": "GET /product/{sku}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 243
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 82
+      },
+      "evidence": "AngularJS $http({url: '/api/catalogue/product/' + sku...}); nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#14"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "ratings",
+      "contract": "GET /api/fetch/{sku}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 254
+      },
+      "server": {
+        "file": "ratings/html/src/Controller/RatingsApiController.php",
+        "line": 76
+      },
+      "evidence": "AngularJS $http({url: '/api/ratings/api/fetch/' + sku...}); nginx /api/ratings/ -> http://${RATINGS_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#15"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "cart",
+      "contract": "GET /update/{id}/{sku}/{qty}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 287
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 213
+      },
+      "evidence": "AngularJS $http({url: '/api/cart/update/' + $scope.data.uniqueid...}); nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#16"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "cart",
+      "contract": "GET /cart/{id}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 299
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 84
+      },
+      "evidence": "AngularJS $http({url: '/api/cart/cart/' + id...}); nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#17"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "cart",
+      "contract": "GET /update/{id}/{sku}/{qty}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 306
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 213
+      },
+      "evidence": "AngularJS $http({url: '/api/cart/update/' + id + '/SHIP/0'...}); nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#18"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "shipping",
+      "contract": "GET /calc/{id}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 338
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 108
+      },
+      "evidence": "AngularJS $http({url: '/api/shipping/calc/' + uuid...}); nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#19"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "shipping",
+      "contract": "POST /confirm/{id}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 352
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 131
+      },
+      "evidence": "AngularJS $http({url: '/api/shipping/confirm/' + currentUser.uniqueid...}); nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#20"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "shipping",
+      "contract": "GET /codes",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 382
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 69
+      },
+      "evidence": "AngularJS $http({url: '/api/shipping/codes'...}); nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#21"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "shipping",
+      "contract": "GET /match/{code}/{text}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 398
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 87
+      },
+      "evidence": "AngularJS $http({url: '/api/shipping/match/'...}); nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#22"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "payment",
+      "contract": "POST /pay/{id}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 439
+      },
+      "server": {
+        "file": "payment/payment.py",
+        "line": 54
+      },
+      "evidence": "AngularJS $http({url: '/api/payment/pay/' + $scope.data.uniqueid...}); nginx /api/payment/ -> http://${PAYMENT_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#23"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "user",
+      "contract": "POST /login",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 474
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 118
+      },
+      "evidence": "AngularJS $http({url: '/api/user/login'...}); nginx /api/user/ -> http://${USER_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#24"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "cart",
+      "contract": "GET /rename/{from}/{to}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 489
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 117
+      },
+      "evidence": "AngularJS $http({url: '/api/cart/rename/' + oldId...}); nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#25"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "user",
+      "contract": "POST /register",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 520
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 148
+      },
+      "evidence": "AngularJS $http({url: '/api/user/register'...}); nginx /api/user/ -> http://${USER_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#26"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "user",
+      "contract": "GET /history/{id}",
+      "client": {
+        "file": "web/static/js/controller.js",
+        "line": 544
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 237
+      },
+      "evidence": "AngularJS $http({url: '/api/user/history/' + id...}); nginx /api/user/ -> http://${USER_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#27"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "user",
+      "contract": "POST /login",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 41
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 118
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/user/ -> http://${USER_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#28"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "user",
+      "contract": "GET /uniqueid",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 50
+      },
+      "server": {
+        "file": "user/server.js",
+        "line": 70
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/user/ -> http://${USER_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#29"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "catalogue",
+      "contract": "GET /categories",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 54
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 125
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#30"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "catalogue",
+      "contract": "GET /products",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 56
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 67
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#31"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "ratings",
+      "contract": "PUT /api/rate/{sku}/{score}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 66
+      },
+      "server": {
+        "file": "ratings/html/src/Controller/RatingsApiController.php",
+        "line": 42
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/ratings/ -> http://${RATINGS_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#32"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "catalogue",
+      "contract": "GET /product/{sku}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 68
+      },
+      "server": {
+        "file": "catalogue/server.js",
+        "line": 82
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/catalogue/ -> http://${CATALOGUE_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#33"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "ratings",
+      "contract": "GET /api/fetch/{sku}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 69
+      },
+      "server": {
+        "file": "ratings/html/src/Controller/RatingsApiController.php",
+        "line": 76
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/ratings/ -> http://${RATINGS_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#34"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "cart",
+      "contract": "GET /add/{id}/{sku}/{qty}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 70
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 139
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#35"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "cart",
+      "contract": "GET /cart/{id}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 72
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 84
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#36"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "cart",
+      "contract": "GET /update/{id}/{sku}/{qty}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 74
+      },
+      "server": {
+        "file": "cart/server.js",
+        "line": 213
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/cart/ -> http://${CART_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#37"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "shipping",
+      "contract": "GET /codes",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 77
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 69
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#38"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "shipping",
+      "contract": "GET /cities/{code}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 78
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 78
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#39"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "shipping",
+      "contract": "GET /calc/{id}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 80
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 108
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#40"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "shipping",
+      "contract": "POST /confirm/{id}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 84
+      },
+      "server": {
+        "file": "shipping/src/main/java/com/instana/robotshop/shipping/Controller.java",
+        "line": 131
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/shipping/ -> http://${SHIPPING_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#41"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "payment",
+      "contract": "POST /pay/{id}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 87
+      },
+      "server": {
+        "file": "payment/payment.py",
+        "line": 54
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/payment/ -> http://${PAYMENT_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#42"
+    },
+    {
+      "kind": "http",
+      "from_service": "load-gen",
+      "to_service": "payment",
+      "contract": "POST /pay/{id}",
+      "client": {
+        "file": "load-gen/robot-shop.py",
+        "line": 96
+      },
+      "server": {
+        "file": "payment/payment.py",
+        "line": 54
+      },
+      "evidence": "Locust HttpUser self.client to web host; nginx /api/payment/ -> http://${PAYMENT_HOST}:8080/ (web/default.conf.template)",
+      "in_scope_static": true,
+      "hop": "frontend_via_proxy",
+      "label_confidence": "high",
+      "id": "robot-shop#43"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "catalogue",
+      "contract": "ANY /api/catalogue/** -> /**",
+      "client": {
+        "file": "web/default.conf.template",
+        "line": 60
+      },
+      "server": null,
+      "evidence": "nginx proxy_pass http://${CATALOGUE_HOST}:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site); no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "robot-shop#44"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "user",
+      "contract": "ANY /api/user/** -> /**",
+      "client": {
+        "file": "web/default.conf.template",
+        "line": 64
+      },
+      "server": null,
+      "evidence": "nginx proxy_pass http://${USER_HOST}:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site); no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "robot-shop#45"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "cart",
+      "contract": "ANY /api/cart/** -> /**",
+      "client": {
+        "file": "web/default.conf.template",
+        "line": 68
+      },
+      "server": null,
+      "evidence": "nginx proxy_pass http://${CART_HOST}:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site); no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "robot-shop#46"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "shipping",
+      "contract": "ANY /api/shipping/** -> /**",
+      "client": {
+        "file": "web/default.conf.template",
+        "line": 72
+      },
+      "server": null,
+      "evidence": "nginx proxy_pass http://${SHIPPING_HOST}:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site); no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "robot-shop#47"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "payment",
+      "contract": "ANY /api/payment/** -> /**",
+      "client": {
+        "file": "web/default.conf.template",
+        "line": 76
+      },
+      "server": null,
+      "evidence": "nginx proxy_pass http://${PAYMENT_HOST}:8080/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site); no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "robot-shop#48"
+    },
+    {
+      "kind": "http",
+      "from_service": "web",
+      "to_service": "ratings",
+      "contract": "ANY /api/ratings/** -> /**",
+      "client": {
+        "file": "web/default.conf.template",
+        "line": 80
+      },
+      "server": null,
+      "evidence": "nginx proxy_pass http://${RATINGS_HOST}:80/",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative reverse-proxy prefix route (config, not a code call site); no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "robot-shop#49"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "load-gen/robot-shop.py",
+      "line": 49,
+      "reason": "GET / served by nginx static files of web itself"
+    },
+    {
+      "file": "payment/payment.py",
+      "line": 84,
+      "reason": "external call to https://paypal.com/"
+    }
+  ],
+  "notes": [
+    "hop=direct: service code calls another service. hop=frontend_via_proxy: AngularJS (web/static/js/controller.js) or Locust (load-gen/robot-shop.py) calls /api/<svc>/<path>; nginx (web/default.conf.template) strips /api/<svc>/ and proxies to http://${<SVC>_HOST}:8080/ whose defaults (catalogue, user, cart, shipping, payment, ratings) are set by ENV in web/Dockerfile. The backend path is the URL with /api/<svc> removed. from_service for these is the caller (web or load-gen), to_service the backend.",
+    "hop=gateway_route: the nginx location block itself (one per backend); prefix-level, no single handler, so out of scope for call-site scoring.",
+    "Host names in direct calls come from env vars with literal defaults equal to the service names (CATALOGUE_HOST||\"catalogue\", USER_HOST \"user\", CART_HOST \"cart\", CART_ENDPOINT \"cart\", CATALOGUE_URL ?: \"http://catalogue:8080\").",
+    "shipping -> cart: URL is assembled across classes (Controller.CART_URL field passed to new CartHelper(url), then HttpPost(baseUrl + id)); needs inter-procedural constant propagation.",
+    "For clients whose URL is in a variable assigned a few lines earlier (controller.js addToCart/rateProduct/change), client.line is the $http({ line; the URL literal is 1-3 lines above.",
+    "payment -> external PAYMENT_GATEWAY (https://paypal.com/) is an external call, not labelled.",
+    "Messaging: payment publishes with pika basic_publish(exchange=\"robot-shop\" (direct), routing_key=\"orders\"); dispatch declares queue \"orders\", binds it to exchange robot-shop with key \"orders\" and consumes from \"orders\".",
+    "ratings is PHP; if the extractor does not support PHP, score the ratings->catalogue link and links whose server is ratings as unsupported-language rather than misses."
+  ]
+}
