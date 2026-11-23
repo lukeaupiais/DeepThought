@@ -2,7 +2,7 @@
 
 The optional MCP transport contains no Cypher construction or extraction logic.
 The three original tool names are preserved; queryGraph adapts the original
-HTTP Cypher capability. The call, import, reference, dependency and explainEdge
+HTTP Cypher capability. The call, base type, import, reference, dependency and explainEdge
 tools expose the ported repository queries with each edge's evidence type and rule. It runs on stdio; raw Cypher is opt-in and
 requires a dedicated snapshot database and database-enforced read-only access.
 """
@@ -156,6 +156,42 @@ def create_server():
     ) -> dict:
         """Get stored CALLS edges out of a declaration, each with evidence and rule."""
         return await ctx.request_context.lifespan_context.get_function_calls(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getBaseTypes(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get the bases a class or interface names (INHERITS_FROM), with evidence."""
+        return await ctx.request_context.lifespan_context.get_base_types(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getSubtypes(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get classes and interfaces naming this one as a base, with evidence."""
+        return await ctx.request_context.lifespan_context.get_subtypes(
             qualified_name,
             repository_id,
             snapshot_id=snapshot_id,

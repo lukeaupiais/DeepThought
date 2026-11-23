@@ -43,9 +43,43 @@ def _pick(call_id, matches, rule_id, none_reason):
     return CallResolution(call_id, "unresolved", reason=none_reason)
 
 
-def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
-    """One resolution per call site, in call identity order."""
-    by_id = {d.id: d for d in result.definitions}
+@dataclass(frozen=True)
+class NameBindings:
+    """Declarations by (file, symbol) and the names each file's imports bind."""
+
+    by_symbol: dict  # (file, symbol) -> [Definition]
+    names: dict  # (file, local) -> [(imported name or None, target files)]
+    modules: dict  # (file, dotted prefix) -> [target files]
+
+    def top_level(self, files, name, kinds):
+        return [
+            d
+            for f in files
+            for d in self.by_symbol.get((f, name), ())
+            if d.kind in kinds
+        ]
+
+    def lexical(self, file, scope, name, kinds):
+        """Declarations of ``name`` in the innermost enclosing scope declaring it.
+
+        Scopes run from innermost out; class bodies are not enclosing scopes.
+        """
+        for depth in range(len(scope), -1, -1):
+            prefix = ".".join(scope[:depth])
+            if prefix and any(
+                d.kind == "Class" for d in self.by_symbol.get((file, prefix), ())
+            ):
+                continue
+            symbol = f"{prefix}.{name}" if prefix else name
+            found = [
+                d for d in self.by_symbol.get((file, symbol), ()) if d.kind in kinds
+            ]
+            if found:
+                return found
+        return []
+
+
+def name_bindings(result: AnalysisResult) -> NameBindings:
     by_symbol = defaultdict(list)
     for d in result.definitions:
         by_symbol[(d.file, d.symbol)].append(d)
@@ -56,8 +90,8 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             for link in resolution.links
             if link.rule_id != PYTHON_FROM_IMPORT_SUBMODULE
         )
-    names = defaultdict(list)  # (file, local) -> [(imported name, target files)]
-    modules = defaultdict(list)  # (file, dotted prefix) -> [target files]
+    names = defaultdict(list)
+    modules = defaultdict(list)
     for item in result.imports:
         targets = module_files.get(item.id, ())
         if item.kind == "import" and not item.names:
@@ -73,11 +107,15 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 names[(item.file, local)].append((None, targets))
             elif name != "*":
                 names[(item.file, local)].append((name, targets))
+    return NameBindings(by_symbol, names, modules)
 
-    def top_level(files, name, kinds):
-        return [
-            d for f in files for d in by_symbol.get((f, name), ()) if d.kind in kinds
-        ]
+
+def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
+    """One resolution per call site, in call identity order."""
+    by_id = {d.id: d for d in result.definitions}
+    bindings = name_bindings(result)
+    by_symbol, names, modules = bindings.by_symbol, bindings.names, bindings.modules
+    top_level = bindings.top_level
 
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
@@ -85,22 +123,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         scope = caller.symbol.split(".") if caller is not None else []
         parts = site.callee.split(".")
         if len(parts) == 1:
-            # Lexical scopes from innermost out; class bodies are not enclosing scopes.
-            lexical = []
-            for depth in range(len(scope), -1, -1):
-                prefix = ".".join(scope[:depth])
-                if prefix and any(
-                    d.kind == "Class" for d in by_symbol.get((site.file, prefix), ())
-                ):
-                    continue
-                symbol = f"{prefix}.{site.callee}" if prefix else site.callee
-                lexical = [
-                    d
-                    for d in by_symbol.get((site.file, symbol), ())
-                    if d.kind in _CALLABLE
-                ]
-                if lexical:
-                    break
+            lexical = bindings.lexical(site.file, scope, site.callee, _CALLABLE)
             bound = names.get((site.file, site.callee), [])
             if lexical and bound:
                 resolutions.append(

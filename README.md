@@ -27,8 +27,8 @@ downloads, target builds and database provisioning remain caller-controlled.
 The [first completed real-agent calibration](evals/results/tree_sitter_deepagents_20261102/README.md)
 found equal declaration accuracy and increased token use with raw tool output.
 
-This local alpha extracts named declarations, static import statements and named
-call sites from Python and TypeScript/TSX, and from JavaScript/JSX
+This local alpha extracts named declarations, static import statements, named
+call sites and declared class and interface bases from Python and TypeScript/TSX, and from JavaScript/JSX
 (`.js`, `.jsx`, `.mjs`, `.cjs`) when `--language javascript` is selected, preserves namespace and quoted ambient-module owners in declaration names,
 ingests definitions and references from supplied SCIP artifacts, and composes
 portable reference graphs. The `scip` graph tool stores TypeScript references

@@ -27,6 +27,7 @@ is retained in NOTICE and licenses/deepthought-original-MIT.txt.
 | libs/analysis/.../parsers/builders/relationship_builder.py edge `confidence` and `resolution_status` | deepthought.analysis_tools.evidence | Replaced by evidence type plus rule ID on every relationship (see below) |
 | libs/analysis/.../parsers/builders/import_processor.py import tracking | deepthought.syntax.extract_imports + deepthought.imports | Static import facts, then File -> IMPORTS -> File by declared rules (see below) |
 | libs/analysis/.../parsers/builders/relationship_builder.py CALLS | deepthought.syntax.extract_call_sites + deepthought.calls | Named call sites, then CALLS by name-binding rules, all `name_matched` (see below) |
+| libs/analysis/.../parsers/utils/base/core.py `extract_inheritance_relationships` (INHERITS via `file_context.resolve_symbol`) | deepthought.syntax.extract_supertypes + deepthought.inheritance + GraphQueryService.get_base_types/get_subtypes | Declared bases, then INHERITS_FROM by the call name-binding rules, all `name_matched`; `get_class_hierarchy` follows classes and interfaces (see below) |
 | libs/analysis/.../parsers/core/language_detector.py and import_processor.py JavaScript/JSX handling | deepthought.syntax `LANGUAGES["javascript"]` + deepthought.imports JavaScript rules | Opt-in JavaScript/JSX declarations, ES module imports and calls; relative specifiers resolve only to analyzed files (see below) |
 | libs/analysis/.../tools/scip (indexing/indexer_runner.py, parsing/occurrence_processor.py) | deepthought.scip_indexing + deepthought.analysis_tools.scip + GraphQueryService.get_references/get_file_dependencies | Source-bound TypeScript index, Reference nodes, REFERENCES and file DEPENDS_ON edges with registered `resolved` rules instead of `confidence: 1.0` (see below) |
 
@@ -154,6 +155,49 @@ callees result still says the relation was unsupported or unobserved.
 
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
 at the callee name.
+
+## Declared bases
+
+Tree-sitter extraction records each base a class or interface names as a
+`Supertype` fact (analysis schema 3, `supertypes` capability): Python base
+classes and TypeScript/JavaScript `extends` entries are `extends`, a TypeScript
+class's `implements` entries are `implements`. Only plain or dotted names are
+recorded, without type arguments (`Generic[T]` and `Base<T>` name `Generic`
+and `Base`); keyword arguments such as `metaclass=`, splats and call
+expressions such as mixins are not. `deepthought.inheritance.resolve_supertypes`
+applies the call name-binding rules, so every INHERITS_FROM edge is
+`name_matched`:
+
+| Rule | Links |
+|---|---|
+| `tree-sitter.base-lexical-name` | `Base` to a class or interface declared in the scope enclosing the declaration (a Python class body included), then in enclosing function and module scopes of the same file |
+| `tree-sitter.base-imported-name` | `Base` to the top-level class or interface that an import binding (aliases applied) names in its linked module file |
+| `tree-sitter.base-module-attribute` | `mod.Base` where `mod` is a module import binding |
+
+A name that is both imported and declared locally, or declared twice, is
+ambiguous; builtins and library bases stay unresolved. Neither gets an edge.
+INHERITS_FROM edges carry the supertype ID, the base as written, its
+`heritage` kind, line and column. `deepthought-graph bases|subtypes --symbol
+QUALIFIED_NAME` (MCP getBaseTypes and getSubtypes) return direct edges with an
+optional evidence filter, and `get_class_hierarchy` follows them through
+classes and interfaces. The original tool emitted the same relation for names
+its symbol resolver found; it is now limited to these rules and marked with
+its evidence. Compiler-backed subtype facts are the SCIP IMPLEMENTS edges.
+
+`tools/compare_supertypes_with_scip.py` checks each base against the
+declaration SCIP references at its last identifier:
+
+| Corpus | Bases | Bases with an in-repository SCIP target | Linked | Confirmed | Contradicted |
+|---|---|---|---|---|---|
+| Django 5.1.4 `django/` (scip-python 0.6.8) | 1,819 | 1,612 | 1,363 | 1,361 | 0 |
+| rxjs 7.8.1 `src/` (scip-typescript 0.6.0) | 55 | 47 | 47 | 47 | 0 |
+
+The two Django links SCIP leaves unresolved are correct by inspection (a base
+in an `os.name == "nt"` branch and one imported from `smartif`). Of the 251
+Django bases with a SCIP target and no edge, 140 are `module.Base` through a
+`from package import module` binding, which the rules do not follow, and 102
+are names re-exported by a package `__init__`. Full and incremental analyses
+of Django give identical facts.
 
 ## JavaScript
 
@@ -426,14 +470,14 @@ deepthought-graph diff --repository-id public-project --base BASE_REVISION --hea
 
 Repeat `--tool NAME` for registered tool contributions and provide `--snapshot`
 with the chosen graph revision. This port ships TreeSitterTool (declarations,
-file imports and name-matched calls) and the SCIP tool (TypeScript references
+file imports, and name-matched calls and bases) and the SCIP tool (TypeScript references
 and file dependencies); it does not pretend other original analyzers have already been
 ported. The embedded Python API can
 register tools through the existing registry.
 
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
-(`getFunctionCallers`, `getFunctionCalls`, `getFileImports`, `getFileImporters`,
+(`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getFileImports`, `getFileImporters`,
 `findReferences`, `getFileDependencies`, `getFileDependents`, `explainEdge`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 

@@ -18,6 +18,7 @@ from .models import (
     Diagnostic,
     FileCoverage,
     Import,
+    Supertype,
     is_relative_file,
 )
 from .syntax import (
@@ -26,6 +27,7 @@ from .syntax import (
     extract,
     extract_call_sites,
     extract_imports,
+    extract_supertypes,
     make_parser,
 )
 from ._version import __version__
@@ -33,6 +35,9 @@ from ._version import __version__
 # Diagnostics a parsed file can produce; any other diagnostic for a recorded
 # file means the file was not fully parsed, so its facts are not reused.
 _PARSE_DIAGNOSTICS = {"syntax_error"}
+# Fact kinds this engine records; part of snapshot identity, and an earlier
+# analysis is reused only if it recorded all of them.
+CAPABILITIES = ("call_sites", "definitions", "imports", "supertypes")
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class _FileFacts:
     definitions: tuple[Definition, ...]
     call_sites: tuple[CallSite, ...]
     imports: tuple[Import, ...]
+    supertypes: tuple[Supertype, ...]
     versions: dict
 
     def matches(self, language, digest, versions):
@@ -76,12 +82,15 @@ def reusable_files(previous, repository_id):
         return {}, "different_engine_version"
     if previous.coordinate_encoding != "utf-8":
         return {}, "different_coordinate_encoding"
+    if not set(CAPABILITIES) <= set(previous.capabilities):
+        return {}, "missing_fact_kinds"
     grouped = {}
     for kind, items in (
         ("diagnostics", previous.diagnostics),
         ("definitions", previous.definitions),
         ("call_sites", previous.call_sites),
         ("imports", previous.imports),
+        ("supertypes", previous.supertypes),
     ):
         for item in items:
             grouped.setdefault(item.file, {}).setdefault(kind, []).append(item)
@@ -105,6 +114,7 @@ def reusable_files(previous, repository_id):
             tuple(own.get("definitions", ())),
             tuple(own.get("call_sites", ())),
             tuple(own.get("imports", ())),
+            tuple(own.get("supertypes", ())),
             {name: recorded[name] for name in packages},
         )
     return facts, None
@@ -146,6 +156,7 @@ def analyze_repository(
     languages = tuple(sorted(set(languages)))
     definitions, imports, coverage, diagnostics = [], [], [], []
     call_sites = []
+    supertypes = []
     parsers, versions = {}, {"deepthought-analysis-engine": __version__}
     reusable, rejected = reusable_files(previous, repository_id)
     stats = {"reused": 0, "parsed": 0, "previous_rejected": rejected}
@@ -254,6 +265,7 @@ def analyze_repository(
                     definitions.extend(facts.definitions)
                     call_sites.extend(facts.call_sites)
                     imports.extend(facts.imports)
+                    supertypes.extend(facts.supertypes)
                     continue
                 stats["parsed"] += 1
                 tree = parsers[key].parse(content)
@@ -281,6 +293,9 @@ def analyze_repository(
                 )
                 imports.extend(
                     extract_imports(tree, content, repository_id, relative, language)
+                )
+                supertypes.extend(
+                    extract_supertypes(tree, content, repository_id, relative, declared)
                 )
             except ImportError:
                 coverage.append(FileCoverage(relative, language, "unavailable", digest))
@@ -310,6 +325,7 @@ def analyze_repository(
         "languages": languages,
         "versions": sorted(versions.items()),
         "analyzer_version": __version__,
+        "capabilities": CAPABILITIES,
         "max_file_bytes": max_file_bytes,
         "max_files": max_files,
         "max_total_bytes": max_total_bytes,
@@ -328,8 +344,9 @@ def analyze_repository(
         tuple(diagnostics),
         "tree-sitter",
         tuple(sorted(versions.items())),
-        capabilities=("call_sites", "definitions", "imports"),
+        capabilities=CAPABILITIES,
         schema_version="3",
         imports=tuple(imports),
         call_sites=tuple(call_sites),
+        supertypes=tuple(supertypes),
     )
