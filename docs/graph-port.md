@@ -1581,6 +1581,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
 | `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name`; only that service's routes are candidates |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
+| `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
 
 The URL's path is compared segment by segment with each candidate's
 template, and the method must be accepted. A literal segment equal to a route
@@ -1599,6 +1600,38 @@ routes registered in code are not followed.
 Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
+
+### Gateways
+
+Browser and load-test code usually calls a gateway, not the service:
+robot-shop's pages call `/api/cart/...`, which nginx forwards to the cart
+service as `/...`. The tool reads two kinds of gateway route
+(`deepthought.service_contracts.gateways`):
+
+- **Spring Cloud Gateway.** `spring.cloud.gateway.routes` (or
+  `spring.cloud.gateway.server.webflux.routes`) in the YAML configuration of
+  a module (the same files as service names; profile documents are not
+  read), with `Path=` predicates of literal segments ending in `/**`, a `uri`
+  of `lb://service` or `http(s)://host`, and `StripPrefix` and `PrefixPath`
+  filters, in shortcut or full form. A route that rewrites the path
+  (`RewritePath`, `SetPath`), a path pattern with wildcards before `/**`, or a
+  `StripPrefix` longer than the prefix is counted as unread.
+- **nginx.** `location /prefix/ { proxy_pass http://host[:port][/uri]; }` in
+  `*.conf` and `*.conf.template` files outside hidden, `node_modules` and
+  `vendor` folders. A `proxy_pass` with a URI replaces the prefix with it, as
+  nginx does; one without passes the path on. Exact (`=`) and regex
+  locations, and `proxy_pass` URIs with variables, are counted as unread; a
+  host with a variable (`${CART_HOST}`) leaves the target unknown.
+
+A request with no literal host that names no known service, whose path
+starts with the literal prefix of a gateway route, is forwarded: the longest
+prefix wins (two routes of that length forwarding differently make the
+request ambiguous), the prefix is replaced, and the route's target narrows
+the candidates as a host would. The link uses rule
+`service-contracts.http-gateway` and records the gateway route as
+`gateway` (`file:line`). AngularJS `$http` requests are read too, and their
+relative URLs (`api/vet/vets`) are read against the site root, as for a page
+served there.
 
 ### gRPC
 
@@ -1724,11 +1757,21 @@ external APIs) count for neither side. Direct service-to-service calls:
 | Online Boutique (Locust to Go gorilla/mux under a `baseUrl` variable) | 9 | 9 | 9 | 0 |
 | robot-shop (Express `request`, Python `requests` with `.format`) | 6 | 4 | 4 | 2: shipping's Apache HttpClient call takes its whole URL from a constructor argument, and ratings is PHP |
 
-No prediction was wrong. The remaining labelled HTTP links in these corpora go
-through a gateway (robot-shop's Locust calls `/api/cart/...`, which nginx
-rewrites) or come from browser code; gRPC links are scored separately. Online
+No prediction was wrong. gRPC links are scored separately. Online
 Boutique's frontend calls the shopping assistant at `"http://" + addr`, which
 fixes no path, so it stays unresolved.
+
+Links through a gateway (the `all` score, which adds labelled browser and
+load-test calls through the gateway or proxy):
+
+| Corpus | Labelled HTTP links | Predicted | Correct | Missed |
+|---|---|---|---|---|
+| robot-shop (AngularJS and Locust through nginx) | 42 | 36 | 36 | 6: ratings is PHP, and shipping's HttpClient URL |
+| spring-petclinic-microservices (AngularJS through Spring Cloud Gateway) | 14 | 13 | 13 | 1: the WebClient base URL with a setter |
+
+Again no prediction was wrong. On train-ticket, 32 AngularJS requests of the
+dashboard link through its Spring Cloud Gateway; a sample of ten was checked
+by hand against the gateway routes and controllers.
 
 Labelled message links (`--kind messaging`):
 

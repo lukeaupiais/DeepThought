@@ -8,10 +8,12 @@ with a reason, and produces no link.
 
 from dataclasses import dataclass
 
-from .http import best_routes, request_target, route_template
+from .gateways import forward
+from .http import PLACEHOLDER, best_routes, request_target, route_template
 
 HTTP_SERVICE_PATH = "service-contracts.http-service-path"
 HTTP_PATH = "service-contracts.http-path"
+HTTP_GATEWAY = "service-contracts.http-gateway"
 
 
 @dataclass(frozen=True)
@@ -24,9 +26,10 @@ class RequestResolution:
     candidates: tuple[str, ...] = ()
     path: str = ""  # the request path as read, unknown text shown as {?}
     target_service: str | None = None
+    gateway: str | None = None  # "file:line" of the gateway route followed
 
 
-def resolve_requests(routes, requests):
+def resolve_requests(routes, requests, gateways=()):
     """One resolution per request, in request order.
 
     The target service is the request's explicit service name (a Feign
@@ -35,6 +38,12 @@ def resolve_requests(routes, requests):
     (rule ``http-service-path``). Otherwise every route is a candidate (rule
     ``http-path``). The most specific compatible route wins (see
     ``http.best_routes``); a tie is ambiguous.
+
+    A request with no literal host that names no known service, whose path
+    starts with the literal prefix of a gateway route, is forwarded: the
+    longest prefix wins, its replacement takes its place, and the route's
+    target narrows the candidates as a host would (rule ``http-gateway``).
+    Prefixes tied in length with different forwards are ambiguous.
     """
     templates = [(r.id, r.methods, route_template(r.path), r.service) for r in routes]
     services = {r.service for r in routes if r.service}
@@ -47,6 +56,24 @@ def resolve_requests(routes, requests):
             )
             continue
         service = request.target_service or target.host
+        segments, gateway, forwarded = target.segments, None, False
+        if service not in services and target.host is None:
+            matches = forward(gateways, target.segments)
+            if len({(m.replacement, m.target) for m in matches}) > 1:
+                resolutions.append(
+                    RequestResolution(
+                        request.id,
+                        "ambiguous",
+                        reason="several_gateways",
+                        path=target.display,
+                    )
+                )
+                continue
+            if matches:
+                route = min(matches, key=lambda m: (m.file, m.line))
+                segments = route.replacement + target.segments[len(route.prefix) :]
+                gateway, forwarded = f"{route.file}:{route.line}", True
+                service = route.target
         if service in services:
             candidates = [t[:3] for t in templates if t[3] == service]
             rule, none_reason = HTTP_SERVICE_PATH, "no_route_in_service"
@@ -54,8 +81,15 @@ def resolve_requests(routes, requests):
             candidates = [t[:3] for t in templates]
             rule, none_reason = HTTP_PATH, "no_route"
             service = None
-        best = best_routes(request.method, target.segments, candidates)
-        common = {"path": target.display, "target_service": service}
+        if forwarded:
+            rule = HTTP_GATEWAY
+        best = best_routes(request.method, segments, candidates)
+        shown = "/" + "/".join(s.replace(PLACEHOLDER, "{?}") for s in segments)
+        common = {
+            "path": shown,
+            "target_service": service,
+            "gateway": gateway,
+        }
         if len(best) == 1:
             resolutions.append(
                 RequestResolution(request.id, "linked", best[0], rule, **common)

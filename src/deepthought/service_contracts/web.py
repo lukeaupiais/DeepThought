@@ -2,8 +2,8 @@
 
 Servers: Flask and FastAPI route decorators, Express routes, and Go
 ``net/http``/gorilla ``HandleFunc``/``Handle``. Clients: Python ``requests``
-and ``httpx``, Locust ``client``, JavaScript ``fetch``, ``axios`` and
-``request``, and Go ``net/http``. A framework or client object is recognised
+and ``httpx``, Locust ``client``, JavaScript ``fetch``, ``axios``,
+``request`` and AngularJS ``$http``, and Go ``net/http``. A framework or client object is recognised
 only through the file's own imports and bindings; URLs are folded by
 ``folding.Folder``.
 """
@@ -322,6 +322,14 @@ def extract_python(context):
 # -- JavaScript / TypeScript ------------------------------------------------
 
 
+def _browser_url(url):
+    """A relative URL in browser code, read against the site root ("api/x"
+    is "/api/x"): the page is assumed to be served at the root."""
+    if url and url[0] not in "/" + PLACEHOLDER and not re.match(r"(?i)^[a-z]+:", url):
+        return "/" + url
+    return url
+
+
 def _js_modules(root, content):
     """local name -> module, for require() bindings and import statements."""
     names = {}
@@ -425,6 +433,10 @@ def extract_javascript(context):
                 methods = [ANY_METHOD] if verb == "all" else [_VERBS[verb]]
                 context.route(node, methods, path, "express", handler)
                 continue
+            if owner == "$http" and verb in _VERBS and positional:
+                url = _browser_url(context.folder.evaluate(positional[0]))
+                context.request(node, _VERBS[verb], url, "angularjs-http")
+                continue
             module = modules.get(owner)
             if (
                 module in ("axios", "request", "superagent")
@@ -434,6 +446,17 @@ def extract_javascript(context):
                 context.request(
                     node, _VERBS[verb], context.folder.evaluate(positional[0]), module
                 )
+            continue
+        if written == "$http" and positional:
+            options = _js_object(positional[0], content)
+            if "url" not in options:
+                continue
+            method = "GET"
+            if "method" in options:
+                method = context.folder.evaluate(options["method"]).upper()
+                method = method if method in HTTP_METHODS else None
+            url = _browser_url(context.folder.evaluate(options["url"]))
+            context.request(node, method, url, "angularjs-http")
             continue
         if written == "fetch" and positional:
             options = _js_object(
