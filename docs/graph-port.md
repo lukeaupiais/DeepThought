@@ -328,8 +328,53 @@ file, and `mvn help:evaluate` artifact IDs. No contradictions:
 | spring-petclinic-microservices | 9 Maven modules | 9/9 artifact IDs, 34/34 files' package.json |
 
 Python projects have no comparable resolver and are checked by tests only.
-Deployment units (Compose services, Kubernetes workloads), dependencies
-between components and cross-service contract edges are separate slices.
+Deployment units (Compose services and Kubernetes workloads) and
+cross-service contract edges are separate slices.
+
+### Component dependencies
+
+Each manifest's declared dependencies are read as written, and
+Component -> REQUIRES -> Component links a declaration to the in-repository
+component it names, with the manifest section (`dependencies`,
+`dev-dependencies`, `require`, `project.optional-dependencies.EXTRA`, ...),
+the declared name and any declared path on the edge:
+
+| Rule | Evidence | Declaration |
+|------|----------|-------------|
+| `components.cargo-path-dependency` | resolved | Cargo dependency with `path` |
+| `components.cargo-workspace-dependency` | resolved | `workspace = true`, whose nearest enclosing `[workspace.dependencies]` entry has a `path` |
+| `components.cargo-patch-path` | resolved | a name an enclosing `[patch.*]` table replaces with a `path` |
+| `components.go-replace-directory` | resolved | a `require`d module a `replace` points at a directory |
+| `components.npm-file-dependency` | resolved | `file:` or `link:` specifier |
+| `components.npm-workspace-protocol` | resolved | `workspace:` specifier naming the only package of that name |
+| `components.python-path-source` | resolved | `[tool.uv.sources]` or Poetry `path` |
+| `components.python-workspace-source` | resolved | uv `workspace = true` source naming the only project of that (PEP 503) name |
+| `components.dependency-name` | name_matched | anything else whose name (Maven `groupId:artifactId`, Go module path, npm/Cargo/Python name) equals exactly one component of the same kind |
+
+A name shared by several components is not linked (`ambiguous`), and one no
+component declares is `external`; the counts are in the tool's
+`dependency_resolution` metric. The name-matched rule is weak on purpose: a
+registry may supply that name instead, at another version.
+
+`get_component_dependencies` (`component-requires`/`component-required-by
+--component`, MCP getComponentDependencies) lists either direction with the
+declaration, and `get_component_impact` (`component-impact`, getComponentImpact)
+follows REQUIRES backwards like the other impact queries.
+
+The same comparison tool checks REQUIRES against `cargo metadata
+--all-features` resolve graphs, `go mod edit -json` replacements and a Yarn
+Berry `yarn.lock`: every resolved link must be one the build tool made, and
+each in-repository link it made must be linked.
+
+| Repository | Resolved component pairs confirmed | Build-tool pairs linked | Name matches |
+|------------|--------------------------|------------------------|--------------|
+| opentelemetry-go | 145/145 (go-replace-directory) | 145/145 | none |
+| tokio | 25/25 (path and `[patch.crates-io]`) | 25/25 | none |
+| babel (`--exclude '*/fixtures/*'`) | 786/786 (workspace: and link:) | 786/786 | 12, all refuted: the root's `@babel/*` dev dependencies resolve to registry versions |
+
+The dependencies of the `link:` package in babel are not installed by Yarn
+and stay unchecked; Maven name matches (guava: 5, plus 12 ambiguous between
+`guava` and `android/guava`) have no oracle here.
 
 ## Declared bases
 
@@ -1481,7 +1526,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access
