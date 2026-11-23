@@ -155,6 +155,33 @@ line 35, `processor(stream)` calls the loop variable of
 `for processor in processors`, and the engine links it to the module-level
 function `processor` defined on line 42.
 
+### Inheritance
+
+`inherits/NAME.tsv` holds expected declared supertypes in the same format, keyed
+by each subtype's defining position and name, with kind `type` (an
+in-repository supertype), `external`, or `unknown` (a symbol of the
+repository's own package the index never defines, such as a class local to a
+function, which is not judged). Python and TypeScript truth comes from the SCIP
+index's implementation relationships (`derive-inherits`), reduced to direct
+edges because indexers differ in listing ancestors; Java truth comes from javac
+(`derive-java --bases`). Go (scip-go records implicit interface satisfaction,
+which the engine does not model) and Rust (rust-analyzer records no
+relationships) have none yet.
+
+Every INHERITS_FROM link whose subtype appears in the truth is confirmed or
+contradicted. An expected edge counts as found when the engine's links reach
+it, since an indexer can omit an intermediate edge (scip-typescript records no
+interface `extends`).
+
+| Corpus | Expected | Confirmed | Contradicted | Precision | Recall |
+|---|---|---|---|---|---|
+| click | 92 | 43 | 0 | 1.0 | 0.4674 |
+| ky | 5 | 5 | 0 | 1.0 | 1.0 |
+| gson | 210 | 210 | 0 | 1.0 | 1.0 |
+
+The 49 bases missed on click are all `class X(click.Group)`-style bases named
+through the package's `__init__.py` re-exports, the same gap as for calls.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly
