@@ -481,8 +481,7 @@ package wildcard to every file declaring a type in that package
 Other outcomes: `not_in_repository` (JDK, libraries), ambiguous
 `multiple_source_roots` when several roots declare it and none is the
 importer's, and ambiguous `multiple_declarations` when two files of one root
-declare the same type. Build files (Maven, Gradle) are not read. Declared
-bases are not recorded for Java yet.
+declare the same type. Build files (Maven, Gradle) are not read.
 
 Java calls are method invocations (`m()`, `this.m()`, `T.m()`, `a.b.T.m()`)
 and `new T()` expressions, with the number of arguments written; Java methods
@@ -495,8 +494,19 @@ link is `name_matched`:
 | `tree-sitter.java-enclosing-type-method` | `m()`: the innermost enclosing named type that declares a method `m` (Java stops at the first type declaring the name) |
 | `tree-sitter.java-static-import` | `m()` declared by no enclosing type: a method of a type imported with `import static`, by name or `*` |
 | `tree-sitter.call-self-method` | `this.m()`: the innermost enclosing type's `m` |
-| `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's lookup order (enclosing and local types, single-type imports, the package, wildcard imports, then a fully qualified name), and that type declares `m` |
+| `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
 | `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
+
+A type name is looked up as Java does, without types: member types of each
+enclosing type from the innermost out, declared or inherited through the
+type's declared bases (a member declared along two paths is one type);
+local classes; then a single-type or static import, the package, wildcard
+imports, and finally a fully qualified name (`a.b.T.Inner`). A single-type
+import binds its name even to a type outside the repository (`import
+java.util.concurrent.atomic.LongAdder;` hides a `LongAdder` in the
+package). A type found in the importer's own source root is chosen; one
+declared only in several other roots is ambiguous, since only the build
+says which is on the class path.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
@@ -559,21 +569,43 @@ line); a `new` binds the class it creates.
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
 | google/gson | 4,098 / 4,101 | 0 | 3 | 121 | 5,349 |
-| apache/commons-lang | 17,723 / 18,906 | 0 | 1,183 | 9,687 | 8,130 |
-| google/guava | 40,788 / 40,936 | 80 | 68 | 3,463 | 80,076 |
+| apache/commons-lang | 17,733 / 18,916 | 0 | 1,183 | 9,687 | 8,120 |
+| google/guava | 40,870 / 41,019 | 78 | 71 | 38,210 | 45,245 |
 
 Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
-57,943) and inherited or library methods (`unbound_name`). javac binds none
+36,756) and inherited or library methods (`unbound_name`). Most of guava's
+ambiguous calls are test roots calling a type that both `guava/src` and
+`android/guava/src` declare. Five ambiguous calls (one in commons-lang, four
+in guava) leave out javac's method: an inherited overload, or a GWT
+super-source file javac binds elsewhere. javac binds none
 for 1,183 commons-lang links because those test calls pass lambdas to
 JUnit-typed parameters, and JUnit is not on javac's class path; the links go
 to the statically imported `LangAssertions` methods of the same name. Guava's
-80 contradictions (0.2% of its links) come from two things a name lookup does
+78 contradictions (0.2% of its links) come from two things a name lookup does
 not see: a call inside an anonymous class can bind a method the anonymous
 class inherits rather than the enclosing type's (`isRunning()` inside `new
 AbstractService() {...}`), and an inherited overload with the same arity can
 fit the argument types better (`putBytes`). junit5 is not reported: javac
 stops attributing most of its roots without their libraries, leaving
 nothing to compare.
+
+Each base in a class, interface, enum or record declaration (`extends`,
+`implements`, and an interface's `extends`) is a `supertypes` fact with that
+clause as its kind; type arguments are dropped (`Base<String>` is `Base`).
+A base is looked up in the scope that encloses its declaration, by the same
+type lookup as calls, and links with `tree-sitter.java-base-type`
+(`name_matched`); one that names no repository type (`Object`,
+`java.io.Serializable`) is `type_not_declared`. The same comparison with
+`--bases` checks bases against the supertypes javac attributes:
+
+| Corpus | Bases confirmed by javac | Contradicted | Ambiguous, javac's among candidates | Missed | Neither in repository |
+|---|---|---|---|---|---|
+| google/gson | 210 / 210 | 0 | 0 | 0 | 61 |
+| apache/commons-lang | 588 / 588 | 0 | 0 | 0 | 159 |
+| google/guava | 3,336 / 3,336 | 0 | 594 | 0 | 2,301 |
+
+Guava's 594 ambiguous bases are test roots extending a type both
+`guava/src` and `android/guava/src` declare.
 
 ## SCIP references
 

@@ -7,12 +7,13 @@ from SCIP instead. A base that no rule ties to exactly one declaration stays
 unresolved or ambiguous, with a reason, and produces no link.
 """
 
-from .calls import CallResolution, _pick, name_bindings
+from .calls import CallResolution, _JavaScope, _pick, name_bindings
 from .models import AnalysisResult
 
 BASE_LEXICAL_NAME = "tree-sitter.base-lexical-name"
 BASE_IMPORTED_NAME = "tree-sitter.base-imported-name"
 BASE_MODULE_ATTRIBUTE = "tree-sitter.base-module-attribute"
+JAVA_BASE_TYPE = "tree-sitter.java-base-type"
 
 _TYPES = {"Class", "Interface"}
 
@@ -24,11 +25,23 @@ def resolve_supertypes(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """
     by_id = {d.id: d for d in result.definitions}
     bindings = name_bindings(result)
+    languages = {item.file: item.language for item in result.coverage}
+    java = _JavaScope(result, bindings.by_symbol)
     resolutions = []
     for item in sorted(result.supertypes, key=lambda value: value.id):
         # A base is evaluated in the scope that encloses its declaration, and
         # that scope may be a class body (Python nested classes).
         scope = by_id[item.owner_id].symbol.split(".")[:-1]
+        if languages.get(item.file) == "java":
+            resolutions.append(
+                _pick(
+                    item.id,
+                    java.type(item.file, scope, item.name),
+                    JAVA_BASE_TYPE,
+                    "type_not_declared",
+                )
+            )
+            continue
         parts = item.name.split(".")
         if len(parts) == 1:
             lexical = [

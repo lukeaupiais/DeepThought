@@ -17,6 +17,7 @@ from deepthought.calls import (
     JAVA_TYPE_NAME,
     resolve_calls,
 )
+from deepthought.inheritance import JAVA_BASE_TYPE, resolve_supertypes
 from deepthought.imports import (
     JAVA_PACKAGE_MEMBER,
     JAVA_SAME_SOURCE_ROOT,
@@ -99,7 +100,10 @@ class JavaTests(unittest.TestCase):
             [("java.util.List", (), ("List",))],
         )
         self.assertEqual([p.name for p in result.packages], ["app"])
-        self.assertEqual(result.supertypes, ())
+        self.assertEqual(
+            [(t.name, t.kind) for t in result.supertypes],
+            [("Base", "extends"), ("Runnable", "implements")],
+        )
 
     def test_annotations_belong_to_the_text_and_javadoc_does_not(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -380,6 +384,164 @@ class JavaTests(unittest.TestCase):
                 # From an inner class, the outer class's method.
                 ("helper", 33): ("Main.helper", JAVA_ENCLOSING_METHOD),
             },
+        )
+
+    def test_bases_link_by_java_type_lookup(self):
+        files = {
+            "src/app/api/Shape.java": (
+                "package app.api;\npublic interface Shape { interface Part {} }\n"
+            ),
+            "src/app/Base.java": "package app;\nclass Base<T> {}\n",
+            "src/app/Main.java": (
+                "package app;\n"
+                "import app.api.Shape;\n"
+                "class Main extends Base<String> implements Shape, Shape.Part,\n"
+                "    java.io.Serializable, app.api.Shape {\n"
+                "  interface Local extends Shape {}\n"
+                "  enum Kind implements Local { A }\n"
+                "  record Point() implements Local {}\n"
+                "  class Inner extends Main {}\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        facts = {t.id: t for t in result.supertypes}
+        outcomes = sorted(
+            (
+                symbols[facts[r.call_id].owner_id],
+                facts[r.call_id].name,
+                facts[r.call_id].kind,
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_supertypes(result)
+        )
+        self.assertEqual(
+            outcomes,
+            [
+                ("Main", "Base", "extends", "Base", JAVA_BASE_TYPE),
+                ("Main", "Shape", "implements", "Shape", JAVA_BASE_TYPE),
+                ("Main", "Shape.Part", "implements", "Shape.Part", JAVA_BASE_TYPE),
+                ("Main", "app.api.Shape", "implements", "Shape", JAVA_BASE_TYPE),
+                (
+                    "Main",
+                    "java.io.Serializable",
+                    "implements",
+                    None,
+                    "type_not_declared",
+                ),
+                ("Main.Inner", "Main", "extends", "Main", JAVA_BASE_TYPE),
+                ("Main.Kind", "Local", "implements", "Main.Local", JAVA_BASE_TYPE),
+                ("Main.Local", "Shape", "extends", "Shape", JAVA_BASE_TYPE),
+                ("Main.Point", "Local", "implements", "Main.Local", JAVA_BASE_TYPE),
+            ],
+        )
+
+    def test_type_lookup_inherits_member_types_and_honours_imports(self):
+        files = {
+            "src/app/LongAdder.java": "package app;\npublic class LongAdder {}\n",
+            "src/ext/Z.java": "package ext;\npublic class Z {}\n",
+            "lib1/app/Dup.java": "package app;\npublic class Dup {}\n",
+            "lib2/app/Dup.java": "package app;\npublic class Dup {}\n",
+            "src/app/Statics.java": (
+                "package app;\n"
+                "import static app.Outer.Builder;\n"
+                "import static app.Outer.Cycle.LongAdder;\n"
+                "class Statics extends Builder {}\n"
+                "class Plain extends LongAdder {}\n"
+            ),
+            "src/app/Diamond.java": (
+                "package app;\n"
+                "interface I1 { class M {} }\n"
+                "interface I2 extends I1 {}\n"
+                "interface I3 extends I1 {}\n"
+                "class D implements I2, I3 { class X extends M {} }\n"
+            ),
+            "src/app/Outer.java": (
+                "package app;\n"
+                "class Outer {\n"
+                "  static class Builder {}\n"
+                "  interface Cycle extends Cycle2 {}\n"
+                "  interface Cycle2 extends Cycle {}\n"
+                "}\n"
+            ),
+            "src/app/Main.java": (
+                "package app;\n"
+                "import java.util.concurrent.atomic.LongAdder;\n"
+                "import other.ext;\n"
+                "class Main extends Outer {\n"
+                "  class Named extends ext.Z {}\n"
+                "  class Twin extends Dup {}\n"
+                "  class Mine extends Builder {}\n"
+                "  class Deep extends Main.Builder {}\n"
+                "  class Adder extends LongAdder {}\n"
+                "  class Loop implements Outer.Cycle.Missing {}\n"
+                "  void run() { class Local {} new Local(); new Builder(); }\n"
+                "}\n"
+                "class P extends Outer { interface Outer {} }\n"
+                "class R extends P.Builder {}\n"
+                "class Own extends Outer {\n"
+                "  class Builder {}\n"
+                "  class Mine extends Builder {}\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        facts = {t.id: t for t in result.supertypes}
+        self.assertEqual(
+            sorted(
+                (
+                    symbols[facts[r.call_id].owner_id],
+                    symbols.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_supertypes(result)
+                if facts[r.call_id].file != "src/app/Outer.java"
+            ),
+            [
+                ("D", "I2", JAVA_BASE_TYPE),
+                ("D", "I3", JAVA_BASE_TYPE),
+                # Inherited along two paths, one member type: not ambiguous.
+                ("D.X", "I1.M", JAVA_BASE_TYPE),
+                ("I2", "I1", JAVA_BASE_TYPE),
+                ("I3", "I1", JAVA_BASE_TYPE),
+                ("Main", "Outer", JAVA_BASE_TYPE),
+                # An imported type outside the repository shadows app.LongAdder.
+                ("Main.Adder", None, "type_not_declared"),
+                ("Main.Deep", "Outer.Builder", JAVA_BASE_TYPE),
+                # Cyclic bases end the inherited lookup.
+                ("Main.Loop", None, "type_not_declared"),
+                # A member type Main inherits from Outer.
+                ("Main.Mine", "Outer.Builder", JAVA_BASE_TYPE),
+                # An imported name is not read as a package.
+                ("Main.Named", None, "type_not_declared"),
+                # Two other source roots declare it; the build decides which.
+                ("Main.Twin", None, "multiple_declarations"),
+                ("Own", "Outer", JAVA_BASE_TYPE),
+                # A declared member type hides the inherited one.
+                ("Own.Mine", "Own.Builder", JAVA_BASE_TYPE),
+                # P's base is named outside P, so it is app.Outer, not P.Outer.
+                ("P", "Outer", JAVA_BASE_TYPE),
+                # The static import names no type Cycle declares; the package
+                # type stands.
+                ("Plain", "LongAdder", JAVA_BASE_TYPE),
+                ("R", "Outer.Builder", JAVA_BASE_TYPE),
+                # A member type imported with import static.
+                ("Statics", "Outer.Builder", JAVA_BASE_TYPE),
+            ],
+        )
+        sites = {c.id: c for c in result.call_sites}
+        self.assertEqual(
+            sorted(
+                (sites[r.call_id].callee, symbols.get(r.target_id), r.rule_id)
+                for r in resolve_calls(result)
+            ),
+            [
+                ("Builder", "Outer.Builder", JAVA_TYPE_NAME),
+                ("Local", "Main.run.Local", JAVA_TYPE_NAME),
+            ],
         )
 
     def test_arity_is_serialized_for_java_only(self):

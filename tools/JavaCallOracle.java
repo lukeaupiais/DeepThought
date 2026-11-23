@@ -5,7 +5,9 @@
 // invocation and `new` expression: the file, the start line and UTF-16 column
 // of the expression, and, when javac bound it to a declaration in a source
 // file, that file, the declaration's lexically qualified name and start line.
-// A `new` expression is reported by the class it creates. Attribution errors
+// A `new` expression is reported by the class it creates. Each extends or
+// implements entry of a class, interface, enum or record is reported too,
+// marked "base", by the type it names. Attribution errors
 // from missing libraries are ignored; calls javac cannot bind have no target.
 //
 // Usage:
@@ -13,6 +15,7 @@
 //     --add-exports jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED \
 //     tools/JavaCallOracle.java REPOSITORY ROOT [SOURCEPATH_ROOT ...]
 
+import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.LineMap;
 import com.sun.source.tree.MethodInvocationTree;
@@ -113,6 +116,10 @@ public class JavaCallOracle {
             LineMap lines = unit.getLineMap();
             new TreePathScanner<Void, Void>() {
                 void emit(Tree node, Element element) {
+                    emit(node, element, "");
+                }
+
+                void emit(Tree node, Element element, String marker) {
                     long start = positions.getStartPosition(unit, node);
                     String bound = null;
                     try {
@@ -121,8 +128,20 @@ public class JavaCallOracle {
                         bound = null;
                     }
                     System.out.println("{\"file\":" + quote(file) + ",\"line\":" + lines.getLineNumber(start)
-                        + ",\"column\":" + (lines.getColumnNumber(start) - 1)
+                        + ",\"column\":" + (lines.getColumnNumber(start) - 1) + marker
                         + (bound == null ? "" : "," + bound) + "}");
+                }
+
+                @Override
+                public Void visitClass(ClassTree node, Void unused) {
+                    List<Tree> bases = new ArrayList<>();
+                    if (node.getExtendsClause() != null) bases.add(node.getExtendsClause());
+                    bases.addAll(node.getImplementsClause());
+                    for (Tree base : bases) {
+                        Element type = trees.getElement(new TreePath(getCurrentPath(), base));
+                        emit(base, type, ",\"base\":true");
+                    }
+                    return super.visitClass(node, null);
                 }
 
                 @Override
