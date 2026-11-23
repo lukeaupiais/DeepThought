@@ -27,6 +27,7 @@ from .syntax import (
     LANGUAGES,
     extract,
     extract_call_sites,
+    extract_cargo_manifest,
     extract_go_module,
     extract_imports,
     extract_packages,
@@ -207,6 +208,9 @@ def analyze_repository(
             if name == "go.mod" and "go" in languages:
                 # Go module files declare the import path prefix of their tree.
                 language = "go"
+            if name == "Cargo.toml" and "rust" in languages:
+                # Cargo manifests declare the crates of their package.
+                language = "rust"
             if language is None:
                 continue
             if not is_relative_file(relative):
@@ -280,6 +284,24 @@ def analyze_repository(
                             )
                         )
                     packages.extend(module)
+                    continue
+                if name == "Cargo.toml":
+                    crates = extract_cargo_manifest(content, repository_id, relative)
+                    coverage.append(
+                        FileCoverage(
+                            relative,
+                            language,
+                            "analyzed" if crates is not None else "partial",
+                            digest,
+                        )
+                    )
+                    if crates is None:
+                        diagnostics.append(
+                            Diagnostic(
+                                "syntax_error", "Cargo.toml is not valid TOML", relative
+                            )
+                        )
+                    imports.extend(crates or ())
                     continue
                 key = (language, suffix)
                 if key not in parsers:

@@ -869,6 +869,95 @@ def extract_go_module(
     return []
 
 
+# Cargo target tables whose `path` names a crate root file; `lib` is a table,
+# the others arrays of tables.
+_CARGO_TARGETS = ("lib", "bin", "test", "example", "bench")
+
+
+def _cargo_header(lines, table, index):
+    """Row and span of the index-th ``[table]`` or ``[[table]]`` header."""
+    pattern = re.compile(
+        rb"^\s*(\[\[\s*"
+        + table.encode()
+        + rb"\s*\]\]|\[\s*"
+        + table.encode()
+        + rb"\s*\])"
+    )
+    seen = 0
+    for row, raw in enumerate(lines):
+        match = pattern.match(raw)
+        if match:
+            if seen == index:
+                return row, match.start(1), match.end(1)
+            seen += 1
+    return None
+
+
+def extract_cargo_manifest(
+    content: bytes, repository_id: str, file: str
+) -> list[Import] | None:
+    """The crate roots a ``Cargo.toml`` package declares, or None if it is not
+    valid TOML.
+
+    The library is ``[lib]`` (``path`` defaults to ``src/lib.rs``, ``name`` to
+    the package name with ``-`` as ``_``), kind ``crate_library``, even when
+    the table is absent. Each ``[[bin]]``, ``[[test]]``, ``[[example]]`` and
+    ``[[bench]]`` that gives a ``path`` is a ``crate_target``; targets Cargo
+    discovers by layout are not written here. The specifier is the root file's
+    path from the manifest's directory, ``names`` the package name and target
+    kind, ``local_names`` the crate name. A manifest without ``[package]`` (a
+    virtual workspace) declares no crates.
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        import tomli as tomllib
+    try:
+        manifest = tomllib.loads(content.decode("utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return None
+    package = manifest.get("package")
+    if not isinstance(package, dict) or not isinstance(package.get("name"), str):
+        return []
+    lines = content.split(b"\n")
+    targets = []
+    library = manifest.get("lib", {})
+    if isinstance(library, dict):
+        targets.append(("lib", 0, library, "src/lib.rs"))
+    for kind in _CARGO_TARGETS[1:]:
+        entries = manifest.get(kind, [])
+        for index, entry in enumerate(entries if isinstance(entries, list) else []):
+            if isinstance(entry, dict):
+                targets.append((kind, index, entry, None))
+    facts, ordinals = [], {}
+    for kind, index, table, default in targets:
+        path = table.get("path", default)
+        name = table.get("name", package["name"] if kind == "lib" else None)
+        if not isinstance(path, str) or not path or not isinstance(name, str):
+            continue
+        name = name.replace("-", "_")
+        header = _cargo_header(lines, kind, index) or _cargo_header(lines, "package", 0)
+        row, start, end = header or (0, 0, 0)
+        specifier = path.replace("\\", "/")
+        ordinal = ordinals.get(specifier, 0)
+        ordinals[specifier] = ordinal + 1
+        facts.append(
+            Import(
+                id=identifier(repository_id, file, specifier, "Import", ordinal),
+                file=file,
+                specifier=specifier,
+                kind="crate_library" if kind == "lib" else "crate_target",
+                line=row + 1,
+                column=start,
+                end_line=row + 1,
+                end_column=end,
+                names=(package["name"], kind),
+                local_names=(name,),
+            )
+        )
+    return facts
+
+
 # Wrappers whose text belongs to the declaration they hold: decorators and
 # the export keyword.
 _SOURCE_WRAPPERS = {"decorated_definition", "export_statement"}

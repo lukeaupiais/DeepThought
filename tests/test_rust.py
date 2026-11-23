@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from deepthought import analyze_repository
-from deepthought.imports import RUST_MODULE_FILE, resolve_imports
+from deepthought.imports import RUST_CRATE_ROOT, RUST_MODULE_FILE, resolve_imports
 from deepthought.analysis_tools import TreeSitterTool
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -268,6 +268,151 @@ class RustTests(unittest.TestCase):
                 "tests/data.rs",
             ],
         )
+
+    def test_cargo_manifests_name_crate_roots(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
+                "crates/core/Cargo.toml": "[package]\n"
+                'name = "my-core"\n\n'
+                "[[bin]]\n"
+                'name = "by-layout"\n\n'
+                "[[bin]]\n"
+                'name = "my-tool"\npath = "cli/main.rs"\n\n'
+                "[[test]]\n"
+                'name = "all"\npath = "../../tests/all.rs"\n',
+                "crates/core/src/lib.rs": "",
+                "crates/core/cli/main.rs": "mod args;\n",
+                "crates/core/cli/args.rs": "",
+                "tests/all.rs": "",
+                "crates/util/Cargo.toml": "# Utilities.\n"
+                '[package]\nname = "util-x"\n'
+                '[lib]\nname = "ux"\npath = "lib/util.rs"\n',
+                # A file a target names is a crate root: its modules are
+                # beside it, even though it is not named lib.rs.
+                "crates/util/lib/util.rs": "mod inner;\n",
+                "crates/util/lib/inner.rs": "",
+                "crates/util/lib/util/inner.rs": "",
+                "binonly/Cargo.toml": '[package]\nname = "binonly"\n',
+                "binonly/src/main.rs": "",
+                "bad/Cargo.toml": "[package\n",
+            }
+        )
+        coverage = {c.file: c.status for c in result.coverage}
+        self.assertEqual(
+            [coverage[f] for f in ("Cargo.toml", "bad/Cargo.toml")],
+            ["analyzed", "partial"],
+        )
+        self.assertIn(
+            ("syntax_error", "bad/Cargo.toml"),
+            [(d.code, d.file) for d in result.diagnostics],
+        )
+        crates = [
+            (i.file, i.line, i.specifier, i.kind, i.names, i.local_names)
+            for i in result.imports
+            if i.kind.startswith("crate_")
+        ]
+        self.assertEqual(
+            crates,
+            [
+                (
+                    "binonly/Cargo.toml",
+                    1,
+                    "src/lib.rs",
+                    "crate_library",
+                    ("binonly", "lib"),
+                    ("binonly",),
+                ),
+                # Without [lib], the library is src/lib.rs, named by the
+                # package with - as _, located at [package].
+                (
+                    "crates/core/Cargo.toml",
+                    1,
+                    "src/lib.rs",
+                    "crate_library",
+                    ("my-core", "lib"),
+                    ("my_core",),
+                ),
+                # The second [[bin]]: one without a path is found by layout,
+                # not written.
+                (
+                    "crates/core/Cargo.toml",
+                    7,
+                    "cli/main.rs",
+                    "crate_target",
+                    ("my-core", "bin"),
+                    ("my_tool",),
+                ),
+                (
+                    "crates/core/Cargo.toml",
+                    11,
+                    "../../tests/all.rs",
+                    "crate_target",
+                    ("my-core", "test"),
+                    ("all",),
+                ),
+                (
+                    "crates/util/Cargo.toml",
+                    4,
+                    "lib/util.rs",
+                    "crate_library",
+                    ("util-x", "lib"),
+                    ("ux",),
+                ),
+            ],
+        )
+        imports = {i.id: i for i in result.imports}
+        outcomes = {
+            (imports[r.import_id].file, imports[r.import_id].specifier): (
+                r.status,
+                r.reason,
+                [(link.target_file, link.rule_id) for link in r.links],
+            )
+            for r in resolve_imports(result)
+        }
+        self.assertEqual(
+            outcomes,
+            {
+                ("binonly/Cargo.toml", "src/lib.rs"): (
+                    "unresolved",
+                    "crate_root_missing",
+                    [],
+                ),
+                ("crates/core/Cargo.toml", "src/lib.rs"): (
+                    "linked",
+                    None,
+                    [("crates/core/src/lib.rs", RUST_CRATE_ROOT)],
+                ),
+                ("crates/core/Cargo.toml", "cli/main.rs"): (
+                    "linked",
+                    None,
+                    [("crates/core/cli/main.rs", RUST_CRATE_ROOT)],
+                ),
+                ("crates/core/Cargo.toml", "../../tests/all.rs"): (
+                    "linked",
+                    None,
+                    [("tests/all.rs", RUST_CRATE_ROOT)],
+                ),
+                ("crates/util/Cargo.toml", "lib/util.rs"): (
+                    "linked",
+                    None,
+                    [("crates/util/lib/util.rs", RUST_CRATE_ROOT)],
+                ),
+                ("crates/core/cli/main.rs", "args"): (
+                    "linked",
+                    None,
+                    [("crates/core/cli/args.rs", RUST_MODULE_FILE)],
+                ),
+                ("crates/util/lib/util.rs", "inner"): (
+                    "linked",
+                    None,
+                    [("crates/util/lib/inner.rs", RUST_MODULE_FILE)],
+                ),
+            },
+        )
+        # Manifests are read only when Rust is selected.
+        other = analyze({"Cargo.toml": '[package]\nname = "x"\n'}, ("python",))
+        self.assertEqual((other.coverage, other.imports), ((), ()))
 
 
 if __name__ == "__main__":

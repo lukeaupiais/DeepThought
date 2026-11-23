@@ -683,9 +683,10 @@ and `names` are the inline modules around it. The first `#[path]` counts, as
 in rustc. Resolution follows Cargo's module layout and links the one file it
 names with rule `tree-sitter.rust-module-file`:
 
-- A crate root (`lib.rs`, `main.rs`, `build.rs`, a file directly in
-  `src/bin`, or a file directly in `tests`, `benches` or `examples` outside
-  any `src` directory that no `mod` declaration names) and a `mod.rs`
+- A crate root (a file a `Cargo.toml` target names, `lib.rs`, `main.rs`,
+  `build.rs`, a file directly in `src/bin`, or a file directly in `tests`,
+  `benches` or `examples` outside any `src` directory that no `mod`
+  declaration names) and a `mod.rs`
   declare their modules beside them; any other file `a.rs` declares them in
   `a/`. Inline modules add a directory each.
 - A module `m` is `m.rs` or `m/mod.rs` there. When both exist the import is
@@ -697,6 +698,43 @@ names with rule `tree-sitter.rust-module-file`:
 `#[cfg_attr(..., path = "...")]` is not read, a module declared inside a
 macro invocation is not seen, and paths through symbolic links are not
 followed (the analysis does not read linked files).
+
+### Cargo manifests
+
+When Rust is selected, each `Cargo.toml` is read (with `tomllib`, or `tomli`
+on Python 3.10) and its package's crates become import facts from the
+manifest to the crate root file, linked with rule
+`tree-sitter.rust-crate-root` when that file exists:
+
+- `crate_library`: the package's library, `[lib]` `path` (default
+  `src/lib.rs`), named by `[lib]` `name` or the package name with `-` as
+  `_`. A package without a library has an unresolved default
+  (`crate_root_missing`).
+- `crate_target`: each `[[bin]]`, `[[test]]`, `[[example]]` and `[[bench]]`
+  that gives a `path`. Targets Cargo discovers by layout are not written in
+  the manifest and are not facts; the module layout above covers them.
+
+The specifier is the path from the manifest's directory, `names` are the
+package name and target kind, and `local_names` the crate name; the fact is
+located at the target's table header (`[package]` for an implied library).
+A manifest without `[package]` (a virtual workspace) declares no crates, and
+one that is not valid TOML is `partial` with a `syntax_error` diagnostic.
+
+Checked with `tools/compare_rust_crates_with_scip.py`: rust-analyzer defines a
+`crate/` symbol, named by the package, at line 1 of each crate root it
+indexes.
+
+| Corpus | Manifests | Confirmed (lib / other targets) | Package differs | Not indexed | No library | SCIP crate roots found by layout / unexplained |
+|---|---|---|---|---|---|---|
+| ripgrep | 11 | 9 / 3 | 0 | 1 | 2 | 8 / 0 |
+| regex | 8 | 6 / 4 | 0 | 8 | 2 | 1 / 0 |
+| serde | 7 | 4 / 0 | 0 | 0 | 2 | 25 / 0 |
+| tokio | 13 | 7 / 38 | 0 | 2 | 5 | 260 / 0 |
+
+Not indexed targets are fuzz binaries outside the workspace. Every crate root
+rust-analyzer indexes is either named by a manifest here or sits where
+Cargo's target discovery looks (`src/main.rs`, `src/bin`, `tests`,
+`examples`, `benches`, `build.rs` of a package).
 
 Checked against rust-analyzer's SCIP index with
 `tools/compare_rust_modules_with_scip.py`: rust-analyzer references the

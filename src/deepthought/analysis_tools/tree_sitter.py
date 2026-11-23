@@ -130,12 +130,23 @@ IMPORT_RULES = {
                 import_rules.RUST_MODULE_FILE,
                 "resolved",
                 "A Rust 'mod name;' includes the file Cargo's module layout "
-                "gives: name.rs or name/mod.rs beside a crate root (lib.rs, "
+                "gives: name.rs or name/mod.rs beside a crate root (a file a "
+                "Cargo.toml target names, lib.rs, "
                 "main.rs, build.rs, or an undeclared file in src/bin or in "
                 "tests, benches or examples outside src) or mod.rs, and in "
                 "the directory named after any other declaring file; a "
                 "#[path] attribute names the file from the declaring file's "
                 "directory. Exactly one such file exists.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.RUST_CRATE_ROOT,
+                "resolved",
+                "A Cargo.toml package's library ([lib] path, default "
+                "src/lib.rs) or a [[bin]], [[test]], [[example]] or [[bench]] "
+                "path names its crate root file, read from the manifest's "
+                "directory, and that file exists.",
             )
         ),
         register_rule(
