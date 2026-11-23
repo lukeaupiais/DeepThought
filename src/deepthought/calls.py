@@ -464,9 +464,10 @@ class _JavaScope:
         )
 
 
-class _RustCalls:
-    """Rust calls of a path: read from the caller's module as a use path is,
-    after the items and uses of the function bodies around the call."""
+class _RustPaths:
+    """Rust paths in item position (a call's path, an impl's type and trait):
+    read from the module they are written in as a use path is, after the
+    items and uses of the function bodies around them."""
 
     def __init__(self, result: AnalysisResult, by_symbol):
         files = {item.file for item in result.coverage}
@@ -517,8 +518,8 @@ class _RustCalls:
             reverse=True,
         )
 
-    def _declared(self, meanings):
-        """Callable declarations the item meanings name."""
+    def _declared(self, meanings, kinds):
+        """Declarations of ``kinds`` the item meanings name."""
         found = []
         for what, file, root, module, _, declared in meanings:
             if what != "item":
@@ -528,9 +529,7 @@ class _RustCalls:
                     continue
                 symbol = ".".join(module[len(path) :] + (declared,))
                 found.extend(
-                    d
-                    for d in self.by_symbol.get((file, symbol), ())
-                    if d.kind in _RUST_CALLABLE
+                    d for d in self.by_symbol.get((file, symbol), ()) if d.kind in kinds
                 )
         return found
 
@@ -586,6 +585,19 @@ class _RustCalls:
             return CallResolution(site.id, "unresolved", reason="method_call")
         if segments[0] == "Self":
             return CallResolution(site.id, "unresolved", reason="associated_item")
+        return self.resolve(
+            site.id,
+            site,
+            segments,
+            _RUST_CALLABLE,
+            RUST_CALL_LOCAL_ITEM,
+            RUST_CALL_PATH,
+        )
+
+    def resolve(self, item_id, site, segments, kinds, local_rule, path_rule):
+        """The declaration of ``kinds`` a path written at ``site`` (a fact with
+        a file and a span) names: an item declared in a function body around
+        it (``local_rule``), else through the module trees (``path_rule``)."""
         bodies = self._bodies(site)
         name = segments[-1]
         if len(segments) == 1:
@@ -596,18 +608,18 @@ class _RustCalls:
                     for d in self.by_symbol.get(
                         (site.file, f"{body.symbol}.{name}"), ()
                     )
-                    if d.kind in _RUST_CALLABLE
+                    if d.kind in kinds
                 ]
                 if local:
-                    return _pick(site.id, local, RUST_CALL_LOCAL_ITEM, "no_declaration")
+                    return _pick(item_id, local, local_rule, "no_declaration")
         contexts = self.index.contexts.get(site.file)
         scope = self._scope(site)
         if not contexts:
             return CallResolution(
-                site.id, "unresolved", reason="module_context_unknown"
+                item_id, "unresolved", reason="module_context_unknown"
             )
         if scope is None:
-            return CallResolution(site.id, "unresolved", reason="module_missing")
+            return CallResolution(item_id, "unresolved", reason="module_missing")
         # Uses written in the bodies around the call bind before the module.
         uses = [
             u
@@ -655,7 +667,7 @@ class _RustCalls:
                     continue
                 meanings, through_item, failed = self._path(*walked)
                 failures.extend(failed)
-            declared = self._declared(meanings)
+            declared = self._declared(meanings, kinds)
             if through_item:
                 failures.append(("unresolved", "associated_item", (), ()))
             elif not declared:
@@ -663,11 +675,11 @@ class _RustCalls:
             found.extend(declared)
         unique = {d.id: d for d in found}
         if unique:
-            return _pick(site.id, unique.values(), RUST_CALL_PATH, "no_declaration")
+            return _pick(item_id, unique.values(), path_rule, "no_declaration")
         status, reason = (
             min(failures)[:2] if failures else ("unresolved", "not_declared")
         )
-        return CallResolution(site.id, status, reason=reason)
+        return CallResolution(item_id, status, reason=reason)
 
 
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
@@ -680,7 +692,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     languages = {item.file: item.language for item in result.coverage}
     java = _JavaScope(result, by_symbol)
     rust = (
-        _RustCalls(result, by_symbol)
+        _RustPaths(result, by_symbol)
         if any(item.language == "rust" for item in result.coverage)
         else None
     )

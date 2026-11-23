@@ -17,6 +17,7 @@ from .models import (
     Definition,
     Diagnostic,
     FileCoverage,
+    ImplBlock,
     Import,
     PackageClause,
     Supertype,
@@ -29,6 +30,7 @@ from .syntax import (
     extract_call_sites,
     extract_cargo_manifest,
     extract_go_module,
+    extract_impls,
     extract_imports,
     extract_packages,
     extract_supertypes,
@@ -43,7 +45,14 @@ from ._version import __version__
 _PARSE_DIAGNOSTICS = {"syntax_error"}
 # Fact kinds this engine records; part of snapshot identity, and an earlier
 # analysis is reused only if it recorded all of them.
-CAPABILITIES = ("call_sites", "definitions", "imports", "packages", "supertypes")
+CAPABILITIES = (
+    "call_sites",
+    "definitions",
+    "impls",
+    "imports",
+    "packages",
+    "supertypes",
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,7 @@ class _FileFacts:
     imports: tuple[Import, ...]
     supertypes: tuple[Supertype, ...]
     packages: tuple[PackageClause, ...]
+    impls: tuple[ImplBlock, ...]
     versions: dict
 
     def matches(self, language, digest, versions):
@@ -141,6 +151,7 @@ def reusable_files(previous, repository_id):
         ("imports", previous.imports),
         ("supertypes", previous.supertypes),
         ("packages", previous.packages),
+        ("impls", previous.impls),
     ):
         for item in items:
             grouped.setdefault(item.file, {}).setdefault(kind, []).append(item)
@@ -169,6 +180,7 @@ def reusable_files(previous, repository_id):
             tuple(own.get("imports", ())),
             tuple(own.get("supertypes", ())),
             tuple(own.get("packages", ())),
+            tuple(own.get("impls", ())),
             {name: recorded[name] for name in packages},
         )
     return facts, None
@@ -214,6 +226,7 @@ def analyze_repository(
     call_sites = []
     supertypes = []
     packages = []
+    impls = []
     parsers, versions = {}, {"deepthought-analysis-engine": __version__}
     if "rust" in languages:
         try:
@@ -376,6 +389,7 @@ def analyze_repository(
                     imports.extend(facts.imports)
                     supertypes.extend(facts.supertypes)
                     packages.extend(facts.packages)
+                    impls.extend(facts.impls)
                     continue
                 stats["parsed"] += 1
                 tree = parsers[key].parse(content)
@@ -424,7 +438,12 @@ def analyze_repository(
                     )
                 )
                 if language == "rust":
-                    # Rust: impls are not supertype facts yet.
+                    # Rust: impls are their own facts, not supertypes.
+                    impls.extend(
+                        extract_impls(
+                            tree, content, repository_id, relative, expander=expander
+                        )
+                    )
                     continue
                 supertypes.extend(
                     extract_supertypes(tree, content, repository_id, relative, declared)
@@ -486,4 +505,5 @@ def analyze_repository(
         call_sites=tuple(call_sites),
         supertypes=tuple(supertypes),
         packages=tuple(packages),
+        impls=tuple(impls),
     )

@@ -300,6 +300,8 @@ optional evidence filter, and `get_class_hierarchy` follows them through
 classes and interfaces. The original tool emitted the same relation for names
 its symbol resolver found; it is now limited to these rules and marked with
 its evidence. Compiler-backed subtype facts are the SCIP IMPLEMENTS edges.
+Rust impl blocks give `resolved` INHERITS_FROM edges of their own (see "Rust
+impls").
 
 `tools/compare_supertypes_with_scip.py` checks each base against the
 declaration SCIP references at its last identifier:
@@ -647,8 +649,8 @@ written inside a macro invocation (`ffi_fn! { fn f() {} }`) are not parsed,
 except in item macros (see "Rust item macros" below).
 A `mod name;` declaration is also an import fact: it includes a file as a
 module (see "Rust module files" below), as are `Cargo.toml` crate roots and
-`use` declarations. Calls are facts (see "Rust calls" below); impl
-relationships are not facts for Rust yet.
+`use` declarations. Calls and impl blocks are facts (see "Rust calls" and
+"Rust impls" below).
 
 Checked against rust-analyzer's SCIP index (`rust-analyzer scip`, rust-analyzer
 1.97.0) with `tools/compare_rust_declarations_with_scip.py`. A declaration
@@ -934,6 +936,56 @@ occurrence's line shares with a repository function (`external_crate`),
 serde's files in no crate (`module_context_unknown`, 298), and enum variants
 that a glob of an enum brings into scope (`unbound_name`). Resolutions are
 identical across repeated runs.
+
+### Rust impls
+
+Each Rust `impl` block whose type is a path is an impl fact (`impls`, a fact
+kind of its own): the type's path and the trait's path (None for an inherent
+impl), each joined by `::` without type arguments, references or pointers (a
+leading `::` kept), the impl's type parameter names (`generics`) and the
+block's span. Impls written in item macro bodies are read as other impls are.
+An impl for a tuple, slice, array, trait object or primitive type, an impl
+whose trait is a qualified path (`<T as Trait>::Assoc`) and a negative impl
+(`impl !Send for T`) are not facts.
+
+The type and the trait are each resolved as a call's path is (see "Rust
+calls"): from the impl's module, after the items and uses of the function
+bodies around the impl. The type must name a struct, enum, union or type
+alias, and the trait a trait, so a function sharing either name is not
+taken. A type that is one of the impl's own type parameters (`impl<T> Trait
+for T`) is `generic_parameter`; the other outcomes are those of calls. When
+both resolve, an INHERITS_FROM edge runs from the type to the trait, with
+`heritage` `impl`, the trait path as written (`base`), the impl's ID
+(`impl_id`), line and column, and rule `tree-sitter.rust-impl-trait`, which is
+`resolved`. The tool's `supertype_resolution` metric counts impls with a trait
+by the trait's outcome, or by the type's (`type_...`) when the type is not
+linked. `deepthought-graph bases|subtypes` and impact queries follow these
+edges; `get_class_hierarchy` follows classes and interfaces only. Inherent
+impls give no edge; they are the facts method resolution will read.
+
+Checked with `tools/compare_rust_impls_with_scip.py`: rust-analyzer has an
+occurrence of the symbol the last name of the type, and of the trait, refers
+to on the impl's first line, defined on the line of a declaration. When the
+name also occurs elsewhere on that line (`impl From<Instant> for Instant`),
+the trait's occurrence is the last one before `for` and the type's the first
+one after it.
+
+| Corpus | Impls (with a trait) | Type: confirmed / contradicted / not indexed or outside / ambiguous | Trait: confirmed / contradicted / not indexed | Edges | Missed: type / trait |
+|---|---|---|---|---|---|
+| ripgrep | 439 (382) | 423 / 0 / 6 / 0 | 134 / 0 / 0 | 128 | 0 / 0 |
+| regex | 902 (537) | 825 / 0 / 18 / 27 | 70 / 0 / 1 | 52 | 0 / 0 |
+| serde | 408 (339) | 115 / 0 / 0 / 0 | 16 / 0 / 0 | 13 | 212 / 238 |
+| tokio | 2,122 (1,727) | 1,496 / 0 / 252 / 40 | 316 / 0 / 56 | 242 | 4 / 0 |
+
+Every ambiguous type is declared once per `#[cfg]`, with rust-analyzer's
+declaration among the candidates. Most traits are outside the repository
+(`Debug`, `From`, `Future`). The missed impls are in files whose module is
+not known: serde's modules that `crate_root!()` declares and its tests that
+reach `serde_core` through them, and two tokio files whose `mod` declarations
+are written in `cfg_signal_internal_and_unix!`, which is not read as an item
+macro. Another 203 tokio types are declared inside `pin_project!`
+invocations, which are not read, so those impls stay unresolved
+(`unbound_name`). Impls and resolutions are identical across repeated runs.
 
 ## SCIP references
 

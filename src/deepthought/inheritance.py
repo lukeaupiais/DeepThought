@@ -7,13 +7,19 @@ from SCIP instead. A base that no rule ties to exactly one declaration stays
 unresolved or ambiguous, with a reason, and produces no link.
 """
 
-from .calls import CallResolution, _JavaScope, _pick, name_bindings
+from dataclasses import dataclass
+
+from .calls import CallResolution, _JavaScope, _pick, _RustPaths, name_bindings
 from .models import AnalysisResult
 
 BASE_LEXICAL_NAME = "tree-sitter.base-lexical-name"
 BASE_IMPORTED_NAME = "tree-sitter.base-imported-name"
 BASE_MODULE_ATTRIBUTE = "tree-sitter.base-module-attribute"
 JAVA_BASE_TYPE = "tree-sitter.java-base-type"
+RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
+RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
+
+_RUST_TYPES = {"Struct", "Enum", "Union", "TypeAlias"}
 
 _TYPES = {"Class", "Interface"}
 
@@ -97,4 +103,55 @@ def resolve_supertypes(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     item.id, "unresolved", reason="attribute_base"
                 )
         resolutions.append(resolution)
+    return tuple(resolutions)
+
+
+@dataclass(frozen=True)
+class ImplResolution:
+    """An impl's type and trait, each resolved as a Rust path in item
+    position is (see calls._RustPaths); ``trait`` is None for an inherent
+    impl."""
+
+    impl_id: str
+    type: CallResolution
+    trait: CallResolution | None
+
+
+def resolve_rust_impls(result: AnalysisResult) -> tuple[ImplResolution, ...]:
+    """One resolution per Rust impl fact, in identity order.
+
+    The type resolves to a struct, enum, union or type alias and the trait
+    to a trait, read from the impl's module after the items and uses of the
+    function bodies around it. A type that is one of the impl's own type
+    parameters (``impl<T> Trait for T``) names no declaration.
+    """
+    if not result.impls:
+        return ()
+    paths = _RustPaths(result, name_bindings(result).by_symbol)
+    resolutions = []
+    for item in sorted(result.impls, key=lambda value: value.id):
+        if item.type in item.generics:
+            kind = CallResolution(item.id, "unresolved", reason="generic_parameter")
+        else:
+            kind = paths.resolve(
+                item.id,
+                item,
+                item.type.split("::"),
+                _RUST_TYPES,
+                RUST_IMPL_TYPE,
+                RUST_IMPL_TYPE,
+            )
+        trait = (
+            None
+            if item.trait is None
+            else paths.resolve(
+                item.id,
+                item,
+                item.trait.split("::"),
+                {"Trait"},
+                RUST_IMPL_TRAIT,
+                RUST_IMPL_TRAIT,
+            )
+        )
+        resolutions.append(ImplResolution(item.id, kind, trait))
     return tuple(resolutions)

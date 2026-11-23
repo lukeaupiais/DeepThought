@@ -73,7 +73,7 @@ class PythonImportTests(unittest.TestCase):
         self.assertEqual(result.schema_version, "3")
         self.assertEqual(
             result.capabilities,
-            ("call_sites", "definitions", "imports", "packages", "supertypes"),
+            ("call_sites", "definitions", "impls", "imports", "packages", "supertypes"),
         )
         self.assertEqual(
             [
