@@ -49,6 +49,14 @@ class HttpTemplateTests(unittest.TestCase):
         self.assertEqual(request_target("a/b").reason, "no_literal_path")
         self.assertEqual(request_target("http:///a").reason, "no_host")
         self.assertEqual(request_target(U).reason, "no_literal_path")
+        # A literal host with no path is the root; unknown text after an
+        # unknown host, or a path with no literal text, fixes no path.
+        self.assertEqual(request_target("http://Cart:8080").segments, ())
+        self.assertEqual(request_target("http://Cart:8080").host, "cart")
+        self.assertEqual(request_target("http://cart:" + U + "/a").host, "cart")
+        self.assertEqual(request_target("http://cart:" + U).reason, "no_literal_path")
+        self.assertEqual(request_target("http://" + U).reason, "no_literal_path")
+        self.assertEqual(request_target(U + "/" + U).reason, "no_literal_path")
 
     def test_segment_ranks(self):
         route = route_template("/a/{id}")

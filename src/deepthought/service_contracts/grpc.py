@@ -740,9 +740,10 @@ def collect(root, sources, definitions, repository_id, protos):
     for path, language, content in sources:
         if language not in _SUFFIXES or is_generated(path) or is_test(path):
             continue
-        if language not in parsers:
-            parsers[language] = make_parser(language, _SUFFIXES[language])
-        tree = parsers[language].parse(content)
+        suffix = ".tsx" if path.endswith(".tsx") else _SUFFIXES[language]
+        if suffix not in parsers:
+            parsers[suffix] = make_parser(language, suffix)
+        tree = parsers[suffix].parse(content)
         found, skipped = server_handlers(
             tree, content, path, language, definitions, index
         )
