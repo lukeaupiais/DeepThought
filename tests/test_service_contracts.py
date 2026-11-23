@@ -49,6 +49,14 @@ class HttpTemplateTests(unittest.TestCase):
         self.assertEqual(request_target("a/b").reason, "no_literal_path")
         self.assertEqual(request_target("http:///a").reason, "no_host")
         self.assertEqual(request_target(U).reason, "no_literal_path")
+        # A literal host with no path is the root; unknown text after an
+        # unknown host, or a path with no literal text, fixes no path.
+        self.assertEqual(request_target("http://Cart:8080").segments, ())
+        self.assertEqual(request_target("http://Cart:8080").host, "cart")
+        self.assertEqual(request_target("http://cart:" + U + "/a").host, "cart")
+        self.assertEqual(request_target("http://cart:" + U).reason, "no_literal_path")
+        self.assertEqual(request_target("http://" + U).reason, "no_literal_path")
+        self.assertEqual(request_target(U + "/" + U).reason, "no_literal_path")
 
     def test_segment_ranks(self):
         route = route_template("/a/{id}")
@@ -570,9 +578,9 @@ class SpringContractTests(unittest.TestCase):
         # GET /stats/b/notes fits no route: the notes route accepts POST only.
         self.assertEqual(alternatives, [3, 3])
 
-    def test_languages_without_java_are_rejected(self):
+    def test_unsupported_languages_are_rejected(self):
         with self.assertRaises(ValueError):
-            asyncio.run(ServiceContractTool(self.root).analyze("r", languages={"go"}))
+            asyncio.run(ServiceContractTool(self.root).analyze("r", languages={"rust"}))
 
 
 if __name__ == "__main__":
