@@ -250,6 +250,8 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             "getFunctionCallers",
                             "getFunctionCalls",
                             "getBaseTypes",
+                            "getMembers",
+                            "getOwner",
                             "getSubtypes",
                             "listSnapshots",
                             "searchCodeElements",

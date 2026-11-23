@@ -664,6 +664,61 @@ class GraphQueryService:
             raise ValueError("Query response exceeds output byte budget")
         return response
 
+    async def get_members(
+        self,
+        qname,
+        repo_url,
+        *,
+        snapshot_id,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Declarations directly nested in this one (methods, nested functions)."""
+        return await self._nesting(
+            qname, repo_url, snapshot_id, False, limit, max_output_bytes, timeout
+        )
+
+    async def get_owner(
+        self,
+        qname,
+        repo_url,
+        *,
+        snapshot_id,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """The declaration this one is directly nested in, if any."""
+        return await self._nesting(
+            qname, repo_url, snapshot_id, True, limit, max_output_bytes, timeout
+        )
+
+    async def _nesting(
+        self, qname, repo_url, snapshot_id, incoming, limit, budget, timeout
+    ):
+        _text(qname, "qualified_name")
+        pattern = (
+            "(other:Symbol)-[r:CONTAINS]->(d)"
+            if incoming
+            else "(d)-[r:CONTAINS]->(other:Symbol)"
+        )
+        response = await self._read(
+            "MATCH (d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$qname}) "
+            "MATCH "
+            + pattern
+            + " WHERE other.repo_url=$repo_url AND other.snapshot_id=$snapshot_id "
+            "RETURN other {.qualified_name,.name,.kind,.file_path,.start_line} AS element,r AS relationship "
+            "ORDER BY other.start_line,other.column,other.qualified_name LIMIT $fetch_limit",
+            {"qname": qname},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=budget,
+            timeout=timeout,
+        )
+        return self._observed(response, "declaration CONTAINS", budget)
+
     async def get_base_types(
         self,
         type_qname,

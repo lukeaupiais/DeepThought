@@ -112,6 +112,8 @@ def parser():
         "callees",
         "bases",
         "subtypes",
+        "members",
+        "owner",
         "imports",
         "importers",
         "references",
@@ -154,7 +156,7 @@ def parser():
             )
         if name == "context":
             q.add_argument("--line", type=int)
-        if name in {"callers", "callees", "bases", "subtypes"}:
+        if name in {"callers", "callees", "bases", "subtypes", "members", "owner"}:
             q.add_argument("--symbol", required=True, help="Qualified name")
         if name in {"callers", "callees", "bases", "subtypes", "imports", "importers"}:
             q.add_argument(
@@ -335,6 +337,11 @@ async def execute(args):
                 after_reference_id=args.after_reference_id,
                 **kwargs,
             )
+        if args.command in {"members", "owner"}:
+            method = (
+                service.get_members if args.command == "members" else service.get_owner
+            )
+            return await method(args.symbol, args.repository_id, **kwargs)
         if args.command in {"implementations", "supertypes"}:
             method = (
                 service.get_implementations
