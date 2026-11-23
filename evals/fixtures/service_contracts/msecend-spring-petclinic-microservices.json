@@ -1,0 +1,441 @@
+{
+  "corpus": "msecend-spring-petclinic-microservices",
+  "repo": "https://github.com/spring-petclinic/spring-petclinic-microservices",
+  "commit": "0ab2e953e0e23761593a80cd17d7525e3ae32f9d",
+  "license": "Apache-2.0",
+  "languages": [
+    "Java (Spring Boot, Spring Cloud Gateway, WebClient)",
+    "JavaScript (AngularJS browser)",
+    "YAML config"
+  ],
+  "sources": [
+    "https://github.com/tuhh-softsec/microSecEnD (MSR 2023, Schneider et al.; dataset/spring-petclinic_spring-petclinic-microservices/spring-petclinic_spring-petclinic-microservices.json, *_traceability.json, *.py): commit 0ab2e95 from the artifact URLs in the .py model (one reference uses c47e99a); flows api_gateway -> customers/visits/vets_service (load_balanced_link)",
+    "manual reading of api-gateway WebClient clients, Spring Cloud Gateway routes (api-gateway application.yml), AngularJS controllers under api-gateway static/scripts, and the three service controllers at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "api-gateway",
+      "root": "spring-petclinic-api-gateway",
+      "dfd_name": "api_gateway"
+    },
+    {
+      "name": "customers-service",
+      "root": "spring-petclinic-customers-service",
+      "dfd_name": "customers_service"
+    },
+    {
+      "name": "visits-service",
+      "root": "spring-petclinic-visits-service",
+      "dfd_name": "visits_service"
+    },
+    {
+      "name": "vets-service",
+      "root": "spring-petclinic-vets-service",
+      "dfd_name": "vets_service"
+    },
+    {
+      "name": "config-server",
+      "root": "spring-petclinic-config-server",
+      "dfd_name": "config_server"
+    },
+    {
+      "name": "discovery-server",
+      "root": "spring-petclinic-discovery-server",
+      "dfd_name": "discovery_server"
+    },
+    {
+      "name": "admin-server",
+      "root": "spring-petclinic-admin-server",
+      "dfd_name": "admin_server"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 14,
+      "out_of_scope": 3
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "api-gateway",
+        "customers-service",
+        "http"
+      ],
+      [
+        "api-gateway",
+        "vets-service",
+        "http"
+      ],
+      [
+        "api-gateway",
+        "visits-service",
+        "http"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "GET /owners/{ownerId}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/application/CustomersServiceClient.java",
+        "line": 36
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/OwnerResource.java",
+        "line": 58
+      },
+      "evidence": "WebClient (load-balanced builder) .get().uri(\"http://customers-service/owners/{ownerId}\")",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/boundary/web/ApiGatewayController.java",
+          "line": 50
+        }
+      ],
+      "id": "msecend-spring-petclinic-microservices#1"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "visits-service",
+      "contract": "GET /pets/visits?petId={ids}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/application/VisitsServiceClient.java",
+        "line": 43
+      },
+      "server": {
+        "file": "spring-petclinic-visits-service/src/main/java/org/springframework/samples/petclinic/visits/web/VisitResource.java",
+        "line": 67
+      },
+      "evidence": "WebClient .get().uri(hostname + \"pets/visits?petId={petId}\") with field hostname = \"http://visits-service/\" (setter exists for tests)",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_url_def": {
+        "file": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/application/VisitsServiceClient.java",
+        "line": 36
+      },
+      "client_invocations": [
+        {
+          "file": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/boundary/web/ApiGatewayController.java",
+          "line": 52
+        }
+      ],
+      "id": "msecend-spring-petclinic-microservices#2"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "vets-service",
+      "contract": "GET /vets",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/vet-list/vet-list.controller.js",
+        "line": 7
+      },
+      "server": {
+        "file": "spring-petclinic-vets-service/src/main/java/org/springframework/samples/petclinic/vets/web/VetResource.java",
+        "line": 42
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/vet/** -> lb://vets-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#3"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "GET /owners/{ownerId}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/owner-form/owner-form.controller.js",
+        "line": 12
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/OwnerResource.java",
+        "line": 58
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#4"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "PUT /owners/{ownerId}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/owner-form/owner-form.controller.js",
+        "line": 21
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/OwnerResource.java",
+        "line": 74
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#5"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "POST /owners",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/owner-form/owner-form.controller.js",
+        "line": 23
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/OwnerResource.java",
+        "line": 49
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#6"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "GET /owners",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/owner-list/owner-list.controller.js",
+        "line": 7
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/OwnerResource.java",
+        "line": 66
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#7"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "GET /petTypes",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/pet-form/pet-form.controller.js",
+        "line": 8
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/PetResource.java",
+        "line": 44
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#8"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "GET /owners/{ownerId}/pets/{petId}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/pet-form/pet-form.controller.js",
+        "line": 15
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/PetResource.java",
+        "line": 83
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#9"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "GET /owners/{ownerId}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/pet-form/pet-form.controller.js",
+        "line": 21
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/OwnerResource.java",
+        "line": 58
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#10"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "PUT /owners/{ownerId}/pets/{petId}",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/pet-form/pet-form.controller.js",
+        "line": 43
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/PetResource.java",
+        "line": 63
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#11"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "POST /owners/{ownerId}/pets",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/pet-form/pet-form.controller.js",
+        "line": 45
+      },
+      "server": {
+        "file": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/web/PetResource.java",
+        "line": 49
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/customer/** -> lb://customers-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#12"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "visits-service",
+      "contract": "GET /owners/{ownerId}/pets/{petId}/visits",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/visits/visits.controller.js",
+        "line": 11
+      },
+      "server": {
+        "file": "spring-petclinic-visits-service/src/main/java/org/springframework/samples/petclinic/visits/web/VisitResource.java",
+        "line": 62
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/visit/** -> lb://visits-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "client_url_def": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/visits/visits.controller.js",
+        "line": 7
+      },
+      "id": "msecend-spring-petclinic-microservices#13"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "visits-service",
+      "contract": "POST /owners/{ownerId}/pets/{petId}/visits",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/visits/visits.controller.js",
+        "line": 21
+      },
+      "server": {
+        "file": "spring-petclinic-visits-service/src/main/java/org/springframework/samples/petclinic/visits/web/VisitResource.java",
+        "line": 51
+      },
+      "evidence": "AngularJS $http in UI served by api-gateway; Spring Cloud Gateway Path=/api/visit/** -> lb://visits-service, StripPrefix=2",
+      "in_scope_static": true,
+      "hop": "frontend_via_gateway",
+      "label_confidence": "high",
+      "client_url_def": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/visits/visits.controller.js",
+        "line": 7
+      },
+      "id": "msecend-spring-petclinic-microservices#14"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "vets-service",
+      "contract": "ANY /api/vet/** (StripPrefix=2)",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/application.yml",
+        "line": 10
+      },
+      "server": null,
+      "evidence": "Spring Cloud Gateway route",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#15"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "visits-service",
+      "contract": "ANY /api/visit/** (StripPrefix=2)",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/application.yml",
+        "line": 16
+      },
+      "server": null,
+      "evidence": "Spring Cloud Gateway route",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#16"
+    },
+    {
+      "kind": "http",
+      "from_service": "api-gateway",
+      "to_service": "customers-service",
+      "contract": "ANY /api/customer/** (StripPrefix=2)",
+      "client": {
+        "file": "spring-petclinic-api-gateway/src/main/resources/application.yml",
+        "line": 22
+      },
+      "server": null,
+      "evidence": "Spring Cloud Gateway route",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-spring-petclinic-microservices#17"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "spring-petclinic-api-gateway/src/main/resources/static/scripts/owner-details/owner-details.controller.js",
+      "line": 7,
+      "reason": "intra-service: api-gateway own controller"
+    }
+  ],
+  "notes": [
+    "hop=direct: api-gateway Java WebClient calls with lb-resolved host names (http://customers-service/..., http://visits-service/...).",
+    "hop=frontend_via_gateway: AngularJS UI served by api-gateway calls api/<x>/...; Spring Cloud Gateway routes /api/vet/**, /api/visit/**, /api/customer/** to lb://<svc> with StripPrefix=2, so backend path = URL minus the first two segments. These are static (route + literal) but need route rewriting.",
+    "Service configuration (ports etc.) lives in the external repo spring-petclinic-microservices-config; it was not needed for paths (no context-path in this repo).",
+    "Class-level @RequestMapping is combined with method mappings: OwnerResource /owners, VetResource /vets; PetResource and VisitResource have no class prefix and use patterns with * (owners/*/pets/{petId}).",
+    "owner-details.controller.js calls api/gateway/owners/{id}, which is api-gateway's own ApiGatewayController (intra-service, not a link).",
+    "Label disagreements with microSecEnD: (1) the three api_gateway -> service edges are all traced to the same line (application.yml:9, the vets route); (2) the DFD/traceability ignore the code-level WebClient clients (CustomersServiceClient, VisitsServiceClient), which are the only direct service-to-service calls; (3) 15 traceability references point to files in the external config repo by bare file name. The service pairs agree with source."
+  ]
+}

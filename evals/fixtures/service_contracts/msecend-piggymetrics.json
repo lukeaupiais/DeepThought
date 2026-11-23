@@ -1,0 +1,429 @@
+{
+  "corpus": "msecend-piggymetrics",
+  "repo": "https://github.com/sqshq/piggymetrics",
+  "commit": "fd5ee3c555ea9cd6067eacf3f2a3e8b85fe4fe77",
+  "license": "MIT",
+  "languages": [
+    "Java (Spring Boot, Spring Cloud Netflix: Feign, Zuul, Hystrix, Turbine Stream; Spring Cloud Bus AMQP)",
+    "YAML config"
+  ],
+  "sources": [
+    "https://github.com/tuhh-softsec/microSecEnD (MSR 2023, Schneider et al.; dataset/sqshq_piggymetrics/sqshq_piggymetrics.json, *_traceability.json, *.py): commit fd5ee3c from the artifact URLs in sqshq_piggymetrics.py; flows with feign_connection stereotype, gateway->* flows, auth_service->* flows, *->rabbitmq->turbine_stream_service flows",
+    "manual reading of Feign clients, controllers and config/src/main/resources/shared/*.yml (server.servlet.context-path per service) at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "account-service",
+      "root": "account-service",
+      "dfd_name": "account_service"
+    },
+    {
+      "name": "statistics-service",
+      "root": "statistics-service",
+      "dfd_name": "statistics_service"
+    },
+    {
+      "name": "notification-service",
+      "root": "notification-service",
+      "dfd_name": "notification_service"
+    },
+    {
+      "name": "auth-service",
+      "root": "auth-service",
+      "dfd_name": "auth_service"
+    },
+    {
+      "name": "gateway",
+      "root": "gateway",
+      "dfd_name": "gateway"
+    },
+    {
+      "name": "turbine-stream-service",
+      "root": "turbine-stream-service",
+      "dfd_name": "turbine_stream_service"
+    },
+    {
+      "name": "config",
+      "root": "config",
+      "dfd_name": "config"
+    },
+    {
+      "name": "registry",
+      "root": "registry",
+      "dfd_name": "registry"
+    },
+    {
+      "name": "monitoring",
+      "root": "monitoring",
+      "dfd_name": "monitoring"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 3,
+      "out_of_scope": 10
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 3
+    },
+    "service_pairs_in_scope": [
+      [
+        "account-service",
+        "auth-service",
+        "http"
+      ],
+      [
+        "account-service",
+        "statistics-service",
+        "http"
+      ],
+      [
+        "notification-service",
+        "account-service",
+        "http"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "account-service",
+      "to_service": "auth-service",
+      "contract": "POST /uaa/users",
+      "client": {
+        "file": "account-service/src/main/java/com/piggymetrics/account/client/AuthServiceClient.java",
+        "line": 12
+      },
+      "server": {
+        "file": "auth-service/src/main/java/com/piggymetrics/auth/controller/UserController.java",
+        "line": 28
+      },
+      "evidence": "@FeignClient(name = \"auth-service\"); UserController @RequestMapping(\"/users\") POST; auth context-path /uaa",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "account-service/src/main/java/com/piggymetrics/account/service/AccountServiceImpl.java",
+          "line": 51
+        }
+      ],
+      "id": "msecend-piggymetrics#1"
+    },
+    {
+      "kind": "http",
+      "from_service": "account-service",
+      "to_service": "statistics-service",
+      "contract": "PUT /statistics/{accountName}",
+      "client": {
+        "file": "account-service/src/main/java/com/piggymetrics/account/client/StatisticsServiceClient.java",
+        "line": 13
+      },
+      "server": {
+        "file": "statistics-service/src/main/java/com/piggymetrics/statistics/controller/StatisticsController.java",
+        "line": 32
+      },
+      "evidence": "@FeignClient(name = \"statistics-service\", fallback=...); StatisticsController PUT /{accountName}; context-path /statistics",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "account-service/src/main/java/com/piggymetrics/account/service/AccountServiceImpl.java",
+          "line": 90
+        }
+      ],
+      "id": "msecend-piggymetrics#2"
+    },
+    {
+      "kind": "http",
+      "from_service": "notification-service",
+      "to_service": "account-service",
+      "contract": "GET /accounts/{accountName}",
+      "client": {
+        "file": "notification-service/src/main/java/com/piggymetrics/notification/client/AccountServiceClient.java",
+        "line": 12
+      },
+      "server": {
+        "file": "account-service/src/main/java/com/piggymetrics/account/controller/AccountController.java",
+        "line": 20
+      },
+      "evidence": "@FeignClient(name = \"account-service\"); AccountController GET /{name}; context-path /accounts",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_invocations": [
+        {
+          "file": "notification-service/src/main/java/com/piggymetrics/notification/service/NotificationServiceImpl.java",
+          "line": 40
+        }
+      ],
+      "id": "msecend-piggymetrics#3"
+    },
+    {
+      "kind": "http",
+      "from_service": "account-service",
+      "to_service": "auth-service",
+      "contract": "GET /uaa/users/current",
+      "client": {
+        "file": "config/src/main/resources/shared/application.yml",
+        "line": 23
+      },
+      "server": {
+        "file": "auth-service/src/main/java/com/piggymetrics/auth/controller/UserController.java",
+        "line": 22
+      },
+      "evidence": "Spring Security OAuth2 resource server validates tokens via security.oauth2.resource.user-info-uri (shared application.yml)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "framework call configured only by a URL in YAML; no call site in code",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#4"
+    },
+    {
+      "kind": "http",
+      "from_service": "account-service",
+      "to_service": "auth-service",
+      "contract": "POST /uaa/oauth/token",
+      "client": {
+        "file": "config/src/main/resources/shared/account-service.yml",
+        "line": 6
+      },
+      "server": null,
+      "evidence": "OAuth2RestTemplate client_credentials grant; endpoint is provided by Spring Security OAuth2 framework in auth-service, no handler in source",
+      "in_scope_static": false,
+      "out_of_scope_reason": "framework call configured only in YAML; server endpoint is framework-provided",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#5"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "account-service",
+      "to_service": "turbine-stream-service",
+      "contract": "rabbit:springCloudHystrixStream (framework default)",
+      "client": {
+        "file": "account-service/pom.xml",
+        "line": 65
+      },
+      "server": {
+        "file": "turbine-stream-service/pom.xml",
+        "line": 30
+      },
+      "evidence": "Hystrix metrics published to RabbitMQ by hystrix-stream starter; consumed by @EnableTurbineStream",
+      "in_scope_static": false,
+      "out_of_scope_reason": "implicit: produced/consumed by framework starters on a default destination; only evidence is a Maven dependency",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#6"
+    },
+    {
+      "kind": "http",
+      "from_service": "statistics-service",
+      "to_service": "auth-service",
+      "contract": "GET /uaa/users/current",
+      "client": {
+        "file": "config/src/main/resources/shared/application.yml",
+        "line": 23
+      },
+      "server": {
+        "file": "auth-service/src/main/java/com/piggymetrics/auth/controller/UserController.java",
+        "line": 22
+      },
+      "evidence": "Spring Security OAuth2 resource server validates tokens via security.oauth2.resource.user-info-uri (shared application.yml)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "framework call configured only by a URL in YAML; no call site in code",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#7"
+    },
+    {
+      "kind": "http",
+      "from_service": "statistics-service",
+      "to_service": "auth-service",
+      "contract": "POST /uaa/oauth/token",
+      "client": {
+        "file": "config/src/main/resources/shared/statistics-service.yml",
+        "line": 6
+      },
+      "server": null,
+      "evidence": "OAuth2RestTemplate client_credentials grant; endpoint is provided by Spring Security OAuth2 framework in auth-service, no handler in source",
+      "in_scope_static": false,
+      "out_of_scope_reason": "framework call configured only in YAML; server endpoint is framework-provided",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#8"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "statistics-service",
+      "to_service": "turbine-stream-service",
+      "contract": "rabbit:springCloudHystrixStream (framework default)",
+      "client": {
+        "file": "statistics-service/pom.xml",
+        "line": 61
+      },
+      "server": {
+        "file": "turbine-stream-service/pom.xml",
+        "line": 30
+      },
+      "evidence": "Hystrix metrics published to RabbitMQ by hystrix-stream starter; consumed by @EnableTurbineStream",
+      "in_scope_static": false,
+      "out_of_scope_reason": "implicit: produced/consumed by framework starters on a default destination; only evidence is a Maven dependency",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#9"
+    },
+    {
+      "kind": "http",
+      "from_service": "notification-service",
+      "to_service": "auth-service",
+      "contract": "GET /uaa/users/current",
+      "client": {
+        "file": "config/src/main/resources/shared/application.yml",
+        "line": 23
+      },
+      "server": {
+        "file": "auth-service/src/main/java/com/piggymetrics/auth/controller/UserController.java",
+        "line": 22
+      },
+      "evidence": "Spring Security OAuth2 resource server validates tokens via security.oauth2.resource.user-info-uri (shared application.yml)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "framework call configured only by a URL in YAML; no call site in code",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#10"
+    },
+    {
+      "kind": "http",
+      "from_service": "notification-service",
+      "to_service": "auth-service",
+      "contract": "POST /uaa/oauth/token",
+      "client": {
+        "file": "config/src/main/resources/shared/notification-service.yml",
+        "line": 6
+      },
+      "server": null,
+      "evidence": "OAuth2RestTemplate client_credentials grant; endpoint is provided by Spring Security OAuth2 framework in auth-service, no handler in source",
+      "in_scope_static": false,
+      "out_of_scope_reason": "framework call configured only in YAML; server endpoint is framework-provided",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#11"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "notification-service",
+      "to_service": "turbine-stream-service",
+      "contract": "rabbit:springCloudHystrixStream (framework default)",
+      "client": {
+        "file": "notification-service/pom.xml",
+        "line": 61
+      },
+      "server": {
+        "file": "turbine-stream-service/pom.xml",
+        "line": 30
+      },
+      "evidence": "Hystrix metrics published to RabbitMQ by hystrix-stream starter; consumed by @EnableTurbineStream",
+      "in_scope_static": false,
+      "out_of_scope_reason": "implicit: produced/consumed by framework starters on a default destination; only evidence is a Maven dependency",
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#12"
+    },
+    {
+      "kind": "http",
+      "from_service": "gateway",
+      "to_service": "auth-service",
+      "contract": "ANY /uaa/**",
+      "client": {
+        "file": "config/src/main/resources/shared/gateway.yml",
+        "line": 21
+      },
+      "server": null,
+      "evidence": "Zuul route (stripPrefix: false)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#13"
+    },
+    {
+      "kind": "http",
+      "from_service": "gateway",
+      "to_service": "account-service",
+      "contract": "ANY /accounts/**",
+      "client": {
+        "file": "config/src/main/resources/shared/gateway.yml",
+        "line": 27
+      },
+      "server": null,
+      "evidence": "Zuul route (stripPrefix: false)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#14"
+    },
+    {
+      "kind": "http",
+      "from_service": "gateway",
+      "to_service": "statistics-service",
+      "contract": "ANY /statistics/**",
+      "client": {
+        "file": "config/src/main/resources/shared/gateway.yml",
+        "line": 33
+      },
+      "server": null,
+      "evidence": "Zuul route (stripPrefix: false)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#15"
+    },
+    {
+      "kind": "http",
+      "from_service": "gateway",
+      "to_service": "notification-service",
+      "contract": "ANY /notifications/**",
+      "client": {
+        "file": "config/src/main/resources/shared/gateway.yml",
+        "line": 39
+      },
+      "server": null,
+      "evidence": "Zuul route (stripPrefix: false)",
+      "in_scope_static": false,
+      "out_of_scope_reason": "declarative gateway prefix route in YAML; no single handler",
+      "hop": "gateway_route",
+      "label_confidence": "high",
+      "id": "msecend-piggymetrics#16"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "statistics-service/src/main/java/com/piggymetrics/statistics/client/ExchangeRatesClient.java",
+      "line": 10,
+      "reason": "external API (api.exchangeratesapi.io)"
+    },
+    {
+      "file": "gateway/src/main/resources/static/js",
+      "line": null,
+      "reason": "browser JS via Zuul; not labelled"
+    }
+  ],
+  "notes": [
+    "Feign paths are matched to server handlers including the server context-path from config/src/main/resources/shared/<svc>.yml: account-service /accounts, statistics-service /statistics, notification-service /notifications, auth-service /uaa. Without context-path the Feign path (/statistics/{accountName}) does not equal the controller path (/{accountName}).",
+    "client.line is the Feign method @RequestMapping line; client_invocations lists where the Feign method is called.",
+    "Infrastructure flows of the DFD (config server, Eureka registry, MongoDB, SMTP) are not contract links and are omitted.",
+    "Out of scope (framework/config driven, no call site): Spring Security OAuth2 user-info-uri and client-credentials token calls to auth-service (DFD models them as auth_service -> X), Hystrix metrics over RabbitMQ to turbine-stream-service (spring-cloud-netflix-hystrix-stream), Spring Cloud Bus (springCloudBus exchange) between account/statistics/notification, Zuul routes.",
+    "statistics-service -> https://api.exchangeratesapi.io (Feign url=${rates.url}) is external; not a link.",
+    "gateway/src/main/resources/static/js/*.js ($.ajax via Zuul to accounts/, statistics/, notifications/, uaa/) is NOT labelled (login.js is a single CR-delimited line); treat any link from gateway static JS as dont-care.",
+    "Label disagreements with microSecEnD: (1) auth_service -> account/statistics/notification are traced to accessTokenUri lines; in code the HTTP caller is the resource service (direction is data-flow, not call); (2) account/statistics/notification -> rabbitmq are all traced to an import line in turbine-stream-service (TurbineStreamServiceApplication.java:6) instead of the producing service (its pom hystrix-stream dependency); (3) 2 traceability paths contain a stray \" 2\" (e.g. \"pom 2.xml\") and do not resolve. Feign pairs agree with source."
+  ]
+}

@@ -1,0 +1,593 @@
+{
+ "repo": "https://github.com/FudanSELab/train-ticket",
+ "commit": "313886e99befb94be6cd45f085c98e0019f59829",
+ "linked_sample": [
+  {
+   "client": {
+    "file": "ts-travel2-service/src/main/java/travel2/service/TravelServiceImpl.java",
+    "line": 264
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/basicservice/basic/travels",
+   "predicted_server": {
+    "file": "ts-basic-service/src/main/java/fdse/microservice/controller/BasicController.java",
+    "line": 42
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-user-service/src/main/java/adminuser/service/AdminUserServiceImpl.java",
+    "line": 115
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/userservice/users/register",
+   "predicted_server": {
+    "file": "ts-user-service/src/main/java/user/controller/UserController.java",
+    "line": 52
+   }
+  },
+  {
+   "client": {
+    "file": "ts-basic-service/src/main/java/fdse/microservice/service/BasicServiceImpl.java",
+    "line": 362
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/stationservice/stations/id/{stationNameForId}",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 59
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-order-service/src/main/java/adminorder/service/AdminOrderServiceImpl.java",
+    "line": 93
+   },
+   "method": "DELETE",
+   "predicted_route": "DELETE /api/v1/orderservice/order/{orderId}",
+   "predicted_server": {
+    "file": "ts-order-service/src/main/java/order/controller/OrderController.java",
+    "line": 142
+   }
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 251
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/seatservice/seats",
+   "predicted_server": {
+    "file": "ts-seat-service/src/main/java/seat/controller/SeatController.java",
+    "line": 39
+   }
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 445
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/inside_pay_service/inside_payment/difference",
+   "predicted_server": {
+    "file": "ts-inside-payment-service/src/main/java/inside_payment/controller/InsidePaymentController.java",
+    "line": 68
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-service/src/main/java/preserve/service/PreserveServiceImpl.java",
+    "line": 411
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/foodservice/orders",
+   "predicted_server": {
+    "file": "ts-food-service/src/main/java/foodsearch/controller/FoodController.java",
+    "line": 56
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-order-service/src/main/java/adminorder/service/AdminOrderServiceImpl.java",
+    "line": 104
+   },
+   "method": "DELETE",
+   "predicted_route": "DELETE /api/v1/orderOtherService/orderOther/{orderId}",
+   "predicted_server": {
+    "file": "ts-order-other-service/src/main/java/other/controller/OrderOtherController.java",
+    "line": 139
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 90
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/contactservice/contacts/admin",
+   "predicted_server": {
+    "file": "ts-contacts-service/src/main/java/contacts/controller/ContactsController.java",
+    "line": 50
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-other-service/src/main/java/preserveOther/service/PreserveOtherServiceImpl.java",
+    "line": 413
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/foodservice/orders",
+   "predicted_server": {
+    "file": "ts-food-service/src/main/java/foodsearch/controller/FoodController.java",
+    "line": 56
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 184
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/trainservice/trains",
+   "predicted_server": {
+    "file": "ts-train-service/src/main/java/train/controller/TrainController.java",
+    "line": 34
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 228
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/configservice/configs",
+   "predicted_server": {
+    "file": "ts-config-service/src/main/java/config/controller/ConfigController.java",
+    "line": 36
+   }
+  },
+  {
+   "client": {
+    "file": "ts-cancel-service/src/main/java/cancel/service/CancelServiceImpl.java",
+    "line": 284
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/inside_pay_service/inside_payment/drawback/{userId}/{money}",
+   "predicted_server": {
+    "file": "ts-inside-payment-service/src/main/java/inside_payment/controller/InsidePaymentController.java",
+    "line": 62
+   }
+  },
+  {
+   "client": {
+    "file": "ts-travel-service/src/main/java/travel/service/TravelServiceImpl.java",
+    "line": 507
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/trainservice/trains/byName/{name}",
+   "predicted_server": {
+    "file": "ts-train-service/src/main/java/train/controller/TrainController.java",
+    "line": 58
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-travel-service/src/main/java/admintravel/service/AdminTravelServiceImpl.java",
+    "line": 233
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/stationservice/stations/idlist",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 69
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-service/src/main/java/preserve/service/PreserveServiceImpl.java",
+    "line": 396
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/orderservice/order",
+   "predicted_server": {
+    "file": "ts-order-service/src/main/java/order/controller/OrderController.java",
+    "line": 44
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 254
+   },
+   "method": "DELETE",
+   "predicted_route": "DELETE /api/v1/configservice/configs/{configName}",
+   "predicted_server": {
+    "file": "ts-config-service/src/main/java/config/controller/ConfigController.java",
+    "line": 58
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-service/src/main/java/preserve/service/PreserveServiceImpl.java",
+    "line": 278
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/seatservice/seats",
+   "predicted_server": {
+    "file": "ts-seat-service/src/main/java/seat/controller/SeatController.java",
+    "line": 39
+   }
+  },
+  {
+   "client": {
+    "file": "ts-route-plan-service/src/main/java/plan/service/RoutePlanServiceImpl.java",
+    "line": 205
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/travelservice/trips/routes",
+   "predicted_server": {
+    "file": "ts-travel-service/src/main/java/travel/controller/TravelController.java",
+    "line": 58
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 137
+   },
+   "method": "DELETE",
+   "predicted_route": "DELETE /api/v1/stationservice/stations/{stationsId}",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 50
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-travel-service/src/main/java/admintravel/service/AdminTravelServiceImpl.java",
+    "line": 274
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/routeservice/routes/{routeId}",
+   "predicted_server": {
+    "file": "ts-route-service/src/main/java/route/controller/RouteController.java",
+    "line": 45
+   }
+  },
+  {
+   "client": {
+    "file": "ts-basic-service/src/main/java/fdse/microservice/service/BasicServiceImpl.java",
+    "line": 345
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/stationservice/stations/idlist",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 69
+   }
+  },
+  {
+   "client": {
+    "file": "ts-consign-service/src/main/java/consign/service/ConsignServiceImpl.java",
+    "line": 100
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/consignpriceservice/consignprice/{weight}/{isWithinRegion}",
+   "predicted_server": {
+    "file": "ts-consign-price-service/src/main/java/consignprice/controller/ConsignPriceController.java",
+    "line": 31
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-other-service/src/main/java/preserveOther/service/PreserveOtherServiceImpl.java",
+    "line": 427
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/consignservice/consigns",
+   "predicted_server": {
+    "file": "ts-consign-service/src/main/java/consign/controller/ConsignController.java",
+    "line": 33
+   }
+  },
+  {
+   "client": {
+    "file": "ts-auth-service/src/main/java/auth/service/impl/TokenServiceImpl.java",
+    "line": 67
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/verifycode/verify/{verifyCode}",
+   "predicted_server": {
+    "file": "ts-verification-code-service/src/main/java/verifycode/controller/VerifyCodeController.java",
+    "line": 48
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 122
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/stationservice/stations",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 38
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-basic-info-service/src/main/java/adminbasic/service/AdminBasicInfoServiceImpl.java",
+    "line": 152
+   },
+   "method": "PUT",
+   "predicted_route": "PUT /api/v1/stationservice/stations",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 44
+   }
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 407
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/trainservice/trains/byName/{name}",
+   "predicted_server": {
+    "file": "ts-train-service/src/main/java/train/controller/TrainController.java",
+    "line": 58
+   }
+  },
+  {
+   "client": {
+    "file": "ts-travel-plan-service/src/main/java/travelplan/service/TravelPlanServiceImpl.java",
+    "line": 294
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/travelservice/trips/left",
+   "predicted_server": {
+    "file": "ts-travel-service/src/main/java/travel/controller/TravelController.java",
+    "line": 113
+   }
+  },
+  {
+   "client": {
+    "file": "ts-security-service/src/main/java/security/service/SecurityServiceImpl.java",
+    "line": 148
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/orderOtherService/orderOther/security/{checkDate}/{accountId}",
+   "predicted_server": {
+    "file": "ts-order-other-service/src/main/java/other/controller/OrderOtherController.java",
+    "line": 115
+   }
+  },
+  {
+   "client": {
+    "file": "ts-execute-service/src/main/java/execute/serivce/ExecuteServiceImpl.java",
+    "line": 141
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/orderservice/order/status/{orderId}/{status}",
+   "predicted_server": {
+    "file": "ts-order-service/src/main/java/order/controller/OrderController.java",
+    "line": 106
+   }
+  },
+  {
+   "client": {
+    "file": "ts-travel2-service/src/main/java/travel2/service/TravelServiceImpl.java",
+    "line": 418
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/trainservice/trains/byName/{name}",
+   "predicted_server": {
+    "file": "ts-train-service/src/main/java/train/controller/TrainController.java",
+    "line": 58
+   }
+  },
+  {
+   "client": {
+    "file": "ts-order-other-service/src/main/java/other/service/OrderOtherServiceImpl.java",
+    "line": 227
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/stationservice/stations/namelist",
+   "predicted_server": {
+    "file": "ts-station-service/src/main/java/fdse/microservice/controller/StationController.java",
+    "line": 87
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-route-service/src/main/java/adminroute/service/AdminRouteServiceImpl.java",
+    "line": 87
+   },
+   "method": "DELETE",
+   "predicted_route": "DELETE /api/v1/routeservice/routes/{routeId}",
+   "predicted_server": {
+    "file": "ts-route-service/src/main/java/route/controller/RouteController.java",
+    "line": 39
+   }
+  },
+  {
+   "client": {
+    "file": "ts-admin-order-service/src/main/java/adminorder/service/AdminOrderServiceImpl.java",
+    "line": 137
+   },
+   "method": "PUT",
+   "predicted_route": "PUT /api/v1/orderOtherService/orderOther/admin",
+   "predicted_server": {
+    "file": "ts-order-other-service/src/main/java/other/controller/OrderOtherController.java",
+    "line": 132
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-service/src/main/java/preserve/service/PreserveServiceImpl.java",
+    "line": 381
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/contactservice/contacts/{id}",
+   "predicted_server": {
+    "file": "ts-contacts-service/src/main/java/contacts/controller/ContactsController.java",
+    "line": 81
+   }
+  },
+  {
+   "client": {
+    "file": "ts-execute-service/src/main/java/execute/serivce/ExecuteServiceImpl.java",
+    "line": 155
+   },
+   "method": "GET",
+   "predicted_route": "GET /api/v1/orderOtherService/orderOther/status/{orderId}/{status}",
+   "predicted_server": {
+    "file": "ts-order-other-service/src/main/java/other/controller/OrderOtherController.java",
+    "line": 108
+   }
+  },
+  {
+   "client": {
+    "file": "ts-preserve-other-service/src/main/java/preserveOther/service/PreserveOtherServiceImpl.java",
+    "line": 277
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/seatservice/seats",
+   "predicted_server": {
+    "file": "ts-seat-service/src/main/java/seat/controller/SeatController.java",
+    "line": 39
+   }
+  },
+  {
+   "client": {
+    "file": "ts-travel-plan-service/src/main/java/travelplan/service/TravelPlanServiceImpl.java",
+    "line": 269
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/routeplanservice/routePlan/quickestRoute",
+   "predicted_server": {
+    "file": "ts-route-plan-service/src/main/java/plan/controller/RoutePlanController.java",
+    "line": 36
+   }
+  },
+  {
+   "client": {
+    "file": "ts-travel-plan-service/src/main/java/travelplan/service/TravelPlanServiceImpl.java",
+    "line": 282
+   },
+   "method": "POST",
+   "predicted_route": "POST /api/v1/routeplanservice/routePlan/minStopStations",
+   "predicted_server": {
+    "file": "ts-route-plan-service/src/main/java/plan/controller/RoutePlanController.java",
+    "line": 42
+   }
+  }
+ ],
+ "unlinked_all": [
+  {
+   "client": {
+    "file": "ts-admin-travel-service/src/main/java/admintravel/service/AdminTravelServiceImpl.java",
+    "line": 107
+   },
+   "method": "POST",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-admin-travel-service/src/main/java/admintravel/service/AdminTravelServiceImpl.java",
+    "line": 142
+   },
+   "method": "PUT",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-admin-travel-service/src/main/java/admintravel/service/AdminTravelServiceImpl.java",
+    "line": 171
+   },
+   "method": "DELETE",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-inside-payment-service/src/main/java/inside_payment/async/AsyncTask.java",
+    "line": 27
+   },
+   "method": "GET",
+   "reason": "no_route"
+  },
+  {
+   "client": {
+    "file": "ts-inside-payment-service/src/main/java/inside_payment/service/InsidePaymentServiceImpl.java",
+    "line": 59
+   },
+   "method": "GET",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 309
+   },
+   "method": "POST",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 332
+   },
+   "method": "POST",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 351
+   },
+   "method": "PUT",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 371
+   },
+   "method": "POST",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-rebook-service/src/main/java/rebook/service/RebookServiceImpl.java",
+    "line": 393
+   },
+   "method": "GET",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-route-plan-service/src/main/java/plan/service/RoutePlanServiceImpl.java",
+    "line": 253
+   },
+   "method": "POST",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-route-plan-service/src/main/java/plan/service/RoutePlanServiceImpl.java",
+    "line": 347
+   },
+   "method": "GET",
+   "reason": "no_literal_path"
+  },
+  {
+   "client": {
+    "file": "ts-wait-order-service/src/main/java/waitorder/utils/PollThread.java",
+    "line": 75
+   },
+   "method": "POST",
+   "reason": "no_route"
+  }
+ ],
+ "linked_total": 133
+}
