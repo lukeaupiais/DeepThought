@@ -265,15 +265,20 @@ CONTRACT_RULE = register_rule(
         "components.contract-consumer",
         "pattern_matched",
         "Code in this package uses a contract that code in that package "
-        "provides: it REQUESTS an HTTP route the other HANDLES, or CONSUMES a "
-        "message destination the other PUBLISHES to. Each file counts in its "
+        "provides: it REQUESTS an HTTP route the other HANDLES, CONSUMES a "
+        "message destination the other PUBLISHES to, or READS a table the "
+        "other WRITES. Each file counts in its "
         "nearest package: the package component (of any kind) whose root is "
         "deepest above it. As weak as the contract edges it joins, which "
         "match names and path templates, not traced values.",
     )
 )
 # Contract edges by role: (provider relation, consumer relation).
-CONTRACT_ROLES = (("HANDLES", "REQUESTS"), ("PUBLISHES", "CONSUMES"))
+CONTRACT_ROLES = (
+    ("HANDLES", "REQUESTS"),
+    ("PUBLISHES", "CONSUMES"),
+    ("WRITES", "READS"),
+)
 
 
 def _depth(component):
