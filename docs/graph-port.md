@@ -216,6 +216,31 @@ Checked against independent parsers:
 The TypeScript check finds each declaration by its UTF-16 name position, so it
 also confirms those positions.
 
+### Indexer symbols and parsed declarations
+
+Tree-sitter File nodes carry `file_sha256`, the digest of the analyzed bytes
+(so a graph diff lists a File whose content changed). When one revision
+combines SCIP and tree-sitter output (`write_outputs`, or `index` with both
+tools), each SCIP definition whose occurrence covers exactly a parsed
+declaration's name range, counted in SCIP's column encoding, in a file with
+the same sha256, gets Symbol -> HAS_AST_DECLARATION -> Symbol under
+`graph.indexer-symbol-declaration-name` (`resolved`). Different bytes never
+bind, and a range two declarations share binds neither; the
+`declaration_binding` metric counts bound, ambiguous and unmatched SCIP
+definitions. `get_code_context` returns a bound SCIP symbol as its parsed
+declaration, with the declaration's text and the SCIP symbols in
+`native_ids`; `native_symbol` (CLI `--native-symbol`) selects by SCIP symbol.
+
+On rxjs 7.8.1 with its scip-typescript index, 924 of 5,358 SCIP definitions
+bind, none ambiguously, and no declaration binds twice. Every SCIP class (33),
+interface (83), method (161), static method (7), constructor (31), function
+(509), getter (2), type alias (37) and enum (1) binds; 60 of 566 constants
+bind (arrow functions assigned to constants). Parameters, type parameters,
+properties, variables, enum members and modules have no parsed declaration.
+924 of the 937 tree-sitter declarations bind; the other 13 are 12
+object-literal methods and one computed-name method, for which
+scip-typescript records no definition.
+
 ## Impact
 
 The original impact endpoint passed "Analyze the impact of changes to: ..." to

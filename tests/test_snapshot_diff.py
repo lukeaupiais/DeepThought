@@ -162,7 +162,8 @@ class SnapshotDiffNeo4jTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(names["nodes.added"], ["added", "c.py", "new"])
         self.assertEqual(names["nodes.removed"], ["b.py", "gone"])
         # Moving a declaration changes its position, not its identity.
-        self.assertEqual(names["nodes.changed"], ["helper", "run"])
+        # The edited file itself changed too (its file_sha256).
+        self.assertEqual(names["nodes.changed"], ["a.py", "helper", "run"])
         helper = next(
             item
             for item in result["changes"]["nodes.changed"]["items"]

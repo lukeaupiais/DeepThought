@@ -161,6 +161,7 @@ def parser():
         if name == "context":
             q.add_argument("--line", type=int)
             q.add_argument("--definition-id")
+            q.add_argument("--native-symbol", help="SCIP symbol")
             q.add_argument("--source-offset", type=int, default=0)
             q.add_argument("--max-source-characters", type=int, default=1200)
         if name in {
@@ -355,6 +356,7 @@ async def execute(args):
                 args.repository_id,
                 line_number=args.line,
                 definition_id=args.definition_id,
+                native_symbol=args.native_symbol,
                 source_offset=args.source_offset,
                 max_source_characters=args.max_source_characters,
                 **kwargs,
