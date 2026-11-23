@@ -332,7 +332,7 @@ def create_server():
         kind: str | None = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """List components build manifests declare (Python projects, npm packages, Go modules, Cargo packages, Maven modules) with file counts."""
+        """List components build manifests declare (Python projects, npm packages, Go modules, Cargo packages, Maven modules, Compose services) with file counts."""
         return await ctx.request_context.lifespan_context.list_components(
             repository_id, snapshot_id=snapshot_id, kind=kind, limit=max_elements
         )
@@ -348,6 +348,46 @@ def create_server():
         """Get the nearest enclosing component of each kind for a file, with evidence and rule."""
         return await ctx.request_context.lifespan_context.get_file_components(
             file_path, repository_id, snapshot_id=snapshot_id, limit=max_elements
+        )
+
+    @server.tool()
+    async def getComponentDependencies(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        incoming: bool = False,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get components a component's manifest requires (or, incoming, that require it), with the declaration, evidence and rule."""
+        return await ctx.request_context.lifespan_context.get_component_dependencies(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            incoming=incoming,
+            evidence_types=evidence_types,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getComponentImpact(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Get components that transitively require a component, each with its path and weakest evidence."""
+        return await ctx.request_context.lifespan_context.get_component_impact(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            max_depth=max_depth,
+            evidence_types=evidence_types,
+            limit=max_elements,
         )
 
     @server.tool()

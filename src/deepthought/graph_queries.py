@@ -792,6 +792,33 @@ class GraphQueryService:
             timeout,
         )
 
+    async def get_component_impact(
+        self,
+        qualified_name,
+        repo_url,
+        *,
+        snapshot_id,
+        max_depth=3,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Components that require a component, transitively, over REQUIRES."""
+        return await self._impact(
+            "MATCH (root:Component {repo_url:$repo_url,snapshot_id:$snapshot_id,"
+            "qualified_name:$subject}) WITH root, [] AS parts ",
+            "REQUIRES",
+            qualified_name,
+            repo_url,
+            snapshot_id,
+            max_depth,
+            evidence_types,
+            limit,
+            max_output_bytes,
+            timeout,
+        )
+
     async def _impact(
         self,
         seeds,
@@ -1303,8 +1330,8 @@ class GraphQueryService:
         )
         response["semantics"] = (
             "Components declared by build manifests (pyproject.toml, package.json, "
-            "go.mod, Cargo.toml, pom.xml) in the analyzed paths; units that no "
-            "manifest declares are not listed."
+            "go.mod, Cargo.toml, pom.xml) and Compose files in the analyzed "
+            "paths; units that no manifest declares are not listed."
         )
         return response
 
@@ -1327,6 +1354,45 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
+        )
+
+    async def get_component_dependencies(
+        self,
+        qualified_name,
+        repo_url,
+        *,
+        snapshot_id,
+        incoming=False,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Components this one's manifest requires, or (``incoming``) those
+        whose manifests require it, with the declaration and rule."""
+        _text(qualified_name, "qualified_name")
+        evidence = _evidence_filter(evidence_types)
+        pattern = "<-[r:REQUIRES]-" if incoming else "-[r:REQUIRES]->"
+        response = await self._read(
+            "MATCH (c:Component {qualified_name:$name,repo_url:$repo_url,"
+            "snapshot_id:$snapshot_id})"
+            + pattern
+            + "(other:Component {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE $evidence IS NULL OR r.evidence_type IN $evidence "
+            "RETURN other AS element, r AS relationship "
+            "ORDER BY other.root, other.qualified_name, r.section, r._dt_edge_id "
+            "LIMIT $fetch_limit",
+            {"name": qualified_name, "evidence": evidence},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="components",
+        )
+        response["evidence_types"] = evidence
+        return self._observed(
+            response, ("incoming " if incoming else "") + "REQUIRES", max_output_bytes
         )
 
     async def get_component_files(

@@ -161,16 +161,75 @@ def _assigned_names(node, content):
     return names
 
 
+_MAX_ALTERNATIVES = 8
+
+
+def _branches_exclusive(nodes):
+    """Whether each pair of nodes lies in different branches of one ``if``.
+
+    Returns the ``if`` statements that separate them, or None.
+    """
+    separating = []
+    for index, first in enumerate(nodes):
+        ancestors = []
+        current = first.parent
+        while current is not None:
+            ancestors.append(current)
+            current = current.parent
+        for second in nodes[index + 1 :]:
+            current = second.parent
+            while current is not None and all(current.id != a.id for a in ancestors):
+                current = current.parent
+            if current is None or current.type != "if_statement":
+                return None
+            branch = {
+                current.child_by_field_name("consequence").id: "then",
+                getattr(current.child_by_field_name("alternative"), "id", None): "else",
+            }
+
+            # Which branch holds each node: walk up to a direct branch child.
+            def side(node):
+                while node is not None and node.parent is not None:
+                    if node.parent.id == current.id:
+                        return branch.get(node.id)
+                    node = node.parent
+                return None
+
+            first_side, second_side = side(first), side(second)
+            if None in (first_side, second_side) or first_side == second_side:
+                return None
+            separating.append(current)
+    return separating
+
+
+def _covers(statement, assignment_ids):
+    """Whether every path through ``statement`` runs one of the assignments."""
+    if statement is None:
+        return False
+    if statement.type == "expression_statement":
+        return any(c.id in assignment_ids for c in statement.named_children)
+    if statement.type == "block":
+        return any(_covers(c, assignment_ids) for c in statement.named_children)
+    if statement.type == "if_statement":
+        return _covers(
+            statement.child_by_field_name("consequence"), assignment_ids
+        ) and _covers(statement.child_by_field_name("alternative"), assignment_ids)
+    return False
+
+
 class _Values:
     """Folds string expressions; text they do not fix becomes PLACEHOLDER.
 
     Folded: string literals, ``+``, ``String.format`` with ``%s``/``%d``, and
-    names that hold one value: String fields of the file with an initializer,
-    no ``@Value`` injection and no assignment anywhere in the file; String
-    locals declared once with an initializer and never assigned in their
-    method; and calls to a method of the file, unique by name and argument
-    count, whose body is a single ``return`` (arguments substituted for
-    parameters).
+    names whose values the file fixes: String fields of the file with an
+    initializer, no ``@Value`` injection and no assignment anywhere in the
+    file; String locals declared once with an initializer and never assigned
+    in their method, or declared without a value (or ``null``) and assigned
+    with ``=`` only in different branches of ``if`` statements that end
+    before the use (each branch gives one alternative); and calls to a method
+    of the file, unique by name and argument count, whose body is a single
+    ``return`` (arguments substituted for parameters). At most
+    ``_MAX_ALTERNATIVES`` alternatives are kept; more give unknown text.
     """
 
     def __init__(self, root, content):
@@ -218,10 +277,10 @@ class _Values:
         self._active = set()
 
     def _scope_locals(self, scope):
+        """name -> (declaration, initializer, assignments), or None if unusable."""
         if scope.id not in self._locals:
             content = self.content
-            assigned = _assigned_names(scope, content)
-            found = {}
+            found, assignments = {}, {}
             stack = [scope]
             while stack:
                 node = stack.pop()
@@ -232,45 +291,117 @@ class _Values:
                         name = _text(declarator.child_by_field_name("name"), content)
                         value = declarator.child_by_field_name("value")
                         found.setdefault(name, []).append(
-                            value if string and name not in assigned else None
+                            (declarator, value) if string else None
                         )
-                elif node.type == "formal_parameter" or (
-                    node is not scope and node.type in _SCOPES
-                ):
-                    if node.type == "formal_parameter":
-                        name = node.child_by_field_name("name")
-                        found.setdefault(_text(name, content), []).append(None)
-                    if node is not scope and node.type in _SCOPES:
-                        continue  # nested lambdas have their own locals
+                elif node.type == "assignment_expression":
+                    left = node.child_by_field_name("left")
+                    if left.type == "identifier":
+                        assignments.setdefault(_text(left, content), []).append(node)
+                elif node.type == "formal_parameter":
+                    name = node.child_by_field_name("name")
+                    found.setdefault(_text(name, content), []).append(None)
+                if node is not scope and node.type in _SCOPES:
+                    continue  # nested lambdas have their own locals
                 stack.extend(node.named_children)
-            self._locals[scope.id] = {n: v[0] for n, v in found.items() if len(v) == 1}
+            self._locals[scope.id] = {
+                name: (
+                    *items[0],
+                    tuple(
+                        sorted(assignments.get(name, ()), key=lambda a: a.start_byte)
+                    ),
+                )
+                if len(items) == 1 and items[0] is not None
+                else None
+                for name, items in found.items()
+            }
         return self._locals[scope.id]
+
+    def _local(self, node, entry, depth):
+        """Values a local may hold at ``node``.
+
+        Assignments must use ``=``, end before the use, and either be one
+        statement in the declaration's own block, or lie in different
+        branches of ``if`` statements that end before the use. If those
+        branches cover every path, the initializer is overwritten; otherwise
+        it is one more value (a ``null`` initializer gives none).
+        """
+        declarator, initializer, assignments = entry
+        if declarator.start_byte >= node.start_byte:
+            return [PLACEHOLDER]
+        if not assignments:
+            if initializer is None:
+                return [PLACEHOLDER]
+            return self._fold(("local", initializer.id), initializer, None, depth)
+        if any(
+            _text(a.child_by_field_name("operator"), self.content) != "="
+            or a.end_byte > node.start_byte
+            for a in assignments
+        ):
+            return [PLACEHOLDER]
+        declaration_block = declarator.parent.parent
+        first = assignments[0]
+        if (
+            len(assignments) == 1
+            and first.parent.type == "expression_statement"
+            and first.parent.parent.id == declaration_block.id
+        ):
+            sources = [first]  # a straight-line assignment replaces the value
+        else:
+            if len(assignments) == 1:
+                top = first.parent
+                while top is not None and top.type != "if_statement":
+                    if top.id == declaration_block.id:
+                        return [PLACEHOLDER]
+                    top = top.parent
+                separating = [] if top is None else [top]
+            else:
+                separating = _branches_exclusive(list(assignments))
+            if not separating or any(s.end_byte > node.start_byte for s in separating):
+                return [PLACEHOLDER]
+            top = min(separating, key=lambda s: s.start_byte)
+            if top.parent.id != declaration_block.id:
+                return [PLACEHOLDER]
+            ids = {a.id for a in assignments}
+            sources = list(assignments)
+            if not _covers(top, ids):
+                if initializer is None or initializer.type == "null_literal":
+                    return [PLACEHOLDER]
+                sources.insert(0, initializer)
+        values = []
+        for source in sources:
+            value = (
+                source.child_by_field_name("right")
+                if source.type == "assignment_expression"
+                else source
+            )
+            values.extend(self._fold(("assigned", source.id), value, None, depth))
+        return values
 
     def _name(self, node, env, depth):
         name = _text(node, self.content)
         if env is not None and name in env:
-            return env[name]
+            return [env[name]]
         scope = node.parent
         while scope is not None and scope.type not in _SCOPES:
             scope = scope.parent
         if scope is not None:
             scoped = self._scope_locals(scope)
             if name in scoped:
-                value = scoped[name]
-                if value is None or value.start_byte >= node.start_byte:
-                    return PLACEHOLDER
-                return self._fold(("local", value.id), value, None, depth)
+                entry = scoped[name]
+                if entry is None:
+                    return [PLACEHOLDER]
+                return self._local(node, entry, depth)
         value = self._fields.get(name)
         if value is None:
-            return PLACEHOLDER
+            return [PLACEHOLDER]
         return self._fold(("field", name), value, None, depth)
 
     def _fold(self, key, node, env, depth):
         if key in self._active:
-            return PLACEHOLDER
+            return [PLACEHOLDER]
         self._active.add(key)
         try:
-            return self.evaluate(node, env, depth)
+            return self._alternatives(node, env, depth)
         finally:
             self._active.discard(key)
 
@@ -280,14 +411,16 @@ class _Values:
         arguments = node.child_by_field_name("arguments").named_children
         if target is not None and _text(target, self.content) == "String":
             if name == "format" and arguments:
-                template = self.evaluate(arguments[0], env, depth)
-                return re.sub(r"%[sd]", PLACEHOLDER, template)
-            return PLACEHOLDER
+                return [
+                    re.sub(r"%[sd]", PLACEHOLDER, template)
+                    for template in self._alternatives(arguments[0], env, depth)
+                ]
+            return [PLACEHOLDER]
         if target is not None and target.type != "this":
-            return PLACEHOLDER
+            return [PLACEHOLDER]
         found = self._methods.get((name, len(arguments)))
         if found is None or depth >= _MAX_INLINE:
-            return PLACEHOLDER
+            return [PLACEHOLDER]
         method, parameters = found
         body = method.child_by_field_name("body")
         statements = (
@@ -300,17 +433,17 @@ class _Values:
             ]
         )
         if len(statements) != 1 or statements[0].type != "return_statement":
-            return PLACEHOLDER
+            return [PLACEHOLDER]
         returned = statements[0].named_children
         if not returned:
-            return PLACEHOLDER
+            return [PLACEHOLDER]
+        # Each parameter takes one value; several alternatives are unknown.
         bound = {p: self.evaluate(a, env, depth) for p, a in zip(parameters, arguments)}
         return self._fold(("method", method.id), returned[0], bound, depth + 1)
 
-    def evaluate(self, node, env=None, depth=0):
-        """The expression's text with PLACEHOLDER for what is not fixed."""
+    def _alternatives(self, node, env, depth):
         if node is None:
-            return PLACEHOLDER
+            return [PLACEHOLDER]
         kind = node.type
         if kind == "string_literal":
             parts = []
@@ -319,18 +452,21 @@ class _Values:
                 if child.type == "escape_sequence":
                     text = _unescape(text)
                 elif child.type == "multiline_string_fragment":
-                    return PLACEHOLDER  # text blocks are not read
+                    return [PLACEHOLDER]  # text blocks are not read
                 parts.append(text)
-            return "".join(parts)
+            return ["".join(parts)]
         if kind == "parenthesized_expression":
-            return self.evaluate(node.named_children[0], env, depth)
+            return self._alternatives(node.named_children[0], env, depth)
         if kind == "binary_expression":
             operator = node.child_by_field_name("operator")
             if operator is not None and operator.type == "+":
-                left = self.evaluate(node.child_by_field_name("left"), env, depth)
-                right = self.evaluate(node.child_by_field_name("right"), env, depth)
-                return left + right
-            return PLACEHOLDER
+                lefts = self._alternatives(node.child_by_field_name("left"), env, depth)
+                rights = self._alternatives(
+                    node.child_by_field_name("right"), env, depth
+                )
+                values = [left + right for left in lefts for right in rights]
+                return values if len(values) <= _MAX_ALTERNATIVES else [PLACEHOLDER]
+            return [PLACEHOLDER]
         if kind == "identifier":
             return self._name(node, env, depth)
         if kind == "field_access":
@@ -338,11 +474,21 @@ class _Values:
             field = node.child_by_field_name("field")
             value = self._fields.get(_text(field, self.content))
             if value is None:
-                return PLACEHOLDER
+                return [PLACEHOLDER]
             return self._fold(("field", _text(field, self.content)), value, None, depth)
         if kind == "method_invocation":
             return self._call(node, env, depth)
-        return PLACEHOLDER
+        return [PLACEHOLDER]
+
+    def alternatives(self, node):
+        """Each text the expression may have, in source order, without repeats."""
+        values = list(dict.fromkeys(self._alternatives(node, None, 0)))
+        return values if len(values) <= _MAX_ALTERNATIVES else [PLACEHOLDER]
+
+    def evaluate(self, node, env=None, depth=0):
+        """The expression's single text, PLACEHOLDER where it is not fixed."""
+        values = list(dict.fromkeys(self._alternatives(node, env, depth)))
+        return values[0] if len(values) == 1 else PLACEHOLDER
 
     def strings(self, node):
         """Each string of an annotation value (an array gives several)."""
@@ -800,20 +946,23 @@ def extract_spring(
                 # A java.net.URI value or a URI builder function.
                 unread.append(Unread(file, line, "request", "url_not_string"))
                 continue
-            url = values.evaluate(first)
+            urls = values.alternatives(first)
             start = (line, node.start_point.column)
             end = (node.end_point.row + 1, node.end_point.column)
             caller = next((i for s, e, i in enclosing if s <= start and end <= e), None)
-            requests.append(
-                HttpRequest(
-                    id=make_id("HttpRequest", f"{name} {line}"),
-                    file=file,
-                    line=line,
-                    column=node.start_point.column,
-                    caller_id=caller,
-                    method=method,
-                    url=url,
-                    client=client,
+            for index, url in enumerate(urls):
+                key = f"{name} {line}" if len(urls) == 1 else f"{name} {line} {index}"
+                requests.append(
+                    HttpRequest(
+                        id=make_id("HttpRequest", key),
+                        file=file,
+                        line=line,
+                        column=node.start_point.column,
+                        caller_id=caller,
+                        method=method,
+                        url=url,
+                        client=client,
+                        alternatives=len(urls),
+                    )
                 )
-            )
     return routes, requests, unread

@@ -108,7 +108,7 @@ public class AccountController {
     rest.put(url, name);
     cache.put("k", "/stats/x");
     String later;
-    later = "/x";
+    later = lookup();
     rest.getForObject(later, String.class);
     rest.exchange(base("statistics-service") + "/stats/" + name, HttpMethod.GET, null, String.class);
     rest.postForObject(String.format("http://statistics-service/stats/%s/notes", name), null, String.class);
@@ -491,6 +491,84 @@ class SpringContractTests(unittest.TestCase):
         tool, _ = self.analyze()
         urls = [q.url for q in tool.last_facts[2] if q.file.endswith("Later.java")]
         self.assertEqual(urls, [U])
+
+    def test_urls_chosen_in_branches(self):
+        body = """
+  void exhaustive(boolean c) {
+    String u = "";
+    if (c) { u = "http://statistics-service/stats/a"; }
+    else if (!c) u = "http://statistics-service/stats/b/notes";
+    else { u = "http://statistics-service/stats/latest"; }
+    t.getForObject(u, String.class);
+  }
+  void partial(boolean c) {
+    String u = "http://statistics-service/stats/latest";
+    if (c) { u = "http://statistics-service/stats/a"; }
+    t.getForObject(u, String.class);
+  }
+  void nullPartial(boolean c) {
+    String u = null;
+    if (c) { u = "http://statistics-service/stats/a"; }
+    t.getForObject(u, String.class);
+  }
+  void sequential() {
+    String u = "http://statistics-service/stats/a";
+    if (true) { u = "/x"; u = "/y"; }
+    t.getForObject(u, String.class);
+  }
+  void straight() {
+    String u = "http://statistics-service/stats/a";
+    u = "http://statistics-service/stats/latest";
+    t.getForObject(u, String.class);
+  }
+  void after(boolean c) {
+    String u = null;
+    t.getForObject(u, String.class);
+    if (c) { u = "/a"; } else { u = "/b"; }
+  }
+  void compound() {
+    String u = "http://statistics-service/stats";
+    u += "/latest";
+    t.getForObject(u, String.class);
+  }
+"""
+        _write(
+            self.root,
+            {
+                "account/src/main/java/a/Branches.java": (
+                    "package a;\nimport org.springframework.web.client.RestTemplate;\n"
+                    "class Branches { RestTemplate t;\n" + body + "}\n"
+                ),
+            },
+        )
+        tool, output = self.analyze()
+        definitions = {d.id: d.symbol for d in tool.last_facts[0].definitions}
+        found = {}
+        for request in tool.last_facts[2]:
+            if request.file.endswith("Branches.java"):
+                found.setdefault(definitions[request.caller_id], []).append(
+                    (request.url.rpartition("/stats")[2], request.alternatives)
+                )
+        self.assertEqual(
+            found,
+            {
+                "Branches.exhaustive": [("/a", 3), ("/b/notes", 3), ("/latest", 3)],
+                "Branches.partial": [("/latest", 2), ("/a", 2)],
+                "Branches.nullPartial": [(U, 1)],
+                "Branches.sequential": [(U, 1)],
+                "Branches.straight": [("/latest", 1)],
+                "Branches.after": [(U, 1)],
+                "Branches.compound": [(U, 1)],
+            },
+        )
+        alternatives = [
+            r.properties.get("url_alternatives")
+            for r in output.relationships
+            if r.type == "REQUESTS"
+            and "Branches.exhaustive" in r.source_match["qualified_name"]
+        ]
+        # GET /stats/b/notes fits no route: the notes route accepts POST only.
+        self.assertEqual(alternatives, [3, 3])
 
     def test_unsupported_languages_are_rejected(self):
         with self.assertRaises(ValueError):

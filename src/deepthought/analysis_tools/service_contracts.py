@@ -342,6 +342,11 @@ class ServiceContractTool(AnalysisTool):
                         "line": request.line,
                         "column": request.column,
                         **(
+                            {"url_alternatives": request.alternatives}
+                            if request.alternatives > 1
+                            else {}
+                        ),
+                        **(
                             {"target_service": resolution.target_service}
                             if resolution.target_service
                             else {}

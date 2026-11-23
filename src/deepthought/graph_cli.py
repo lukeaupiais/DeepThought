@@ -62,7 +62,7 @@ def parser():
     index.add_argument(
         "--language",
         action="append",
-        choices=("go", "java", "javascript", "python", "rust", "typescript"),
+        choices=("c", "go", "java", "javascript", "python", "rust", "typescript"),
     )
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
@@ -129,6 +129,9 @@ def parser():
         "components",
         "file-components",
         "component-files",
+        "component-requires",
+        "component-required-by",
+        "component-impact",
         "cypher",
     ):
         q = commands.add_parser(name)
@@ -203,6 +206,16 @@ def parser():
             q.add_argument("--kind", help="Only components of this kind")
         if name == "file-components":
             q.add_argument("--file", required=True)
+        if name in {"component-requires", "component-required-by", "component-impact"}:
+            q.add_argument("--component", required=True, help="Qualified name")
+            q.add_argument(
+                "--evidence",
+                action="append",
+                choices=("resolved", "pattern_matched", "name_matched"),
+                help="Repeat to keep only edges with these evidence types",
+            )
+        if name == "component-impact":
+            q.add_argument("--max-depth", type=int, default=3, help="1 to 5 hops")
         if name == "component-files":
             q.add_argument("--component", required=True, help="Qualified name")
             q.add_argument("--after-path", default="", help="Continue after this path")
@@ -416,6 +429,22 @@ async def execute(args):
         if args.command == "file-components":
             return await service.get_file_components(
                 args.file, args.repository_id, **kwargs
+            )
+        if args.command in {"component-requires", "component-required-by"}:
+            return await service.get_component_dependencies(
+                args.component,
+                args.repository_id,
+                incoming=args.command == "component-required-by",
+                evidence_types=args.evidence,
+                **kwargs,
+            )
+        if args.command == "component-impact":
+            return await service.get_component_impact(
+                args.component,
+                args.repository_id,
+                max_depth=args.max_depth,
+                evidence_types=args.evidence,
+                **kwargs,
             )
         if args.command == "component-files":
             return await service.get_component_files(

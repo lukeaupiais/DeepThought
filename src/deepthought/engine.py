@@ -27,6 +27,7 @@ from .syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
     extract,
+    extract_c,
     extract_call_sites,
     extract_cargo_manifest,
     extract_go_module,
@@ -215,7 +216,7 @@ def analyze_repository(
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
         raise ValueError(
-            "Supported languages: go, java, javascript, python, rust, typescript"
+            "Supported languages: c, go, java, javascript, python, rust, typescript"
         )
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
@@ -410,6 +411,12 @@ def analyze_repository(
                             relative, language, "analyzed", sha256(content).hexdigest()
                         )
                     )
+                if language == "c":
+                    # C: declarations only so far.
+                    definitions.extend(
+                        extract_c(tree, content, repository_id, relative)
+                    )
+                    continue
                 expander = (
                     RustExpander(content, item_macros) if language == "rust" else None
                 )

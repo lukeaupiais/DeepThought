@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -86,6 +87,78 @@ class GroundTruthTest(unittest.TestCase):
         )
         better = {"expected": 10, "confirmed": 9, "contradicted": 0}
         self.assertEqual(ground_truth.regressions(better, baseline), [])
+
+    def test_a_rule_that_gets_worse_is_named(self):
+        baseline = {
+            "expected": 10,
+            "confirmed": 8,
+            "contradicted": 0,
+            "by_rule": {"a.x": {"confirmed": 5}, "a.y": {"confirmed": 3}},
+        }
+        # Same totals, but one rule lost a confirmed link another gained.
+        report = {
+            "expected": 10,
+            "confirmed": 8,
+            "contradicted": 0,
+            "by_rule": {"a.x": {"confirmed": 6}, "a.y": {"confirmed": 2}},
+        }
+        self.assertEqual(
+            ground_truth.regressions(report, baseline), ["a.y confirmed 3 -> 2"]
+        )
+
+    def test_scores_are_broken_down_by_rule(self):
+        result = ground_truth.analyze(FIXTURES / "python", ("python",))
+        report, _ = ground_truth.score(result, self.truth())
+        self.assertEqual(
+            sum(c.get("confirmed", 0) for c in report["by_rule"].values()), 3
+        )
+        coverage = ground_truth.rule_coverage({"fixture": report})
+        self.assertIn("tree-sitter.call-imported-name", coverage["rules"])
+        self.assertIn("tree-sitter.rust-call-path", coverage["unverified"])
+        self.assertNotIn("tree-sitter.python-from-import-submodule", coverage["rules"])
+
+
+JAVA_SOURCES = {
+    "src/a/Base.java": "package a;\npublic class Base {\n  @Deprecated\n  public void run() {}\n}\n",
+    "src/b/Square.java": "package b;\nimport a.Base;\n"
+    "public class Square extends Base {\n"
+    "  Square() { run(); helper(2); new Base(); String.valueOf(1); }\n"
+    "  static int helper(int x) { return x; }\n}\n",
+}
+
+
+@unittest.skipUnless(
+    READY and shutil.which("java") and importlib.util.find_spec("tree_sitter_java"),
+    "A JDK and the Java grammar are required",
+)
+class JavaTruthTest(unittest.TestCase):
+    def test_javac_binds_calls_at_their_name_lines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in JAVA_SOURCES.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            self.assertEqual(ground_truth.java_source_roots(directory), ["src"])
+            truth = ground_truth.derive_java(directory)
+            result = ground_truth.analyze(directory, ("java",))
+        expected, indexed = truth
+        self.assertEqual(
+            expected,
+            {
+                # The name line, not the annotation line the engine records.
+                ("src/b/Square.java", 4, "run"): {("src/a/Base.java", 4, "callable")},
+                ("src/b/Square.java", 4, "helper"): {
+                    ("src/b/Square.java", 5, "callable")
+                },
+                # An implicit constructor binds its class.
+                ("src/b/Square.java", 4, "Base"): {("src/a/Base.java", 2, "callable")},
+                ("src/b/Square.java", 4, "valueOf"): {("-", 0, "external")},
+            },
+        )
+        self.assertEqual(indexed, set(JAVA_SOURCES))
+        report, _ = ground_truth.score(result, truth)
+        self.assertEqual((report["contradicted"], report["expected"]), (0, 3))
+        self.assertEqual(report["confirmed"], 3)
 
 
 class AppliedTest(unittest.TestCase):
