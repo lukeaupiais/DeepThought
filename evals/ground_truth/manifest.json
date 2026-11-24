@@ -413,7 +413,10 @@
       "oracle_command": "php tools/php_declaration_truth.php .",
       "imports": "imports/slim.tsv",
       "imports_oracle": "PHP 8.3.6 token_get_all, Composer 2 class map",
-      "imports_command": "COMPOSER_VENDOR_DIR=\"$TMP/vendor\" composer dump-autoload --optimize --no-scripts --no-plugins && php tools/php_import_truth.php . \"$TMP/vendor/composer/autoload_classmap.php\""
+      "imports_command": "COMPOSER_VENDOR_DIR=\"$TMP/vendor\" composer dump-autoload --optimize --no-scripts --no-plugins && php tools/php_import_truth.php . \"$TMP/vendor/composer/autoload_classmap.php\"",
+      "calls": "calls/slim.tsv",
+      "calls_oracle": "PHP 8.3.6 token_get_all (tools/php_call_truth.php)",
+      "calls_command": "php tools/php_call_truth.php ."
     },
     {
       "name": "laravel",

@@ -381,6 +381,31 @@ gem is external, and a feature Ruby cannot find here (`simplecov`, Rails in
 `test.rb`) is not listed. Of 340 rows, 287 name a repository file. The
 engine does not resolve Ruby requires yet, so the baseline is 0 confirmed.
 
+slim also carries call truth from `tools/php_call_truth.php`, built on PHP's
+own tokenizer. It applies PHP's compile-time name resolution: the namespace,
+`use` and `use function` imports, and the fallback of an unqualified function
+to the global one. It records each call at the line of the callee's name:
+
+- `f()`: the function.
+- `new C`: the class, and its constructor whether it is C's own, from a trait,
+  or inherited.
+- `C::m()`, `self::m()`, `static::m()` and `parent::m()`: the method the
+  class declares, uses from a trait or inherits. `static` is read as the
+  enclosing class.
+- `$this->m()`: the same lookup from the enclosing class.
+
+A function or class that PHP itself provides gets the target `<external>`.
+These calls are left out, so they are unjudged:
+
+- targets declared more than once;
+- classes from Composer dependencies;
+- methods the hierarchy does not declare;
+- calls on other expressions;
+- `$this` in a trait calling a method the trait does not declare;
+- calls in anonymous classes.
+
+The scorer reads a callee's name after its last `::`, `.`, `->` or `\`.
+
 ### Service contracts
 
 The `contracts` entries in the manifest gate cross-service links the same way.
