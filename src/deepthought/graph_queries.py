@@ -12,6 +12,8 @@ import re
 import time
 from hashlib import sha256
 
+from .components import PACKAGE_KINDS
+
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
@@ -1432,6 +1434,64 @@ class GraphQueryService:
         return self._observed(
             response, ("incoming " if incoming else "") + "REQUIRES", max_output_bytes
         )
+
+    async def get_shared_tables(
+        self,
+        repo_url,
+        *,
+        snapshot_id,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Database tables that code in more than one package declares, maps,
+        reads or writes: shared-database coupling, which no API contract
+        shows. Each table lists every package touching it (the nearest
+        package of the code, as for USES_CONTRACT_OF) with its roles; tables
+        written from several packages come first."""
+        response = await self._read(
+            "MATCH (t:DbTable {repo_url:$repo_url,snapshot_id:$snapshot_id})"
+            "<-[r:DECLARES|MAPS_TO|READS|WRITES]-(code) "
+            "WHERE code.repo_url=$repo_url AND code.snapshot_id=$snapshot_id "
+            "WITH t, r, coalesce(code.path, code.file_path) AS path "
+            "MATCH (f:File {repo_url:$repo_url,snapshot_id:$snapshot_id,path:path})"
+            "-[:PART_OF]->(c:Component {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE c.kind IN $package_kinds "
+            # The nearest package: the deepest of the roots enclosing the file.
+            "WITH t, r, path, c ORDER BY size(coalesce(c.root, '')) DESC "
+            "WITH t, r, path, collect(c) AS enclosing "
+            "UNWIND [c IN enclosing WHERE size(coalesce(c.root, '')) = "
+            "size(coalesce(enclosing[0].root, ''))] AS c "
+            "WITH t, c, type(r) AS role, count(r) AS uses "
+            "ORDER BY role "
+            "WITH t, c, collect({role:role, count:uses}) AS roles "
+            "ORDER BY c.qualified_name "
+            "WITH t, collect({qualified_name:c.qualified_name, kind:c.kind, "
+            "name:c.display_name, roles:roles}) AS packages "
+            "WHERE size(packages) > 1 "
+            "WITH t, packages, size([p IN packages WHERE "
+            "any(x IN p.roles WHERE x.role = 'WRITES')]) AS writers "
+            "RETURN t {.qualified_name,.name,.scope} AS element, packages, "
+            "writers "
+            "ORDER BY writers DESC, size(packages) DESC, t.qualified_name "
+            "LIMIT $fetch_limit",
+            {"package_kinds": sorted(PACKAGE_KINDS)},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            required_capability="data-contracts",
+        )
+        response["semantics"] = (
+            "Tables (DbTable contracts) that code in two or more packages "
+            "DECLARES, MAPS_TO, READS or WRITES, with each package's roles and "
+            "edge counts. Tables are the same only within one namespace (a "
+            "shared persistent spring.datasource.url, else one package), so "
+            "packages sharing a database without a common datasource URL are "
+            "not joined. Requires the components tool in the same snapshot."
+        )
+        return response
 
     async def get_component_files(
         self,

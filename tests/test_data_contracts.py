@@ -123,6 +123,34 @@ WORKSPACE = {
 }
 
 
+def shared_datasource_files():
+    """Three services; billing and report share one persistent database."""
+    entity = (
+        "package {p};\nimport jakarta.persistence.*;\n"
+        '@Entity @Table(name = "orders") public class Order {{ }}\n'
+    )
+    repository = (
+        "package {p};\nimport org.springframework.data.repository.{base};\n"
+        "public interface Orders extends {base}<Order, Long> {{ }}\n"
+    )
+    files = {}
+    for module, url, base in (
+        ("billing", "jdbc:postgresql://db:5432/shop", "CrudRepository"),
+        ("report", "jdbc:postgresql://db:5432/shop", "PagingAndSortingRepository"),
+        ("cache", "jdbc:h2:mem:cache", "PagingAndSortingRepository"),
+    ):
+        java = f"{module}/src/main/java/{module}/"
+        files[f"{module}/pom.xml"] = (
+            f"<project><artifactId>{module}</artifactId></project>"
+        )
+        files[f"{module}/src/main/resources/application.yml"] = (
+            f"spring:\n  datasource:\n    url: {url}\n"
+        )
+        files[java + "Order.java"] = entity.format(p=module)
+        files[java + "Orders.java"] = repository.format(p=module, base=base)
+    return files
+
+
 def write(directory, files):
     for name, text in files.items():
         path = Path(directory) / name
@@ -263,29 +291,7 @@ class ToolTests(unittest.TestCase):
         )
 
     def test_one_persistent_datasource_shares_its_tables(self):
-        entity = (
-            "package {p};\nimport jakarta.persistence.*;\n"
-            '@Entity @Table(name = "orders") public class Order {{ }}\n'
-        )
-        repository = (
-            "package {p};\nimport org.springframework.data.repository.{base};\n"
-            "public interface Orders extends {base}<Order, Long> {{ }}\n"
-        )
-        files = {}
-        for module, url, base in (
-            ("billing", "jdbc:postgresql://db:5432/shop", "CrudRepository"),
-            ("report", "jdbc:postgresql://db:5432/shop", "PagingAndSortingRepository"),
-            ("cache", "jdbc:h2:mem:cache", "PagingAndSortingRepository"),
-        ):
-            java = f"{module}/src/main/java/{module}/"
-            files[f"{module}/pom.xml"] = (
-                f"<project><artifactId>{module}</artifactId></project>"
-            )
-            files[f"{module}/src/main/resources/application.yml"] = (
-                f"spring:\n  datasource:\n    url: {url}\n"
-            )
-            files[java + "Order.java"] = entity.format(p=module)
-            files[java + "Orders.java"] = repository.format(p=module, base=base)
+        files = shared_datasource_files()
         with tempfile.TemporaryDirectory() as directory:
             write(directory, files)
             outputs = [
@@ -746,11 +752,167 @@ class PythonSqlTests(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(
-    JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
-    "Provision isolated Neo4j and the java grammar",
+TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_typescript"
 )
-class ImpactTests(unittest.IsolatedAsyncioTestCase):
+SCRIPT_ORMS = {
+    "package.json": '{"name": "shop"}',
+    "prisma/schema.prisma": """// The shop's tables.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id      Int     @id @default(autoincrement())
+  profile UserProfile?
+  @@map("users")
+}
+
+/// model Ghost {} is only a comment.
+model UserProfile {
+  id     Int  @id
+  userId Int  @unique
+}
+""",
+    "src/users.ts": """import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
+export async function listUsers() {
+  return prisma.user.findMany({ include: { profile: true } });
+}
+
+export async function rename(id: number, name: string) {
+  await prisma.userProfile.upsert({ where: { id }, create: {}, update: {} });
+  return prisma.user.update({ where: { id }, data: { name } });
+}
+
+export function other(cache: any) {
+  return cache.user.get(1);
+}
+""",
+    "src/entities.ts": """import { Entity as Table, PrimaryGeneratedColumn } from "typeorm";
+
+@Table({ name: "audit_events" })
+export class AuditEvent {
+  @PrimaryGeneratedColumn() id: number;
+}
+
+export @Table() class HTTPRequestLog {}
+
+@Table(tableName) class Dynamic {}
+""",
+    "src/audit.ts": """import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { DataSource, Repository } from "typeorm";
+import { AuditEvent, HTTPRequestLog } from "./entities";
+
+@Injectable()
+export class AuditService {
+  constructor(
+    @InjectRepository(AuditEvent) private events: Repository<AuditEvent>,
+    private source: DataSource,
+  ) {}
+
+  logs() {
+    return this.source.getRepository(HTTPRequestLog).find();
+  }
+
+  unknown() {
+    return this.source.getRepository(Missing);
+  }
+}
+""",
+}
+
+
+@unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
+class ScriptOrmTests(unittest.TestCase):
+    def test_prisma_and_typeorm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SCRIPT_ORMS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("DECLARES", "prisma/schema.prisma", "userprofile", "prisma-model"),
+                ("DECLARES", "prisma/schema.prisma", "users", "prisma-model"),
+                (
+                    "MAPS_TO",
+                    "AuditEvent",
+                    "audit_events",
+                    "typeorm-entity-name",
+                ),
+                (
+                    "MAPS_TO",
+                    "HTTPRequestLog",
+                    "http_request_log",
+                    "typeorm-default-table-name",
+                ),
+                (
+                    "READS",
+                    "AuditService.constructor",
+                    "audit_events",
+                    "typeorm-repository",
+                ),
+                (
+                    "READS",
+                    "AuditService.logs",
+                    "http_request_log",
+                    "typeorm-repository",
+                ),
+                ("READS", "listUsers", "users", "prisma-client"),
+                (
+                    "WRITES",
+                    "AuditService.constructor",
+                    "audit_events",
+                    "typeorm-repository",
+                ),
+                (
+                    "WRITES",
+                    "AuditService.logs",
+                    "http_request_log",
+                    "typeorm-repository",
+                ),
+                ("WRITES", "rename", "userprofile", "prisma-client"),
+                ("WRITES", "rename", "users", "prisma-client"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            (metrics["prisma_models"], metrics["typeorm_entities"]), (2, 2)
+        )
+        self.assertEqual(
+            metrics["orm_access_resolution"],
+            {
+                "prisma_linked": 3,
+                "prisma_ambiguous": 0,
+                "typeorm_linked": 2,
+                "typeorm_not_an_entity": 1,
+            },
+        )
+        for relationship in output.relationships:
+            self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+class GraphCase(unittest.IsolatedAsyncioTestCase):
+    """Writes a workspace's tree-sitter, components and data-contracts
+    outputs to an isolated repository of the provisioned Neo4j."""
+
+    files = WORKSPACE
+
     async def asyncSetUp(self):
         from deepthought.graph_queries import GraphQueryService
         from deepthought.storage.graph import (
@@ -774,9 +936,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             self.manager.driver, database=self.manager.database
         )
         with tempfile.TemporaryDirectory() as directory:
-            write(directory, WORKSPACE)
+            write(directory, self.files)
             self.outputs = [
                 await TreeSitterTool(directory).analyze(self.repo, languages={"java"}),
+                await ComponentsTool(directory).analyze(self.repo),
                 await DataContractTool(directory).analyze(self.repo),
             ]
         self.snapshot = "rev-" + uuid4().hex
@@ -795,6 +958,12 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 )
             ).consume()
 
+
+@unittest.skipUnless(
+    JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
+    "Provision isolated Neo4j and the java grammar",
+)
+class ImpactTests(GraphCase):
     async def test_a_writer_affects_the_readers_of_its_table(self):
         names = {
             n.properties["name"]: n.properties["qualified_name"]
@@ -821,6 +990,48 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             names["LineItemReader"], self.repo, snapshot_id=self.snapshot
         )
         self.assertEqual(reader["items"], [])
+
+
+@unittest.skipUnless(
+    JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
+    "Provision isolated Neo4j and the java grammar",
+)
+class SharedTableTests(GraphCase):
+    files = shared_datasource_files()
+
+    async def test_tables_shared_between_packages(self):
+        shared = await self.service.get_shared_tables(
+            self.repo, snapshot_id=self.snapshot
+        )
+        self.assertEqual(
+            [
+                (
+                    item["element"]["name"],
+                    item["writers"],
+                    [
+                        (
+                            p["qualified_name"].split("::")[1],
+                            [(r["role"], r["count"]) for r in p["roles"]],
+                        )
+                        for p in item["packages"]
+                    ],
+                )
+                for item in shared["items"]
+            ],
+            [
+                (
+                    "orders",
+                    1,
+                    [
+                        (
+                            "billing/pom.xml",
+                            [("MAPS_TO", 1), ("READS", 1), ("WRITES", 1)],
+                        ),
+                        ("report/pom.xml", [("MAPS_TO", 1), ("READS", 1)]),
+                    ],
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":

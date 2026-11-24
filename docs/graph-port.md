@@ -1323,7 +1323,21 @@ after an export macro (`API Status Get();`) is in an error node and the
 declarator is kept, so a field annotated the same way (`int x
 GUARDED_BY(mu);`) reads as a function named after the macro; and a
 function's declarator standing alone in an error node declares a function,
-as in C.
+as in C. A line holding only an upper-case name with an underscore
+(`FMT_BEGIN_EXPORT`, or `FMT_CONSTEXPR` above a declaration) is a macro and
+is replaced with spaces too, since the grammar would read it as the type of
+the declaration after it. The same name at the start of a line before a
+constructor or destructor (`FMT_CONSTEXPR explicit checker(...) : a(1) {`,
+`FMT_CONSTEXPR20 ~buffer()`) is replaced too: read as a return type, it turns
+the member initializers into a parse error that ends the class early. A
+declarator standing alone in an error node with nothing before it (`M(a,
+b);`) is a macro's invocation, not a function, unless it is in a class and
+names it (a constructor whose initializers hold an `#if`). Two shapes declare no function: a declarator after
+a class body in the same declaration (C++ does not allow a class defined in a
+return type, so this is text after a body the grammar closed early), and a
+declarator after a bit-field width (a constructor's member initializers,
+`: size_(n), cap_(n)`, after a macro). An enum whose name the grammar reports
+as missing (`enum : unsigned {`) is unnamed.
 
 `tools/compare_c_declarations_with_clang.py --language cpp` checks this
 against clang (libclang 18.1.1, `-std=c++20`), as for C, with namespaces and
@@ -1342,7 +1356,7 @@ text before it.
 |---|---|---|---|---|---|
 | leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
 | google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
-| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,449 (1,677 / 856) | 740 / 50 / 0 / 830 / 178 / 30 / 13 | 3,497 / 564 / 0 / 196 / 165 / 14 / 1 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 7,036 (2,259 / 856) | 742 / 50 / 0 / 781 / 84 / 0 / 13 | 3,511 / 124 / 0 / 133 / 67 / 14 / 1 |
 
 No difference is unexplained. Most of fmt's macro-generated declarations
 and names that are macros come from its bundled GoogleTest (`TEST(...)`
@@ -2065,7 +2079,7 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --language python --snapshot
+tree-sitter --tool data-contracts --language java --language python --language typescript --snapshot
 REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
@@ -2090,6 +2104,11 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
+| File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
@@ -2120,6 +2139,16 @@ Test sources (`src/test/`) are skipped.
 to a repository that writes a table reaches the repositories that read it.
 The component roll-up treats WRITES as providing a table and READS as using
 it.
+
+Shared-database coupling has no API contract to show it, so
+`get_shared_tables` (`shared-tables`, getSharedTables) lists it directly:
+every table that code in two or more packages declares, maps, reads or
+writes, with each package's roles and edge counts, tables written from
+several packages first. A package is the nearest one enclosing the code, as
+for `USES_CONTRACT_OF`, so the snapshot needs the components tool too. Two
+packages share a table only within one namespace (a common persistent
+datasource URL), so services pointed at one database through unresolved
+configuration are not joined.
 
 On spring-petclinic-microservices the tool finds 7 tables, declared by 14
 `CREATE TABLE` statements in the hsqldb and mysql schema files of three
@@ -2152,6 +2181,18 @@ none. In Django's own `django/` package, 71 statements are read: 23 are
 built at run time, and the rest name the system catalogs the backends'
 introspection queries (`pg_class`, `sqlite_master`, `user_constraints`,
 ...).
+
+On prisma/prisma-examples, outside `node_modules`, the tool reads all 147
+`model` blocks of its 83 schemas. It links 548 client calls to their
+example's own model and leaves 6 whose name several models of the repository
+share outside the caller's package. Against a `grep` for
+`x.model.method(` it finds 554 calls to grep's 525: the extra ones are
+chains split over lines or with a call as receiver
+(`this.prismaService.extendedPrismaClient().post.create`), and the 9 grep
+hits it does not take are not Prisma Client calls (`db.orm.public.User`,
+or a property that names no model). On nestjs/nest's `sample/` apps it maps
+both TypeORM entities (`user`, `photo`) and links both
+`@InjectRepository` services and the 5 Prisma calls of the GraphQL sample.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
@@ -2348,7 +2389,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access

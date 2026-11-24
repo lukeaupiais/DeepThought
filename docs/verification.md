@@ -54,7 +54,11 @@ scored against a yardstick its own rules cannot move.
   (another in-repository symbol, such as `const f = () => ...`), `local` (a
   parameter, loop variable or local function, at its binding line) or
   `external` (a library or builtin). `# indexed` rows list the files the
-  oracle indexed.
+  oracle indexed. scip-python gives every later declaration of an
+  `@overload` group (the implementation too), and a redefinition of a name
+  in one scope, the first declaration's symbol, so a call to that symbol
+  lists each of those `def` lines as a target: a link to the implementation
+  confirms.
 - `baseline.json` is the current score of each corpus.
 
 Java has no SCIP indexer in this setup, so `derive-java` takes the truth from
@@ -239,6 +243,31 @@ kind mismatches). Its extras include member initializers read as functions
 (`size_(sz)` in `buffer`'s constructor) and an anonymous enum with an empty
 name. cJSON's extras are three functions in a preprocessor branch clang did
 not take.
+
+### Ruby and PHP declarations
+
+The same scorer covers Ruby and PHP, with each language's own parser as the
+oracle. `tools/ruby_declaration_truth.rb` walks Ripper's syntax tree: a
+`def` in a class, module or `class << self` body is a `method`, as is any
+singleton `def x.m` (on `self` or another object); any other `def` is a
+`function`. `tools/php_declaration_truth.php` reads `token_get_all`: a named
+function in a class, interface, trait, enum or anonymous class body is a
+`method`, other named functions are `function`s, and a declaration begins at
+its first attribute or modifier. Closures, `X::class` and `use function`
+imports are not declarations. Files that do not parse (`php -l`) are left
+unindexed.
+
+| Corpus | Expected | Found | Kind mismatch | Missed | Extra |
+|---|---|---|---|---|---|
+| rack (Ruby) | 1014 | 950 | 60 | 4 | 0 |
+| Slim (PHP) | 876 | 863 | 0 | 13 | 0 |
+
+rack's kind mismatches are all singleton methods defined outside a class
+body (`def self.x` at the top of a file, `def object.close` in a test
+block), which the engine reads as functions; its misses are singleton
+methods on an instance variable or nested in another method. Slim's misses
+are the methods of anonymous classes and three functions declared inside a
+method body.
 
 ### Service contracts
 

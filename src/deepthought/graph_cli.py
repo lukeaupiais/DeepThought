@@ -143,6 +143,7 @@ def parser():
         "component-requires",
         "component-required-by",
         "component-impact",
+        "shared-tables",
         "cypher",
     ):
         q = commands.add_parser(name)
@@ -457,6 +458,8 @@ async def execute(args):
                 evidence_types=args.evidence,
                 **kwargs,
             )
+        if args.command == "shared-tables":
+            return await service.get_shared_tables(args.repository_id, **kwargs)
         if args.command == "component-files":
             return await service.get_component_files(
                 args.component,
