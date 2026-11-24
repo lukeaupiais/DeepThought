@@ -37,7 +37,7 @@
     "unresolved_unjudged": 363
   },
   "click": {
-    "ambiguous_includes": 22,
+    "ambiguous_includes": 483,
     "ambiguous_no_candidates": 14,
     "ambiguous_unjudged": 29,
     "by_rule": {
@@ -52,11 +52,23 @@
       },
       "tree-sitter.call-self-method": {
         "confirmed": 159
+      },
+      "tree-sitter.python-call-reexport": {
+        "confirmed": 1261
       }
     },
-    "confirmed": 927,
+    "confirmed": 2188,
     "contradicted": 0,
     "expected": 3313,
+    "imports": {
+      "confirmed": 331,
+      "contradicted": 0,
+      "expected": 331,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 320,
+      "unresolved_unjudged": 34
+    },
     "inherits": {
       "confirmed": 43,
       "contradicted": 0,
@@ -67,20 +79,18 @@
       "unjudged": 9,
       "unresolved": 95
     },
-    "missed": 2400,
+    "missed": 1141,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 14,
-      "ambiguous:multiple_declarations": 22,
+      "ambiguous:multiple_declarations": 483,
       "no_call_site": 67,
       "unresolved:attribute_call": 225,
-      "unresolved:imported_name_not_declared": 3,
       "unresolved:local_binding": 316,
-      "unresolved:module_attribute_not_declared": 1717,
       "unresolved:not_declared_in_class": 36
     },
     "precision": 1.0,
-    "recall": 0.2756,
-    "unresolved_expected": 2299,
+    "recall": 0.6556,
+    "unresolved_expected": 577,
     "unresolved_unjudged": 3556
   },
   "cobra": {
@@ -98,6 +108,15 @@
     "confirmed": 1044,
     "contradicted": 0,
     "expected": 2197,
+    "imports": {
+      "confirmed": 12,
+      "contradicted": 0,
+      "expected": 12,
+      "not_indexed": 4,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 174
+    },
     "missed": 1153,
     "missed_by_engine_outcome": {
       "no_call_site": 32,
@@ -281,32 +300,80 @@
     "fmt": {
       "by_kind": {
         "alias": {
-          "found": 71,
-          "missed": 36
+          "found": 99,
+          "missed": 8
         },
         "function": {
-          "found": 237,
-          "missed": 117
+          "found": 395,
+          "missed": 17
         },
         "method": {
-          "found": 330,
-          "missed": 186
+          "found": 496,
+          "missed": 58
         },
         "namespace": {
-          "found": 15,
-          "missed": 25
+          "found": 23,
+          "missed": 17
         },
         "type": {
-          "found": 132,
-          "missed": 98
+          "found": 194,
+          "missed": 36
         }
       },
       "expected": 1346,
-      "extra": 101,
-      "found": 785,
-      "kind_mismatch": 99,
-      "missed": 462,
-      "recall": 0.5832
+      "extra": 95,
+      "found": 1207,
+      "kind_mismatch": 3,
+      "missed": 136,
+      "recall": 0.8967
+    },
+    "rack": {
+      "by_kind": {
+        "function": {
+          "found": 89,
+          "missed": 0
+        },
+        "method": {
+          "found": 691,
+          "missed": 4
+        },
+        "module": {
+          "found": 69,
+          "missed": 0
+        },
+        "type": {
+          "found": 101,
+          "missed": 0
+        }
+      },
+      "expected": 1014,
+      "extra": 0,
+      "found": 950,
+      "kind_mismatch": 60,
+      "missed": 4,
+      "recall": 0.9369
+    },
+    "slim": {
+      "by_kind": {
+        "function": {
+          "found": 0,
+          "missed": 3
+        },
+        "method": {
+          "found": 739,
+          "missed": 10
+        },
+        "type": {
+          "found": 124,
+          "missed": 0
+        }
+      },
+      "expected": 876,
+      "extra": 0,
+      "found": 863,
+      "kind_mismatch": 0,
+      "missed": 13,
+      "recall": 0.9852
     }
   },
   "gson": {
@@ -374,6 +441,15 @@
     "confirmed": 225,
     "contradicted": 0,
     "expected": 143,
+    "imports": {
+      "confirmed": 98,
+      "contradicted": 0,
+      "expected": 98,
+      "not_indexed": 208,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 1
+    },
     "inherits": {
       "confirmed": 5,
       "contradicted": 0,
