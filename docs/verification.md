@@ -215,6 +215,10 @@ vitest.config.mjs aliases them for its tests. The `.ts` and `.tsx` test files
 are dropped from the truth, since the corpus analyzes JavaScript only.
 scip-typescript names the constructor of a class declared in a function
 without defining it; `derive` binds such a construction to the class.
+An object-literal or class method written as `close(ws) { ... }` that
+implements an interface member carries that member as a reference, which
+looks like a call; `derive` leaves out a name followed by a parameter list
+and an opening brace that ends the line (hono 49 such rows, ky 5, preact 5).
 
 `check` refuses to score (exit status 2) when a grammar or the YAML reader a
 selected corpus needs is not installed. Without them the engine reports files

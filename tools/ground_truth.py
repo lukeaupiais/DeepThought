@@ -286,6 +286,11 @@ def derive(workspace, index):
             # A declaration the index records as a reference (scip-python
             # marks each @overload this way), not a call.
             continue
+        if template and _method_shorthand(_slice(line, 0, r.column, encoding), rest):
+            # An object-literal method `close(ws) { ... }` that implements
+            # an interface member: scip-typescript records the member as a
+            # reference there, but nothing is called.
+            continue
         if r.native_id.startswith("rust-analyzer ") and (
             r.line,
             len(_slice(line, 0, r.column, encoding).encode("utf-8")),
@@ -322,6 +327,44 @@ def derive(workspace, index):
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
     return expected, indexed
+
+
+_MODIFIERS = re.compile(
+    r"^\s*(?:(?:async|get|set|static|public|private|protected)\s+)*\*?\s*$"
+)
+
+
+def _method_shorthand(before, rest):
+    """Whether a name with ``before`` ahead of it and ``rest`` after it
+    starts a method definition: nothing but modifiers before it, then a
+    balanced parameter list (type parameters allowed), an optional return
+    type and an opening brace that ends the line."""
+    if not _MODIFIERS.match(before):
+        return False
+    text = rest.lstrip()
+    if text.startswith("<"):
+        depth = 0
+        for i, ch in enumerate(text):
+            depth += {"<": 1, ">": -1}.get(ch, 0)
+            if depth == 0:
+                text = text[i + 1 :].lstrip()
+                break
+        else:
+            return False
+    if not text.startswith("("):
+        return False
+    depth = 0
+    for i, ch in enumerate(text):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if depth == 0:
+            tail = text[i + 1 :].strip()
+            break
+    else:
+        return False
+    if tail.startswith(":"):
+        tail = tail.rstrip()
+        return tail.endswith("{") and "=>" not in tail
+    return tail == "{"
 
 
 _PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
