@@ -139,6 +139,29 @@ def _unescape(text):
     )
 
 
+def _text_block(raw):
+    """The value of a Java text block (JLS 3.10.6): incidental indentation
+    and trailing spaces stripped, then escapes interpreted."""
+    body = raw[3:-3].replace("\r\n", "\n").replace("\r", "\n")
+    newline = body.find("\n")
+    if newline < 0:
+        return PLACEHOLDER
+    lines = body[newline + 1 :].split("\n")
+    # The closing delimiter's line counts even when blank.
+    significant = [line for line in lines[:-1] if line.strip()] + [lines[-1]]
+    indent = min(len(line) - len(line.lstrip(" \t")) for line in significant)
+    text = "\n".join(
+        line[indent:].rstrip(" \t") if line.strip() else "" for line in lines
+    )
+    return re.sub(
+        r"\\(\n|.)",
+        lambda m: {"\n": "", "s": " ", "n": "\n", "t": "\t", "r": "\r"}.get(
+            m.group(1), m.group(1)
+        ),
+        text,
+    )
+
+
 _STRING_TYPES = ("String", "java.lang.String")
 _SCOPES = ("method_declaration", "constructor_declaration", "lambda_expression")
 # Nested helper calls folded at most this deep.
@@ -461,6 +484,9 @@ class _Values:
             return [PLACEHOLDER]
         kind = node.type
         if kind == "string_literal":
+            raw = _text(node, self.content)
+            if raw.startswith('"""'):
+                return [_text_block(raw)]
             parts = []
             for child in node.named_children:
                 text = _text(child, self.content)
@@ -645,7 +671,11 @@ _BUILD_FILES = ("pom.xml", "build.gradle", "build.gradle.kts")
 _CONFIG_STEMS = ("bootstrap", "application")
 _CONFIG_SUFFIXES = ("yml", "yaml", "properties")
 _CONTEXT_PATH_KEYS = ("server.servlet.context-path", "server.context-path")
-_SEARCH_LOCATIONS = "spring.cloud.config.server.native.search-locations"
+# Spring's relaxed binding accepts the camelCase form too.
+_SEARCH_LOCATIONS = (
+    "spring.cloud.config.server.native.search-locations",
+    "spring.cloud.config.server.native.searchLocations",
+)
 
 
 def _module_root(root_path, file):
@@ -735,7 +765,9 @@ class SpringConfig:
             for path in sorted(self.root.rglob("src/main/resources/application.*")):
                 if path.suffix.lstrip(".") not in _CONFIG_SUFFIXES:
                     continue
-                for value in _read_values(path, _SEARCH_LOCATIONS):
+                for value in (
+                    v for key in _SEARCH_LOCATIONS for v in _read_values(path, key)
+                ):
                     for location in value.split(","):
                         location = location.strip()
                         if location.startswith("classpath:"):

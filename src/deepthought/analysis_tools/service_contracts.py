@@ -19,10 +19,15 @@ from .._version import __version__
 from ..engine import analyze_repository
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
+from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.http import PLACEHOLDER
+from ..service_contracts.messaging import (
+    MessageEndpoint,
+    MessageUnread,
+    extract_messaging,
+)
 from ..service_contracts.openapi import generated_spring_apis
-from ..service_contracts.messaging import extract_messaging
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
@@ -30,7 +35,7 @@ from ..service_contracts.spring import (
     java_constants,
 )
 from ..service_contracts.web import extract_web, nest_settings
-from ..syntax import make_parser
+from ..syntax import identifier, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -183,6 +188,22 @@ MESSAGE_RULES = {
         "that receives this destination: the default exchange keyed with the "
         "queue name, or a QueueBind of that queue in the same file." + _SAME_NAME,
     ),
+    ("spring-cloud-stream", "publish"): _message_rule(
+        "service-contracts.spring-cloud-stream-output",
+        "Code sends to a Spring Cloud Stream binding (Source.output(), @SendTo "
+        "or StreamBridge.send) in a service that runs it (its own module, or a "
+        "module whose pom.xml depends on it), and that service binds the "
+        "binding to this destination by spring.cloud.stream.bindings.<name>."
+        "destination, or by the binding's name, through its Kafka or RabbitMQ "
+        "binder." + _SAME_NAME,
+    ),
+    ("spring-cloud-stream", "consume"): _message_rule(
+        "service-contracts.spring-cloud-stream-listener",
+        "A @StreamListener method listens on a Spring Cloud Stream binding in a "
+        "service that runs it, and that service binds the binding to this "
+        "destination by spring.cloud.stream.bindings.<name>.destination, or by "
+        "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
+    ),
 }
 
 REQUEST_RULES = {
@@ -260,6 +281,78 @@ GRPC_CALL_RULE = register_rule(
         "address is not read.",
     )
 )
+
+
+def _stream_endpoints(root, config, sites, repo_url):
+    """Message endpoints of Spring Cloud Stream binding sites, one per
+    service that runs the code (see ``service_contracts.cloud_stream``)."""
+    if not sites:
+        return [], []
+    maven = MavenModules(root)
+    endpoints, unread = [], []
+    for site in sites:
+        module = _module_root(root, site.file)
+        if module is None:
+            unread.append(MessageUnread(site.file, site.line, site.role, "no_module"))
+            continue
+        module = module.as_posix()
+        if config.service(site.file)[0] is not None:
+            deploying = [module]
+        else:
+            deploying = [
+                m
+                for m in maven.dependents(module)
+                if config.service(f"{m}/pom.xml")[0] is not None
+            ]
+        if not deploying:
+            unread.append(MessageUnread(site.file, site.line, site.role, "no_service"))
+        for current in deploying:
+            marker = f"{current}/pom.xml"
+            service = config.service(marker)[0]
+            binder = maven.binder(current)
+            if binder is None:
+                unread.append(
+                    MessageUnread(site.file, site.line, site.role, "binder_unknown")
+                )
+                continue
+            configured = config.values(
+                marker, f"spring.cloud.stream.bindings.{site.binding}.destination"
+            )
+            if not configured:
+                destination = site.binding
+            elif len(configured) == 1 and "${" not in configured[0]:
+                destination = configured[0]
+            else:
+                unread.append(
+                    MessageUnread(
+                        site.file, site.line, site.role, "destination_not_literal"
+                    )
+                )
+                continue
+            if binder == "amqp":
+                destination += "/#"
+            endpoints.append(
+                MessageEndpoint(
+                    id=identifier(
+                        repo_url,
+                        site.file,
+                        f"{site.role} {service} {site.binding} {site.line}",
+                        "MessageEndpoint",
+                        0,
+                    ),
+                    file=site.file,
+                    line=site.line,
+                    column=site.column,
+                    declaration_id=site.declaration_id,
+                    role=site.role,
+                    broker=binder,
+                    destination=destination,
+                    client="spring-cloud-stream",
+                    module=None if current == module else current,
+                    service=None if current == module else service,
+                )
+            )
+    return endpoints, unread
 
 
 def _gateways(root, config, sources):
@@ -425,7 +518,7 @@ class ServiceContractTool(AnalysisTool):
         )
         root = self.repo_path.resolve()
         routes, requests, unread = [], [], []
-        endpoints, messaging_unread = [], []
+        endpoints, messaging_unread, stream_sites = [], [], []
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -537,6 +630,15 @@ class ServiceContractTool(AnalysisTool):
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])
+            if coverage.language == "java" and b"cloud.stream" in content:
+                found = extract_stream(
+                    tree, content, coverage.file, result.definitions, constants
+                )
+                stream_sites.extend(found[0])
+                messaging_unread.extend(found[1])
+        found = _stream_endpoints(root, config, stream_sites, repo_url)
+        endpoints.extend(found[0])
+        messaging_unread.extend(found[1])
         if changed:
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
@@ -829,6 +931,12 @@ class ServiceContractTool(AnalysisTool):
                         "client": endpoint.client,
                         "line": endpoint.line,
                         "column": endpoint.column,
+                        **({"service": endpoint.service} if endpoint.service else {}),
+                        **(
+                            {"service_module": endpoint.module}
+                            if endpoint.module
+                            else {}
+                        ),
                         **_evidence(MESSAGE_RULES[(endpoint.client, endpoint.role)]),
                     },
                 )

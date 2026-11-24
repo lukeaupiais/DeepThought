@@ -1404,7 +1404,7 @@ conditional block (`if (!function_exists('f')) { function f() {} }`, common
 in WordPress) is recorded, once for each branch that declares it. One in a
 function or method body, a closure or an anonymous class is not, since PHP
 declares it only when that code runs, and neither are namespaces themselves,
-constants, properties, enum cases, `use` imports, calls or bases yet.
+constants, properties, enum cases, calls or bases yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1428,6 +1428,49 @@ No difference is unexplained, and no declaration is reported by tree-sitter
 alone. The grammar error is WordPress's `function readonly()`, a fallback for
 PHP before 8.1 where `readonly` is not a keyword: the grammar reads `readonly`
 as one and leaves the function out.
+
+Each clause of a `use` declaration is an import fact: its specifier is the
+imported name as written, without a leading backslash and with a group's
+prefix (`use A\{B, C as D}` imports `A\B` and `A\C`), its kind is `use`,
+`use_function` or `use_const` (a `function` or `const` keyword applies to
+every clause of a declaration, or to one clause of a group), and it binds its
+alias or the name's last part. A trait `use` in a class body and a closure's
+`use ($x)` are not imports. PHP compares class, function and namespace names
+ignoring ASCII case, and so does resolution:
+
+| Rule | Evidence | When |
+|---|---|---|
+| `tree-sitter.php-use-declared` | resolved | `use` names a class, interface, trait or enum, or `use function` a function, that exactly one analyzed file declares (one file declaring it in both branches of an `if` counts once) |
+| `tree-sitter.php-use-namespace` | resolved | `use` names no such type but a namespace that analyzed files declare types or functions in; the link reaches every such file |
+
+Other outcomes: `not_in_repository` (Composer dependencies, PHP's own
+classes, and declarations in function bodies, which are not recorded),
+ambiguous `multiple_declarations` when several files declare the name (test
+fixtures, polyfills), and unresolved `constant` for `use const`, since
+constants are not declarations here. Composer's autoload configuration is not
+read: a name declared once is linked to that file wherever Composer would
+look.
+
+`tools/compare_php_imports.py` checks the facts against PHP-Parser's `use`
+nodes, and resolution against Composer's class map (`composer dump-autoload
+--optimize` into a temporary vendor directory, which maps each class Composer
+can autoload to its file by Composer's own scan) or, for a class Composer does
+not map and for a function, against the declarations PHP-Parser reads:
+
+| Corpus | Imports (PHP-Parser) | Class map: confirmed / ambiguous including it | Declared: confirmed / ambiguous agreeing / namespace | Functions confirmed | Unresolved, nothing declares it | Contradicted |
+|---|---|---|---|---|---|---|
+| Seldaek/monolog `6d4cf3a` | 633 (633) | 436 / 0 | 1 / 0 / 0 | 0 | 196 | 0 |
+| guzzle/guzzle `ba6574f` | 877 (877) | 379 / 0 | 19 / 0 / 1 | 0 | 478 | 0 |
+| composer/composer `edc2b0d` | 3,225 (3,225) | 2,234 / 8 | 214 / 11 / 5 | 0 | 753 | 0 |
+| WordPress/WordPress `e1cb5b9` | 859 (859) | no `composer.json` | 750 / 0 / 0 | 0 | 109 | 0 |
+| laravel/framework `817f2fc` | 14,687 (14,687) | 9,144 / 0 | 409 / 0 / 3 | 126 | 5,005 | 0 |
+
+Every import fact matches PHP-Parser's. The ambiguous imports are of
+Composer's `ClassLoader` and `InstalledVersions`, which composer's test
+fixtures declare again. A link from source to a test stub is still possible:
+guzzle's `src/Handler/StreamHandler.php` imports `Openssl\Session`, which the
+repository declares only in a test file (the real class comes from an
+extension), and it is linked there.
 
 ## SCIP references
 
@@ -1884,9 +1927,39 @@ another class (`Queues.queueName`) through the file's imports or package
 when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
-destination with unknown text is counted as unread. Spring Cloud Stream
-bindings (destinations set per service in configuration, used through
-library code) are not read yet.
+destination with unknown text is counted as unread.
+
+### Spring Cloud Stream
+
+Spring Cloud Stream code names a binding and each service's configuration
+names its destination (`deepthought.service_contracts.cloud_stream`). Read
+sites, in Java:
+
+- consume: a `@StreamListener` method whose value or `target` names a
+  binding (`Sink.INPUT` and `Processor.INPUT` are `input`);
+- publish: `send(...)` on `x.output()` where `x` is declared only as
+  `Source` or `Processor`, or on a name assigned only such a call; `@SendTo`
+  on a stream listener; `StreamBridge.send("binding", ...)`.
+
+The code runs in its own Maven module when that module names a service
+(`spring.application.name`), else in every repository module whose `pom.xml`
+depends on that module's artifact and names a service. Each such service
+gives one endpoint: its destination is
+`spring.cloud.stream.bindings.<binding>.destination` from the service's
+configuration (the config-server sources included), or the binding name when
+the key is not set. The broker is Kafka or RabbitMQ by the
+`spring-cloud-stream-binder-*` (or `spring-cloud-starter-stream-*`)
+dependency of the service module or a repository module it depends on. The
+Kafka binder's destination is a topic; the RabbitMQ binder publishes to a
+topic exchange named by the destination and binds each consumer group's
+queue to it with `#`, so both sides meet at `destination/#`. Rules are
+`service-contracts.spring-cloud-stream-output` and `-listener`.
+
+Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
+`binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
+both) and `destination_not_literal` (a placeholder in the configured
+destination). The functional style (`Consumer`/`Supplier`/`Function` beans
+named by `spring.cloud.function.definition`) is not read yet.
 
 ### Validation
 
@@ -1929,7 +2002,7 @@ Labelled message links (`--kind messaging`):
 |---|---|---|---|---|
 | ewolff/microservice-kafka (Spring Kafka, two consumers) | 2 | 2 | 2 | 0 |
 | robot-shop (pika publish to Go `amqp` consumer) | 1 | 1 | 1 | 0 |
-| apssouza22/java-microservice (Spring Cloud Stream) | 1 | 0 | 0 | 1: Spring Cloud Stream is not read |
+| apssouza22/java-microservice (Spring Cloud Stream, RabbitMQ binder, library publisher) | 1 | 1 | 1 | 0 |
 
 Train-ticket has no labelled messages; its four publish-to-consume pairs
 (food to delivery on `food_delivery`, and preserve, preserve-other and
@@ -1972,6 +2045,11 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-statement` | pattern_matched | SQLAlchemy's `select` (READS) or `insert`, `update`, `delete` (WRITES) on a mapped class |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
+| Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -1983,7 +2061,18 @@ database, the namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and
 environment variables are not resolved, and migrations kept in a separate
 package from their entities meet them only through a shared datasource URL.
-SQL in strings, `@Query` and other persistence frameworks are not read yet.
+SQL and JPQL text is read where the code fixes it: literals, text blocks,
+concatenation and the constants and single-assignment locals that service
+contract paths are folded through. In Python only the call's own argument is read,
+not variables holding SQL, and driver parameter markers (`%s`, `%(name)s`)
+never name a table. Tables are named after `FROM`, `JOIN`,
+`USING`, `INSERT`/`MERGE`/`REPLACE INTO`, a statement's `UPDATE`, `DELETE
+FROM` and `TRUNCATE`; the targets of the last five are written and the rest
+read. Common table expressions, functions in `FROM`, `FROM` inside function
+arguments, comments and string literals are skipped, and a name holding text
+the code does not fix is dropped. SQL built at run time, `EntityManager`
+`persist`/`merge`/`remove`, named queries and other persistence frameworks
+are not read yet.
 Test sources (`src/test/`) are skipped.
 
 `get_impact` goes forwards over WRITES and backwards over READS, so a change
@@ -1997,6 +2086,27 @@ services. All 6 entities map to a table that their own service's DDL
 declares, with no unmatched mapping. Vet's `@JoinTable` maps
 `vet_specialties`, so all 7 declared tables are mapped. All 4 repositories
 resolve to their entity.
+
+On spring-framework-petclinic, which implements its repositories three
+times (JDBC, JPA and Spring Data JPA), the tool reads all 24 statements that
+`grep` finds (13 `JdbcClient.sql`, 5 `createQuery`, 3 `@Query` and 3
+`withTableName` calls) with no unfixed text and no unknown entity. Each
+links to the tables its text names: for instance the JDBC
+`loadPetsAndVisits` reads `pets` and `visits`, the owner and pet `save`
+methods write their tables, and the constructors that set up a
+`SimpleJdbcInsert` write `owners`, `pets` and `visits`. On spring-petclinic-microservices the 2 `@Query` methods of
+`PetRepository` read `types`, which its CRUD repository of pets did not
+reach.
+
+On Superset's `superset/` package the Python rule reads 34 statements.
+12 build their table names at run time (`f"SELECT {cols} FROM {table_name}"`)
+and are left unlinked; the other 22 name what their text names, from the
+`tasks` heartbeat `UPDATE` to the catalog queries of the Postgres,
+Snowflake and DuckDB engine specs, and statements such as `SELECT 1` name
+none. In Django's own `django/` package, 71 statements are read: 23 are
+built at run time, and the rest name the system catalogs the backends'
+introspection queries (`pg_class`, `sqlite_master`, `user_constraints`,
+...).
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
