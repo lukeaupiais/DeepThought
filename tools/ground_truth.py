@@ -98,6 +98,29 @@ def _applied(rest, template=False):
     return rest.startswith("(") or (template and rest.startswith("`"))
 
 
+def _rust_pattern_paths(source):
+    """Rust names that open a tuple-struct or struct pattern, as
+    ``{(line, byte_column)}`` (1-based line): ``Error::Io(e) =>`` destructures
+    a value, it calls nothing."""
+    import tree_sitter
+    import tree_sitter_rust
+
+    parser = tree_sitter.Parser(tree_sitter.Language(tree_sitter_rust.language()))
+    found = set()
+    stack = [parser.parse(source).root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.children)
+        if node.type not in {"tuple_struct_pattern", "struct_pattern"}:
+            continue
+        path = node.child_by_field_name("type")
+        if path is None:
+            continue
+        last = path.child_by_field_name("name") or path
+        found.add((last.start_point[0] + 1, last.start_point[1]))
+    return found
+
+
 _CONSTRUCTOR = re.compile(r"\s*constructor\s*\(")
 
 
@@ -158,6 +181,16 @@ def derive(workspace, index):
             defined.setdefault(d.native_id, set()).add((d.file, d.line, kind))
     lines = {}
 
+    patterns = {}
+
+    def rust_patterns(file):
+        if file not in patterns:
+            try:
+                patterns[file] = _rust_pattern_paths((workspace / file).read_bytes())
+            except OSError:
+                patterns[file] = set()
+        return patterns[file]
+
     def text_of(file):
         if file not in lines:
             try:
@@ -205,6 +238,13 @@ def derive(workspace, index):
         if _DECLARES.search(_slice(line, 0, r.column, encoding)):
             # A declaration the index records as a reference (scip-python
             # marks each @overload this way), not a call.
+            continue
+        if r.native_id.startswith("rust-analyzer ") and (
+            r.line,
+            len(_slice(line, 0, r.column, encoding).encode("utf-8")),
+        ) in rust_patterns(r.file):
+            # A tuple-struct pattern names a variant or struct before an
+            # opening parenthesis without calling it.
             continue
         if r.native_id in defined:
             targets = defined[r.native_id]

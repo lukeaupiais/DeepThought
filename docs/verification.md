@@ -48,7 +48,9 @@ scored against a yardstick its own rules cannot move.
 - `calls/NAME.tsv` is the truth, one row per target:
   `file line name target_file target_line kind`. A call is a reference
   occurrence the source text shows is applied to an argument list (`name(`,
-  `name::<T>(`, `name<T>(`) and is not a declaration. Its kind says where the
+  `name::<T>(`, `name<T>(`) and is not a declaration. A Rust name that opens
+  a tuple-struct or struct pattern (`Error::Io(e) =>`, `let Point(x, y)`)
+  destructures a value and is not a call; tree-sitter finds those positions. Its kind says where the
   oracle says the name leads: `callable` (an in-repository function, method or
   type, at each defining line; a constructor also accepts its class), `value`
   (another in-repository symbol, such as `const f = () => ...`), `local` (a
@@ -153,8 +155,8 @@ Baseline (calls):
 | cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
 | chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
 | preact | javascript | 3,884 | 4,427 | 0 | 1.0 | 0.8671 |
-| anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
-| ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
+| anyhow | rust | 442 | 223 | 0 | 1.0 | 0.4932 |
+| ripgrep | rust | 11,415 | 3,346 | 0 | 1.0 | 0.293 |
 | gson | java | 11,050 | 9,342 | 0 | 1.0 | 0.8363 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
@@ -659,8 +661,8 @@ that line name exactly the labelled (table, access) pairs.
 
 | Corpus | Commit | Lines | Found | Wrong | Missed | Extra |
 |---|---|---|---|---|---|---|
-| Ghost | 7ada5b0 | 873 | 642 | 0 | 231 | 0 |
-| Backstage | b3ed969 | 399 | 328 | 1 | 70 | 0 |
+| Ghost | 7ada5b0 | 873 | 736 | 0 | 137 | 0 |
+| Backstage | b3ed969 | 396 | 365 | 0 | 31 | 0 |
 
 The labels were made without reading the engine's Knex reader. Ghost reaches
 Knex through migration callbacks whose untyped parameter is named
@@ -668,8 +670,9 @@ Knex through migration callbacks whose untyped parameter is named
 its data seeders' `this.transaction` field, as well as through `knex`
 itself. Backstage hands its transactions to callbacks named `tx` and keeps most
 table names in constants, some imported from a sibling `tables.ts`. A
-schema-qualified table keeps its schema in the label
-(`information_schema.statistics`).
+schema qualifier is dropped (`app.users` names `users`), since tables join
+across readers by name, and a database's own catalog (`information_schema.*`,
+`pg_catalog.*`, `pg_*`, `sqlite_*`, ...) is listed under `not_counted`.
 
 ## Metamorphic checks
 
