@@ -1,0 +1,942 @@
+# file	line	name	target_file	target_line	kind
+# indexed	Slim/App.php
+# indexed	Slim/CallableResolver.php
+# indexed	Slim/Error/AbstractErrorRenderer.php
+# indexed	Slim/Error/Renderers/HtmlErrorRenderer.php
+# indexed	Slim/Error/Renderers/JsonErrorRenderer.php
+# indexed	Slim/Error/Renderers/PlainTextErrorRenderer.php
+# indexed	Slim/Error/Renderers/XmlErrorRenderer.php
+# indexed	Slim/Exception/HttpBadRequestException.php
+# indexed	Slim/Exception/HttpException.php
+# indexed	Slim/Exception/HttpForbiddenException.php
+# indexed	Slim/Exception/HttpGoneException.php
+# indexed	Slim/Exception/HttpInternalServerErrorException.php
+# indexed	Slim/Exception/HttpMethodNotAllowedException.php
+# indexed	Slim/Exception/HttpNotFoundException.php
+# indexed	Slim/Exception/HttpNotImplementedException.php
+# indexed	Slim/Exception/HttpSpecializedException.php
+# indexed	Slim/Exception/HttpTooManyRequestsException.php
+# indexed	Slim/Exception/HttpUnauthorizedException.php
+# indexed	Slim/Factory/AppFactory.php
+# indexed	Slim/Factory/Psr17/GuzzlePsr17Factory.php
+# indexed	Slim/Factory/Psr17/HttpSoftPsr17Factory.php
+# indexed	Slim/Factory/Psr17/LaminasDiactorosPsr17Factory.php
+# indexed	Slim/Factory/Psr17/NyholmPsr17Factory.php
+# indexed	Slim/Factory/Psr17/Psr17Factory.php
+# indexed	Slim/Factory/Psr17/Psr17FactoryProvider.php
+# indexed	Slim/Factory/Psr17/ServerRequestCreator.php
+# indexed	Slim/Factory/Psr17/SlimHttpPsr17Factory.php
+# indexed	Slim/Factory/Psr17/SlimHttpServerRequestCreator.php
+# indexed	Slim/Factory/Psr17/SlimPsr17Factory.php
+# indexed	Slim/Factory/ServerRequestCreatorFactory.php
+# indexed	Slim/Handlers/ErrorHandler.php
+# indexed	Slim/Handlers/Strategies/RequestHandler.php
+# indexed	Slim/Handlers/Strategies/RequestResponse.php
+# indexed	Slim/Handlers/Strategies/RequestResponseArgs.php
+# indexed	Slim/Handlers/Strategies/RequestResponseNamedArgs.php
+# indexed	Slim/Interfaces/AdvancedCallableResolverInterface.php
+# indexed	Slim/Interfaces/CallableResolverInterface.php
+# indexed	Slim/Interfaces/DispatcherInterface.php
+# indexed	Slim/Interfaces/ErrorHandlerInterface.php
+# indexed	Slim/Interfaces/ErrorRendererInterface.php
+# indexed	Slim/Interfaces/InvocationStrategyInterface.php
+# indexed	Slim/Interfaces/MiddlewareDispatcherInterface.php
+# indexed	Slim/Interfaces/Psr17FactoryInterface.php
+# indexed	Slim/Interfaces/Psr17FactoryProviderInterface.php
+# indexed	Slim/Interfaces/RequestHandlerInvocationStrategyInterface.php
+# indexed	Slim/Interfaces/RouteCollectorInterface.php
+# indexed	Slim/Interfaces/RouteCollectorProxyInterface.php
+# indexed	Slim/Interfaces/RouteGroupInterface.php
+# indexed	Slim/Interfaces/RouteInterface.php
+# indexed	Slim/Interfaces/RouteParserInterface.php
+# indexed	Slim/Interfaces/RouteResolverInterface.php
+# indexed	Slim/Interfaces/ServerRequestCreatorInterface.php
+# indexed	Slim/Logger.php
+# indexed	Slim/Middleware/BodyParsingMiddleware.php
+# indexed	Slim/Middleware/ContentLengthMiddleware.php
+# indexed	Slim/Middleware/ErrorMiddleware.php
+# indexed	Slim/Middleware/MethodOverrideMiddleware.php
+# indexed	Slim/Middleware/OutputBufferingMiddleware.php
+# indexed	Slim/Middleware/RoutingMiddleware.php
+# indexed	Slim/MiddlewareDispatcher.php
+# indexed	Slim/ResponseEmitter.php
+# indexed	Slim/Routing/Dispatcher.php
+# indexed	Slim/Routing/FastRouteDispatcher.php
+# indexed	Slim/Routing/Route.php
+# indexed	Slim/Routing/RouteCollector.php
+# indexed	Slim/Routing/RouteCollectorProxy.php
+# indexed	Slim/Routing/RouteContext.php
+# indexed	Slim/Routing/RouteGroup.php
+# indexed	Slim/Routing/RouteParser.php
+# indexed	Slim/Routing/RouteResolver.php
+# indexed	Slim/Routing/RouteRunner.php
+# indexed	Slim/Routing/RoutingResults.php
+# indexed	tests/AppTest.php
+# indexed	tests/Assets/HeaderStack.php
+# indexed	tests/CallableResolverTest.php
+# indexed	tests/Error/AbstractErrorRendererTest.php
+# indexed	tests/Exception/HttpExceptionTest.php
+# indexed	tests/Exception/HttpUnauthorizedExceptionTest.php
+# indexed	tests/Factory/AppFactoryTest.php
+# indexed	tests/Factory/Psr17/Psr17FactoryProviderTest.php
+# indexed	tests/Factory/Psr17/Psr17FactoryTest.php
+# indexed	tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php
+# indexed	tests/Factory/ServerRequestCreatorFactoryTest.php
+# indexed	tests/Handlers/ErrorHandlerTest.php
+# indexed	tests/Handlers/Strategies/RequestResponseNamedArgsTest.php
+# indexed	tests/Middleware/BodyParsingMiddlewareTest.php
+# indexed	tests/Middleware/ContentLengthMiddlewareTest.php
+# indexed	tests/Middleware/ErrorMiddlewareTest.php
+# indexed	tests/Middleware/MethodOverrideMiddlewareTest.php
+# indexed	tests/Middleware/OutputBufferingMiddlewareTest.php
+# indexed	tests/Middleware/RoutingMiddlewareTest.php
+# indexed	tests/MiddlewareDispatcherTest.php
+# indexed	tests/Mocks/CallableTest.php
+# indexed	tests/Mocks/InvocationStrategyTest.php
+# indexed	tests/Mocks/InvokableTest.php
+# indexed	tests/Mocks/MiddlewareTest.php
+# indexed	tests/Mocks/MockAction.php
+# indexed	tests/Mocks/MockCustomException.php
+# indexed	tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php
+# indexed	tests/Mocks/MockMiddlewareSlimCallable.php
+# indexed	tests/Mocks/MockMiddlewareWithConstructor.php
+# indexed	tests/Mocks/MockMiddlewareWithoutConstructor.php
+# indexed	tests/Mocks/MockMiddlewareWithoutInterface.php
+# indexed	tests/Mocks/MockPsr17Factory.php
+# indexed	tests/Mocks/MockPsr17FactoryWithoutStreamFactory.php
+# indexed	tests/Mocks/MockRequestHandler.php
+# indexed	tests/Mocks/MockSequenceMiddleware.php
+# indexed	tests/Mocks/MockStream.php
+# indexed	tests/Mocks/RequestHandlerTest.php
+# indexed	tests/Mocks/SlowPokeStream.php
+# indexed	tests/Mocks/SmallChunksStream.php
+# indexed	tests/Providers/PSR7ObjectProvider.php
+# indexed	tests/Providers/PSR7ObjectProviderInterface.php
+# indexed	tests/ResponseEmitterTest.php
+# indexed	tests/Routing/DispatcherTest.php
+# indexed	tests/Routing/FastRouteDispatcherTest.php
+# indexed	tests/Routing/RouteCollectorProxyTest.php
+# indexed	tests/Routing/RouteCollectorTest.php
+# indexed	tests/Routing/RouteContextTest.php
+# indexed	tests/Routing/RouteParserTest.php
+# indexed	tests/Routing/RouteResolverTest.php
+# indexed	tests/Routing/RouteRunnerTest.php
+# indexed	tests/Routing/RouteTest.php
+# indexed	tests/TestCase.php
+# indexed	tests/bootstrap.php
+Slim/App.php	13	import	-	0	external
+Slim/App.php	14	import	-	0	external
+Slim/App.php	15	import	-	0	external
+Slim/App.php	16	import	-	0	external
+Slim/App.php	17	import	-	0	external
+Slim/App.php	18	import	-	0	external
+Slim/App.php	19	import	-	0	external
+Slim/App.php	20	import	Slim/Factory/ServerRequestCreatorFactory.php	0	module
+Slim/App.php	21	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/App.php	22	import	Slim/Interfaces/MiddlewareDispatcherInterface.php	0	module
+Slim/App.php	23	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/App.php	24	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+Slim/App.php	25	import	Slim/Middleware/BodyParsingMiddleware.php	0	module
+Slim/App.php	26	import	Slim/Middleware/ErrorMiddleware.php	0	module
+Slim/App.php	27	import	Slim/Middleware/RoutingMiddleware.php	0	module
+Slim/App.php	28	import	Slim/Routing/RouteCollectorProxy.php	0	module
+Slim/App.php	29	import	Slim/Routing/RouteResolver.php	0	module
+Slim/App.php	30	import	Slim/Routing/RouteRunner.php	0	module
+Slim/App.php	32	import	-	0	external
+Slim/CallableResolver.php	13	import	-	0	external
+Slim/CallableResolver.php	14	import	-	0	external
+Slim/CallableResolver.php	15	import	-	0	external
+Slim/CallableResolver.php	16	import	-	0	external
+Slim/CallableResolver.php	17	import	-	0	external
+Slim/CallableResolver.php	18	import	Slim/Interfaces/AdvancedCallableResolverInterface.php	0	module
+Slim/CallableResolver.php	20	import	-	0	external
+Slim/CallableResolver.php	21	import	-	0	external
+Slim/CallableResolver.php	22	import	-	0	external
+Slim/CallableResolver.php	23	import	-	0	external
+Slim/CallableResolver.php	24	import	-	0	external
+Slim/CallableResolver.php	25	import	-	0	external
+Slim/CallableResolver.php	26	import	-	0	external
+Slim/CallableResolver.php	27	import	-	0	external
+Slim/Error/AbstractErrorRenderer.php	13	import	Slim/Exception/HttpException.php	0	module
+Slim/Error/AbstractErrorRenderer.php	14	import	Slim/Interfaces/ErrorRendererInterface.php	0	module
+Slim/Error/AbstractErrorRenderer.php	15	import	-	0	external
+Slim/Error/Renderers/HtmlErrorRenderer.php	13	import	Slim/Error/AbstractErrorRenderer.php	0	module
+Slim/Error/Renderers/HtmlErrorRenderer.php	14	import	-	0	external
+Slim/Error/Renderers/HtmlErrorRenderer.php	16	import	-	0	external
+Slim/Error/Renderers/HtmlErrorRenderer.php	17	import	-	0	external
+Slim/Error/Renderers/HtmlErrorRenderer.php	18	import	-	0	external
+Slim/Error/Renderers/JsonErrorRenderer.php	13	import	Slim/Error/AbstractErrorRenderer.php	0	module
+Slim/Error/Renderers/JsonErrorRenderer.php	14	import	-	0	external
+Slim/Error/Renderers/JsonErrorRenderer.php	16	import	-	0	external
+Slim/Error/Renderers/JsonErrorRenderer.php	17	import	-	0	external
+Slim/Error/Renderers/PlainTextErrorRenderer.php	13	import	Slim/Error/AbstractErrorRenderer.php	0	module
+Slim/Error/Renderers/PlainTextErrorRenderer.php	14	import	-	0	external
+Slim/Error/Renderers/PlainTextErrorRenderer.php	16	import	-	0	external
+Slim/Error/Renderers/PlainTextErrorRenderer.php	17	import	-	0	external
+Slim/Error/Renderers/PlainTextErrorRenderer.php	18	import	-	0	external
+Slim/Error/Renderers/XmlErrorRenderer.php	13	import	Slim/Error/AbstractErrorRenderer.php	0	module
+Slim/Error/Renderers/XmlErrorRenderer.php	14	import	-	0	external
+Slim/Error/Renderers/XmlErrorRenderer.php	16	import	-	0	external
+Slim/Error/Renderers/XmlErrorRenderer.php	17	import	-	0	external
+Slim/Error/Renderers/XmlErrorRenderer.php	18	import	-	0	external
+Slim/Exception/HttpException.php	13	import	-	0	external
+Slim/Exception/HttpException.php	14	import	-	0	external
+Slim/Exception/HttpException.php	15	import	-	0	external
+Slim/Exception/HttpMethodNotAllowedException.php	13	import	-	0	external
+Slim/Exception/HttpSpecializedException.php	13	import	-	0	external
+Slim/Exception/HttpSpecializedException.php	14	import	-	0	external
+Slim/Factory/AppFactory.php	13	import	-	0	external
+Slim/Factory/AppFactory.php	14	import	-	0	external
+Slim/Factory/AppFactory.php	15	import	-	0	external
+Slim/Factory/AppFactory.php	16	import	-	0	external
+Slim/Factory/AppFactory.php	17	import	Slim/App.php	0	module
+Slim/Factory/AppFactory.php	18	import	Slim/Factory/Psr17/Psr17Factory.php	0	module
+Slim/Factory/AppFactory.php	19	import	Slim/Factory/Psr17/Psr17FactoryProvider.php	0	module
+Slim/Factory/AppFactory.php	20	import	Slim/Factory/Psr17/SlimHttpPsr17Factory.php	0	module
+Slim/Factory/AppFactory.php	21	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Factory/AppFactory.php	22	import	Slim/Interfaces/MiddlewareDispatcherInterface.php	0	module
+Slim/Factory/AppFactory.php	23	import	Slim/Interfaces/Psr17FactoryProviderInterface.php	0	module
+Slim/Factory/AppFactory.php	24	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/Factory/AppFactory.php	25	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+Slim/Factory/Psr17/NyholmPsr17Factory.php	7	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+Slim/Factory/Psr17/Psr17Factory.php	13	import	-	0	external
+Slim/Factory/Psr17/Psr17Factory.php	14	import	-	0	external
+Slim/Factory/Psr17/Psr17Factory.php	15	import	-	0	external
+Slim/Factory/Psr17/Psr17Factory.php	16	import	Slim/Interfaces/Psr17FactoryInterface.php	0	module
+Slim/Factory/Psr17/Psr17Factory.php	17	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+Slim/Factory/Psr17/Psr17Factory.php	19	import	-	0	external
+Slim/Factory/Psr17/Psr17Factory.php	20	import	-	0	external
+Slim/Factory/Psr17/Psr17FactoryProvider.php	13	import	Slim/Interfaces/Psr17FactoryProviderInterface.php	0	module
+Slim/Factory/Psr17/Psr17FactoryProvider.php	15	import	-	0	external
+Slim/Factory/Psr17/ServerRequestCreator.php	13	import	-	0	external
+Slim/Factory/Psr17/ServerRequestCreator.php	14	import	-	0	external
+Slim/Factory/Psr17/ServerRequestCreator.php	15	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+Slim/Factory/Psr17/SlimHttpPsr17Factory.php	13	import	-	0	external
+Slim/Factory/Psr17/SlimHttpPsr17Factory.php	14	import	-	0	external
+Slim/Factory/Psr17/SlimHttpPsr17Factory.php	15	import	-	0	external
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	13	import	-	0	external
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	14	import	-	0	external
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	15	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	17	import	-	0	external
+Slim/Factory/ServerRequestCreatorFactory.php	13	import	-	0	external
+Slim/Factory/ServerRequestCreatorFactory.php	14	import	Slim/Factory/Psr17/Psr17Factory.php	0	module
+Slim/Factory/ServerRequestCreatorFactory.php	15	import	Slim/Factory/Psr17/Psr17FactoryProvider.php	0	module
+Slim/Factory/ServerRequestCreatorFactory.php	16	import	Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	0	module
+Slim/Factory/ServerRequestCreatorFactory.php	17	import	Slim/Interfaces/Psr17FactoryProviderInterface.php	0	module
+Slim/Factory/ServerRequestCreatorFactory.php	18	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+Slim/Handlers/ErrorHandler.php	13	import	-	0	external
+Slim/Handlers/ErrorHandler.php	14	import	-	0	external
+Slim/Handlers/ErrorHandler.php	15	import	-	0	external
+Slim/Handlers/ErrorHandler.php	16	import	-	0	external
+Slim/Handlers/ErrorHandler.php	17	import	-	0	external
+Slim/Handlers/ErrorHandler.php	18	import	Slim/Error/Renderers/HtmlErrorRenderer.php	0	module
+Slim/Handlers/ErrorHandler.php	19	import	Slim/Error/Renderers/JsonErrorRenderer.php	0	module
+Slim/Handlers/ErrorHandler.php	20	import	Slim/Error/Renderers/PlainTextErrorRenderer.php	0	module
+Slim/Handlers/ErrorHandler.php	21	import	Slim/Error/Renderers/XmlErrorRenderer.php	0	module
+Slim/Handlers/ErrorHandler.php	22	import	Slim/Exception/HttpException.php	0	module
+Slim/Handlers/ErrorHandler.php	23	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+Slim/Handlers/ErrorHandler.php	24	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Handlers/ErrorHandler.php	25	import	Slim/Interfaces/ErrorHandlerInterface.php	0	module
+Slim/Handlers/ErrorHandler.php	26	import	Slim/Interfaces/ErrorRendererInterface.php	0	module
+Slim/Handlers/ErrorHandler.php	27	import	Slim/Logger.php	0	module
+Slim/Handlers/ErrorHandler.php	28	import	-	0	external
+Slim/Handlers/ErrorHandler.php	30	import	-	0	external
+Slim/Handlers/ErrorHandler.php	31	import	-	0	external
+Slim/Handlers/ErrorHandler.php	32	import	-	0	external
+Slim/Handlers/ErrorHandler.php	33	import	-	0	external
+Slim/Handlers/ErrorHandler.php	34	import	-	0	external
+Slim/Handlers/ErrorHandler.php	35	import	-	0	external
+Slim/Handlers/ErrorHandler.php	36	import	-	0	external
+Slim/Handlers/ErrorHandler.php	37	import	-	0	external
+Slim/Handlers/ErrorHandler.php	38	import	-	0	external
+Slim/Handlers/ErrorHandler.php	39	import	-	0	external
+Slim/Handlers/Strategies/RequestHandler.php	13	import	-	0	external
+Slim/Handlers/Strategies/RequestHandler.php	14	import	-	0	external
+Slim/Handlers/Strategies/RequestHandler.php	15	import	Slim/Interfaces/RequestHandlerInvocationStrategyInterface.php	0	module
+Slim/Handlers/Strategies/RequestResponse.php	13	import	-	0	external
+Slim/Handlers/Strategies/RequestResponse.php	14	import	-	0	external
+Slim/Handlers/Strategies/RequestResponse.php	15	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+Slim/Handlers/Strategies/RequestResponseArgs.php	13	import	-	0	external
+Slim/Handlers/Strategies/RequestResponseArgs.php	14	import	-	0	external
+Slim/Handlers/Strategies/RequestResponseArgs.php	15	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+Slim/Handlers/Strategies/RequestResponseArgs.php	17	import	-	0	external
+Slim/Handlers/Strategies/RequestResponseNamedArgs.php	13	import	-	0	external
+Slim/Handlers/Strategies/RequestResponseNamedArgs.php	14	import	-	0	external
+Slim/Handlers/Strategies/RequestResponseNamedArgs.php	15	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+Slim/Handlers/Strategies/RequestResponseNamedArgs.php	16	import	-	0	external
+Slim/Interfaces/DispatcherInterface.php	13	import	Slim/Routing/RoutingResults.php	0	module
+Slim/Interfaces/ErrorHandlerInterface.php	13	import	-	0	external
+Slim/Interfaces/ErrorHandlerInterface.php	14	import	-	0	external
+Slim/Interfaces/ErrorHandlerInterface.php	15	import	-	0	external
+Slim/Interfaces/ErrorRendererInterface.php	13	import	-	0	external
+Slim/Interfaces/InvocationStrategyInterface.php	13	import	-	0	external
+Slim/Interfaces/InvocationStrategyInterface.php	14	import	-	0	external
+Slim/Interfaces/MiddlewareDispatcherInterface.php	13	import	-	0	external
+Slim/Interfaces/MiddlewareDispatcherInterface.php	14	import	-	0	external
+Slim/Interfaces/Psr17FactoryInterface.php	13	import	-	0	external
+Slim/Interfaces/Psr17FactoryInterface.php	14	import	-	0	external
+Slim/Interfaces/Psr17FactoryInterface.php	15	import	-	0	external
+Slim/Interfaces/RouteCollectorInterface.php	13	import	-	0	external
+Slim/Interfaces/RouteCollectorInterface.php	14	import	-	0	external
+Slim/Interfaces/RouteCollectorProxyInterface.php	13	import	-	0	external
+Slim/Interfaces/RouteCollectorProxyInterface.php	14	import	-	0	external
+Slim/Interfaces/RouteCollectorProxyInterface.php	15	import	-	0	external
+Slim/Interfaces/RouteGroupInterface.php	13	import	-	0	external
+Slim/Interfaces/RouteGroupInterface.php	14	import	Slim/MiddlewareDispatcher.php	0	module
+Slim/Interfaces/RouteInterface.php	13	import	-	0	external
+Slim/Interfaces/RouteInterface.php	14	import	-	0	external
+Slim/Interfaces/RouteInterface.php	15	import	-	0	external
+Slim/Interfaces/RouteParserInterface.php	13	import	-	0	external
+Slim/Interfaces/RouteParserInterface.php	14	import	-	0	external
+Slim/Interfaces/RouteParserInterface.php	15	import	-	0	external
+Slim/Interfaces/RouteResolverInterface.php	7	import	Slim/Routing/RoutingResults.php	0	module
+Slim/Interfaces/ServerRequestCreatorInterface.php	13	import	-	0	external
+Slim/Logger.php	13	import	-	0	external
+Slim/Logger.php	14	import	-	0	external
+Slim/Logger.php	15	import	-	0	external
+Slim/Logger.php	17	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	13	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	14	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	15	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	16	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	17	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	19	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	20	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	21	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	22	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	23	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	24	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	25	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	26	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	27	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	28	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	29	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	30	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	31	import	-	0	external
+Slim/Middleware/BodyParsingMiddleware.php	32	import	-	0	external
+Slim/Middleware/ContentLengthMiddleware.php	13	import	-	0	external
+Slim/Middleware/ContentLengthMiddleware.php	14	import	-	0	external
+Slim/Middleware/ContentLengthMiddleware.php	15	import	-	0	external
+Slim/Middleware/ContentLengthMiddleware.php	16	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	13	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	14	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	15	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	16	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	17	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	18	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	19	import	Slim/Exception/HttpException.php	0	module
+Slim/Middleware/ErrorMiddleware.php	20	import	Slim/Handlers/ErrorHandler.php	0	module
+Slim/Middleware/ErrorMiddleware.php	21	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Middleware/ErrorMiddleware.php	22	import	Slim/Interfaces/ErrorHandlerInterface.php	0	module
+Slim/Middleware/ErrorMiddleware.php	23	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	25	import	-	0	external
+Slim/Middleware/ErrorMiddleware.php	26	import	-	0	external
+Slim/Middleware/MethodOverrideMiddleware.php	13	import	-	0	external
+Slim/Middleware/MethodOverrideMiddleware.php	14	import	-	0	external
+Slim/Middleware/MethodOverrideMiddleware.php	15	import	-	0	external
+Slim/Middleware/MethodOverrideMiddleware.php	16	import	-	0	external
+Slim/Middleware/MethodOverrideMiddleware.php	18	import	-	0	external
+Slim/Middleware/MethodOverrideMiddleware.php	19	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	13	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	14	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	15	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	16	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	17	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	18	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	19	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	21	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	22	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	23	import	-	0	external
+Slim/Middleware/OutputBufferingMiddleware.php	24	import	-	0	external
+Slim/Middleware/RoutingMiddleware.php	13	import	-	0	external
+Slim/Middleware/RoutingMiddleware.php	14	import	-	0	external
+Slim/Middleware/RoutingMiddleware.php	15	import	-	0	external
+Slim/Middleware/RoutingMiddleware.php	16	import	-	0	external
+Slim/Middleware/RoutingMiddleware.php	17	import	-	0	external
+Slim/Middleware/RoutingMiddleware.php	18	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+Slim/Middleware/RoutingMiddleware.php	19	import	Slim/Exception/HttpNotFoundException.php	0	module
+Slim/Middleware/RoutingMiddleware.php	20	import	Slim/Interfaces/RouteParserInterface.php	0	module
+Slim/Middleware/RoutingMiddleware.php	21	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+Slim/Middleware/RoutingMiddleware.php	22	import	Slim/Routing/RouteContext.php	0	module
+Slim/Middleware/RoutingMiddleware.php	23	import	Slim/Routing/RoutingResults.php	0	module
+Slim/MiddlewareDispatcher.php	13	import	-	0	external
+Slim/MiddlewareDispatcher.php	14	import	-	0	external
+Slim/MiddlewareDispatcher.php	15	import	-	0	external
+Slim/MiddlewareDispatcher.php	16	import	-	0	external
+Slim/MiddlewareDispatcher.php	17	import	-	0	external
+Slim/MiddlewareDispatcher.php	18	import	-	0	external
+Slim/MiddlewareDispatcher.php	19	import	-	0	external
+Slim/MiddlewareDispatcher.php	20	import	Slim/Interfaces/AdvancedCallableResolverInterface.php	0	module
+Slim/MiddlewareDispatcher.php	21	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/MiddlewareDispatcher.php	22	import	Slim/Interfaces/MiddlewareDispatcherInterface.php	0	module
+Slim/MiddlewareDispatcher.php	24	import	-	0	external
+Slim/MiddlewareDispatcher.php	25	import	-	0	external
+Slim/MiddlewareDispatcher.php	26	import	-	0	external
+Slim/MiddlewareDispatcher.php	27	import	-	0	external
+Slim/MiddlewareDispatcher.php	28	import	-	0	external
+Slim/MiddlewareDispatcher.php	29	import	-	0	external
+Slim/ResponseEmitter.php	13	import	-	0	external
+Slim/ResponseEmitter.php	15	import	-	0	external
+Slim/ResponseEmitter.php	16	import	-	0	external
+Slim/ResponseEmitter.php	17	import	-	0	external
+Slim/ResponseEmitter.php	18	import	-	0	external
+Slim/ResponseEmitter.php	19	import	-	0	external
+Slim/ResponseEmitter.php	20	import	-	0	external
+Slim/ResponseEmitter.php	21	import	-	0	external
+Slim/ResponseEmitter.php	22	import	-	0	external
+Slim/Routing/Dispatcher.php	7	import	-	0	external
+Slim/Routing/Dispatcher.php	8	import	-	0	external
+Slim/Routing/Dispatcher.php	9	import	-	0	external
+Slim/Routing/Dispatcher.php	10	import	Slim/Interfaces/DispatcherInterface.php	0	module
+Slim/Routing/Dispatcher.php	11	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/Routing/FastRouteDispatcher.php	13	import	-	0	external
+Slim/Routing/Route.php	13	import	-	0	external
+Slim/Routing/Route.php	14	import	-	0	external
+Slim/Routing/Route.php	15	import	-	0	external
+Slim/Routing/Route.php	16	import	-	0	external
+Slim/Routing/Route.php	17	import	-	0	external
+Slim/Routing/Route.php	18	import	-	0	external
+Slim/Routing/Route.php	19	import	Slim/Handlers/Strategies/RequestHandler.php	0	module
+Slim/Routing/Route.php	20	import	Slim/Handlers/Strategies/RequestResponse.php	0	module
+Slim/Routing/Route.php	21	import	Slim/Interfaces/AdvancedCallableResolverInterface.php	0	module
+Slim/Routing/Route.php	22	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Routing/Route.php	23	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+Slim/Routing/Route.php	24	import	Slim/Interfaces/RequestHandlerInvocationStrategyInterface.php	0	module
+Slim/Routing/Route.php	25	import	Slim/Interfaces/RouteGroupInterface.php	0	module
+Slim/Routing/Route.php	26	import	Slim/Interfaces/RouteInterface.php	0	module
+Slim/Routing/Route.php	27	import	Slim/MiddlewareDispatcher.php	0	module
+Slim/Routing/Route.php	29	import	-	0	external
+Slim/Routing/Route.php	30	import	-	0	external
+Slim/Routing/Route.php	31	import	-	0	external
+Slim/Routing/Route.php	32	import	-	0	external
+Slim/Routing/Route.php	33	import	-	0	external
+Slim/Routing/Route.php	34	import	-	0	external
+Slim/Routing/RouteCollector.php	13	import	-	0	external
+Slim/Routing/RouteCollector.php	14	import	-	0	external
+Slim/Routing/RouteCollector.php	15	import	-	0	external
+Slim/Routing/RouteCollector.php	16	import	Slim/Handlers/Strategies/RequestResponse.php	0	module
+Slim/Routing/RouteCollector.php	17	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Routing/RouteCollector.php	18	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+Slim/Routing/RouteCollector.php	19	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/Routing/RouteCollector.php	20	import	Slim/Interfaces/RouteCollectorProxyInterface.php	0	module
+Slim/Routing/RouteCollector.php	21	import	Slim/Interfaces/RouteGroupInterface.php	0	module
+Slim/Routing/RouteCollector.php	22	import	Slim/Interfaces/RouteInterface.php	0	module
+Slim/Routing/RouteCollector.php	23	import	Slim/Interfaces/RouteParserInterface.php	0	module
+Slim/Routing/RouteCollector.php	25	import	-	0	external
+Slim/Routing/RouteCollector.php	26	import	-	0	external
+Slim/Routing/RouteCollector.php	27	import	-	0	external
+Slim/Routing/RouteCollector.php	28	import	-	0	external
+Slim/Routing/RouteCollector.php	29	import	-	0	external
+Slim/Routing/RouteCollector.php	30	import	-	0	external
+Slim/Routing/RouteCollectorProxy.php	13	import	-	0	external
+Slim/Routing/RouteCollectorProxy.php	14	import	-	0	external
+Slim/Routing/RouteCollectorProxy.php	15	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Routing/RouteCollectorProxy.php	16	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/Routing/RouteCollectorProxy.php	17	import	Slim/Interfaces/RouteCollectorProxyInterface.php	0	module
+Slim/Routing/RouteCollectorProxy.php	18	import	Slim/Interfaces/RouteGroupInterface.php	0	module
+Slim/Routing/RouteCollectorProxy.php	19	import	Slim/Interfaces/RouteInterface.php	0	module
+Slim/Routing/RouteContext.php	13	import	-	0	external
+Slim/Routing/RouteContext.php	14	import	-	0	external
+Slim/Routing/RouteContext.php	15	import	Slim/Interfaces/RouteInterface.php	0	module
+Slim/Routing/RouteContext.php	16	import	Slim/Interfaces/RouteParserInterface.php	0	module
+Slim/Routing/RouteGroup.php	13	import	-	0	external
+Slim/Routing/RouteGroup.php	14	import	Slim/Interfaces/AdvancedCallableResolverInterface.php	0	module
+Slim/Routing/RouteGroup.php	15	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+Slim/Routing/RouteGroup.php	16	import	Slim/Interfaces/RouteCollectorProxyInterface.php	0	module
+Slim/Routing/RouteGroup.php	17	import	Slim/Interfaces/RouteGroupInterface.php	0	module
+Slim/Routing/RouteGroup.php	18	import	Slim/MiddlewareDispatcher.php	0	module
+Slim/Routing/RouteParser.php	13	import	-	0	external
+Slim/Routing/RouteParser.php	14	import	-	0	external
+Slim/Routing/RouteParser.php	15	import	-	0	external
+Slim/Routing/RouteParser.php	16	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/Routing/RouteParser.php	17	import	Slim/Interfaces/RouteParserInterface.php	0	module
+Slim/Routing/RouteParser.php	19	import	-	0	external
+Slim/Routing/RouteParser.php	20	import	-	0	external
+Slim/Routing/RouteParser.php	21	import	-	0	external
+Slim/Routing/RouteParser.php	22	import	-	0	external
+Slim/Routing/RouteParser.php	23	import	-	0	external
+Slim/Routing/RouteResolver.php	13	import	-	0	external
+Slim/Routing/RouteResolver.php	14	import	Slim/Interfaces/DispatcherInterface.php	0	module
+Slim/Routing/RouteResolver.php	15	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+Slim/Routing/RouteResolver.php	16	import	Slim/Interfaces/RouteInterface.php	0	module
+Slim/Routing/RouteResolver.php	17	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+Slim/Routing/RouteResolver.php	19	import	-	0	external
+Slim/Routing/RouteRunner.php	13	import	-	0	external
+Slim/Routing/RouteRunner.php	14	import	-	0	external
+Slim/Routing/RouteRunner.php	15	import	-	0	external
+Slim/Routing/RouteRunner.php	16	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+Slim/Routing/RouteRunner.php	17	import	Slim/Exception/HttpNotFoundException.php	0	module
+Slim/Routing/RouteRunner.php	18	import	Slim/Interfaces/RouteCollectorProxyInterface.php	0	module
+Slim/Routing/RouteRunner.php	19	import	Slim/Interfaces/RouteParserInterface.php	0	module
+Slim/Routing/RouteRunner.php	20	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+Slim/Routing/RouteRunner.php	21	import	Slim/Middleware/RoutingMiddleware.php	0	module
+Slim/Routing/RoutingResults.php	13	import	Slim/Interfaces/DispatcherInterface.php	0	module
+tests/AppTest.php	13	import	-	0	external
+tests/AppTest.php	14	import	-	0	external
+tests/AppTest.php	15	import	-	0	external
+tests/AppTest.php	16	import	-	0	external
+tests/AppTest.php	17	import	-	0	external
+tests/AppTest.php	18	import	-	0	external
+tests/AppTest.php	19	import	-	0	external
+tests/AppTest.php	20	import	-	0	external
+tests/AppTest.php	21	import	-	0	external
+tests/AppTest.php	22	import	-	0	external
+tests/AppTest.php	23	import	-	0	external
+tests/AppTest.php	24	import	-	0	external
+tests/AppTest.php	25	import	-	0	external
+tests/AppTest.php	26	import	Slim/App.php	0	module
+tests/AppTest.php	27	import	Slim/CallableResolver.php	0	module
+tests/AppTest.php	28	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+tests/AppTest.php	29	import	Slim/Exception/HttpNotFoundException.php	0	module
+tests/AppTest.php	30	import	Slim/Handlers/Strategies/RequestResponseArgs.php	0	module
+tests/AppTest.php	31	import	Slim/Handlers/Strategies/RequestResponseNamedArgs.php	0	module
+tests/AppTest.php	32	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/AppTest.php	33	import	Slim/Interfaces/MiddlewareDispatcherInterface.php	0	module
+tests/AppTest.php	34	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+tests/AppTest.php	35	import	Slim/Interfaces/RouteCollectorProxyInterface.php	0	module
+tests/AppTest.php	36	import	Slim/Interfaces/RouteParserInterface.php	0	module
+tests/AppTest.php	37	import	Slim/Middleware/BodyParsingMiddleware.php	0	module
+tests/AppTest.php	38	import	Slim/Middleware/ErrorMiddleware.php	0	module
+tests/AppTest.php	39	import	Slim/Middleware/RoutingMiddleware.php	0	module
+tests/AppTest.php	40	import	Slim/MiddlewareDispatcher.php	0	module
+tests/AppTest.php	41	import	Slim/Routing/RouteCollector.php	0	module
+tests/AppTest.php	42	import	Slim/Routing/RouteCollectorProxy.php	0	module
+tests/AppTest.php	43	import	Slim/Routing/RouteContext.php	0	module
+tests/AppTest.php	44	import	tests/Mocks/MockAction.php	0	module
+tests/AppTest.php	45	import	-	0	external
+tests/AppTest.php	47	import	-	0	external
+tests/AppTest.php	48	import	-	0	external
+tests/AppTest.php	49	import	-	0	external
+tests/AppTest.php	50	import	-	0	external
+tests/AppTest.php	51	import	-	0	external
+tests/AppTest.php	52	import	-	0	external
+tests/AppTest.php	53	import	-	0	external
+tests/AppTest.php	54	import	-	0	external
+tests/Assets/HeaderStack.php	15	import	-	0	external
+tests/Assets/HeaderStack.php	16	import	-	0	external
+tests/CallableResolverTest.php	13	import	-	0	external
+tests/CallableResolverTest.php	14	import	-	0	external
+tests/CallableResolverTest.php	15	import	-	0	external
+tests/CallableResolverTest.php	16	import	-	0	external
+tests/CallableResolverTest.php	17	import	-	0	external
+tests/CallableResolverTest.php	18	import	Slim/CallableResolver.php	0	module
+tests/CallableResolverTest.php	19	import	tests/Mocks/CallableTest.php	0	module
+tests/CallableResolverTest.php	20	import	tests/Mocks/InvokableTest.php	0	module
+tests/CallableResolverTest.php	21	import	tests/Mocks/MiddlewareTest.php	0	module
+tests/CallableResolverTest.php	22	import	tests/Mocks/RequestHandlerTest.php	0	module
+tests/Error/AbstractErrorRendererTest.php	13	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	14	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	15	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	16	import	Slim/Error/Renderers/HtmlErrorRenderer.php	0	module
+tests/Error/AbstractErrorRendererTest.php	17	import	Slim/Error/Renderers/JsonErrorRenderer.php	0	module
+tests/Error/AbstractErrorRendererTest.php	18	import	Slim/Error/Renderers/PlainTextErrorRenderer.php	0	module
+tests/Error/AbstractErrorRendererTest.php	19	import	Slim/Error/Renderers/XmlErrorRenderer.php	0	module
+tests/Error/AbstractErrorRendererTest.php	20	import	Slim/Exception/HttpException.php	0	module
+tests/Error/AbstractErrorRendererTest.php	21	import	tests/TestCase.php	0	module
+tests/Error/AbstractErrorRendererTest.php	22	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	24	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	25	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	26	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	27	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	28	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	29	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	30	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	31	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	32	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	33	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	34	import	-	0	external
+tests/Error/AbstractErrorRendererTest.php	35	import	-	0	external
+tests/Exception/HttpExceptionTest.php	13	import	-	0	external
+tests/Exception/HttpExceptionTest.php	14	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+tests/Exception/HttpExceptionTest.php	15	import	Slim/Exception/HttpNotFoundException.php	0	module
+tests/Exception/HttpExceptionTest.php	16	import	tests/TestCase.php	0	module
+tests/Exception/HttpUnauthorizedExceptionTest.php	13	import	Slim/Exception/HttpUnauthorizedException.php	0	module
+tests/Exception/HttpUnauthorizedExceptionTest.php	14	import	tests/TestCase.php	0	module
+tests/Factory/AppFactoryTest.php	13	import	-	0	external
+tests/Factory/AppFactoryTest.php	14	import	-	0	external
+tests/Factory/AppFactoryTest.php	15	import	-	0	external
+tests/Factory/AppFactoryTest.php	16	import	-	0	external
+tests/Factory/AppFactoryTest.php	17	import	-	0	external
+tests/Factory/AppFactoryTest.php	18	import	-	0	external
+tests/Factory/AppFactoryTest.php	19	import	-	0	external
+tests/Factory/AppFactoryTest.php	20	import	-	0	external
+tests/Factory/AppFactoryTest.php	21	import	-	0	external
+tests/Factory/AppFactoryTest.php	22	import	-	0	external
+tests/Factory/AppFactoryTest.php	23	import	-	0	external
+tests/Factory/AppFactoryTest.php	24	import	Slim/Factory/AppFactory.php	0	module
+tests/Factory/AppFactoryTest.php	25	import	Slim/Factory/Psr17/GuzzlePsr17Factory.php	0	module
+tests/Factory/AppFactoryTest.php	26	import	Slim/Factory/Psr17/HttpSoftPsr17Factory.php	0	module
+tests/Factory/AppFactoryTest.php	27	import	Slim/Factory/Psr17/LaminasDiactorosPsr17Factory.php	0	module
+tests/Factory/AppFactoryTest.php	28	import	Slim/Factory/Psr17/NyholmPsr17Factory.php	0	module
+tests/Factory/AppFactoryTest.php	29	import	Slim/Factory/Psr17/Psr17FactoryProvider.php	0	module
+tests/Factory/AppFactoryTest.php	30	import	Slim/Factory/Psr17/SlimHttpPsr17Factory.php	0	module
+tests/Factory/AppFactoryTest.php	31	import	Slim/Factory/Psr17/SlimPsr17Factory.php	0	module
+tests/Factory/AppFactoryTest.php	32	import	-	0	external
+tests/Factory/AppFactoryTest.php	33	import	-	0	external
+tests/Factory/AppFactoryTest.php	34	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Factory/AppFactoryTest.php	35	import	Slim/Interfaces/MiddlewareDispatcherInterface.php	0	module
+tests/Factory/AppFactoryTest.php	36	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+tests/Factory/AppFactoryTest.php	37	import	Slim/Interfaces/RouteParserInterface.php	0	module
+tests/Factory/AppFactoryTest.php	38	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+tests/Factory/AppFactoryTest.php	39	import	-	0	external
+tests/Factory/AppFactoryTest.php	40	import	Slim/Routing/RouteCollector.php	0	module
+tests/Factory/AppFactoryTest.php	41	import	tests/Mocks/MockPsr17FactoryWithoutStreamFactory.php	0	module
+tests/Factory/AppFactoryTest.php	42	import	tests/TestCase.php	0	module
+tests/Factory/AppFactoryTest.php	43	import	-	0	external
+tests/Factory/Psr17/Psr17FactoryProviderTest.php	13	import	Slim/Factory/Psr17/Psr17FactoryProvider.php	0	module
+tests/Factory/Psr17/Psr17FactoryProviderTest.php	14	import	tests/TestCase.php	0	module
+tests/Factory/Psr17/Psr17FactoryTest.php	13	import	-	0	external
+tests/Factory/Psr17/Psr17FactoryTest.php	14	import	tests/Mocks/MockPsr17Factory.php	0	module
+tests/Factory/Psr17/Psr17FactoryTest.php	15	import	tests/TestCase.php	0	module
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	13	import	-	0	external
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	14	import	-	0	external
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	15	import	-	0	external
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	16	import	-	0	external
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	17	import	Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	0	module
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	18	import	-	0	external
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	19	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	20	import	tests/TestCase.php	0	module
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	21	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	13	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	14	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	15	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	16	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	17	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	18	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	19	import	Slim/Factory/Psr17/GuzzlePsr17Factory.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	20	import	Slim/Factory/Psr17/HttpSoftPsr17Factory.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	21	import	Slim/Factory/Psr17/LaminasDiactorosPsr17Factory.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	22	import	Slim/Factory/Psr17/NyholmPsr17Factory.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	23	import	Slim/Factory/Psr17/Psr17FactoryProvider.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	24	import	Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	25	import	Slim/Factory/Psr17/SlimPsr17Factory.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	26	import	Slim/Factory/ServerRequestCreatorFactory.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	27	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	28	import	Slim/Interfaces/ServerRequestCreatorInterface.php	0	module
+tests/Factory/ServerRequestCreatorFactoryTest.php	29	import	-	0	external
+tests/Factory/ServerRequestCreatorFactoryTest.php	30	import	tests/TestCase.php	0	module
+tests/Handlers/ErrorHandlerTest.php	13	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	14	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	15	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	16	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	17	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	18	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	19	import	-	0	external
+tests/Handlers/ErrorHandlerTest.php	20	import	Slim/Error/Renderers/HtmlErrorRenderer.php	0	module
+tests/Handlers/ErrorHandlerTest.php	21	import	Slim/Error/Renderers/JsonErrorRenderer.php	0	module
+tests/Handlers/ErrorHandlerTest.php	22	import	Slim/Error/Renderers/PlainTextErrorRenderer.php	0	module
+tests/Handlers/ErrorHandlerTest.php	23	import	Slim/Error/Renderers/XmlErrorRenderer.php	0	module
+tests/Handlers/ErrorHandlerTest.php	24	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+tests/Handlers/ErrorHandlerTest.php	25	import	Slim/Exception/HttpNotFoundException.php	0	module
+tests/Handlers/ErrorHandlerTest.php	26	import	Slim/Handlers/ErrorHandler.php	0	module
+tests/Handlers/ErrorHandlerTest.php	27	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Handlers/ErrorHandlerTest.php	28	import	tests/Mocks/MockCustomException.php	0	module
+tests/Handlers/ErrorHandlerTest.php	29	import	tests/TestCase.php	0	module
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	13	import	-	0	external
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	14	import	-	0	external
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	15	import	Slim/Handlers/Strategies/RequestResponseNamedArgs.php	0	module
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	16	import	tests/TestCase.php	0	module
+tests/Middleware/BodyParsingMiddlewareTest.php	13	import	-	0	external
+tests/Middleware/BodyParsingMiddlewareTest.php	14	import	-	0	external
+tests/Middleware/BodyParsingMiddlewareTest.php	15	import	-	0	external
+tests/Middleware/BodyParsingMiddlewareTest.php	16	import	-	0	external
+tests/Middleware/BodyParsingMiddlewareTest.php	17	import	Slim/Middleware/BodyParsingMiddleware.php	0	module
+tests/Middleware/BodyParsingMiddlewareTest.php	18	import	tests/TestCase.php	0	module
+tests/Middleware/BodyParsingMiddlewareTest.php	20	import	-	0	external
+tests/Middleware/BodyParsingMiddlewareTest.php	21	import	-	0	external
+tests/Middleware/ContentLengthMiddlewareTest.php	13	import	-	0	external
+tests/Middleware/ContentLengthMiddlewareTest.php	14	import	Slim/Middleware/ContentLengthMiddleware.php	0	module
+tests/Middleware/ContentLengthMiddlewareTest.php	15	import	tests/TestCase.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	13	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	14	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	15	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	16	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	17	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	18	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	19	import	-	0	external
+tests/Middleware/ErrorMiddlewareTest.php	20	import	Slim/App.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	21	import	Slim/Exception/HttpNotFoundException.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	22	import	Slim/Handlers/ErrorHandler.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	23	import	Slim/Middleware/ErrorMiddleware.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	24	import	Slim/Middleware/RoutingMiddleware.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	25	import	tests/Mocks/MockCustomException.php	0	module
+tests/Middleware/ErrorMiddlewareTest.php	26	import	tests/TestCase.php	0	module
+tests/Middleware/MethodOverrideMiddlewareTest.php	13	import	-	0	external
+tests/Middleware/MethodOverrideMiddlewareTest.php	14	import	-	0	external
+tests/Middleware/MethodOverrideMiddlewareTest.php	15	import	-	0	external
+tests/Middleware/MethodOverrideMiddlewareTest.php	16	import	Slim/Middleware/MethodOverrideMiddleware.php	0	module
+tests/Middleware/MethodOverrideMiddlewareTest.php	17	import	tests/TestCase.php	0	module
+tests/Middleware/OutputBufferingMiddlewareTest.php	13	import	-	0	external
+tests/Middleware/OutputBufferingMiddlewareTest.php	14	import	-	0	external
+tests/Middleware/OutputBufferingMiddlewareTest.php	15	import	-	0	external
+tests/Middleware/OutputBufferingMiddlewareTest.php	16	import	-	0	external
+tests/Middleware/OutputBufferingMiddlewareTest.php	17	import	Slim/Middleware/OutputBufferingMiddleware.php	0	module
+tests/Middleware/OutputBufferingMiddlewareTest.php	18	import	tests/TestCase.php	0	module
+tests/Middleware/OutputBufferingMiddlewareTest.php	20	import	-	0	external
+tests/Middleware/RoutingMiddlewareTest.php	13	import	-	0	external
+tests/Middleware/RoutingMiddlewareTest.php	14	import	-	0	external
+tests/Middleware/RoutingMiddlewareTest.php	15	import	-	0	external
+tests/Middleware/RoutingMiddlewareTest.php	16	import	-	0	external
+tests/Middleware/RoutingMiddlewareTest.php	17	import	-	0	external
+tests/Middleware/RoutingMiddlewareTest.php	18	import	Slim/CallableResolver.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	19	import	Slim/Exception/HttpMethodNotAllowedException.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	20	import	Slim/Exception/HttpNotFoundException.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	21	import	Slim/Interfaces/RouteParserInterface.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	22	import	Slim/Interfaces/RouteResolverInterface.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	23	import	Slim/Middleware/RoutingMiddleware.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	24	import	Slim/Routing/RouteCollector.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	25	import	Slim/Routing/RouteContext.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	26	import	Slim/Routing/RouteParser.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	27	import	Slim/Routing/RouteResolver.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	28	import	Slim/Routing/RoutingResults.php	0	module
+tests/Middleware/RoutingMiddlewareTest.php	29	import	tests/TestCase.php	0	module
+tests/MiddlewareDispatcherTest.php	13	import	-	0	external
+tests/MiddlewareDispatcherTest.php	14	import	-	0	external
+tests/MiddlewareDispatcherTest.php	15	import	-	0	external
+tests/MiddlewareDispatcherTest.php	16	import	-	0	external
+tests/MiddlewareDispatcherTest.php	17	import	-	0	external
+tests/MiddlewareDispatcherTest.php	18	import	-	0	external
+tests/MiddlewareDispatcherTest.php	19	import	-	0	external
+tests/MiddlewareDispatcherTest.php	20	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/MiddlewareDispatcherTest.php	21	import	tests/Mocks/MockMiddlewareSlimCallable.php	0	module
+tests/MiddlewareDispatcherTest.php	22	import	tests/Mocks/MockMiddlewareWithConstructor.php	0	module
+tests/MiddlewareDispatcherTest.php	23	import	tests/Mocks/MockMiddlewareWithoutConstructor.php	0	module
+tests/MiddlewareDispatcherTest.php	24	import	tests/Mocks/MockRequestHandler.php	0	module
+tests/MiddlewareDispatcherTest.php	25	import	tests/Mocks/MockSequenceMiddleware.php	0	module
+tests/MiddlewareDispatcherTest.php	26	import	-	0	external
+tests/Mocks/CallableTest.php	13	import	tests/Providers/PSR7ObjectProvider.php	0	module
+tests/Mocks/InvocationStrategyTest.php	13	import	-	0	external
+tests/Mocks/InvocationStrategyTest.php	14	import	-	0	external
+tests/Mocks/InvocationStrategyTest.php	15	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+tests/Mocks/MiddlewareTest.php	13	import	-	0	external
+tests/Mocks/MiddlewareTest.php	14	import	-	0	external
+tests/Mocks/MiddlewareTest.php	15	import	-	0	external
+tests/Mocks/MiddlewareTest.php	16	import	-	0	external
+tests/Mocks/MiddlewareTest.php	17	import	tests/Providers/PSR7ObjectProvider.php	0	module
+tests/Mocks/MockAction.php	13	import	-	0	external
+tests/Mocks/MockAction.php	15	import	-	0	external
+tests/Mocks/MockAction.php	16	import	-	0	external
+tests/Mocks/MockAction.php	17	import	-	0	external
+tests/Mocks/MockCustomException.php	13	import	-	0	external
+tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php	13	import	-	0	external
+tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php	14	import	-	0	external
+tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php	15	import	Slim/Interfaces/RequestHandlerInvocationStrategyInterface.php	0	module
+tests/Mocks/MockMiddlewareSlimCallable.php	13	import	-	0	external
+tests/Mocks/MockMiddlewareSlimCallable.php	14	import	-	0	external
+tests/Mocks/MockMiddlewareSlimCallable.php	15	import	-	0	external
+tests/Mocks/MockMiddlewareWithConstructor.php	13	import	-	0	external
+tests/Mocks/MockMiddlewareWithConstructor.php	14	import	-	0	external
+tests/Mocks/MockMiddlewareWithConstructor.php	15	import	-	0	external
+tests/Mocks/MockMiddlewareWithConstructor.php	16	import	-	0	external
+tests/Mocks/MockMiddlewareWithConstructor.php	17	import	-	0	external
+tests/Mocks/MockMiddlewareWithConstructor.php	18	import	-	0	external
+tests/Mocks/MockMiddlewareWithoutConstructor.php	13	import	-	0	external
+tests/Mocks/MockMiddlewareWithoutConstructor.php	14	import	-	0	external
+tests/Mocks/MockMiddlewareWithoutConstructor.php	15	import	-	0	external
+tests/Mocks/MockMiddlewareWithoutConstructor.php	16	import	-	0	external
+tests/Mocks/MockPsr17Factory.php	13	import	Slim/Factory/Psr17/Psr17Factory.php	0	module
+tests/Mocks/MockPsr17FactoryWithoutStreamFactory.php	13	import	Slim/Factory/Psr17/Psr17Factory.php	0	module
+tests/Mocks/MockRequestHandler.php	13	import	-	0	external
+tests/Mocks/MockRequestHandler.php	14	import	-	0	external
+tests/Mocks/MockRequestHandler.php	15	import	-	0	external
+tests/Mocks/MockRequestHandler.php	16	import	tests/Providers/PSR7ObjectProvider.php	0	module
+tests/Mocks/MockSequenceMiddleware.php	13	import	-	0	external
+tests/Mocks/MockSequenceMiddleware.php	14	import	-	0	external
+tests/Mocks/MockSequenceMiddleware.php	15	import	-	0	external
+tests/Mocks/MockSequenceMiddleware.php	16	import	-	0	external
+tests/Mocks/MockStream.php	13	import	-	0	external
+tests/Mocks/MockStream.php	14	import	-	0	external
+tests/Mocks/MockStream.php	15	import	-	0	external
+tests/Mocks/MockStream.php	16	import	-	0	external
+tests/Mocks/MockStream.php	18	import	-	0	external
+tests/Mocks/MockStream.php	19	import	-	0	external
+tests/Mocks/MockStream.php	20	import	-	0	external
+tests/Mocks/MockStream.php	21	import	-	0	external
+tests/Mocks/MockStream.php	22	import	-	0	external
+tests/Mocks/MockStream.php	23	import	-	0	external
+tests/Mocks/MockStream.php	24	import	-	0	external
+tests/Mocks/MockStream.php	25	import	-	0	external
+tests/Mocks/MockStream.php	26	import	-	0	external
+tests/Mocks/MockStream.php	27	import	-	0	external
+tests/Mocks/MockStream.php	28	import	-	0	external
+tests/Mocks/MockStream.php	29	import	-	0	external
+tests/Mocks/MockStream.php	30	import	-	0	external
+tests/Mocks/MockStream.php	31	import	-	0	external
+tests/Mocks/MockStream.php	32	import	-	0	external
+tests/Mocks/RequestHandlerTest.php	13	import	-	0	external
+tests/Mocks/RequestHandlerTest.php	14	import	-	0	external
+tests/Mocks/RequestHandlerTest.php	15	import	-	0	external
+tests/Mocks/RequestHandlerTest.php	16	import	tests/Providers/PSR7ObjectProvider.php	0	module
+tests/Mocks/RequestHandlerTest.php	18	import	-	0	external
+tests/Mocks/SlowPokeStream.php	13	import	-	0	external
+tests/Mocks/SlowPokeStream.php	14	import	-	0	external
+tests/Mocks/SlowPokeStream.php	16	import	-	0	external
+tests/Mocks/SlowPokeStream.php	17	import	-	0	external
+tests/Mocks/SlowPokeStream.php	18	import	-	0	external
+tests/Mocks/SmallChunksStream.php	13	import	-	0	external
+tests/Mocks/SmallChunksStream.php	14	import	-	0	external
+tests/Mocks/SmallChunksStream.php	16	import	-	0	external
+tests/Mocks/SmallChunksStream.php	17	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	13	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	14	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	15	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	16	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	17	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	18	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	19	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	21	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	22	import	-	0	external
+tests/Providers/PSR7ObjectProvider.php	23	import	-	0	external
+tests/Providers/PSR7ObjectProviderInterface.php	13	import	-	0	external
+tests/Providers/PSR7ObjectProviderInterface.php	14	import	-	0	external
+tests/Providers/PSR7ObjectProviderInterface.php	15	import	-	0	external
+tests/Providers/PSR7ObjectProviderInterface.php	16	import	-	0	external
+tests/Providers/PSR7ObjectProviderInterface.php	17	import	-	0	external
+tests/Providers/PSR7ObjectProviderInterface.php	18	import	-	0	external
+tests/ResponseEmitterTest.php	13	import	-	0	external
+tests/ResponseEmitterTest.php	14	import	Slim/ResponseEmitter.php	0	module
+tests/ResponseEmitterTest.php	15	import	tests/Assets/HeaderStack.php	0	module
+tests/ResponseEmitterTest.php	16	import	tests/Mocks/MockStream.php	0	module
+tests/ResponseEmitterTest.php	17	import	tests/Mocks/SlowPokeStream.php	0	module
+tests/ResponseEmitterTest.php	18	import	tests/Mocks/SmallChunksStream.php	0	module
+tests/ResponseEmitterTest.php	20	import	-	0	external
+tests/ResponseEmitterTest.php	21	import	-	0	external
+tests/ResponseEmitterTest.php	22	import	-	0	external
+tests/ResponseEmitterTest.php	23	import	-	0	external
+tests/ResponseEmitterTest.php	24	import	-	0	external
+tests/ResponseEmitterTest.php	25	import	-	0	external
+tests/ResponseEmitterTest.php	26	import	-	0	external
+tests/ResponseEmitterTest.php	27	import	-	0	external
+tests/ResponseEmitterTest.php	28	import	-	0	external
+tests/ResponseEmitterTest.php	29	import	-	0	external
+tests/ResponseEmitterTest.php	30	import	-	0	external
+tests/ResponseEmitterTest.php	31	import	-	0	external
+tests/Routing/DispatcherTest.php	13	import	-	0	external
+tests/Routing/DispatcherTest.php	14	import	-	0	external
+tests/Routing/DispatcherTest.php	15	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Routing/DispatcherTest.php	16	import	Slim/Routing/Dispatcher.php	0	module
+tests/Routing/DispatcherTest.php	17	import	Slim/Routing/FastRouteDispatcher.php	0	module
+tests/Routing/DispatcherTest.php	18	import	Slim/Routing/RouteCollector.php	0	module
+tests/Routing/DispatcherTest.php	19	import	Slim/Routing/RouteResolver.php	0	module
+tests/Routing/DispatcherTest.php	20	import	Slim/Routing/RoutingResults.php	0	module
+tests/Routing/DispatcherTest.php	21	import	tests/TestCase.php	0	module
+tests/Routing/DispatcherTest.php	23	import	-	0	external
+tests/Routing/DispatcherTest.php	24	import	-	0	external
+tests/Routing/DispatcherTest.php	25	import	-	0	external
+tests/Routing/DispatcherTest.php	26	import	-	0	external
+tests/Routing/FastRouteDispatcherTest.php	13	import	-	0	external
+tests/Routing/FastRouteDispatcherTest.php	14	import	-	0	external
+tests/Routing/FastRouteDispatcherTest.php	15	import	-	0	external
+tests/Routing/FastRouteDispatcherTest.php	16	import	Slim/Routing/FastRouteDispatcher.php	0	module
+tests/Routing/FastRouteDispatcherTest.php	17	import	tests/TestCase.php	0	module
+tests/Routing/FastRouteDispatcherTest.php	19	import	-	0	external
+tests/Routing/RouteCollectorProxyTest.php	13	import	-	0	external
+tests/Routing/RouteCollectorProxyTest.php	14	import	-	0	external
+tests/Routing/RouteCollectorProxyTest.php	15	import	-	0	external
+tests/Routing/RouteCollectorProxyTest.php	16	import	-	0	external
+tests/Routing/RouteCollectorProxyTest.php	17	import	Slim/CallableResolver.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	18	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	19	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	20	import	Slim/Interfaces/RouteGroupInterface.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	21	import	Slim/Interfaces/RouteInterface.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	22	import	Slim/Routing/RouteCollector.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	23	import	Slim/Routing/RouteCollectorProxy.php	0	module
+tests/Routing/RouteCollectorProxyTest.php	24	import	tests/TestCase.php	0	module
+tests/Routing/RouteCollectorTest.php	13	import	-	0	external
+tests/Routing/RouteCollectorTest.php	14	import	-	0	external
+tests/Routing/RouteCollectorTest.php	15	import	-	0	external
+tests/Routing/RouteCollectorTest.php	16	import	-	0	external
+tests/Routing/RouteCollectorTest.php	17	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Routing/RouteCollectorTest.php	18	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+tests/Routing/RouteCollectorTest.php	19	import	Slim/Routing/RouteCollector.php	0	module
+tests/Routing/RouteCollectorTest.php	20	import	Slim/Routing/RouteCollectorProxy.php	0	module
+tests/Routing/RouteCollectorTest.php	21	import	tests/TestCase.php	0	module
+tests/Routing/RouteCollectorTest.php	23	import	-	0	external
+tests/Routing/RouteCollectorTest.php	24	import	-	0	external
+tests/Routing/RouteCollectorTest.php	25	import	-	0	external
+tests/Routing/RouteCollectorTest.php	26	import	-	0	external
+tests/Routing/RouteCollectorTest.php	27	import	-	0	external
+tests/Routing/RouteContextTest.php	13	import	-	0	external
+tests/Routing/RouteContextTest.php	14	import	-	0	external
+tests/Routing/RouteContextTest.php	15	import	Slim/Interfaces/RouteInterface.php	0	module
+tests/Routing/RouteContextTest.php	16	import	Slim/Interfaces/RouteParserInterface.php	0	module
+tests/Routing/RouteContextTest.php	17	import	Slim/Routing/RouteContext.php	0	module
+tests/Routing/RouteContextTest.php	18	import	Slim/Routing/RoutingResults.php	0	module
+tests/Routing/RouteContextTest.php	19	import	tests/TestCase.php	0	module
+tests/Routing/RouteParserTest.php	7	import	-	0	external
+tests/Routing/RouteParserTest.php	8	import	-	0	external
+tests/Routing/RouteParserTest.php	9	import	-	0	external
+tests/Routing/RouteParserTest.php	10	import	-	0	external
+tests/Routing/RouteParserTest.php	11	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Routing/RouteParserTest.php	12	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+tests/Routing/RouteParserTest.php	13	import	Slim/Interfaces/RouteInterface.php	0	module
+tests/Routing/RouteParserTest.php	14	import	Slim/Routing/RouteCollector.php	0	module
+tests/Routing/RouteParserTest.php	15	import	Slim/Routing/RouteParser.php	0	module
+tests/Routing/RouteParserTest.php	16	import	tests/TestCase.php	0	module
+tests/Routing/RouteResolverTest.php	13	import	-	0	external
+tests/Routing/RouteResolverTest.php	14	import	-	0	external
+tests/Routing/RouteResolverTest.php	15	import	Slim/Interfaces/DispatcherInterface.php	0	module
+tests/Routing/RouteResolverTest.php	16	import	Slim/Interfaces/RouteCollectorInterface.php	0	module
+tests/Routing/RouteResolverTest.php	17	import	Slim/Interfaces/RouteInterface.php	0	module
+tests/Routing/RouteResolverTest.php	18	import	Slim/Routing/RouteResolver.php	0	module
+tests/Routing/RouteResolverTest.php	19	import	Slim/Routing/RoutingResults.php	0	module
+tests/Routing/RouteResolverTest.php	20	import	tests/TestCase.php	0	module
+tests/Routing/RouteResolverTest.php	22	import	-	0	external
+tests/Routing/RouteRunnerTest.php	13	import	-	0	external
+tests/Routing/RouteRunnerTest.php	14	import	-	0	external
+tests/Routing/RouteRunnerTest.php	15	import	Slim/MiddlewareDispatcher.php	0	module
+tests/Routing/RouteRunnerTest.php	16	import	Slim/Routing/RouteCollector.php	0	module
+tests/Routing/RouteRunnerTest.php	17	import	Slim/Routing/RouteContext.php	0	module
+tests/Routing/RouteRunnerTest.php	18	import	Slim/Routing/RouteParser.php	0	module
+tests/Routing/RouteRunnerTest.php	19	import	Slim/Routing/RouteResolver.php	0	module
+tests/Routing/RouteRunnerTest.php	20	import	Slim/Routing/RouteRunner.php	0	module
+tests/Routing/RouteRunnerTest.php	21	import	Slim/Routing/RoutingResults.php	0	module
+tests/Routing/RouteRunnerTest.php	22	import	tests/TestCase.php	0	module
+tests/Routing/RouteTest.php	13	import	-	0	external
+tests/Routing/RouteTest.php	14	import	-	0	external
+tests/Routing/RouteTest.php	15	import	-	0	external
+tests/Routing/RouteTest.php	16	import	-	0	external
+tests/Routing/RouteTest.php	17	import	-	0	external
+tests/Routing/RouteTest.php	18	import	-	0	external
+tests/Routing/RouteTest.php	19	import	-	0	external
+tests/Routing/RouteTest.php	20	import	-	0	external
+tests/Routing/RouteTest.php	21	import	-	0	external
+tests/Routing/RouteTest.php	22	import	-	0	external
+tests/Routing/RouteTest.php	23	import	Slim/CallableResolver.php	0	module
+tests/Routing/RouteTest.php	24	import	Slim/Handlers/Strategies/RequestHandler.php	0	module
+tests/Routing/RouteTest.php	25	import	Slim/Handlers/Strategies/RequestResponse.php	0	module
+tests/Routing/RouteTest.php	26	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/Routing/RouteTest.php	27	import	Slim/Interfaces/InvocationStrategyInterface.php	0	module
+tests/Routing/RouteTest.php	28	import	Slim/Interfaces/RouteCollectorProxyInterface.php	0	module
+tests/Routing/RouteTest.php	29	import	Slim/Routing/Route.php	0	module
+tests/Routing/RouteTest.php	30	import	Slim/Routing/RouteGroup.php	0	module
+tests/Routing/RouteTest.php	31	import	tests/Mocks/CallableTest.php	0	module
+tests/Routing/RouteTest.php	32	import	tests/Mocks/InvocationStrategyTest.php	0	module
+tests/Routing/RouteTest.php	33	import	tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php	0	module
+tests/Routing/RouteTest.php	34	import	tests/Mocks/MockMiddlewareWithoutConstructor.php	0	module
+tests/Routing/RouteTest.php	35	import	tests/Mocks/MockMiddlewareWithoutInterface.php	0	module
+tests/Routing/RouteTest.php	36	import	tests/Mocks/RequestHandlerTest.php	0	module
+tests/Routing/RouteTest.php	38	import	-	0	external
+tests/Routing/RouteTest.php	39	import	-	0	external
+tests/Routing/RouteTest.php	40	import	-	0	external
+tests/Routing/RouteTest.php	41	import	-	0	external
+tests/TestCase.php	13	import	-	0	external
+tests/TestCase.php	14	import	-	0	external
+tests/TestCase.php	15	import	-	0	external
+tests/TestCase.php	16	import	-	0	external
+tests/TestCase.php	17	import	-	0	external
+tests/TestCase.php	18	import	-	0	external
+tests/TestCase.php	19	import	-	0	external
+tests/TestCase.php	20	import	-	0	external
+tests/TestCase.php	21	import	-	0	external
+tests/TestCase.php	22	import	-	0	external
+tests/TestCase.php	23	import	-	0	external
+tests/TestCase.php	24	import	-	0	external
+tests/TestCase.php	25	import	Slim/CallableResolver.php	0	module
+tests/TestCase.php	26	import	Slim/Interfaces/CallableResolverInterface.php	0	module
+tests/TestCase.php	27	import	Slim/MiddlewareDispatcher.php	0	module
+tests/TestCase.php	28	import	tests/Providers/PSR7ObjectProvider.php	0	module
+tests/bootstrap.php	11	import	-	0	external
+tests/bootstrap.php	12	import	Slim/ResponseEmitter.php	0	module
+tests/bootstrap.php	13	import	Slim/Routing/RouteCollector.php	0	module
+tests/bootstrap.php	14	import	tests/Assets/HeaderStack.php	0	module

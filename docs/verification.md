@@ -267,15 +267,33 @@ unindexed.
 
 | Corpus | Expected | Found | Kind mismatch | Missed | Extra |
 |---|---|---|---|---|---|
-| rack (Ruby) | 1014 | 950 | 60 | 4 | 0 |
-| Slim (PHP) | 876 | 863 | 0 | 13 | 0 |
+| rack (Ruby) | 1014 | 1014 | 0 | 0 | 0 |
+| Slim (PHP) | 876 | 876 | 0 | 0 | 0 |
+| laravel/framework (PHP) | 38104 | 38104 | 0 | 0 | 0 |
 
-rack's kind mismatches are all singleton methods defined outside a class
-body (`def self.x` at the top of a file, `def object.close` in a test
-block), which the engine reads as functions; its misses are singleton
-methods on an instance variable or nested in another method. Slim's misses
-are the methods of anonymous classes and three functions declared inside a
-method body.
+The PHP oracle also reads a method of an anonymous class written after an
+attribute or modifier (`new #[Queue('x')] class`, `new readonly class`) as a
+method. Before, it listed four such methods in laravel as functions.
+
+#### PHP imports
+
+The two PHP corpora also score `use` imports (layer `imports` under each
+declarations entry). `tools/php_import_truth.php` reads every top-level
+`use` with `token_get_all`, leaving out trait uses and closure `use (...)`.
+It resolves each class-like name through Composer's own class map
+(`composer dump-autoload --optimize --no-scripts --no-plugins` into a
+temporary vendor directory). A name Composer does not map falls back to the
+files whose tokens declare it, or that declare something in a namespace of
+that name. A `use function` resolves to the files declaring the function.
+Anything else is external, and `use const` is not listed.
+
+| Corpus | Repository imports | Confirmed | Contradicted | External |
+|---|---|---|---|---|
+| Slim | 306 | 306 | 0 | 510 |
+| laravel/framework | 9682 | 9682 | 0 | 5005 |
+
+The gate fails on fewer confirmed or more contradicted imports, or a
+changed truth.
 
 ### Service contracts
 
