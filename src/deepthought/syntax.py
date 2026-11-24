@@ -1735,7 +1735,64 @@ def _python_parameters(parameters, content, found):
             _python_targets(item, content, found)
 
 
-def _python_bindings(scope, content):
+def _python_dotted(node, content):
+    """'a.b' for an identifier or attribute chain; None otherwise."""
+    if node.type == "identifier":
+        return _text(node, content)
+    if node.type == "attribute":
+        head = _python_dotted(node.child_by_field_name("object"), content)
+        attribute = node.child_by_field_name("attribute")
+        if head is not None and attribute is not None:
+            return f"{head}.{_text(attribute, content)}"
+    return None
+
+
+def _python_annotation(node, content):
+    """The class a Python annotation names (``T``, ``m.T``, ``"T"``,
+    ``Optional[T]``, ``T | None``) as written; None for any other shape."""
+    if node is not None and node.type == "type":
+        node = node.named_children[0] if node.named_children else None
+    if node is None:
+        return None
+    if node.type == "string":
+        parts = [c for c in node.named_children if c.type == "string_content"]
+        text = _text(parts[0], content) if len(parts) == 1 else ""
+        return text if re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*", text) else None
+    if node.type == "binary_operator":
+        sides = [
+            c
+            for c in (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            )
+        ]
+        operator = node.child_by_field_name("operator")
+        if operator is None or _text(operator, content) != "|":
+            return None
+        rest = [c for c in sides if c is not None and c.type != "none"]
+        return _python_annotation(rest[0], content) if len(rest) == 1 else None
+    if node.type in {"generic_type", "subscript"}:
+        if node.type == "generic_type":
+            head, *arguments = node.named_children
+            arguments = [a.named_children[0] for a in arguments if a.named_children]
+            arguments = [
+                a.named_children[0] if a.type == "type" and a.named_children else a
+                for a in arguments
+            ]
+        else:
+            head = node.child_by_field_name("value")
+            arguments = node.children_by_field_name("subscript")
+        name = _python_dotted(head, content) if head is not None else None
+        if (
+            name in {"Optional", "typing.Optional", "t.Optional"}
+            and len(arguments) == 1
+        ):
+            return _python_annotation(arguments[0], content)
+        return None
+    return _python_dotted(node, content)
+
+
+def _python_bindings(scope, content, parameters=True):
     """(names bound in a function, lambda or comprehension scope, names it
     declares ``global`` or with a nested ``def`` or ``class``, which the
     lexical rule resolves as before even when also assigned). A function binds its parameters and every name it
@@ -1751,7 +1808,8 @@ def _python_bindings(scope, content):
             if clause.type == "for_in_clause":
                 _python_targets(clause.child_by_field_name("left"), content, bound)
         return bound, declared
-    _python_parameters(scope.child_by_field_name("parameters"), content, bound)
+    if parameters:
+        _python_parameters(scope.child_by_field_name("parameters"), content, bound)
     # A comprehension's body is walked: only `:=` binds there.
     stack = [scope.child_by_field_name("body")]
     while stack:
@@ -1812,6 +1870,144 @@ def _python_shadowed(node, content, callee, cache):
                 return True
         child, scope = scope, scope.parent
     return None
+
+
+def _python_body_imports(scope):
+    """Whether a function body holds an import outside its nested scopes."""
+    stack = [scope.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        if node.type in {"import_statement", "import_from_statement"}:
+            return True
+        if node.type not in _PYTHON_SCOPES:
+            stack.extend(node.named_children)
+    return False
+
+
+def _python_receiver_type(node, content, callee, cache):
+    """For a Python call ``x.m()``, the class that the annotation of the
+    parameter ``x`` names (``x: T``, ``x: m.T``, ``x: "T"``,
+    ``x: Optional[T]``, ``x: T | None``), when that parameter is the
+    binding of ``x`` the call sees and the function binds or imports
+    nothing else under that name. None otherwise."""
+    parts = callee.split(".")
+    if len(parts) != 2:
+        return None
+    head = parts[0]
+    child, scope = node, node.parent
+    while scope is not None:
+        inside = False
+        if scope.type in {"function_definition", "lambda"}:
+            inside = child == scope.child_by_field_name("body")
+        elif scope.type in _PYTHON_COMPREHENSIONS:
+            first = next(
+                (c for c in scope.named_children if c.type == "for_in_clause"), None
+            )
+            inside = first is None or child != first
+        if inside:
+            key = (scope.start_byte, scope.end_byte, scope.type)
+            if key not in cache:
+                cache[key] = _python_bindings(scope, content)
+            bound, declared = cache[key]
+            if head in declared:
+                return None
+            if head in bound:
+                break
+        child, scope = scope, scope.parent
+    else:
+        return None
+    # A lambda's parameters carry no annotation, and a comprehension binds
+    # only its loop targets: neither gives a type below.
+    annotation = None
+    parameters = scope.child_by_field_name("parameters")
+    for item in parameters.named_children if parameters is not None else ():
+        if item.type == "typed_parameter":
+            name = item.named_children[0]
+        elif item.type == "typed_default_parameter":
+            name = item.child_by_field_name("name")
+        else:
+            continue
+        if (
+            name is not None
+            and name.type == "identifier"
+            and _text(name, content) == head
+        ):
+            annotation = item.child_by_field_name("type")
+    key = ("body", scope.start_byte, scope.end_byte)
+    if key not in cache:
+        cache[key] = (
+            _python_bindings(scope, content, parameters=False)[0],
+            _python_body_imports(scope),
+        )
+    rebound, imports = cache[key]
+    if imports:
+        return None
+    if annotation is not None:
+        return None if head in rebound else _python_annotation(annotation, content)
+    names = set()
+    _python_parameters(parameters, content, names)
+    if head in names:
+        return None  # an unannotated parameter, whatever it is rebound to
+    bound = cache[(scope.start_byte, scope.end_byte, scope.type)][0]
+    binders = _python_binders(scope, head, content)
+    if len(binders) != 1 or binders[0].type != "assignment":
+        return None
+    (assignment,) = binders
+    left, right = (
+        assignment.child_by_field_name("left"),
+        assignment.child_by_field_name("right"),
+    )
+    if left is None or left.type != "identifier":
+        return None
+    written = assignment.child_by_field_name("type")
+    if written is not None:
+        name = _python_annotation(written, content)
+    elif right is not None and right.type == "call":
+        # `x = T(...)`: a class called is an instance of it.
+        function = right.child_by_field_name("function")
+        name = _python_dotted(function, content) if function is not None else None
+    else:
+        return None
+    # The type is named in the function: it must not be a local there.
+    if name is None or name.split(".")[0] in bound:
+        return None
+    return name
+
+
+def _python_binders(scope, name, content):
+    """The statements of a function body (outside its nested scopes) that
+    bind ``name``: assignments, loops, ``with``/``except``/``case`` captures,
+    ``del`` and ``:=``. A ``global`` or ``nonlocal`` declaration of it makes
+    the list unusable, so it counts twice."""
+    found = []
+    stack = [scope.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        names = set()
+        if node.type == "named_expression":
+            _python_targets(node.child_by_field_name("name"), content, names)
+        elif node.type in {"assignment", "augmented_assignment", "for_statement"}:
+            _python_targets(node.child_by_field_name("left"), content, names)
+        elif node.type == "as_pattern":
+            _python_targets(node.child_by_field_name("alias"), content, names)
+        elif node.type == "delete_statement":
+            for child in node.named_children:
+                _python_targets(child, content, names)
+        elif node.type in {"global_statement", "nonlocal_statement"}:
+            if name in {_text(c, content) for c in node.named_children}:
+                found += [node, node]
+        elif node.type == "dotted_name" and node.parent.type == "case_pattern":
+            names.add(_text(node, content))
+        if name in names:
+            found.append(node)
+        if node.type not in _PYTHON_SCOPES:
+            stack.extend(node.named_children)
+        elif (
+            node.type != "lambda"
+            and _text(node.child_by_field_name("name"), content) == name
+        ):
+            found += [node, node]  # a nested def or class of that name
+    return found
 
 
 def _java_anonymous(node, content, spans, symbols):
@@ -2093,9 +2289,11 @@ def extract_call_sites(
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python
                         else None,
-                        receiver_type=_go_receiver_type(
-                            node, content, callee, receivers
+                        receiver_type=_python_receiver_type(
+                            node, content, callee, bindings
                         )
+                        if python
+                        else _go_receiver_type(node, content, callee, receivers)
                         if go
                         else None,
                     )
