@@ -1306,6 +1306,26 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             if d.kind == "Method"
         ]
 
+    def go_result(file, function):
+        """(file, type) of the first result of the Go function ``F`` or
+        ``pkg.F`` called in ``file``: one function of the package, or of
+        the package the file imports as ``pkg``. None otherwise."""
+        *package, function_name = function.split(".")
+        files = (
+            (modules.get((file, package[0])) or [()])[0]
+            if package
+            else peers.get(file, (file,))
+        )
+        found = [
+            d
+            for f in files
+            for d in by_symbol.get((f, function_name), ())
+            if d.kind == "Function"
+        ]
+        if len(found) != 1 or found[0].result_type is None:
+            return None
+        return found[0].file, found[0].result_type
+
     def go_follow(file, typed, steps):
         """(file, type) after following ``steps`` from the Go type ``typed``
         written in ``file``: a field of one struct, the first result of one
@@ -1541,10 +1561,16 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 )
             continue
         head, name = ".".join(parts[:-1]), parts[-1]
-        if site.receiver_type is not None:
-            # Go: `x.M()` on a variable whose declaration gives its type.
-            followed = go_follow(
-                site.file, site.receiver_type, site.receiver_steps or ()
+        if site.receiver_type is not None or site.receiver_function is not None:
+            # Go: `x.M()` on a variable whose declaration gives its type,
+            # or binds it to the first result of a function.
+            start = (
+                (site.file, site.receiver_type)
+                if site.receiver_function is None
+                else go_result(site.file, site.receiver_function)
+            )
+            followed = (
+                None if start is None else go_follow(*start, site.receiver_steps or ())
             )
             if followed is None or followed[1].startswith("[]"):
                 resolutions.append(

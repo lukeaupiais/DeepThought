@@ -2866,6 +2866,22 @@ def _go_variable_type(name, node, outer, content, cache, depth):
     """(type, steps) of the variable ``name`` the Go expression ``node``
     sees, from its innermost visible declaration in ``outer``; None when
     there is none or it gives no type."""
+    best = _go_visible(name, node, outer, content, cache)
+    if best is None:
+        return None
+    kind, value = best
+    if kind is not None:
+        return kind, ()
+    if isinstance(value, tuple):
+        return _go_step(
+            _go_expression_type(value[1], outer, content, cache, depth + 1), "[]"
+        )
+    return _go_expression_type(value, outer, content, cache, depth + 1)
+
+
+def _go_visible(name, node, outer, content, cache):
+    """(type, value) of the innermost declaration of ``name`` in ``outer``
+    that the Go expression ``node`` sees; None when it sees none."""
     key = (outer.id, name)
     if key not in cache:
         cache[key] = _go_declarations(outer, name, content)
@@ -2884,16 +2900,7 @@ def _go_variable_type(name, node, outer, content, cache, depth):
         # In one scope, a later `x, err :=` reuses the first x.
         if level > depth_seen:
             best, depth_seen = (kind, value), level
-    if best is None:
-        return None
-    kind, value = best
-    if kind is not None:
-        return kind, ()
-    if isinstance(value, tuple):
-        return _go_step(
-            _go_expression_type(value[1], outer, content, cache, depth + 1), "[]"
-        )
-    return _go_expression_type(value, outer, content, cache, depth + 1)
+    return best
 
 
 def _go_expression_type(node, outer, content, cache, depth=0):
@@ -2901,7 +2908,9 @@ def _go_expression_type(node, outer, content, cache, depth=0):
     written in it and in the declarations of the variables it names: a
     variable, ``T{...}``, ``&x`` (any unary operator), ``new(T)``, ``make(T, ...)``, ``x.(T)``,
     and ``x.f``, ``x.M()`` and ``x[i]`` on such an expression, as steps for
-    the resolver to follow; None for any other expression."""
+    the resolver to follow. A call ``F()`` or ``pkg.F()`` gives the type
+    ``F()`` or ``pkg.F()``: the first result of that function, for the
+    resolver to look up. None for any other expression."""
     if node is None or depth > 16:
         return None
     if node.type == "parenthesized_expression":
@@ -2944,6 +2953,26 @@ def _go_expression_type(node, outer, content, cache, depth=0):
         if _text(function, content) in {"new", "make"} and arguments.named_children:
             typed = _go_type(arguments.named_children[0], content)
             return None if typed is None else (typed, ())
+        if function.type == "identifier":
+            # `F()`: a function of the package, unless a declaration in
+            # the function (a func literal, a parameter) is named F.
+            name = _text(function, content)
+            if name in {"new", "make"} or (
+                _go_visible(name, function, outer, content, cache) is not None
+            ):
+                return None
+            return f"{name}()", ()
+        operand = function.child_by_field_name("operand")
+        if (
+            function.type == "selector_expression"
+            and operand is not None
+            and operand.type == "identifier"
+            and _go_visible(_text(operand, content), operand, outer, content, cache)
+            is None
+        ):
+            # `pkg.F()`, where no variable is named pkg: an imported function.
+            method = function.child_by_field_name("field")
+            return f"{_text(operand, content)}.{_text(method, content)}()", ()
         if function.type == "selector_expression":
             method = function.child_by_field_name("field")
             return _go_step(
@@ -2962,8 +2991,9 @@ def _go_expression_type(node, outer, content, cache, depth=0):
 def _go_receiver_type(node, content, callee, cache):
     """For a Go call ``x.M()`` or ``x.f.M()`` where ``x`` is declared in the
     outermost function around it (a function literal at package level too),
-    the receiver's type as ``_go_expression_type`` gives it: (type, steps
-    or None); None when that gives no type."""
+    the receiver's type as ``_go_expression_type`` gives it, as CallSite
+    fields: ``receiver_type`` or ``receiver_function``, and
+    ``receiver_steps``; None when that gives no type."""
     parts = callee.split(".")
     if len(parts) < 2:
         return None
@@ -2980,6 +3010,8 @@ def _go_receiver_type(node, content, callee, cache):
     if found is None:
         return None
     typed, steps = found
+    if typed.endswith("()"):
+        return {"receiver_function": typed[:-2], "receiver_steps": steps or None}
     if not steps and typed.startswith("[]"):
         return None
     base = typed.lstrip("[]")
@@ -2995,15 +3027,12 @@ def _go_receiver_type(node, content, callee, cache):
             }
         if base in cache[types]:
             return None
-    return typed, steps or None
+    return {"receiver_type": typed, "receiver_steps": steps or None}
 
 
 def _go_receiver_fields(node, content, callee, cache):
     """CallSite fields for the receiver type of a Go call."""
-    found = _go_receiver_type(node, content, callee, cache)
-    if found is None:
-        return {}
-    return {"receiver_type": found[0], "receiver_steps": found[1]}
+    return _go_receiver_type(node, content, callee, cache) or {}
 
 
 def _go_enclosing_functions(node):

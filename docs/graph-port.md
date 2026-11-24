@@ -160,7 +160,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
-| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. `default`, `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
@@ -2268,12 +2268,15 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
+  | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
 
 - **Clients.** `service-contracts.grpc-stub-call` links the calling
   declaration (or the file) by `REQUESTS` when a method is called on a stub of
   service X: built in place by its generated factory (`pb.NewXClient(conn)`,
   `pkg_pb2_grpc.XStub(channel)`, `XGrpc.newStub/newBlockingStub/newFutureStub`,
-  `new pkg.X(addr, creds)`), or a name (local, field or attribute) bound in
+  `new pkg.X(addr, creds)`, and grpc-tools' `new m.XClient(addr, creds)` for a
+  `*_grpc_pb` module `m` or an `XClient` imported from one), or a name
+  (local, field or attribute) bound in
   the same file only to stubs of X. For JavaScript, where any `new a.B()`
   looks the same, `B` must be a service some proto declares. The call is
   placed at the method's name.
@@ -2316,9 +2319,13 @@ to its server and its client call. Before the constructor rule, the Go server
 was unread because it is registered as `newServer()`. Across all grpc-go
 examples, the rule adds 6 correct `HANDLES` edges, from 2 registrations. The
 3 registrations still unread are a library health server from another
-package (2) and a loop variable (1). grpc-node's static codegen
-(`services.RouteGuideService`, `new services.RouteGuideClient`) is not read
-yet.
+package (2) and a loop variable (1).
+
+grpc-tools static codegen (`*_grpc_pb.js`) is read too. In grpc-node's
+`examples/` (`ca7f83f`), the 4 files that use it (route_guide and helloworld,
+servers and clients) give 11 new edges: 5 `HANDLES` and 6 `REQUESTS`, all
+correct. Destructured requires (`const {XClient} = require(...)`) are not
+read.
 
 ### Message destinations
 

@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 
 from ..syntax import identifier, make_parser
+from .web import _js_modules
 
 # Generated code declares every service's stub and base class; it is not a
 # server or a client of its own.
@@ -247,13 +248,64 @@ def _callee_name(node, language, content):
     return None if found is None else found[1]
 
 
-def _stub_service(node, language, content):
-    """The simple service name if ``node`` constructs a stub, else None."""
+_GRPC_PB = re.compile(r"_grpc_pb(?:\.[cm]?[jt]s)?$")
+
+
+def generated_js_names(root, content):
+    """(modules, members) of a JavaScript file: the names bound to a whole
+    grpc-tools ``*_grpc_pb`` module (require, default or namespace import),
+    and {local name: export} of the names imported from one."""
+    modules, members = set(), {}
+    for name, source in _js_modules(root, content).items():
+        if source is None:
+            continue
+        if _GRPC_PB.search(source):
+            modules.add(name)
+            continue
+        module, _, export = source.rpartition(".")
+        if module and _GRPC_PB.search(module):
+            members[name] = export
+    return modules, members
+
+
+def _generated_export(node, content, generated, suffix):
+    """``X`` when ``node`` is ``m.X<suffix>`` for a ``*_grpc_pb`` module ``m``,
+    or a name imported as ``X<suffix>`` from one; else None."""
+    if generated is None:
+        return None
+    modules, members = generated
+    if node.type == "member_expression":
+        owner = node.child_by_field_name("object")
+        if owner is None or owner.type != "identifier":
+            return None
+        if _text(owner, content) not in modules:
+            return None
+        export = _text(node.child_by_field_name("property"), content)
+    elif node.type == "identifier":
+        export = members.get(_text(node, content))
+    else:
+        return None
+    if export and export.endswith(suffix) and len(export) > len(suffix):
+        return export[: -len(suffix)]
+    return None
+
+
+def _stub_service(node, language, content, generated=None):
+    """The simple service name if ``node`` constructs a stub, else None.
+
+    ``generated`` is the file's ``generated_js_names``: a grpc-tools client
+    ``new m.XClient(...)`` names service X.
+    """
     if language in ("javascript", "typescript"):
         if node.type != "new_expression":
             return None
         constructor = node.child_by_field_name("constructor")
-        if constructor is None or constructor.type != "member_expression":
+        if constructor is None:
+            return None
+        static = _generated_export(constructor, content, generated, "Client")
+        if static is not None:
+            return static
+        if constructor.type != "member_expression":
             return None
         return _text(constructor.child_by_field_name("property"), content)
     name = _callee_name(node, language, content)
@@ -361,9 +413,14 @@ def extract_calls(
     of ``services`` (simple proto service names) when given.
     """
     root = tree.root_node
+    generated = (
+        generated_js_names(root, content)
+        if language in ("javascript", "typescript")
+        else None
+    )
 
     def stub(node):
-        service = _stub_service(_unwrap(node), language, content)
+        service = _stub_service(_unwrap(node), language, content, generated)
         if (
             service is not None
             and services is not None
@@ -423,6 +480,7 @@ GO_REGISTER_CONSTRUCTOR = "service-contracts.grpc-go-register-constructor"
 PYTHON_SERVICER = "service-contracts.grpc-python-servicer"
 JAVA_IMPL_BASE = "service-contracts.grpc-java-impl-base"
 NODE_ADD_SERVICE = "service-contracts.grpc-node-add-service"
+NODE_STATIC_ADD_SERVICE = "service-contracts.grpc-node-static-add-service"
 STUB_CALL = "service-contracts.grpc-stub-call"
 
 
@@ -534,7 +592,10 @@ def class_bases(tree, content, language):
 
 
 def node_add_service(tree, content, language):
-    """(service, rpc key, handler symbol, line) of ``x.addService(S.service, {...})``."""
+    """(service, rpc key, handler symbol, rule, line) of
+    ``x.addService(S.service, {...})``, or of ``x.addService(m.SService,
+    {...})`` for a grpc-tools ``*_grpc_pb`` module ``m``."""
+    generated = generated_js_names(tree.root_node, content)
     found = []
     stack = [tree.root_node]
     while stack:
@@ -547,13 +608,18 @@ def node_add_service(tree, content, language):
         if len(arguments) != 2 or arguments[1].type != "object":
             continue
         service_node = arguments[0]
-        if (
-            service_node.type != "member_expression"
-            or _text(service_node.child_by_field_name("property"), content) != "service"
-        ):
-            continue
-        owner = service_node.child_by_field_name("object")
-        service = _last_name(owner, content)
+        service = _generated_export(service_node, content, generated, "Service")
+        rule = NODE_STATIC_ADD_SERVICE
+        if service is None:
+            rule = NODE_ADD_SERVICE
+            if (
+                service_node.type != "member_expression"
+                or _text(service_node.child_by_field_name("property"), content)
+                != "service"
+            ):
+                continue
+            owner = service_node.child_by_field_name("object")
+            service = _last_name(owner, content)
         if service is None:
             continue
         for entry in arguments[1].named_children:
@@ -577,7 +643,7 @@ def node_add_service(tree, content, language):
                     symbol = None  # an inline function has no declaration
             else:
                 continue
-            found.append((service, key, symbol, entry.start_point.row + 1))
+            found.append((service, key, symbol, rule, entry.start_point.row + 1))
     return found
 
 
@@ -688,7 +754,9 @@ def server_handlers(
                 )
     elif language in ("javascript", "typescript"):
         own = [d for d in definitions if d.file == file]
-        for simple, key, symbol, line in node_add_service(tree, content, language):
+        for simple, key, symbol, rule, line in node_add_service(
+            tree, content, language
+        ):
             service, _ = rpcs(simple, line)
             if service is None:
                 continue
@@ -707,7 +775,7 @@ def server_handlers(
                     found[0].id,
                     service,
                     rpc,
-                    NODE_ADD_SERVICE,
+                    rule,
                 )
             )
     return handlers, unread
