@@ -1,4 +1,25 @@
 # seed_file	seed_line	seed_name	file	line	name	depth
+# unjudged	middleware/logger.go	98	middleware/logger.go	44
+# unjudged	middleware/logger.go	98	middleware/logger.go	172
+# unjudged	middleware/logger.go	98	middleware/recoverer_test.go	48
+# unjudged	middleware/logger.go	140	middleware/logger.go	44
+# unjudged	middleware/logger.go	140	middleware/logger.go	172
+# unjudged	middleware/logger.go	140	middleware/recoverer_test.go	48
+# unjudged	middleware/logger.go	168	middleware/recoverer.go	22
+# unjudged	middleware/recoverer_test.go	17	middleware/logger.go	44
+# unjudged	middleware/recoverer_test.go	17	middleware/logger.go	140
+# unjudged	middleware/recoverer_test.go	17	middleware/logger.go	172
+# unjudged	middleware/recoverer_test.go	17	middleware/recoverer_test.go	48
+# unjudged	middleware/terminal.go	55	middleware/logger.go	44
+# unjudged	middleware/terminal.go	55	middleware/logger.go	172
+# unjudged	middleware/terminal.go	55	middleware/recoverer_test.go	48
+# unjudged	mux.go	295	mux_test.go	1396
+# unjudged	mux.go	295	tree_test.go	525
+# unjudged	mux.go	295	tree_test.go	663
+# unjudged	tree.go	633	mux_test.go	316
+# unjudged	tree.go	633	tree.go	882
+# unjudged	tree.go	633	tree.go	886
+# unjudged	tree.go	696	tree.go	886
 context.go	104	Clone	context.go	104	Clone	0
 context.go	104	Clone	context_test.go	109	TestContext_Clone	1
 context.go	124	URLParam	context.go	11	URLParam	2

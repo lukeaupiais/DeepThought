@@ -935,7 +935,16 @@ that macros expand to, which the engine does not declare. scip-go
 records no definition spans, so cobra's come from Go's own parser
 (`go run tools/go_function_spans.go WORKSPACE`, passed as `--spans`); its
 low recall is mostly method calls on a receiver, such as `c.ExecuteC()` in
-`Execute`, left unresolved. gson's call truth comes from javac, not an
+`Execute`, left unresolved. scip-go binds a call through an interface to
+the interface method, which is not a callable, so the call graph stops
+there: chi's `r.Mount(...)` on a `chi.Router` never reaches `Mux.Mount`.
+`go run tools/go_interface_dispatch.go WORKSPACE` type-checks the module
+with `go/types` (no build, no code run) and lists each interface method
+with every method declared in the corpus that implements it; with
+`--dispatch`, such a call is a possible call of each of them, and a
+dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
+for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
+none. gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
