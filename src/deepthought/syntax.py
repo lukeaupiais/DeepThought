@@ -2347,6 +2347,18 @@ def _java_argument_type(node, content, cache):
         return "float" if _text(node, content)[-1] in "fF" else "double"
     if kind == "object_creation_expression":
         return _java_type_name(node.child_by_field_name("type"), content)
+    if kind == "binary_expression" and node.child_by_field_name("operator") is not None:
+        if _text(node.child_by_field_name("operator"), content) == "+" and any(
+            _java_argument_type(side, content, cache) == "String"
+            for side in (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            )
+            if side is not None
+        ):
+            # String concatenation (JLS 15.18.1).
+            return "String"
+        return None
     if kind == "cast_expression":
         written = node.child_by_field_name("type")
         if written is not None and written.type in _JAVA_PRIMITIVES:
@@ -2358,7 +2370,9 @@ def _java_argument_type(node, content, cache):
             return None
         return typed
     if kind == "identifier":
-        return _java_receiver_type(node, content, f"{_text(node, content)}.m", cache)
+        return _java_receiver_type(
+            node, content, f"{_text(node, content)}.m", cache, primitives=True
+        )
     return None
 
 
@@ -2465,6 +2479,18 @@ def _java_written_type(type_node, value, content):
     return _java_type_name(type_node, content)
 
 
+_JAVA_PRIMITIVE_NAMES = frozenset(
+    {"boolean", "byte", "short", "char", "int", "long", "float", "double"}
+)
+
+
+def _java_declared_type(type_node, value, content):
+    """The type a Java declaration writes, a primitive (``int``) included."""
+    if type_node is not None and type_node.type in _JAVA_PRIMITIVES:
+        return _text(type_node, content)
+    return _java_written_type(type_node, value, content)
+
+
 def _java_declared_here(node, name, content, before):
     """Declarations of ``name`` that ``node`` brings into scope for what it
     holds, as a list of written types (None for one with no usable type).
@@ -2480,7 +2506,7 @@ def _java_declared_here(node, name, content, before):
                     found.append(None)  # `Foo x[]` is an array
                 else:
                     value = declarator.child_by_field_name("value")
-                    found.append(_java_written_type(written, value, content))
+                    found.append(_java_declared_type(written, value, content))
 
     def parameter(child):
         declared = child.child_by_field_name("name")
@@ -2495,7 +2521,9 @@ def _java_declared_here(node, name, content, before):
                 found.append(None)
             else:
                 found.append(
-                    _java_type_name(child.child_by_field_name("type"), content)
+                    _java_declared_type(
+                        child.child_by_field_name("type"), None, content
+                    )
                 )
 
     kind = node.type
@@ -2531,7 +2559,9 @@ def _java_declared_here(node, name, content, before):
             if node.child_by_field_name("dimensions") is not None:
                 found.append(None)
             else:
-                found.append(_java_type_name(node.child_by_field_name("type"), content))
+                found.append(
+                    _java_declared_type(node.child_by_field_name("type"), None, content)
+                )
     elif kind == "try_with_resources_statement":
         resources = node.child_by_field_name("resources")
         for child in resources.named_children if resources else ():
@@ -2607,7 +2637,7 @@ def _java_binds_pattern(node, name, content):
     return False
 
 
-def _java_receiver_type(node, content, callee, cache):
+def _java_receiver_type(node, content, callee, cache, primitives=False):
     """For a Java call ``x.m()`` or ``this.x.m()``, the type that the
     declaration of the variable or field ``x`` in scope writes (``Foo``,
     ``Map.Entry``); None when no such declaration is in scope or it writes
@@ -2647,6 +2677,9 @@ def _java_receiver_type(node, content, callee, cache):
         if cache[key]:
             return None
     written = found[0]
+    if written in _JAVA_PRIMITIVE_NAMES:
+        # A primitive has no methods; as an argument it selects an overload.
+        return written if primitives else None
     if written.split(".")[0] in _java_type_variables(node, content):
         return None
     return written

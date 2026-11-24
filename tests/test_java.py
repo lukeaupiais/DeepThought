@@ -1039,6 +1039,78 @@ class JavaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replace(site, arguments=2, argument_types=("int",))
 
+    def test_primitive_variables_and_concatenations_select_overloads(self):
+        lines = [
+            "package p;",
+            "class Api {",
+            "  void add(Boolean x) {}",  # 3
+            "  void add(Character x) {}",  # 4
+            "  void add(Number x) {}",  # 5
+            "  void add(String x) {}",  # 6
+            "  void n(int x) {}",  # 7
+            "  void n(long x) {}",  # 8
+            "}",
+            "class Main {",
+            "  int count;",  # 11
+            "  void m(Api a, boolean flag, Object o) {",
+            "    int i = 1;",
+            "    char c = 'a';",
+            "    long l = 2L;",
+            "    int[] xs = {1};",
+            "    var v = 3;",
+            '    String s = "s";',
+            "    a.add(flag);",  # 19: a parameter
+            "    a.add(i);",  # 20: a local, boxed to Integer, a Number
+            "    a.add(c);",  # 21
+            "    a.n(l);",  # 22: long, not int
+            "    a.n(count);",  # 23: a field
+            '    a.add("n=" + i);',  # 24: concatenation is a String
+            "    a.add(s + o);",  # 25: so with a String variable
+            "    a.add(i + 1);",  # 26: arithmetic is not written
+            "    a.add(xs);",  # 27: an array has no type here
+            "    a.add(v);",  # 28: var without new
+            "    for (int k = 0; k < 2; k++) { a.n(k); }",  # 29
+            "    for (long e : new long[] {1}) { a.n(e); }",  # 30
+            "    a.add(s == null);",  # 31: a comparison is not written
+            "    i.hashCode();",  # 32: a primitive is no receiver type
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+        }
+        for line, callee, target in (
+            (19, "a.add", 3),
+            (20, "a.add", 5),
+            (21, "a.add", 4),
+            (22, "a.n", 8),
+            (23, "a.n", 7),
+            (24, "a.add", 6),
+            (25, "a.add", 6),
+            (26, "a.add", [3, 4, 5, 6]),
+            (27, "a.add", [3, 4, 5, 6]),
+            (28, "a.add", [3, 4, 5, 6]),
+            (29, "a.n", 7),
+            (30, "a.n", 8),
+            (31, "a.add", [3, 4, 5, 6]),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], target)
+        types = {(s.line, s.callee): s.argument_types for s in sites.values()}
+        self.assertEqual(types[(20, "a.add")], ("int",))
+        self.assertEqual(types[(24, "a.add")], ("String",))
+        self.assertIsNone(types[(26, "a.add")])
+        receiver = next(s for s in sites.values() if s.line == 32)
+        self.assertIsNone(receiver.receiver_type)
+
     def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
         lines = [
             "package p;",
