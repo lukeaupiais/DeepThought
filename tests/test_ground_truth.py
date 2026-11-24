@@ -347,7 +347,9 @@ class ScipPythonRepairTest(unittest.TestCase):
         )
 
     def test_matching_names_and_aliases_keep_their_symbol(self):
-        self.assertEqual(self.repair(self.PKG + "Request#", "Request"), self.PKG + "Request#")
+        self.assertEqual(
+            self.repair(self.PKG + "Request#", "Request"), self.PKG + "Request#"
+        )
         self.files["use.py"] = ["from pkg._models import Request as R"]
         self.assertEqual(self.repair(self.PKG + "Request#", "R"), self.PKG + "Request#")
 
