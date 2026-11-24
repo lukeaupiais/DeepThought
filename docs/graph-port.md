@@ -156,7 +156,11 @@ arbitrary object gets no edge.
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
 A name bound both by an import and a local declaration, or declared more than
-once, is ambiguous and gets no edge. CALLS edges start at the calling
+once, is ambiguous and gets no edge. Python `typing.overload` signatures
+(`@overload`, `@typing.overload`, `@t.overload`, `@typing_extensions.overload`)
+are recorded with `overload: true` and declare call forms only: when the
+candidates are such signatures and one other declaration, the call links to
+that declaration, the function that runs. CALLS edges start at the calling
 declaration, or at the File for module-level calls, and carry the call ID,
 callee text, line and column. Tool metadata counts call resolutions by status
 and reason. The `calls` capability is not advertised, so an empty callers or
@@ -798,6 +802,7 @@ line); a `new` binds the class it creates.
 | google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
 | apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
 | google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
+| junit-team/junit5 | 18,630 / 19,306 | 8 | 668 | 9,343 | 6,233 |
 
 Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
 36,756) and methods inherited from library types (`unbound_name`). Most of guava's
@@ -811,9 +816,13 @@ to the statically imported `LangAssertions` methods of the same name. The 37
 contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
 mostly overloads with the same arity elsewhere in the hierarchy that fit the
 argument types better (`putBytes`, `hashBytes`, `append`), which a count of
-arguments cannot tell apart. junit5 is not reported: javac
-stops attributing most of its roots without their libraries, leaving
-nothing to compare.
+arguments cannot tell apart. junit5's 8 contradictions are the same case
+(`ReflectionUtils.getFullyQualifiedMethodName`), and javac binds none for 657
+of its links for the same reason as in commons-lang: the statically imported
+`PreconditionAssertions` methods take lambdas typed by libraries that are
+not on javac's class path. junit5 indents with tabs; the oracle counts a tab
+as one column, as the analysis does, rather than expanding it to the next
+tab stop as javac's `LineMap.getColumnNumber` would.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -829,9 +838,12 @@ type lookup as calls, and links with `tree-sitter.java-base-type`
 | google/gson | 210 / 210 | 0 | 0 | 0 | 61 |
 | apache/commons-lang | 588 / 588 | 0 | 0 | 0 | 159 |
 | google/guava | 3,336 / 3,336 | 0 | 594 | 0 | 2,301 |
+| junit-team/junit5 | 1,370 / 1,370 | 0 | 0 | 1 | 158 |
 
 Guava's 594 ambiguous bases are test roots extending a type both
-`guava/src` and `android/guava/src` declare.
+`guava/src` and `android/guava/src` declare. junit5's one missed base is in a
+default-package file (`DefaultPackageTest extends VintageTest`, imported from
+`com.example.vintage`); why its import is not followed is not yet explained.
 
 ## Rust
 
@@ -1376,11 +1388,15 @@ Symbols join the enclosing modules and classes and the path written in a
 name with `.` (`class B::C` in `module A` is `A.B.C`; `class ::C` starts at
 the top). A `def` in a class or module body, in its `class << self` or in a
 block written there (`included do`, `Class.new do`) is a `Method`, whether it
-defines an instance or a singleton method (`def self.m`); elsewhere, at the
-top level or in a block outside any class, it is a `Function`. A class whose
+defines an instance or a singleton method (`def self.m`); so is a `def` with
+a receiver anywhere (`def YAML.load`, `def self.helper` at the top level),
+which defines a method of that object, and so is a `def` in `class << obj`.
+Any other `def` at the top level or in a block outside any class is a
+`Function`. A class whose
 name is not a constant path (`class self::Dynamic`) and what it holds are not
-recorded, nor is a `def` inside a method body, which only defines a method
-when that method runs. Methods made by metaprogramming (`attr_reader`,
+recorded. A `def` inside a method body is recorded under the same scope as
+the method around it, since it defines its method when that method runs
+(Ruby allows no class or module there). Methods made by metaprogramming (`attr_reader`,
 `define_method`), constants, imports (`require`), calls and superclasses are
 not recorded for Ruby yet.
 
@@ -1393,11 +1409,11 @@ same file, is put down to it; every other difference is unexplained.
 
 | Corpus | Files (with syntax errors) | Prism | Matched | Tree-sitter only: syntax error / after one | Prism only: syntax error / after one |
 |---|---|---|---|---|---|
-| rack/rack `b432304` | 95 (0) | 1,010 | 1,010 | 0 / 0 | 0 / 0 |
-| sinatra/sinatra `2e3f791` | 147 (0) | 1,164 | 1,164 | 0 / 0 | 0 / 0 |
+| rack/rack `b432304` | 95 (0) | 1,014 | 1,014 | 0 / 0 | 0 / 0 |
+| sinatra/sinatra `2e3f791` | 147 (0) | 1,168 | 1,168 | 0 / 0 | 0 / 0 |
 | heartcombo/devise `05811fb` | 197 (9) | 1,040 | 1,035 | 6 / 0 | 2 / 3 |
-| jekyll/jekyll `97c3bdc` | 162 (0) | 1,405 | 1,405 | 0 / 0 | 0 / 0 |
-| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,577 | 11,577 | 0 / 0 | 0 / 0 |
+| jekyll/jekyll `97c3bdc` | 162 (0) | 1,406 | 1,406 | 0 / 0 | 0 / 0 |
+| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,593 | 11,593 | 0 / 0 | 0 / 0 |
 
 No difference is unexplained. devise's syntax errors are its generator
 templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
@@ -1416,10 +1432,14 @@ join the namespace and the enclosing class-like declaration with `.`
 statements after it up to the next one, and a braced `namespace A\B { }`
 scopes its body (`namespace { }` is the global namespace). A declaration in a
 conditional block (`if (!function_exists('f')) { function f() {} }`, common
-in WordPress) is recorded, once for each branch that declares it. One in a
-function or method body, a closure or an anonymous class is not, since PHP
-declares it only when that code runs, and neither are namespaces themselves,
-constants, properties, enum cases, calls or bases yet.
+in WordPress) is recorded, once for each branch that declares it. So is one
+in a function or method body or a closure: PHP declares it in the current
+namespace when that code runs, so its symbol is namespace-qualified
+(`App.Http.helper`, not `App.Http.Controller.make.helper`). The methods of
+an anonymous class are named by the path to the class
+(`App.Http.Controller.make.handle` for one in `Controller::make`).
+Namespaces themselves, constants, properties, enum cases, calls and bases are
+not recorded yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1433,11 +1453,11 @@ unexplained.
 
 | Corpus | Files (with syntax errors) | PHP-Parser | Matched | PHP-Parser only: grammar error |
 |---|---|---|---|---|
-| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,897 | 1,897 | 0 |
-| guzzle/guzzle `ba6574f` | 149 (0) | 3,334 | 3,334 | 0 |
-| composer/composer `edc2b0d` | 653 (0) | 5,951 | 5,951 | 0 |
-| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,688 | 13,687 | 1 |
-| laravel/framework `817f2fc` | 3,205 (1) | 37,497 | 37,497 | 0 |
+| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,929 | 1,929 | 0 |
+| guzzle/guzzle `ba6574f` | 149 (0) | 3,380 | 3,380 | 0 |
+| composer/composer `edc2b0d` | 653 (0) | 5,968 | 5,968 | 0 |
+| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,731 | 13,730 | 1 |
+| laravel/framework `817f2fc` | 3,205 (1) | 38,123 | 38,123 | 0 |
 
 No difference is unexplained, and no declaration is reported by tree-sitter
 alone. The grammar error is WordPress's `function readonly()`, a fallback for
@@ -1805,6 +1825,22 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   templates tagged `gql` or `graphql`, marked by a `/* GraphQL */` comment,
   or starting with `#graphql`. A substitution (`${fragment}`) is not read.
 
+Clients: in a Node package that depends on a GraphQL client
+(`@apollo/client`, `apollo-client`, `apollo-boost`, `react-apollo`,
+`@apollo/react-hooks`, `urql`, `@urql/core`, `graphql-request`,
+`react-relay`, `relay-runtime`), the operations of its GraphQL templates
+(as above) and of its `*.graphql`/`*.gql` files request the root fields
+they select. An alias requests its field, and `__typename` and fields marked
+`@client` (resolved by Apollo Client itself) are not requests. Each
+requested field links by `REQUESTS` (rule
+`service-contracts.graphql-client-operation`, pattern_matched; properties
+`request`, `operation_name`, `line`, `column`) from the declaration that
+holds the operation, or its file, to the field of the one server in the
+repository that resolves it. When no server resolves it, the edge goes to
+the one server package that declares it. A `.graphql` document with
+requests gets a `File` node (language `graphql`) that the repository
+`CONTAINS` (rule `service-contracts.repository-contains-graphql`).
+
 Counted as unread:
 - `graphql:schema_root_renamed`: a schema definition that names a root
   type other than `Query`, `Mutation` or `Subscription`;
@@ -1822,9 +1858,17 @@ Counted as unread:
 - `graphql:declared_not_resolved`: a declared field that no resolver
   handles, in a package whose resolver maps are all read;
 - `graphql:resolved_not_declared`: a resolved field missing from a package
-  that has schema files.
+  that has schema files;
+- `graphql:client_fragment_root`: a fragment spread or inline fragment among
+  an operation's root fields;
+- `graphql:client_field_unknown`: a requested field that no server of the
+  repository resolves or declares (an outside API, or drift);
+- `graphql:client_field_ambiguous`: a requested field that several servers
+  resolve.
 
-Clients and field resolvers of object types are not read yet.
+Field resolvers of object types, and fragments at the root of an
+operation, are not read yet. Clients link by field name across the
+repository, not by the server URL they are configured with.
 
 On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
 GraphQL servers, 23 of them also declared in schema files. The two
@@ -1858,6 +1902,15 @@ schemas declare and the resolver files read by hand:
   declared fields without a read resolver are `graphql:resolution_unknown`
   rather than reported as unimplemented. Apollo Client's `cacheRedirects` in
   the shared client code is not read as a resolver map.
+
+Clients were checked the same way. On `fullstack-tutorial` the two client
+packages hold 10 operations. Two are `@client`-only and request nothing.
+The other 8 are read and each links to the server field it names. One of
+these is the starter client's `GetLaunch`: it links to the finished server,
+the only one in the repository that resolves `launch`. On `spectrum` the
+four client operations in files the grammar parses fully are read. Three
+link to their mutations, and `subscribeWebPush` is
+`graphql:client_field_unknown`: the server no longer declares it.
 
 ### Gateways
 
@@ -2134,7 +2187,7 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --language python --language typescript --snapshot
+tree-sitter --tool data-contracts --language java --language python --language typescript --language go --language ruby --snapshot
 REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
@@ -2159,12 +2212,18 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package; GORM's default pluralized names are not computed |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
+| File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed with the innermost enclosing module's or class's literal `table_name_prefix`, or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.active-record-call` | pattern_matched | `Model.<method>` with an ActiveRecord query (`where`, `find`, `pluck`, `count`, ...) or persistence method (`create`, `insert_all`, `update_all`, `destroy_all`, ...), `Model` resolved by Ruby's lexical constant lookup (`Module.nesting`, then the top level) to a model of the repository; instance methods, associations and scopes are not read |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -2188,7 +2247,22 @@ arguments, comments and string literals are skipped, and a name holding text
 the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
-Test sources (`src/test/`) are skipped.
+Test sources (`src/test/`, and for Ruby `test/` and `spec/`) are skipped.
+
+ActiveRecord models are the classes whose superclass chain reaches
+`ActiveRecord::Base` through classes of the repository; the superclass and
+`Model.method` constants resolve the way Ruby looks constants up, so in
+`class Admin::Panel` the name `User` is `Admin::Panel::User` or `::User`,
+never `Admin::User`. A class reopened in several files is one class, and is
+left out when its declarations disagree on the superclass or table name.
+Abstract classes (`self.abstract_class = true`, `primary_abstract_class`)
+give no table. A model whose name the code does not fix is left out and
+counted under `active_record_unresolved`: a `table_name` that is not a
+literal, `table_name_prefix`/`table_name_suffix`/`pluralize_table_names`
+assigned on its chain, or an application whose `config/` sets those or
+changes inflection in a way that is not read (regular expression rules,
+`clear`). Rails apps have no package manifest that the components scan
+reads, so their tables share the nearest enclosing package's namespace.
 
 `get_impact` goes forwards over WRITES and backwards over READS, so a change
 to a repository that writes a table reaches the repositories that read it.
@@ -2248,6 +2322,38 @@ hits it does not take are not Prisma Client calls (`db.orm.public.User`,
 or a property that names no model). On nestjs/nest's `sample/` apps it maps
 both TypeORM entities (`user`, `photo`) and links both
 `@InjectRepository` services and the 5 Prisma calls of the GraphQL sample.
+
+On three Rails applications, every table that the tool names for a model is
+one that the application's schema file declares, except models of tables
+that no longer exist:
+
+| Corpus | Models | In the schema | Not in the schema | Calls linked / not a model |
+|---|---|---|---|---|
+| lobsters/lobsters `d23941f` | 42 | 42 | 0 | 324 / 5 |
+| rubygems/rubygems.org `6f51e32` | 45 | 45 | 0 | 167 / 9 |
+| mastodon/mastodon `fe9d150` | 276 | 272 | 4 | 970 / 43 |
+
+Mastodon's 4 are two `StreamEntry` classes declared inside old migrations
+and a CLI maintenance task's `AccountIdentityProof`, whose tables later
+migrations dropped, and a migration helper mapped to
+`information_schema.role_table_grants`. rubygems.org's acronyms (`GitHub`,
+`OIDC`) and module prefixes give `admin_github_users` and
+`oidc_trusted_publisher_github_actions`; without the acronyms they would be
+`git_hub`. The schema tables no model maps are gems' own tables
+(Solid Queue, GoodJob, Doorkeeper, Blazer, Flipper), join tables and tables
+whose model was removed. Against a single-line `grep` for
+`Model.method` with the mapped class names, outside `test/` and `spec/`, the
+tool takes every line `grep` finds, plus the calls split over lines
+(`Account\n  .where(...)`). The inflector reproduces all 181 singular/plural,
+underscore and table-name cases of Rails' own `inflector_test_cases.rb`
+(8.0.2).
+
+On jmoiron/sqlx the Go rule reads 166 statements, every one with fixed
+table names. A single-line `grep` for a query method followed by SQL finds
+25 lines the tool links no table from: 7 are in comments, 12 are statements
+that name no table (`SELECT 'null' AS raw`), and 6 pass the text through a
+local alias of `Rebind` (`r := db.Rebind`), which is not followed. The tool
+also reads the statements that span lines.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
