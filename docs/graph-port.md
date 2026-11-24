@@ -2010,6 +2010,7 @@ with a reason:
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
 | `no_go_module` | No `go.mod` in the file's directory or any directory above it |
+| `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
 
 scip-go indexes one module per run, so each `go.mod` in the workspace
@@ -2019,6 +2020,15 @@ own directory, written to `scip-go.scip` for the root module and
 made workspace-relative and the receipt names the module. A Go file belongs to
 the innermost module above it. Global symbols name the module, so a call from
 one module into another binds across their indexes.
+
+Go runs are pinned to `linux/amd64` with `CGO_ENABLED=0`, so the files a
+module compiles do not depend on the machine or on a C toolchain; the receipt
+records the platform and `go env GOVERSION`. A file the go command ignores on
+that platform (`command_windows.go`) gets a scip-go pass for the first
+platform in `go tool dist list` (first-class ports first) whose `go list`
+compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
+files' documents; coverage says `pass: platform` and the platform. On cobra
+this covers `command_win.go`.
 
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
