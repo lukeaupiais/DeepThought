@@ -53,6 +53,7 @@ from ..service_contracts.messaging import (
     stomp_prefixes,
 )
 from ..service_contracts.openapi import generated_apis
+from ..service_contracts.aspnet import extract_aspnet
 from ..service_contracts.php import extract_php
 from ..service_contracts.spring import (
     SpringConfig,
@@ -89,6 +90,30 @@ SUPPORTED_LANGUAGES = (
 )
 
 ROUTE_RULES = {
+    "aspnet-controller": register_rule(
+        EvidenceRule(
+            "service-contracts.aspnet-controller-route",
+            "pattern_matched",
+            "A method of an ASP.NET Core controller (a class with "
+            "[ApiController], deriving from Controller or ControllerBase, or "
+            "named ...Controller) carries [HttpGet], [HttpPost], ... or "
+            "[Route] with a literal template, joined with the class's [Route] "
+            "templates; [controller], [action] and [area] are replaced. "
+            "Conventional routes (MapControllerRoute) are not read, and paths "
+            "are matched with the case they are written in.",
+        )
+    ),
+    "aspnet-minimal-api": register_rule(
+        EvidenceRule(
+            "service-contracts.aspnet-minimal-api-route",
+            "pattern_matched",
+            "A MapGet, MapPost, MapPut, MapDelete, MapPatch or MapMethods call "
+            "with a literal template gives this route, under the literal "
+            "prefixes of the MapGroup calls its receiver is built from; a "
+            "RouteGroupBuilder or IEndpointRouteBuilder parameter has an "
+            "unknown prefix.",
+        )
+    ),
     "symfony": register_rule(
         EvidenceRule(
             "service-contracts.symfony-route",
@@ -1363,7 +1388,11 @@ class ServiceContractTool(AnalysisTool):
         scripts = _script_constants(root, sources)
         calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
-            if coverage.language == "php":
+            if coverage.language == "csharp":
+                found = extract_aspnet(
+                    tree, content, repo_url, coverage.file, result.definitions
+                )
+            elif coverage.language == "php":
                 found = extract_php(
                     tree, content, repo_url, coverage.file, result.definitions
                 )
