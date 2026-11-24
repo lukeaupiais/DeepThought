@@ -10,6 +10,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 """
 
 from hashlib import sha256
+import dataclasses
 from pathlib import PurePosixPath
 import functools
 import json
@@ -1773,6 +1774,9 @@ class ServiceContractTool(AnalysisTool):
         test_files = 0
         grpc_sources = []
         sources = []
+        # Test files give only client calls, marked test_source, and no
+        # repository-wide facts (constants, mounts, prefixes).
+        test_sources = []
         for coverage in result.coverage:
             if coverage.status != "analyzed":
                 if (
@@ -1782,9 +1786,8 @@ class ServiceContractTool(AnalysisTool):
                 ):
                     partial_scripts.append(coverage.file)
                 continue
-            if _is_test_source(coverage.file):
-                test_files += 1
-                continue
+            test = _is_test_source(coverage.file)
+            test_files += test
             try:
                 content = (root / coverage.file).read_bytes()
             except OSError:
@@ -1798,7 +1801,9 @@ class ServiceContractTool(AnalysisTool):
             key = (coverage.language, suffix if suffix == ".tsx" else "")
             if key not in parsers:
                 parsers[key] = make_parser(coverage.language, suffix)
-            sources.append((coverage, content, parsers[key].parse(content)))
+            (test_sources if test else sources).append(
+                (coverage, content, parsers[key].parse(content))
+            )
         # Java constants other classes name (Queues.NAME), by qualified class;
         # a class declared in two files gives none.
         constants, seen = {}, set()
@@ -1945,7 +1950,8 @@ class ServiceContractTool(AnalysisTool):
             return axios_imports(tree, content, exports_of)
 
         calls = ScriptCalls(scripts) if scripts is not None else None
-        for coverage, content, tree in sources:
+        tests = {coverage.file for coverage, _, _ in test_sources}
+        for coverage, content, tree in sources + test_sources:
             if coverage.language == "csharp":
                 routes_found, _, unread_found = extract_aspnet(
                     tree, content, repo_url, coverage.file, result.definitions
@@ -2054,6 +2060,11 @@ class ServiceContractTool(AnalysisTool):
                         else None
                     ),
                 )
+            if coverage.file in tests:
+                requests.extend(
+                    dataclasses.replace(r, test_source=True) for r in found[1]
+                )
+                continue
             if coverage.language in ("javascript", "typescript") and next_apps:
                 next_route = route_of(coverage.file, next_apps)
                 if next_route is not None:
@@ -2234,6 +2245,7 @@ class ServiceContractTool(AnalysisTool):
                 ("*",) if file_patterns is None else tuple(file_patterns),
                 () if skip_patterns is None else tuple(skip_patterns),
             ),
+            tests=frozenset(tests),
         )
         self.last_grpc = grpc
         self.last_messages = (endpoints, messaging_unread)
@@ -2429,6 +2441,7 @@ class ServiceContractTool(AnalysisTool):
                             if request.host_from
                             else {}
                         ),
+                        **({"test_source": True} if request.test_source else {}),
                         **_evidence(
                             (
                                 LOCUST_HOST_RULES
@@ -2685,6 +2698,7 @@ class ServiceContractTool(AnalysisTool):
                         "request": written,
                         "line": call.line,
                         "column": call.column,
+                        **({"test_source": True} if call.test_source else {}),
                         **_evidence(GRPC_CALL_RULE),
                     },
                 )
@@ -2831,7 +2845,7 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
-                "test_source_files_skipped": test_files,
+                "test_source_files": test_files,
                 "graphql_fields": len(graphql_fields),
                 "graphql_requests": len(graphql_requests),
                 "grpc_methods": len(grpc.index.methods),

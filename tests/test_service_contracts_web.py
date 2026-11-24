@@ -346,13 +346,15 @@ class WebContractTests(unittest.TestCase):
                 ("payment/payment.py", "no_literal_path"),
                 ("payment/payment.py", "no_route"),
                 ("payment/payment.py", "no_route"),
+                # A test's request is read, marked, and resolved as any other.
+                ("payment/test_payment.py", "no_route"),
             ],
         )
-        # Test files are not read.
-        self.assertNotIn("payment/test_payment.py", {r.file for r in self.requests})
         self.assertEqual(
-            self.output.metadata.custom_metrics["test_source_files_skipped"], 1
+            [r.file for r in self.requests if r.test_source],
+            ["payment/test_payment.py"],
         )
+        self.assertEqual(self.output.metadata.custom_metrics["test_source_files"], 1)
 
     def test_graph_joins_tree_sitter_declarations(self):
         trees = asyncio.run(
