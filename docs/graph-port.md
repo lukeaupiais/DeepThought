@@ -2895,6 +2895,20 @@ field, or else to the one that declares it. A `.graphql` document with
 requests gets a `File` node (language `graphql`) that the repository
 `CONTAINS` (rule `service-contracts.repository-contains-graphql`).
 
+Schemas and operations are parsed by graphql-core (`graphql-core`, the
+`graphql` extra, also in `languages`), the reference GraphQL parser for
+Python: root fields are the fields of the parsed object type definitions
+and extensions, and of the parsed operations' first selection level, with
+the lines and columns of their names. Template substitutions (`${...}`)
+are blanked before parsing. A source graphql-core does not parse, and
+every source when it is not installed, is read by the fallback reader, a
+tokenizer that skips strings, comments, arguments and directives; it gets
+no new features. On the 220 `.graphql`/`.gql` files of the validation
+repositories and corpora (the gqlgen repository, Prisma examples, the
+Apollo and howtographql corpora and others) both readers give the same
+fields, lines and unread facts; one deliberately invalid gqlgen test
+schema is left to the fallback.
+
 Counted as unread:
 - `graphql:schema_root_renamed`: a schema definition that names a root
   type other than `Query`, `Mutation` or `Subscription`;
