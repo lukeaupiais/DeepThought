@@ -324,32 +324,34 @@ class IndexersTest(unittest.TestCase):
                 "include": None,
                 "exclude": None,
                 "repository_id": "repo",
-                "allow_uncovered": False,
                 **values,
             }
         )
 
-    def test_default_index_fails_naming_each_uncovered_file(self):
+    def test_default_index_fails_only_when_an_indexer_fails(self):
         from contextlib import redirect_stderr
         from io import StringIO
 
         from deepthought.graph_cli import index_scip
 
-        self.fake("scip-python")
-        stderr = StringIO()
         old = os.environ.copy()
         self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
-        os.environ.update(self.environ())
+        os.environ.update({"PATH": ""})
+        os.environ.pop("DEEPTHOUGHT_SCIP_PYTHON", None)
+        stderr = StringIO()
         with (
             redirect_stderr(stderr),
-            self.assertRaisesRegex(ValueError, "1 source files have no SCIP index"),
+            self.assertRaisesRegex(ValueError, "2 source files have no SCIP index"),
         ):
             index_scip(self.index_args(), self.out)
+        self.assertIn("indexer_not_installed", stderr.getvalue())
+        # A file the installed indexer leaves out is named and parser-bound.
+        self.fake("scip-python")
+        os.environ.update(self.environ())
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            report, indexes = index_scip(self.index_args(), self.out)
         self.assertIn("src/pkg/b.py: no SCIP index (not_in_index)", stderr.getvalue())
-        with redirect_stderr(StringIO()):
-            report, indexes = index_scip(
-                self.index_args(allow_uncovered=True), self.out
-            )
         self.assertEqual(report["uncovered"], 1)
         self.assertEqual([i.coverage[0].file for i, _ in indexes], ["src/pkg/a.py"])
         # Files the run does not analyze are not counted.
@@ -389,7 +391,6 @@ class DefaultIndexTest(unittest.TestCase):
                 include=None,
                 exclude=None,
                 repository_id="repo",
-                allow_uncovered=False,
             )
             report, scip_indexes = index_scip(args, Path(scratch) / "out")
             self.assertEqual(report["uncovered"], 0)

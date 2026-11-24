@@ -50,6 +50,7 @@ from ..data_contracts import (
     RAILS_ENGLISH,
     apply_rails_inflections,
     extract_sqlalchemy,
+    sqlmodel_default_mappings,
     extract_typeorm,
     extract_sequelize,
     extract_mongodb_collections,
@@ -80,6 +81,7 @@ from ..data_contracts import (
 )
 from ..calls import name_bindings
 from ..engine import analyze_repository
+from ..scip_calls import ScipReferences
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser
@@ -367,6 +369,63 @@ SA_STATEMENT_RULE = register_rule(
         "class name.",
     )
 )
+
+FSA_MODEL_QUERY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.flask-sqlalchemy-model-query",
+        "pattern_matched",
+        "The code reads Flask-SQLAlchemy's Model.query on (an attribute of) "
+        "the one SQLAlchemy mapped class of the repository with that name.",
+    )
+)
+SQLMODEL_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlmodel-default-table",
+        "pattern_matched",
+        "The class sets table=True, inherits from sqlmodel.SQLModel (its "
+        "bases followed through a SCIP index, or by name in the same file) "
+        "and sets no __tablename__: SQLModel names its table by the class "
+        "name lowercased.",
+    )
+)
+SA_NAME_RULES = {
+    "query": SA_QUERY_RULE,
+    "statement": SA_STATEMENT_RULE,
+    "model_query": FSA_MODEL_QUERY_RULE,
+}
+SA_SCIP_RULES = {
+    how: register_rule(
+        EvidenceRule(f"data-contracts.sqlalchemy-scip-{name}", "resolved", text)
+    )
+    for how, name, text in (
+        (
+            "query",
+            "query",
+            "The code calls .query() with an argument whose name a SCIP index "
+            "resolves to a SQLAlchemy mapped class; the receiver is not "
+            "checked to be a Session.",
+        ),
+        (
+            "statement",
+            "statement",
+            "The code calls SQLAlchemy's select (READS) or insert, update or "
+            "delete (WRITES) on a name a SCIP index resolves to a mapped class.",
+        ),
+        (
+            "model_query",
+            "model-query",
+            "The code reads .query on a name a SCIP index resolves to a "
+            "mapped class (Flask-SQLAlchemy's Model.query).",
+        ),
+        (
+            "get",
+            "get",
+            "The code calls .get() or .select_from() with a first argument "
+            "whose name a SCIP index resolves to a mapped class "
+            "(Session.get(Model, key)); the receiver is not checked.",
+        ),
+    )
+}
 
 SQL_RULES = {
     how: register_rule(EvidenceRule(f"data-contracts.{how}", "pattern_matched", text))
@@ -860,8 +919,17 @@ class DataContractTool(AnalysisTool):
         )
 
     async def analyze(
-        self, repo_url, languages=None, file_patterns=None, skip_patterns=None
+        self,
+        repo_url,
+        languages=None,
+        file_patterns=None,
+        skip_patterns=None,
+        scip_indexes=(),
     ):
+        """``scip_indexes`` are pairs of an ingested SCIP index (with the
+        workspace's file paths) and its receipt digest, as the tree-sitter
+        tool takes them: SQLAlchemy model names in the files they cover link
+        to the class the index resolves them to."""
         started = time.monotonic()
         selected = tuple(
             sorted(
@@ -1267,21 +1335,30 @@ class DataContractTool(AnalysisTool):
                         },
                     )
         # SQLAlchemy mapped classes, Table() declarations and their uses.
-        sa_mappings, sa_tables, sa_accesses = [], [], []
+        # Where a SCIP index covers a file, a written model name links to the
+        # class the index resolves it to; elsewhere to the one mapped class
+        # of the repository with that name.
+        references = ScipReferences(result, scip_indexes, root)
+        sa_mappings, sa_tables, sa_accesses, sa_classes = [], [], [], []
         for file, content, tree in python_trees:
             found = extract_sqlalchemy(tree, content, file, result.definitions)
             sa_mappings.extend(found[0])
             sa_tables.extend(found[1])
             sa_accesses.extend(found[2])
-        sa_targets = {}
+            sa_classes.extend(found[3])
+        sa_mappings.extend(
+            sqlmodel_default_mappings(sa_classes, references, sa_mappings)
+        )
+        sa_targets, sa_by_model = {}, {}
         for mapping in sa_mappings:
             target = table(mapping.file, mapping.table)
             sa_targets.setdefault(mapping.name, []).append(target)
+            sa_by_model[mapping.model_id] = target
             link(
                 "MAPS_TO",
                 symbol(mapping.model_id),
                 target,
-                SA_TABLENAME_RULE,
+                SA_TABLENAME_RULE if mapping.explicit else SQLMODEL_DEFAULT_RULE,
                 {"line": mapping.line, "column": mapping.column},
             )
         for item in sa_tables:
@@ -1292,10 +1369,42 @@ class DataContractTool(AnalysisTool):
                 SA_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
-        sa_counts = {"linked": 0, "not_a_mapped_class": 0}
+        sa_counts = {
+            "linked": 0,
+            "linked_scip": 0,
+            "not_a_mapped_class": 0,
+            "scip_not_a_mapped_class": 0,
+        }
         for access in sa_accesses:
+            declared = references.declarations(
+                access.file, access.model_line, access.model_column, access.model
+            )
+            if declared is not None:
+                targets = sorted(
+                    {sa_by_model[d.id] for d in declared if d.id in sa_by_model},
+                    key=str,
+                )
+                if len(targets) != 1:
+                    sa_counts["scip_not_a_mapped_class"] += 1
+                    continue
+                sa_counts["linked_scip"] += 1
+                tool, receipt = references.tool(access.file)
+                link(
+                    "WRITES" if access.writes else "READS",
+                    code(access.file, access.caller_id),
+                    targets[0],
+                    SA_SCIP_RULES[access.how],
+                    {
+                        "model": access.model,
+                        "line": access.model_line,
+                        "column": access.model_column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                )
+                continue
             targets = sa_targets.get(access.model, [])
-            if len(targets) != 1:
+            if access.how == "get" or len(targets) != 1:
                 sa_counts["not_a_mapped_class"] += 1
                 continue
             sa_counts["linked"] += 1
@@ -1303,8 +1412,12 @@ class DataContractTool(AnalysisTool):
                 "WRITES" if access.writes else "READS",
                 code(access.file, access.caller_id),
                 targets[0],
-                SA_QUERY_RULE if access.how == "query" else SA_STATEMENT_RULE,
-                {"model": access.model, "line": access.line, "column": access.column},
+                SA_NAME_RULES[access.how],
+                {
+                    "model": access.model,
+                    "line": access.model_line,
+                    "column": access.model_column,
+                },
             )
         # SQL and JPQL text that Java code runs.
         entity_tables = {}
