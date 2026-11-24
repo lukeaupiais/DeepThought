@@ -20,6 +20,7 @@ from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.http import PLACEHOLDER
+from ..service_contracts.openapi import generated_spring_apis
 from ..service_contracts.messaging import extract_messaging
 from ..service_contracts.spring import (
     SpringConfig,
@@ -89,6 +90,19 @@ ROUTE_RULES = {
             "gorilla/mux declares this path, with methods from a chained "
             ".Methods(...) or a Go 1.22 'METHOD /path' pattern; a base path "
             "variable before the path is assumed to add no segments.",
+        )
+    ),
+    "openapi-spring": register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-spring-route",
+            "pattern_matched",
+            "An OpenAPI operation is generated into a Spring interface by an "
+            "openapi-generator-maven-plugin execution (generator spring, version "
+            "7 or later, interfaceOnly, no base path on the interface) in a "
+            "pom.xml of the repository, and a controller implementing that "
+            "interface overrides the operation's method; the path is the "
+            "operation's, joined with the controller's @RequestMapping path and "
+            "the servlet context path.",
         )
     ),
 }
@@ -398,6 +412,12 @@ class ServiceContractTool(AnalysisTool):
                 else:
                     seen.add(qualified)
                     constants[qualified] = fields
+        # Spring interfaces openapi-generator makes from specs at build time.
+        generated, openapi_unread = (
+            generated_spring_apis(root)
+            if any(c.language == "java" for c, _, _ in sources)
+            else ({}, [])
+        )
         # A module whose Java code calls setExchange has no fixed template
         # exchange; otherwise it is spring.rabbitmq.template.exchange, or the
         # default exchange "" when that key is not set.
@@ -430,6 +450,7 @@ class ServiceContractTool(AnalysisTool):
                     service=service,
                     context_path=context_path,
                     constants=constants,
+                    generated=generated,
                 )
             else:
                 found = extract_web(
@@ -548,6 +569,11 @@ class ServiceContractTool(AnalysisTool):
                         "line": route.line,
                         **({"service": route.service} if route.service else {}),
                         **({"base_unknown": True} if route.base_unknown else {}),
+                        **(
+                            {"declared_in": route.declared_in}
+                            if route.declared_in
+                            else {}
+                        ),
                     },
                 )
             )
@@ -756,6 +782,16 @@ class ServiceContractTool(AnalysisTool):
         unread_counts = {}
         for item in unread:
             key = f"{item.kind}:{item.reason}"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
+        handled = {r.declared_in for r in routes if r.declared_in}
+        for operations in generated.values():
+            for operation in operations:
+                if f"{operation.spec_file}:{operation.spec_line}" not in handled:
+                    # No controller in the repository overrides it.
+                    key = "openapi:operation_not_handled"
+                    unread_counts[key] = unread_counts.get(key, 0) + 1
+        for item in openapi_unread:
+            key = f"openapi:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         for item in gateway_unread:
             key = f"gateway:{item.reason}"

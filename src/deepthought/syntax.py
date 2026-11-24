@@ -1110,6 +1110,41 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
+def _php_imports(node, content):
+    """Yield one import per clause of a PHP ``use`` declaration.
+
+    The specifier is the imported name as written, without a leading
+    backslash and with a group's prefix (``use A\\{B, C}`` imports
+    ``A\\B`` and ``A\\C``). The kind is ``use`` for a class or namespace,
+    ``use_function`` or ``use_const`` for ``use function`` or ``use const``;
+    each binds its alias or the name's last part.
+    """
+    if node.type != "namespace_use_declaration":
+        return
+    group = node.child_by_field_name("body")
+    prefix = next((c for c in node.named_children if c.type == "namespace_name"), None)
+    clauses = [
+        c for c in (group or node).named_children if c.type == "namespace_use_clause"
+    ]
+    # `use function A\\f, A\\g;`: the grammar puts the keyword in the first
+    # clause, though it applies to every clause.
+    written = node.child_by_field_name("type")
+    if written is None and group is None and clauses:
+        written = clauses[0].child_by_field_name("type")
+    for clause in clauses:
+        keyword = written or clause.child_by_field_name("type")
+        name = next(
+            c for c in clause.named_children if c.type in {"qualified_name", "name"}
+        )
+        specifier = _text(name, content).lstrip("\\")
+        if prefix is not None:
+            specifier = _text(prefix, content) + "\\" + specifier
+        alias = clause.child_by_field_name("alias")
+        local = _text(alias, content) if alias else specifier.rsplit("\\", 1)[-1]
+        kind = "use_" + keyword.type if keyword is not None else "use"
+        yield specifier, kind, (), (local,)
+
+
 def _rust_inline_modules(node, content, expander=None):
     """Names of the inline ``mod name { ... }`` around a node, outermost first;
     an item written in an expanded macro invocation is in the modules around
@@ -1358,6 +1393,7 @@ def extract_imports(
         "python": _python_imports,
         "go": _go_imports,
         "java": _java_imports,
+        "php": _php_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     stack = [tree.root_node]

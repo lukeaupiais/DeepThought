@@ -30,7 +30,9 @@ Subcommands:
   check [--corpus NAME ...] [--cache DIR]  fetch each pinned corpus, score it
                                            and compare with the baseline; the
                                            manifest's ``contracts`` corpora
-                                           (labelled cross-service links) too
+                                           (labelled cross-service links) and
+                                           ``declarations`` corpora (C and C++
+                                           declarations from clang) too
 
 Scores (calls):
   confirmed     linked, and the target is one the oracle names
@@ -538,6 +540,24 @@ def missing_requirements(manifest, names=()):
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
 
 
+def declaration_regressions(report, baseline):
+    """Fewer declarations found, more misread ones, or a changed truth."""
+    problems = []
+    for key, worse in (
+        ("found", int.__lt__),
+        ("kind_mismatch", int.__gt__),
+        ("extra", int.__gt__),
+    ):
+        if worse(report[key], baseline[key]):
+            problems.append(f"{key} {baseline[key]} -> {report[key]}")
+    if report["expected"] != baseline["expected"]:
+        problems.append(
+            f"expected {baseline['expected']} -> {report['expected']} "
+            "(the truth file changed; update the baseline in the same commit)"
+        )
+    return problems
+
+
 def check(names, cache, update=False, examples=10):
     manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
     missing = missing_requirements(manifest, names)
@@ -583,6 +603,31 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             baseline[corpus["name"]] = report
+    declared = baseline.setdefault("declarations", {})
+    for corpus in manifest.get("declarations", ()):
+        if names and corpus["name"] not in names:
+            continue
+        import c_declaration_truth
+
+        workspace = fetch(corpus, cache)
+        result = analyze(workspace, corpus["languages"])
+        report, samples = c_declaration_truth.score(
+            result, c_declaration_truth.read(CORPUS / corpus["truth"]), examples
+        )
+        problems = (
+            declaration_regressions(report, declared[corpus["name"]])
+            if (corpus["name"] in declared and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "declarations": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            declared[corpus["name"]] = report
     contracts = baseline.setdefault("contracts", {})
     for corpus in manifest.get("contracts", ()):
         if names and corpus["name"] not in names:

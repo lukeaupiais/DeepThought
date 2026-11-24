@@ -28,6 +28,8 @@ class HttpRoute:
     framework: str
     service: str | None = None
     base_unknown: bool = False
+    # "file:line" of the specification operation that declares the route.
+    declared_in: str | None = None
 
 
 @dataclass(frozen=True)

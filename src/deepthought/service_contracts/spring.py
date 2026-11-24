@@ -139,6 +139,29 @@ def _unescape(text):
     )
 
 
+def _text_block(raw):
+    """The value of a Java text block (JLS 3.10.6): incidental indentation
+    and trailing spaces stripped, then escapes interpreted."""
+    body = raw[3:-3].replace("\r\n", "\n").replace("\r", "\n")
+    newline = body.find("\n")
+    if newline < 0:
+        return PLACEHOLDER
+    lines = body[newline + 1 :].split("\n")
+    # The closing delimiter's line counts even when blank.
+    significant = [line for line in lines[:-1] if line.strip()] + [lines[-1]]
+    indent = min(len(line) - len(line.lstrip(" \t")) for line in significant)
+    text = "\n".join(
+        line[indent:].rstrip(" \t") if line.strip() else "" for line in lines
+    )
+    return re.sub(
+        r"\\(\n|.)",
+        lambda m: {"\n": "", "s": " ", "n": "\n", "t": "\t", "r": "\r"}.get(
+            m.group(1), m.group(1)
+        ),
+        text,
+    )
+
+
 _STRING_TYPES = ("String", "java.lang.String")
 _SCOPES = ("method_declaration", "constructor_declaration", "lambda_expression")
 # Nested helper calls folded at most this deep.
@@ -461,6 +484,9 @@ class _Values:
             return [PLACEHOLDER]
         kind = node.type
         if kind == "string_literal":
+            raw = _text(node, self.content)
+            if raw.startswith('"""'):
+                return [_text_block(raw)]
             parts = []
             for child in node.named_children:
                 text = _text(child, self.content)
@@ -837,6 +863,89 @@ def _receivers(root, content, imports, kinds):
     }
 
 
+def _implemented(declaration, content, values):
+    """Qualified names of the interfaces a class declaration implements."""
+    found = []
+    interfaces = declaration.child_by_field_name("interfaces")
+    for type_list in [] if interfaces is None else interfaces.named_children:
+        for item in type_list.named_children:
+            if item.type in ("type_identifier", "scoped_type_identifier"):
+                qualified = values._qualified_class(_text(item, content))
+                if qualified is not None:
+                    found.append(qualified)
+    return found
+
+
+def _generated_routes(
+    declaration,
+    body,
+    generated,
+    values,
+    prefixes,
+    context_path,
+    service,
+    spans,
+    span,
+    make_id,
+    routes,
+    unread,
+    file,
+    content,
+):
+    """Routes a controller handles by overriding methods of interfaces
+    generated from an OpenAPI spec."""
+    operations = [
+        operation
+        for interface in _implemented(declaration, content, values)
+        for operation in generated.get(interface, [])
+    ]
+    if not operations:
+        return
+    members = {}
+    for member in body.named_children:
+        if member.type == "method_declaration":
+            name = _text(member.child_by_field_name("name"), content)
+            members.setdefault(name, []).append(member)
+    line = declaration.start_point.row + 1
+    for operation in operations:
+        found = members.get(operation.method_name, [])
+        if len(found) != 1:
+            # Not overridden: the interface's default method answers 501.
+            unread.append(
+                Unread(
+                    file,
+                    line,
+                    "route",
+                    "not_overridden" if not found else "overloaded",
+                )
+            )
+            continue
+        member = found[0]
+        handler = spans.get(span(member))
+        if handler is None:
+            unread.append(Unread(file, line, "route", "no_handler"))
+            continue
+        for prefix in prefixes:
+            if PLACEHOLDER in prefix:
+                unread.append(Unread(file, line, "route", "path_not_literal"))
+                continue
+            full = join_paths(context_path or "", prefix, operation.path)
+            routes.append(
+                HttpRoute(
+                    id=make_id("HttpRoute", f"{operation.http_method} {full}"),
+                    file=file,
+                    line=member.start_point.row + 1,
+                    column=member.start_point.column,
+                    handler_id=handler.id,
+                    methods=(operation.http_method,),
+                    path=full,
+                    framework="openapi-spring",
+                    service=service,
+                    declared_in=f"{operation.spec_file}:{operation.spec_line}",
+                )
+            )
+
+
 def extract_spring(
     tree,
     content,
@@ -847,12 +956,16 @@ def extract_spring(
     service=None,
     context_path=None,
     constants=None,
+    generated=None,
 ):
     """Routes, requests and unread mappings of one Java file.
 
     ``definitions`` are the file's parsed declarations; a handler or caller
     is the declaration whose span is exactly the method's, or the innermost
-    one enclosing a call.
+    one enclosing a call. ``generated`` maps a qualified interface name to
+    the spec operations openapi-generator makes it declare
+    (``service_contracts.openapi``); a controller implementing it handles
+    each operation it overrides.
     """
     root = tree.root_node
     imports = _Imports(root, content)
@@ -947,6 +1060,23 @@ def extract_spring(
         body = declaration.child_by_field_name("body")
         if body is None or (feign is None and not is_server):
             continue
+        if generated:
+            _generated_routes(
+                declaration,
+                body,
+                generated,
+                values,
+                prefixes,
+                context_path,
+                service,
+                spans,
+                span,
+                make_id,
+                routes,
+                unread,
+                file,
+                content,
+            )
         for member in body.named_children:
             if member.type != "method_declaration":
                 continue
