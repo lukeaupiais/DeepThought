@@ -109,8 +109,10 @@ class EngineTests(unittest.TestCase):
             for item in result.to_dict()["definitions"]
         ]
         self.assertCountEqual(observed, expected)
+        manifests = {"package.json", "tsconfig.json"}
         self.assertEqual(
-            {item.file for item in result.coverage}, {item["file"] for item in expected}
+            {item.file for item in result.coverage},
+            {item["file"] for item in expected} | manifests,
         )
         self.assertTrue(all(item.status == "analyzed" for item in result.coverage))
         self.assertEqual(

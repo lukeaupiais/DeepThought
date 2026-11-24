@@ -5,6 +5,7 @@ from fnmatch import fnmatchcase
 from importlib.metadata import version
 import json
 import os
+import posixpath
 from pathlib import Path
 import stat
 from threading import Event
@@ -34,6 +35,8 @@ from .syntax import (
     extract_call_sites,
     extract_cargo_manifest,
     extract_go_module,
+    extract_package_entries,
+    extract_script_config,
     extract_impls,
     extract_imports,
     extract_packages,
@@ -48,6 +51,7 @@ from ._version import __version__
 # Diagnostics a parsed file can produce; any other diagnostic for a recorded
 # file means the file was not fully parsed, so its facts are not reused.
 _PARSE_DIAGNOSTICS = {"syntax_error"}
+_SCRIPT_MANIFESTS = frozenset({"tsconfig.json", "jsconfig.json", "package.json"})
 # Fact kinds this engine records; part of snapshot identity, and an earlier
 # analysis is reused only if it recorded all of them.
 CAPABILITIES = (
@@ -172,6 +176,8 @@ def reusable_files(previous, repository_id):
         if language is None:
             continue
         packages = ("tree-sitter", language[1].replace("_", "-"))
+        if posixpath.basename(item.file) in _SCRIPT_MANIFESTS:
+            packages = ()
         if item.language == "rust":
             # Rust facts depend on which macros pass items through.
             packages += (RUST_ITEM_MACROS,)
@@ -289,6 +295,22 @@ def analyze_repository(
             if name == "Cargo.toml" and "rust" in languages:
                 # Cargo manifests declare the crates of their package.
                 language = "rust"
+            script = next(
+                (
+                    lang
+                    for lang in (
+                        ("typescript", "javascript")
+                        if name == "tsconfig.json"
+                        else ("javascript", "typescript")
+                    )
+                    if lang in languages
+                ),
+                None,
+            )
+            if name in _SCRIPT_MANIFESTS and script is not None:
+                # TypeScript and jsconfig projects map bare specifiers by
+                # their paths, and package.json names a directory's entry.
+                language = script
             if language is None:
                 continue
             if not is_relative_file(relative):
@@ -380,6 +402,42 @@ def analyze_repository(
                             )
                         )
                     imports.extend(crates or ())
+                    continue
+                if name in _SCRIPT_MANIFESTS and language == script:
+                    read_manifest = (
+                        extract_package_entries
+                        if name == "package.json"
+                        else extract_script_config
+                    )
+                    previous_facts = reusable.get(relative)
+                    if (
+                        previous_facts is not None
+                        and previous_facts.coverage.language == language
+                        and previous_facts.coverage.digest == digest
+                    ):
+                        # Reading a manifest depends on no grammar package.
+                        stats["reused"] += 1
+                        coverage.append(previous_facts.coverage)
+                        diagnostics.extend(previous_facts.diagnostics)
+                        imports.extend(previous_facts.imports)
+                        continue
+                    stats["parsed"] += 1
+                    facts, readable = read_manifest(content, repository_id, relative)
+                    coverage.append(
+                        FileCoverage(
+                            relative,
+                            language,
+                            "analyzed" if readable else "partial",
+                            digest,
+                        )
+                    )
+                    if not readable:
+                        diagnostics.append(
+                            Diagnostic(
+                                "syntax_error", f"{name} is not valid JSON", relative
+                            )
+                        )
+                    imports.extend(facts)
                     continue
                 key = (language, suffix)
                 if key not in parsers:

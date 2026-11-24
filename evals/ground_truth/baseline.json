@@ -869,8 +869,8 @@
     "ambiguous_no_candidates": 38,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 1293,
-        "not_indexed": 2
+        "confirmed": 1969,
+        "not_indexed": 12
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 778,
@@ -882,61 +882,62 @@
         "not_indexed": 8
       },
       "tree-sitter.js-call-reexport": {
-        "confirmed": 20
+        "confirmed": 1678,
+        "not_indexed": 5
       }
     },
-    "confirmed": 2092,
+    "confirmed": 4426,
     "contradicted": 0,
     "expected": 3884,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 18,
+          "confirmed": 23,
           "expected": 24
         },
         "2": {
-          "confirmed": 17,
+          "confirmed": 22,
           "expected": 24
         },
         "3": {
-          "confirmed": 9,
+          "confirmed": 24,
           "expected": 25
         }
       },
-      "confirmed": 44,
+      "confirmed": 69,
       "expected": 73,
       "extra": 0,
-      "missed": 29,
+      "missed": 4,
       "precision": 1.0,
-      "recall": 0.6027,
+      "recall": 0.9452,
       "seeds": 28,
       "seeds_undeclared": 0,
-      "unjudged": 0
+      "unjudged": 483
     },
     "imports": {
-      "confirmed": 195,
+      "ambiguous_unjudged": 5,
+      "confirmed": 435,
       "contradicted": 0,
       "expected": 442,
       "linked_unjudged": 3,
-      "not_indexed": 88,
+      "not_indexed": 114,
       "precision": 1.0,
-      "recall": 0.4412,
-      "unresolved_expected": 240,
-      "unresolved_unjudged": 106
+      "recall": 0.9842,
+      "unresolved_unjudged": 101
     },
-    "missed": 2841,
+    "missed": 516,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 38,
       "no_call_site": 7,
-      "unresolved:imported_name_not_declared": 2792,
+      "unresolved:imported_name_not_declared": 467,
       "unresolved:unbound_name": 4
     },
-    "not_indexed": 56,
+    "not_indexed": 71,
     "precision": 1.0,
-    "recall": 0.2685,
+    "recall": 0.8671,
     "unjudged": 1,
-    "unresolved_expected": 2804,
-    "unresolved_unjudged": 10962
+    "unresolved_expected": 474,
+    "unresolved_unjudged": 10943
   },
   "ripgrep": {
     "ambiguous_includes": 18,

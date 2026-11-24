@@ -14,7 +14,10 @@ from deepthought import analyze_repository
 from deepthought.imports import (
     PYTHON_ABSOLUTE_MODULE,
     PYTHON_FROM_IMPORT_SUBMODULE,
+    JAVASCRIPT_PATH_ALIAS,
     PYTHON_RELATIVE_MODULE,
+    SCRIPT_DECLARATION_SOURCE,
+    TYPESCRIPT_PATH_ALIAS,
     TYPESCRIPT_RELATIVE_MODULE,
     resolve_imports,
 )
@@ -271,6 +274,173 @@ class TypeScriptImportTests(unittest.TestCase):
         self.assertEqual(
             [(i.names, i.local_names) for i in result.imports],
             [(("default", "a", "c"), ("d", "b", "c")), (("q",), ())],
+        )
+
+
+@unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
+class ScriptPathAliasTests(unittest.TestCase):
+    def test_bare_specifiers_follow_the_nearest_config_paths(self):
+        result = analyze(
+            {
+                "tsconfig.json": (
+                    "{\n  // baseUrl and paths, as tsc reads them\n"
+                    '  "compilerOptions": {"baseUrl": "src", "paths": {\n'
+                    '    "@app/*": ["app/*"], "@app/deep/*": ["deep/*"],\n'
+                    '    "@lib": ["lib/main"], "@l*": ["nowhere/*"],\n'
+                    '    "@pkg/*": ["missing/*", "packages/*"],\n'
+                    '    "@out/*": ["../../*"],\n'
+                    "  }}\n}\n"
+                ),
+                "src/main.ts": (
+                    "import { a } from '@app/a';\n"
+                    "import { y } from '@app/deep/y';\n"
+                    "import { m } from '@lib';\n"
+                    "import { c } from '@pkg/core';\n"
+                    "import { t } from '@pkg/typed';\n"
+                    "import { n } from '@app/none';\n"
+                    "import { o } from '@out/x';\n"
+                    "import * as react from 'react';\n"
+                    "import { e } from '@app/a.ts';\n"
+                ),
+                "src/app/a.ts": "import { a } from '@app/a';\n",
+                "src/app/deep/y.ts": "",
+                "src/deep/y.ts": "",
+                "src/lib/main.ts": "",
+                "src/packages/core/package.json": (
+                    '{"types": "dist/index.d.ts", "main": "dist/index.js"}'
+                ),
+                "src/packages/core/index.ts": "",
+                "src/packages/typed/package.json": '{"typings": "lib/api.ts"}',
+                "src/packages/typed/lib/api.ts": "",
+                "src/packages/typed/index.ts": "",
+                "sub/tsconfig.json": "{}",
+                "sub/main.ts": "import { a } from '@app/a';\n",
+                "ext/tsconfig.json": '{"extends": "../tsconfig.json"}',
+                "ext/main.ts": "import { a } from '@app/a';\n",
+                "ext2/tsconfig.json": (
+                    '{"extends": "../tsconfig.json", '
+                    '"compilerOptions": {"paths": {"@app/*": ["*"]}}}'
+                ),
+                "ext2/main.ts": "import { a } from '@app/a';\n",
+                "ext2/a.ts": "",
+                "bad/tsconfig.json": "{",
+                "bad/main.ts": "import { a } from '@app/a';\n",
+                "star/tsconfig.json": '{"compilerOptions": {"paths": {"*": ["*"]}}}',
+                "star/main.ts": "import { x } from '../../x';\n",
+            },
+            "typescript",
+        )
+        links = resolved(result)
+        for specifier, target in (
+            ("@app/a", "src/app/a.ts"),
+            ("@app/a.ts", "src/app/a.ts"),
+            ("@app/deep/y", "src/deep/y.ts"),
+            ("@lib", "src/lib/main.ts"),
+            ("@pkg/core", "src/packages/core/index.ts"),
+            ("@pkg/typed", "src/packages/typed/lib/api.ts"),
+        ):
+            with self.subTest(specifier=specifier):
+                self.assertEqual(
+                    links[("src/main.ts", specifier)],
+                    ("linked", ((target, TYPESCRIPT_PATH_ALIAS),), None),
+                )
+        for file, specifier, reason in (
+            ("src/main.ts", "@app/none", "no_analyzed_file"),
+            ("src/main.ts", "@out/x", "no_analyzed_file"),
+            ("src/main.ts", "react", "non_relative_specifier"),
+            ("sub/main.ts", "@app/a", "non_relative_specifier"),
+            ("ext/main.ts", "@app/a", "path_alias_inherited"),
+            ("ext2/main.ts", "@app/a", "path_alias_inherited"),
+            ("bad/main.ts", "@app/a", "script_config_unreadable"),
+            ("src/app/a.ts", "@app/a", "no_analyzed_file"),
+            ("star/main.ts", "../../x", "beyond_repository_root"),
+        ):
+            with self.subTest(file=file, specifier=specifier):
+                self.assertEqual(links[(file, specifier)], ("unresolved", (), reason))
+        aliases = {
+            i.specifier: i.names
+            for i in result.imports
+            if i.kind == "path_alias" and i.file == "tsconfig.json"
+        }
+        self.assertEqual(aliases["@app/*"], ("src/app/*",))
+        self.assertEqual(aliases["@out/*"], ())
+        coverage = {c.file: (c.language, c.status) for c in result.coverage}
+        self.assertEqual(coverage["tsconfig.json"], ("typescript", "analyzed"))
+        self.assertEqual(coverage["bad/tsconfig.json"], ("typescript", "partial"))
+        self.assertEqual(
+            coverage["src/packages/core/package.json"], ("typescript", "analyzed")
+        )
+        self.assertEqual(
+            {
+                r.reason
+                for r in resolve_imports(result)
+                if r.import_id
+                in {i.id for i in result.imports if i.file.endswith(".json")}
+            },
+            {"resolution_configuration"},
+        )
+
+    def test_javascript_aliases_reach_sources_beside_their_declarations(self):
+        result = analyze(
+            {
+                "jsconfig.json": (
+                    '{"compilerOptions": {"baseUrl": ".", '
+                    '"paths": {"lib": ["."], "lib/*": ["./*"]}}}'
+                ),
+                "package.json": (
+                    '{"name": "lib", "types": "src/index.d.ts", "main": "dist/lib.js"}'
+                ),
+                "src/index.js": "export function render() {}\n",
+                "hooks/package.json": '{"types": "src/index.d.ts"}',
+                "hooks/src/index.js": "export function useState() {}\n",
+                "util.js": "export function u() {}\n",
+                "twin.js": "exports.t = 1;\n",
+                "twin.mjs": "export const t = 1;\n",
+                "test/a.test.js": (
+                    "import { render } from 'lib';\n"
+                    "import { useState } from 'lib/hooks';\n"
+                    "import { u } from 'lib/util';\n"
+                    "import { t } from 'lib/twin';\n"
+                ),
+            },
+            "javascript",
+        )
+        links = resolved(result)
+        self.assertEqual(
+            links[("test/a.test.js", "lib")],
+            ("linked", (("src/index.js", SCRIPT_DECLARATION_SOURCE),), None),
+        )
+        self.assertEqual(
+            links[("test/a.test.js", "lib/hooks")],
+            ("linked", (("hooks/src/index.js", SCRIPT_DECLARATION_SOURCE),), None),
+        )
+        self.assertEqual(
+            links[("test/a.test.js", "lib/util")],
+            ("linked", (("util.js", JAVASCRIPT_PATH_ALIAS),), None),
+        )
+        twin = next(
+            r
+            for r in resolve_imports(result)
+            if r.import_id
+            in {i.id for i in result.imports if i.specifier == "lib/twin"}
+        )
+        self.assertEqual(
+            (twin.status, twin.reason, twin.candidates),
+            ("ambiguous", "module_format_twins", ("twin.js", "twin.mjs")),
+        )
+        # A tsconfig.json beside the jsconfig.json is the config, as in tsserver.
+        shadowed = analyze(
+            {
+                "jsconfig.json": '{"compilerOptions": {"paths": {"lib/*": ["./*"]}}}',
+                "tsconfig.json": "{}",
+                "util.js": "export function u() {}\n",
+                "a.js": "import { u } from 'lib/util';\n",
+            },
+            "javascript",
+        )
+        self.assertEqual(
+            resolved(shadowed)[("a.js", "lib/util")],
+            ("unresolved", (), "non_relative_specifier"),
         )
 
 
