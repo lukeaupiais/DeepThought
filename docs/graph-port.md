@@ -151,6 +151,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
+| `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
@@ -1322,7 +1323,21 @@ after an export macro (`API Status Get();`) is in an error node and the
 declarator is kept, so a field annotated the same way (`int x
 GUARDED_BY(mu);`) reads as a function named after the macro; and a
 function's declarator standing alone in an error node declares a function,
-as in C.
+as in C. A line holding only an upper-case name with an underscore
+(`FMT_BEGIN_EXPORT`, or `FMT_CONSTEXPR` above a declaration) is a macro and
+is replaced with spaces too, since the grammar would read it as the type of
+the declaration after it. The same name at the start of a line before a
+constructor or destructor (`FMT_CONSTEXPR explicit checker(...) : a(1) {`,
+`FMT_CONSTEXPR20 ~buffer()`) is replaced too: read as a return type, it turns
+the member initializers into a parse error that ends the class early. A
+declarator standing alone in an error node with nothing before it (`M(a,
+b);`) is a macro's invocation, not a function, unless it is in a class and
+names it (a constructor whose initializers hold an `#if`). Two shapes declare no function: a declarator after
+a class body in the same declaration (C++ does not allow a class defined in a
+return type, so this is text after a body the grammar closed early), and a
+declarator after a bit-field width (a constructor's member initializers,
+`: size_(n), cap_(n)`, after a macro). An enum whose name the grammar reports
+as missing (`enum : unsigned {`) is unnamed.
 
 `tools/compare_c_declarations_with_clang.py --language cpp` checks this
 against clang (libclang 18.1.1, `-std=c++20`), as for C, with namespaces and
@@ -1341,7 +1356,7 @@ text before it.
 |---|---|---|---|---|---|
 | leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
 | google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
-| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,449 (1,677 / 856) | 740 / 50 / 0 / 830 / 178 / 30 / 13 | 3,497 / 564 / 0 / 196 / 165 / 14 / 1 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 7,036 (2,259 / 856) | 742 / 50 / 0 / 781 / 84 / 0 / 13 | 3,511 / 124 / 0 / 133 / 67 / 14 / 1 |
 
 No difference is unexplained. Most of fmt's macro-generated declarations
 and names that are macros come from its bundled GoogleTest (`TEST(...)`
@@ -1361,11 +1376,15 @@ Symbols join the enclosing modules and classes and the path written in a
 name with `.` (`class B::C` in `module A` is `A.B.C`; `class ::C` starts at
 the top). A `def` in a class or module body, in its `class << self` or in a
 block written there (`included do`, `Class.new do`) is a `Method`, whether it
-defines an instance or a singleton method (`def self.m`); elsewhere, at the
-top level or in a block outside any class, it is a `Function`. A class whose
+defines an instance or a singleton method (`def self.m`); so is a `def` with
+a receiver anywhere (`def YAML.load`, `def self.helper` at the top level),
+which defines a method of that object, and so is a `def` in `class << obj`.
+Any other `def` at the top level or in a block outside any class is a
+`Function`. A class whose
 name is not a constant path (`class self::Dynamic`) and what it holds are not
-recorded, nor is a `def` inside a method body, which only defines a method
-when that method runs. Methods made by metaprogramming (`attr_reader`,
+recorded. A `def` inside a method body is recorded under the same scope as
+the method around it, since it defines its method when that method runs
+(Ruby allows no class or module there). Methods made by metaprogramming (`attr_reader`,
 `define_method`), constants, imports (`require`), calls and superclasses are
 not recorded for Ruby yet.
 
@@ -1378,11 +1397,11 @@ same file, is put down to it; every other difference is unexplained.
 
 | Corpus | Files (with syntax errors) | Prism | Matched | Tree-sitter only: syntax error / after one | Prism only: syntax error / after one |
 |---|---|---|---|---|---|
-| rack/rack `b432304` | 95 (0) | 1,010 | 1,010 | 0 / 0 | 0 / 0 |
-| sinatra/sinatra `2e3f791` | 147 (0) | 1,164 | 1,164 | 0 / 0 | 0 / 0 |
+| rack/rack `b432304` | 95 (0) | 1,014 | 1,014 | 0 / 0 | 0 / 0 |
+| sinatra/sinatra `2e3f791` | 147 (0) | 1,168 | 1,168 | 0 / 0 | 0 / 0 |
 | heartcombo/devise `05811fb` | 197 (9) | 1,040 | 1,035 | 6 / 0 | 2 / 3 |
-| jekyll/jekyll `97c3bdc` | 162 (0) | 1,405 | 1,405 | 0 / 0 | 0 / 0 |
-| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,577 | 11,577 | 0 / 0 | 0 / 0 |
+| jekyll/jekyll `97c3bdc` | 162 (0) | 1,406 | 1,406 | 0 / 0 | 0 / 0 |
+| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,593 | 11,593 | 0 / 0 | 0 / 0 |
 
 No difference is unexplained. devise's syntax errors are its generator
 templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
@@ -1401,10 +1420,14 @@ join the namespace and the enclosing class-like declaration with `.`
 statements after it up to the next one, and a braced `namespace A\B { }`
 scopes its body (`namespace { }` is the global namespace). A declaration in a
 conditional block (`if (!function_exists('f')) { function f() {} }`, common
-in WordPress) is recorded, once for each branch that declares it. One in a
-function or method body, a closure or an anonymous class is not, since PHP
-declares it only when that code runs, and neither are namespaces themselves,
-constants, properties, enum cases, calls or bases yet.
+in WordPress) is recorded, once for each branch that declares it. So is one
+in a function or method body or a closure: PHP declares it in the current
+namespace when that code runs, so its symbol is namespace-qualified
+(`App.Http.helper`, not `App.Http.Controller.make.helper`). The methods of
+an anonymous class are named by the path to the class
+(`App.Http.Controller.make.handle` for one in `Controller::make`).
+Namespaces themselves, constants, properties, enum cases, calls and bases are
+not recorded yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1418,11 +1441,11 @@ unexplained.
 
 | Corpus | Files (with syntax errors) | PHP-Parser | Matched | PHP-Parser only: grammar error |
 |---|---|---|---|---|
-| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,897 | 1,897 | 0 |
-| guzzle/guzzle `ba6574f` | 149 (0) | 3,334 | 3,334 | 0 |
-| composer/composer `edc2b0d` | 653 (0) | 5,951 | 5,951 | 0 |
-| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,688 | 13,687 | 1 |
-| laravel/framework `817f2fc` | 3,205 (1) | 37,497 | 37,497 | 0 |
+| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,929 | 1,929 | 0 |
+| guzzle/guzzle `ba6574f` | 149 (0) | 3,380 | 3,380 | 0 |
+| composer/composer `edc2b0d` | 653 (0) | 5,968 | 5,968 | 0 |
+| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,731 | 13,730 | 1 |
+| laravel/framework `817f2fc` | 3,205 (1) | 38,123 | 38,123 | 0 |
 
 No difference is unexplained, and no declaration is reported by tree-sitter
 alone. The grammar error is WordPress's `function readonly()`, a fallback for
@@ -1749,6 +1772,133 @@ are read from 81 route decorators. The samples' own end-to-end tests make
 of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
+
+### GraphQL root fields
+
+Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL
+server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
+`protocol` `graphql`), scoped to the Node package (the nearest
+`package.json`) of the files that declare or resolve it
+(`deepthought.service_contracts.graphql`):
+
+- Schema files (`*.graphql`, `*.gql`) declare the fields of `type Query`,
+  `type Mutation` and `type Subscription`, including `extend type` blocks.
+  Descriptions, comments, arguments and directives are skipped. The node
+  records them as `declared_in`.
+- NestJS resolvers: a method of a class decorated `@Resolver` that carries
+  `@Query`, `@Mutation` or `@Subscription`, all imported from
+  `@nestjs/graphql`, resolves the field named by the decorator's literal
+  name (`@Query('cats')`), the `name` of its options, or else the method
+  name. It links to the field by `HANDLES` (rule
+  `service-contracts.nestjs-graphql-resolver`, pattern_matched).
+- Resolver maps, in the JavaScript and TypeScript files of a Node package
+  whose `package.json` depends on a server that takes them (`@apollo/server`,
+  `apollo-server*`, `@apollo/subgraph`, `graphql-tools`,
+  `@graphql-tools/schema`, `graphql-yoga`, `mercurius`): each member with a
+  literal name of an object literal under a `Query`, `Mutation` or
+  `Subscription` key resolves that field (rule
+  `service-contracts.graphql-resolver-map`, pattern_matched). The map stands
+  alone or is the server's `resolvers` option; the same keys nested under
+  any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
+  resolvers. A member that is a function declared in the file
+  (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
+  function, anything else to the file.
+- A root key bound to a name is followed: to an object literal of the same
+  file (`const Query = {...}`), or to a relative module of the repository
+  bound by `require` (whole, destructured or `.Name`) or `import` (default,
+  named or namespace). The module's `module.exports`, `export default`,
+  `exports.Name` or `export const Name` object literal lists the fields,
+  and a namespace import takes its exported functions and constants.
+- In those packages, GraphQL templates declare fields as schema files do:
+  templates tagged `gql` or `graphql`, marked by a `/* GraphQL */` comment,
+  or starting with `#graphql`. A substitution (`${fragment}`) is not read.
+
+Clients: in a Node package that depends on a GraphQL client
+(`@apollo/client`, `apollo-client`, `apollo-boost`, `react-apollo`,
+`@apollo/react-hooks`, `urql`, `@urql/core`, `graphql-request`,
+`react-relay`, `relay-runtime`), the operations of its GraphQL templates
+(as above) and of its `*.graphql`/`*.gql` files request the root fields
+they select. An alias requests its field, and `__typename` and fields marked
+`@client` (resolved by Apollo Client itself) are not requests. Each
+requested field links by `REQUESTS` (rule
+`service-contracts.graphql-client-operation`, pattern_matched; properties
+`request`, `operation_name`, `line`, `column`) from the declaration that
+holds the operation, or its file, to the field of the one server in the
+repository that resolves it. When no server resolves it, the edge goes to
+the one server package that declares it. A `.graphql` document with
+requests gets a `File` node (language `graphql`) that the repository
+`CONTAINS` (rule `service-contracts.repository-contains-graphql`).
+
+Counted as unread:
+- `graphql:schema_root_renamed`: a schema definition that names a root
+  type other than `Query`, `Mutation` or `Subscription`;
+- `graphql:field_not_literal`: a resolver name that is not literal;
+- `graphql:resolver_map_not_literal`: a `Query` (or other root) key whose
+  value is not an object literal (`{Query: queries}`);
+- `graphql:resolver_spread`: a spread or other member of a resolver map
+  whose fields are not listed in place (`{...more}`);
+- `graphql:source_not_parsed`: a script of such a package, naming a root
+  type, that the grammar could not fully parse (for example one with Flow
+  annotations); service contracts skip such files;
+- `graphql:resolution_unknown`: a declared field without a read resolver in
+  a package that has any of the three above, where it may be resolved by
+  code the tool does not read;
+- `graphql:declared_not_resolved`: a declared field that no resolver
+  handles, in a package whose resolver maps are all read;
+- `graphql:resolved_not_declared`: a resolved field missing from a package
+  that has schema files;
+- `graphql:client_fragment_root`: a fragment spread or inline fragment among
+  an operation's root fields;
+- `graphql:client_field_unknown`: a requested field that no server of the
+  repository resolves or declares (an outside API, or drift);
+- `graphql:client_field_ambiguous`: a requested field that several servers
+  resolve.
+
+Field resolvers of object types, and fragments at the root of an
+operation, are not read yet. Clients link by field name across the
+repository, not by the server URL they are configured with.
+
+On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
+GraphQL servers, 23 of them also declared in schema files. The two
+code-first samples commit the `schema.gql` that Nest itself generates from
+the decorators, and its fields are exactly the ones read from the
+resolvers. In the schema-first samples, every declared field has a
+resolver and every resolver has a declaration. The four root fields that
+the samples' end-to-end tests query (other than introspection) are all
+among them.
+
+Resolver maps were checked on two Apollo servers, against the fields their
+schemas declare and the resolver files read by hand:
+
+- `apollographql/fullstack-tutorial` (commit `fca98de`): the server's six
+  root fields are declared in a `gql` template and all six are resolved, by
+  the right functions. The client package depends on `@apollo/client` only
+  and adds nothing.
+- `howtographql/graphql-js` (commit `e0a3a21`): the resolvers are CommonJS
+  modules (`module.exports = { feed }`) joined in `src/index.js` as
+  `{ Query, Mutation, Subscription }`. Of the 8 root fields in
+  `src/schema.graphql`, the 7 with a resolver are read, each from its
+  module, and `Query.info`, which has none, is the one
+  `declared_not_resolved`.
+- `withspectrum/spectrum` (commit `e8ebdcb`): 30 root fields are declared in
+  `/* GraphQL */` templates, 26 of which have a resolver in the code (the
+  other four are the `dummy` fields of the root types and a removed
+  `invoice` query). 19 are read, each by its right resolver, and none is
+  wrong. The seven missed are in three resolver files whose Flow type
+  annotations the JavaScript grammar cannot parse; such files are left out
+  of every contract. They count as `graphql:source_not_parsed`, so the 11
+  declared fields without a read resolver are `graphql:resolution_unknown`
+  rather than reported as unimplemented. Apollo Client's `cacheRedirects` in
+  the shared client code is not read as a resolver map.
+
+Clients were checked the same way. On `fullstack-tutorial` the two client
+packages hold 10 operations. Two are `@client`-only and request nothing.
+The other 8 are read and each links to the server field it names. One of
+these is the starter client's `GetLaunch`: it links to the finished server,
+the only one in the repository that resolves `launch`. On `spectrum` the
+four client operations in files the grammar parses fully are read. Three
+link to their mutations, and `subscribeWebPush` is
+`graphql:client_field_unknown`: the server no longer declares it.
 
 ### Gateways
 
