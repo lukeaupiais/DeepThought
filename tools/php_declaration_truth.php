@@ -80,6 +80,32 @@ function declarations(string $code, string $file): array {
                 if (is_array($prev) && $prev[0] === T_DOUBLE_COLON) {
                     continue; // X::class
                 }
+                // `new #[A] readonly class`: look past attributes and modifiers.
+                $k = $before;
+                while ($k !== null) {
+                    $u = $tokens[$k];
+                    if (is_array($u) && in_array($u[0], [T_READONLY, T_FINAL, T_ABSTRACT], true)) {
+                        $k = significant($tokens, $k, -1);
+                    } elseif ($u === ']') {
+                        $nesting = 0;
+                        for (; $k >= 0; $k--) {
+                            $v = $tokens[$k];
+                            if ($v === ']') {
+                                $nesting++;
+                            } elseif ($v === '[' || (is_array($v) && $v[0] === T_ATTRIBUTE)) {
+                                if (--$nesting === 0) {
+                                    break;
+                                }
+                            }
+                        }
+                        $k = $k < 0 ? null : significant($tokens, $k, -1);
+                    } else {
+                        break;
+                    }
+                }
+                if ($k !== null && is_array($tokens[$k]) && $tokens[$k][0] === T_NEW) {
+                    $prev = $tokens[$k];
+                }
                 if (is_array($prev) && $prev[0] === T_NEW) {
                     $pendingType = true; // new class: unnamed, but its functions are methods
                     continue;

@@ -254,11 +254,18 @@ module.exports = {
   },
   Subscription: {
     tick: { subscribe: () => ticks() },
+    tack: { subscribe() { return ticks(); }, resolve: (p) => p },
+    tuck: { subscribe: withFilter(filtered, () => true) },
+    tuk: { me },
+    bound,
   },
   Launch: {
     site: () => null,
   },
 };
+
+function filtered() {}
+const bound = { subscribe: filtered };
 """,
     "api/src/other.js": "export const resolvers = { Query: queryResolvers };\n",
     # A client package: its cache settings are not a resolver map.
@@ -311,8 +318,12 @@ class ResolverMapTests(unittest.TestCase):
                 ("Query.launches", ["api/src/schema.js:6"], [6]),
                 ("Query.me", ["api/src/schema.js:7"], [7]),
                 ("Query.ping", ["api/src/server.js:4"], [14]),
+                ("Subscription.bound", None, [19]),
+                ("Subscription.tack", None, [16]),
                 ("Subscription.tick", None, [15]),
                 ("Subscription.tock", None, [16]),
+                ("Subscription.tuck", None, [17]),
+                ("Subscription.tuk", None, [18]),
             ],
         )
         # The named function `me` anchors its field to the function itself.
@@ -320,10 +331,22 @@ class ResolverMapTests(unittest.TestCase):
         self.assertIn("me", sources[7])
         sources = dict(handled["r::graphql::api::Subscription.tock"])
         self.assertIn("tickStream", sources[16])
+        # The subscribe method, the function withFilter wraps, and a
+        # shorthand option ({ me } has no subscribe or resolve: no handler).
+        self.assertIn(
+            "subscribe", dict(handled["r::graphql::api::Subscription.tack"])[16]
+        )
+        self.assertIn(
+            "filtered", dict(handled["r::graphql::api::Subscription.tuck"])[17]
+        )
         unread = output.metadata.custom_metrics["unread"]
         self.assertEqual(unread["graphql:resolver_spread"], 1)
         self.assertEqual(unread["graphql:resolver_map_not_literal"], 1)
-        self.assertEqual(unread["graphql:resolved_not_declared"], 2)
+        # A shorthand field bound to an options object in the file.
+        self.assertIn(
+            "filtered", dict(handled["r::graphql::api::Subscription.bound"])[19]
+        )
+        self.assertEqual(unread["graphql:resolved_not_declared"], 6)
 
 
 MODULES = {

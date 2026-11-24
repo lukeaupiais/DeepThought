@@ -868,6 +868,17 @@ def check(names, cache, update=False, examples=10):
             if (corpus["name"] in declared and not update)
             else []
         )
+        if "imports" in corpus:
+            imported, import_samples = score_imports(
+                result, read_truth(CORPUS / corpus["imports"]), examples=examples
+            )
+            report["imports"] = imported
+            samples = {"declarations": samples, "imports": import_samples}
+            if not update and "imports" in declared.get(corpus["name"], {}):
+                problems += [
+                    "imports: " + p
+                    for p in regressions(imported, declared[corpus["name"]]["imports"])
+                ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
             "commit": corpus["commit"],
@@ -1291,11 +1302,14 @@ def summary(reports, baseline):
 
     def layers(name, report, base):
         if "declarations" in report:
-            yield (
-                "declarations",
-                report["declarations"],
-                base.get("declarations", {}).get(name),
-            )
+            before = base.get("declarations", {}).get(name) or {}
+            yield "declarations", report["declarations"], before or None
+            if "imports" in report["declarations"]:
+                yield (
+                    "imports",
+                    report["declarations"]["imports"],
+                    before.get("imports"),
+                )
         elif "tables" in report:
             yield "tables", report["tables"], base.get("tables", {}).get(name)
         elif "routes" in report:

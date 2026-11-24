@@ -16,6 +16,7 @@ from deepthought.calls import (
     CALL_LEXICAL_NAME,
     CALL_MODULE_ATTRIBUTE,
     CALL_PYTHON_REEXPORT,
+    CALL_PYTHON_TYPED_RECEIVER,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     resolve_calls,
@@ -499,6 +500,205 @@ class PythonCallTests(unittest.TestCase):
         self.assertEqual(
             found[("shadow.py", 4, "work")],
             ("ambiguous", None, None, "multiple_bindings"),
+        )
+
+    def test_calls_on_parameters_and_locals_whose_binding_names_a_class(self):
+        files = {
+            "lib.py": (
+                "class Base:\n"
+                "    def up(self): pass\n"
+                "class Other:\n"
+                "    def up(self): pass\n"
+                "class Formatter(Base):\n"
+                "    def write(self): pass\n"
+                "class Both(Formatter, Other): pass\n"
+                "class Ext(Exception): pass\n"
+                "def make(): return Formatter()\n"
+                "class Left(Base): pass\n"
+                "class Right(Base):\n"
+                "    def up(self): pass\n"
+                "class Diamond(Left, Right): pass\n"
+                "class Plain(object):\n"
+                "    def up(self): pass\n"
+                "class FromPlain(Plain): pass\n"
+            ),
+            "pkg/__init__.py": "from lib import Formatter\n",
+            "main.py": (
+                "import typing as t\n"
+                "import lib\n"
+                "from lib import Formatter, Both, Ext, make, Diamond, FromPlain\n"
+                "from pkg import Formatter as F2\n"
+                "def f(a: Formatter, b: 'Formatter', c: t.Optional[Formatter],\n"
+                "      d: Formatter | None, e: lib.Formatter, g: F2, h, *i: Formatter,\n"
+                "      j: list[Formatter] = None, k: Both = None, n: Ext = None,\n"
+                "      o: str = '', p: Formatter = None, q: Formatter = None):\n"
+                "    a.write(); b.write(); c.write(); d.write()\n"  # 9
+                "    e.write(); g.write(); a.up()\n"  # 10
+                "    h.write(); j.write(); k.up(); n.with_traceback(None)\n"  # 11
+                "    o.upper(); a.missing()\n"  # 12
+                "    x = Formatter()\n"
+                "    x.write()\n"  # 14
+                "    y: Formatter = make()\n"
+                "    y.write()\n"  # 16
+                "    z = make()\n"
+                "    z.write()\n"  # 18
+                "    w = Formatter()\n"
+                "    w = make()\n"
+                "    w.write()\n"  # 21
+                "    p = None\n"
+                "    p.write()\n"  # 23
+                "    for v in []: pass\n"
+                "    v.write()\n"  # 25
+                "    def inner(q):\n"
+                "        q.write()\n"  # 27: inner's own q
+                "    def inner2():\n"
+                "        a.write()\n"  # 29: the enclosing parameter
+                "    lambda a: a.write()\n"  # 30
+                "def g(Formatter: object):\n"
+                "    u = Formatter()\n"
+                "    u.write()\n"  # 33: a local name, not the class
+                "def m(a: Formatter):\n"
+                "    import os\n"
+                "    a.write()\n"  # 36: an import in the body
+                "def r(h, dd: Diamond, fp: FromPlain):\n"
+                "    h.write()\n"  # 38: before h is rebound
+                "    h = Formatter()\n"
+                "    [s.write() for s in [Formatter()]]\n"  # 40
+                "    dd.up(); fp.up(); fp.nothing()\n"  # 41
+            ),
+        }
+        found = links(analyze(files, "python"))
+        write = ("linked", "lib.py::Formatter.write", CALL_PYTHON_TYPED_RECEIVER, None)
+        for line, callee in (
+            (9, "a.write"),
+            (9, "b.write"),
+            (9, "c.write"),
+            (9, "d.write"),
+            (10, "e.write"),
+            (10, "g.write"),
+            (14, "x.write"),
+            (16, "y.write"),
+            (29, "a.write"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[("main.py", line, callee)], write)
+        self.assertEqual(
+            found[("main.py", 10, "a.up")],
+            ("linked", "lib.py::Base.up", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        local = ("unresolved", None, None, "local_binding")
+        for line, callee in (
+            (11, "h.write"),
+            (11, "j.write"),
+            (18, "z.write"),
+            (21, "w.write"),
+            (23, "p.write"),
+            (25, "v.write"),
+            (27, "q.write"),
+            (30, "a.write"),
+            (33, "u.write"),
+            (36, "a.write"),
+            (38, "h.write"),
+            (40, "s.write"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[("main.py", line, callee)], local)
+        self.assertEqual(
+            found[("main.py", 12, "a.missing")],
+            ("unresolved", None, None, "not_declared_on_type"),
+        )
+        # `str` and `make` name no repository class: the call is a local's.
+        self.assertEqual(found[("main.py", 12, "o.upper")], local)
+        # Both(Formatter, Other): Formatter's base Base comes before Other.
+        self.assertEqual(
+            found[("main.py", 11, "k.up")],
+            ("linked", "lib.py::Base.up", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        # Diamond's resolution order (Left, Right, Base) is not depth first.
+        self.assertEqual(
+            found[("main.py", 41, "dd.up")], ("unresolved", None, None, "diamond")
+        )
+        # `object` declares nothing a class calls by name.
+        self.assertEqual(
+            found[("main.py", 41, "fp.up")],
+            ("linked", "lib.py::Plain.up", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        self.assertEqual(
+            found[("main.py", 41, "fp.nothing")],
+            ("unresolved", None, None, "not_declared_on_type"),
+        )
+        # A base outside the repository may declare the method.
+        self.assertEqual(
+            found[("main.py", 11, "n.with_traceback")],
+            ("unresolved", None, None, "base_not_resolved"),
+        )
+
+    def test_typed_receivers_need_one_class_the_annotation_names(self):
+        files = {
+            "lib.py": (
+                "class Formatter:\n"
+                "    def write(self): pass\n"
+                "class Nested:\n"
+                "    class write: pass\n"
+            ),
+            "lib2.py": "class Formatter:\n    def write(self): pass\n",
+            "twice.py": (
+                "import sys\n"
+                "if sys.flags.debug:\n"
+                "    class Twice:\n"
+                "        def write(self): pass\n"
+                "else:\n"
+                "    class Twice:\n"
+                "        def write(self): pass\n"
+                "def f(t: Twice):\n"
+                "    t.write()\n"  # 9: two classes named Twice
+            ),
+            "main.py": (
+                "try:\n"
+                "    import lib as L\n"
+                "except ImportError:\n"
+                "    import lib2 as L\n"
+                "from lib import Formatter, Nested\n"
+                "class Formatter:\n"
+                "    def write(self): pass\n"
+                "def f(a: L.Formatter, b: Formatter, n: Nested):\n"
+                "    a.write()\n"  # 9: L is one of two modules
+                "    b.write()\n"  # 10: imported and declared here
+                "    n.write()\n"  # 11: a nested class, not a method
+            ),
+            "outer.py": (
+                "from lib import Formatter\n"
+                "class Outer:\n"
+                "    class Formatter:\n"
+                "        def write(self): pass\n"
+                "    def m(self, a: Formatter):\n"
+                "        a.write()\n"  # 6: the annotation sees Outer.Formatter
+                "def make():\n"
+                "    class Local:\n"
+                "        def write(self): pass\n"
+                "    def use(a: Local):\n"
+                "        a.write()\n"  # 11: a class of the enclosing function
+            ),
+        }
+        found = links(analyze(files, "python"))
+        # Each is left to the other rules, which see a parameter.
+        for key in (
+            ("twice.py", 9, "t.write"),
+            ("main.py", 9, "a.write"),
+            ("main.py", 10, "b.write"),
+            ("outer.py", 6, "a.write"),
+        ):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    found[key], ("unresolved", None, None, "local_binding")
+                )
+        self.assertEqual(
+            found[("outer.py", 11, "a.write")],
+            ("linked", "outer.py::make.Local.write", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        self.assertEqual(
+            found[("main.py", 11, "n.write")],
+            ("unresolved", None, None, "not_declared_on_type"),
         )
 
 

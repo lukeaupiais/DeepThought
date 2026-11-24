@@ -9,7 +9,9 @@
 // kind `callable`, or `-  0  external` for a declaration outside it. A call
 // javac cannot bind (a missing library) is not printed. A `new` expression
 // binds its constructor and its class (only the class when no constructor is
-// declared), as a constructor in a SCIP index does.
+// declared), as a constructor in a SCIP index does. A call with an argument
+// whose type javac cannot resolve is not printed either: its overload comes
+// from error recovery.
 //
 // With --bases first, prints instead one row per extends or implements entry
 // of a class, interface, enum or record: the type's file, name line and name,
@@ -193,16 +195,42 @@ public class JavaCallTruth {
                     return super.visitClass(node, unused);
                 }
 
+                // An argument whose type javac could not resolve (a class
+                // that is not in the corpus, such as code built from .proto
+                // files), in a call of an overloaded method or constructor:
+                // the overload then comes from error recovery, so the call
+                // is not judged. With one declaration of the name there is
+                // nothing to choose.
+                boolean erroneous(List<? extends ExpressionTree> arguments) {
+                    Element called = trees.getElement(getCurrentPath());
+                    if (called == null || called.getEnclosingElement() == null) return false;
+                    long overloads = called.getEnclosingElement().getEnclosedElements().stream()
+                        .filter(e -> e.getKind() == called.getKind()
+                            && e.getSimpleName().equals(called.getSimpleName()))
+                        .count();
+                    if (overloads < 2) return false;
+                    for (ExpressionTree argument : arguments) {
+                        javax.lang.model.type.TypeMirror type =
+                            trees.getTypeMirror(new TreePath(getCurrentPath(), argument));
+                        if (type == null || ((com.sun.tools.javac.code.Type) type).isErroneous()) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
                 @Override
                 public Void visitMethodInvocation(MethodInvocationTree node, Void unused) {
                     if (bases) return super.visitMethodInvocation(node, unused);
+                    if (erroneous(node.getArguments())) return super.visitMethodInvocation(node, unused);
                     name(node.getMethodSelect(), trees.getElement(getCurrentPath()));
                     return super.visitMethodInvocation(node, unused);
                 }
 
                 @Override
                 public Void visitNewClass(NewClassTree node, Void unused) {
-                    if (!bases && !chains && node.getClassBody() == null) {
+                    if (!bases && !chains && node.getClassBody() == null
+                            && !erroneous(node.getArguments())) {
                         name(node.getIdentifier(), trees.getElement(getCurrentPath()));
                     }
                     return super.visitNewClass(node, unused);
