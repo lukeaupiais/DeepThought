@@ -250,8 +250,9 @@ r_direct('payment', 'cart_delete', 'DELETE /cart/{id}', rs.loc(PAY, "requests.de
 r_direct('shipping', 'cart_shipping', 'POST /shipping/{id}', rs.loc('shipping/src/main/java/com/instana/robotshop/shipping/CartHelper.java', 'new HttpPost(baseUrl + id)'),
          'Apache HttpClient; baseUrl = CART_URL = String.format("http://%s/shipping/", getenv("CART_ENDPOINT", "cart")) (Controller.java), passed via new CartHelper(CART_URL)',
          client_url_def=rs.loc(SHIP, 'private String CART_URL'))
-r_direct('ratings', 'cat_product', 'GET /product/{sku}', rs.loc('ratings/html/src/Service/CatalogueService.php', "sprintf('%s/product/%s'"),
-         "PHP curl; catalogueUrl = getenv('CATALOGUE_URL') ?: 'http://catalogue:8080' (Kernel.php)")
+r_direct('ratings', 'cat_product', 'GET /product/{sku}', rs.loc('ratings/html/src/Service/CatalogueService.php', '$curl = curl_init($url);'),
+         "PHP curl; $url = sprintf('%s/product/%s', catalogueUrl, sku); catalogueUrl = getenv('CATALOGUE_URL') ?: 'http://catalogue:8080' (Kernel.php)",
+         client_url_def=rs.loc('ratings/html/src/Service/CatalogueService.php', "sprintf('%s/product/%s'"))
 rs.link('messaging', 'payment', 'dispatch', 'amqp:exchange=robot-shop;routing_key=orders;queue=orders',
         rs.loc('payment/rabbitmq.py', 'self._channel.basic_publish(exchange=self.EXCHANGE'),
         rs.loc('dispatch/main.go', 'rabbitChan.Consume("orders"'),
