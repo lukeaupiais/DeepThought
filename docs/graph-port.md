@@ -2943,6 +2943,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongodb-collection` | pattern_matched | a MongoDB driver collection opened by its literal name, `<db>.collection('name')`, in a file importing `mongodb`, `mongoose` or `mongoskin` (or typing `typeof import('mongoose')`), on a database handle: `x.db`, `x.db(...)`, `x.connection`, or a name the file binds only to one of those or types as mongodb's `Db`. The method on the collection, directly or through a variable holding it in the same function, gives READS (`find`, `aggregate`, `watch`, ...) or WRITES (`insertOne`, `updateMany`, `drop`, ...), and any other use both. The collection is the same DbTable as a Mongoose model's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -3203,6 +3204,17 @@ through `PartKeeprPartBundle:Part`-style aliases. Entities whose type is not
 declared where they are persisted, PHP and YAML mapping drivers and custom
 repository base classes are not read yet. Symfony's `Tests/` directories
 are skipped with the other PHP test trees.
+
+The MongoDB driver reader finds the collections that scripts and migrations
+open by name, bypassing the models. On habitica it links 44 of the 80
+`.collection('...')` lines `grep` finds outside tests, and the driver's
+`users` lands on the same DbTable as the `User` model, so a migration that
+rewrites users shows up in the model's impact. The other 36 are commented-out
+lines and archived migrations whose handle is an untyped callback parameter
+or a reassigned `let`, which the reader does not guess. On LibreChat it links
+11 of 14. The other 3 are a template-string name and two scripts that take
+`db` as an untyped parameter. hackathon-starter links 2 of 2, and novu,
+mx-space, nest and builderbook give the same edges as before.
 
 The verification suite's Mongoose corpora score every model with no wrong
 or extra collection: electerious/Ackee 6 of 6, node-express-boilerplate 2
