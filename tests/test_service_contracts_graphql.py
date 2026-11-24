@@ -326,5 +326,114 @@ class ResolverMapTests(unittest.TestCase):
         self.assertEqual(unread["graphql:resolved_not_declared"], 2)
 
 
+MODULES = {
+    "app/package.json": '{"dependencies": {"apollo-server": "2.25.0"}}',
+    "app/src/schema.graphql": """type Query {
+  info: String
+  feed: [Link]
+  one: Int
+}
+type Mutation {
+  post: Link
+  vote: Vote
+  rename: Link
+}
+type Subscription {
+  newLink: Link
+}
+""",
+    "app/src/index.js": """
+const { ApolloServer } = require('apollo-server');
+const Query = require('./resolvers/Query');
+const { Mutation } = require('./resolvers/mutations');
+const Subscription = require('./resolvers/Subscription').Subscription;
+const server = new ApolloServer({ resolvers: { Query, Mutation, Subscription } });
+""",
+    "app/src/resolvers/Query.js": """
+function feed(parent, args) { return []; }
+const one = () => 1;
+module.exports = { feed, one };
+""",
+    "app/src/resolvers/mutations.js": """
+const Mutation = { post() {}, vote: async () => null };
+exports.Mutation = Mutation;
+""",
+    "app/src/resolvers/Subscription.ts": """
+export const Subscription = { newLink: { subscribe: () => null } };
+""",
+    # ES modules: a namespace import lists the module's named exports.
+    "es/package.json": '{"dependencies": {"graphql-yoga": "5.0.0"}}',
+    "es/schema.graphql": "type Query { a: Int b: Int }\ntype Mutation { m: Int }\ntype Subscription { s: Int }\n",
+    "es/index.ts": """
+import * as Query from './query';
+import { Mutation } from './mutation';
+import Subscription from './subscription';
+export const resolvers = { Query, Mutation, Subscription };
+""",
+    "es/query.ts": "export function a() { return 1; }\nexport const b = () => 2;\n",
+    "es/subscription.ts": "export default { s: { subscribe: () => null } };\n",
+    "es/mutation/index.ts": "export const Mutation = { m: () => 1 };\n",
+    # A map the tool cannot list makes the package's other fields unknown.
+    "opaque/package.json": '{"dependencies": {"@apollo/server": "4.0.0"}}',
+    # A package name is not a path, even when a file has the same name.
+    "opaque/shared-resolvers.js": "exports.Mutation = { y: () => 2 };\n",
+    "opaque/schema.graphql": "type Query { x: Int y: Int }\n",
+    "opaque/index.js": """
+const { Mutation } = require('shared-resolvers');
+const Query = { x: () => 1 };
+module.exports = { Query, Mutation };
+""",
+    # Flow annotations the JavaScript grammar cannot parse: not read.
+    "flow/package.json": '{"dependencies": {"graphql-tools": "4.0.0"}}',
+    "flow/schema.graphql": "type Query { z: Int }\n",
+    "flow/query.js": "// @flow\nmodule.exports = { Query: { z: (x: ?number): number => 1 } };\n",
+}
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class ResolverModuleTests(unittest.TestCase):
+    def test_followed_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, MODULES)
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        handled = {}
+        for r in output.relationships:
+            if (
+                r.type == "HANDLES"
+                and "::graphql::" in r.target_match["qualified_name"]
+            ):
+                name = r.target_match["qualified_name"].split("::", 2)[2]
+                handled.setdefault(name, []).append(
+                    r.source_match["qualified_name"].split("::")[1:3]
+                )
+        self.assertEqual(
+            sorted(handled),
+            [
+                "app::Mutation.post",
+                "app::Mutation.vote",
+                "app::Query.feed",
+                "app::Query.one",
+                "app::Subscription.newLink",
+                "es::Mutation.m",
+                "es::Query.a",
+                "es::Query.b",
+                "es::Subscription.s",
+                "opaque::Query.x",
+            ],
+        )
+        self.assertEqual(
+            handled["app::Query.feed"], [["app/src/resolvers/Query.js", "feed"]]
+        )
+        self.assertEqual(handled["es::Query.a"], [["es/query.ts", "a"]])
+        unread = output.metadata.custom_metrics["unread"]
+        # app: info and rename have no resolver; opaque: y may be resolved
+        # by the module the tool does not follow.
+        self.assertEqual(unread["graphql:declared_not_resolved"], 2)
+        self.assertEqual(unread["graphql:resolution_unknown"], 2)
+        self.assertEqual(unread["graphql:resolver_map_not_literal"], 1)
+        self.assertEqual(unread["graphql:source_not_parsed"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

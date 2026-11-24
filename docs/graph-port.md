@@ -1780,6 +1780,12 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   resolvers. A member that is a function declared in the file
   (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
   function, anything else to the file.
+- A root key bound to a name is followed: to an object literal of the same
+  file (`const Query = {...}`), or to a relative module of the repository
+  bound by `require` (whole, destructured or `.Name`) or `import` (default,
+  named or namespace). The module's `module.exports`, `export default`,
+  `exports.Name` or `export const Name` object literal lists the fields,
+  and a namespace import takes its exported functions and constants.
 - In those packages, GraphQL templates declare fields as schema files do:
   templates tagged `gql` or `graphql`, marked by a `/* GraphQL */` comment,
   or starting with `#graphql`. A substitution (`${fragment}`) is not read.
@@ -1792,8 +1798,14 @@ Counted as unread:
   value is not an object literal (`{Query: queries}`);
 - `graphql:resolver_spread`: a spread or other member of a resolver map
   whose fields are not listed in place (`{...more}`);
-- `graphql:declared_not_resolved`: a declared field that no read resolver
-  handles;
+- `graphql:source_not_parsed`: a script of such a package, naming a root
+  type, that the grammar could not fully parse (for example one with Flow
+  annotations); service contracts skip such files;
+- `graphql:resolution_unknown`: a declared field without a read resolver in
+  a package that has any of the three above, where it may be resolved by
+  code the tool does not read;
+- `graphql:declared_not_resolved`: a declared field that no resolver
+  handles, in a package whose resolver maps are all read;
 - `graphql:resolved_not_declared`: a resolved field missing from a package
   that has schema files.
 
@@ -1815,14 +1827,21 @@ schemas declare and the resolver files read by hand:
   root fields are declared in a `gql` template and all six are resolved, by
   the right functions. The client package depends on `@apollo/client` only
   and adds nothing.
+- `howtographql/graphql-js` (commit `e0a3a21`): the resolvers are CommonJS
+  modules (`module.exports = { feed }`) joined in `src/index.js` as
+  `{ Query, Mutation, Subscription }`. Of the 8 root fields in
+  `src/schema.graphql`, the 7 with a resolver are read, each from its
+  module, and `Query.info`, which has none, is the one
+  `declared_not_resolved`.
 - `withspectrum/spectrum` (commit `e8ebdcb`): 30 root fields are declared in
   `/* GraphQL */` templates, 26 of which have a resolver in the code (the
   other four are the `dummy` fields of the root types and a removed
   `invoice` query). 19 are read, each by its right resolver, and none is
   wrong. The seven missed are in three resolver files whose Flow type
   annotations the JavaScript grammar cannot parse; such files are left out
-  of every contract, and the missing resolvers show up as
-  `graphql:declared_not_resolved`. Apollo Client's `cacheRedirects` in
+  of every contract. They count as `graphql:source_not_parsed`, so the 11
+  declared fields without a read resolver are `graphql:resolution_unknown`
+  rather than reported as unimplemented. Apollo Client's `cacheRedirects` in
   the shared client code is not read as a resolver map.
 
 ### Gateways
