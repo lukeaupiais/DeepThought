@@ -103,6 +103,10 @@ class _Sites:
                 MessageUnread(self.file, line, role, "destination_not_literal")
             )
             return
+        # Kafka has no empty topic: the text is set elsewhere (a flag, say).
+        if broker == "kafka" and not destination:
+            self.unread.append(MessageUnread(self.file, line, role, "empty_topic"))
+            return
         key = (role, broker, destination, line)
         ordinal = self._ordinals.get(key, 0)
         self._ordinals[key] = ordinal + 1
@@ -645,6 +649,157 @@ def extract_go(sites, imports):
             sites.consume_queue(
                 node, queue_name(arguments[offset]), bindings, "go-amqp"
             )
+
+
+_KAFKA_GO = "github.com/segmentio/kafka-go"
+_SARAMA = ("github.com/IBM/sarama", "github.com/Shopify/sarama")
+_CONFLUENT = re.compile(r"github\.com/confluentinc/confluent-kafka-go(?:/v\d+)?/kafka")
+
+
+def _go_kafka_client(path):
+    if path == _KAFKA_GO:
+        return "kafka-go"
+    if path in _SARAMA:
+        return "sarama"
+    if _CONFLUENT.fullmatch(path):
+        return "confluent-kafka-go"
+    return None
+
+
+def _go_fields(literal, content):
+    """{key: value node} of a Go composite literal's keyed elements."""
+    body = literal.child_by_field_name("body")
+    found = {}
+    if body is None:
+        return found
+    for element in body.named_children:
+        if element.type != "keyed_element":
+            continue
+        parts = element.named_children
+        if len(parts) != 2:
+            continue
+        key, value = parts
+        if value.type == "literal_element" and value.named_children:
+            value = value.named_children[0]
+        found[text(key, content)] = value
+    return found
+
+
+def _go_strings(node):
+    """The elements of a ``[]string{...}`` literal, or None."""
+    if node is None or node.type != "composite_literal":
+        return None
+    kind = node.child_by_field_name("type")
+    if kind is None or kind.type != "slice_type":
+        return None
+    body = node.child_by_field_name("body")
+    return [
+        e.named_children[0] if e.type == "literal_element" else e
+        for e in body.named_children
+        if e.type != "comment"
+    ]
+
+
+# (client, type) -> (role, field) of composite literals that name a topic.
+_GO_KAFKA_LITERALS = {
+    ("kafka-go", "Writer"): ("publish", "Topic"),
+    ("kafka-go", "WriterConfig"): ("publish", "Topic"),
+    ("kafka-go", "Message"): ("publish", "Topic"),
+    ("kafka-go", "ReaderConfig"): ("consume", "Topic"),
+    ("sarama", "ProducerMessage"): ("publish", "Topic"),
+    ("confluent-kafka-go", "TopicPartition"): ("publish", "Topic"),
+}
+
+
+def extract_go_kafka(sites, imports):
+    """segmentio/kafka-go, sarama and confluent-kafka-go topics."""
+    content, root = sites.content, sites.root
+    packages = {
+        # kafka-go's package name is kafka, not its last path element.
+        ("kafka" if local == "kafka-go" else local): client
+        for local, path in imports.items()
+        if (client := _go_kafka_client(path)) is not None
+    }
+    if not packages:
+        return
+    clients = set(packages.values())
+    folder = Folder("go", root, content)
+
+    def topic(node):
+        node = _unwrap_go(node)
+        return PLACEHOLDER if node is None else folder.evaluate(node)
+
+    for node in _walk(root):
+        if node.type == "composite_literal":
+            kind = node.child_by_field_name("type")
+            if kind is None or kind.type != "qualified_type":
+                continue
+            package = text(kind.child_by_field_name("package"), content)
+            name = text(kind.child_by_field_name("name"), content)
+            client = packages.get(package)
+            rule = _GO_KAFKA_LITERALS.get((client, name))
+            if rule is None:
+                continue
+            role, field = rule
+            fields = _go_fields(node, content)
+            if client == "kafka-go" and role == "consume" and "GroupTopics" in fields:
+                for value in _go_strings(fields["GroupTopics"]) or [None]:
+                    sites.add(node, role, "kafka", topic(value), client)
+            # A kafka-go Message without Topic goes to its Writer's topic.
+            if field not in fields:
+                continue
+            sites.add(node, role, "kafka", topic(fields[field]), client)
+        elif node.type == "call_expression":
+            function = node.child_by_field_name("function")
+            if function.type != "selector_expression":
+                continue
+            method = text(function.child_by_field_name("field"), content)
+            arguments = [
+                a
+                for a in node.child_by_field_name("arguments").named_children
+                if a.type != "comment"
+            ]
+            if "sarama" in clients and method == "ConsumePartition" and arguments:
+                sites.add(node, "consume", "kafka", topic(arguments[0]), "sarama")
+            elif "sarama" in clients and method == "Consume" and len(arguments) == 3:
+                for value in _go_strings(arguments[1]) or [None]:
+                    sites.add(node, "consume", "kafka", topic(value), "sarama")
+            elif "confluent-kafka-go" in clients and method in (
+                "Subscribe",
+                "SubscribeTopics",
+            ):
+                if not arguments:
+                    continue
+                values = (
+                    [arguments[0]]
+                    if method == "Subscribe"
+                    else _go_strings(arguments[0]) or [None]
+                )
+                for value in values:
+                    name = topic(value)
+                    # A leading ^ subscribes to a regular expression.
+                    if name.startswith("^"):
+                        sites.unread.append(
+                            MessageUnread(
+                                sites.file,
+                                node.start_point.row + 1,
+                                "consume",
+                                "topic_pattern",
+                            )
+                        )
+                        continue
+                    sites.add(node, "consume", "kafka", name, "confluent-kafka-go")
+
+
+def _unwrap_go(node):
+    """``&x`` is ``x``; parentheses."""
+    while node is not None and node.type in (
+        "unary_expression",
+        "parenthesized_expression",
+    ):
+        operand = node.child_by_field_name("operand")
+        node = operand if operand is not None else (node.named_children or [None])[-1]
+    return node
 
 
 # -- JavaScript / TypeScript -------------------------------------------------
@@ -1277,7 +1432,9 @@ def extract_messaging(
     elif language == "python":
         extract_python(sites, _python_imports(sites.root, content))
     elif language == "go":
-        extract_go(sites, _go_imports(sites.root, content))
+        imports = _go_imports(sites.root, content)
+        extract_go(sites, imports)
+        extract_go_kafka(sites, imports)
     elif language in ("javascript", "typescript"):
         extract_javascript(sites, language)
         extract_javascript_brokers(sites, language)
