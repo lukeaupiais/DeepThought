@@ -1369,6 +1369,35 @@ class TypeScriptCallTests(unittest.TestCase):
         properties = {d.symbol: d.properties for d in result.definitions}
         self.assertEqual(properties["F"], ("x",))
 
+    def test_member_chain_aliases_are_followed_four_deep(self):
+        result = analyze(
+            {
+                "n.ts": (
+                    "class N {\n"
+                    "  next: N;\n"
+                    "  run() {}\n"
+                    "}\n"
+                    "export function go() {\n"
+                    "  const a = new N();\n"
+                    "  const b = a.next;\n"
+                    "  const c = b.next;\n"
+                    "  const d = c.next;\n"
+                    "  const e = d.next;\n"
+                    "  e.run();\n"
+                    "  const f = e.next;\n"
+                    "  f.run();\n"
+                    "}\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        self.assertEqual(
+            found[("n.ts", 11, "e.run")],
+            ("linked", "n.ts::N.run", CALL_JS_MEMBER_CHAIN, None),
+        )
+        self.assertEqual(found[("n.ts", 13, "f.run")][0], "unresolved")
+
     def test_receivers_typed_through_fields_and_destructuring(self):
         result = analyze(
             {
@@ -1519,6 +1548,8 @@ class TypeScriptCallTests(unittest.TestCase):
             [True, True, None],
         )
         self.assertTrue(targets[("req.ts", "Req.parse", 5)].static)
+        # Only a static overload is static.
+        self.assertFalse(targets[("req.ts", "Req.header", 2)].static)
         fields = {d.symbol: d.fields for d in result.definitions if d.kind == "Class"}
         self.assertEqual(
             fields["Ctx"], (("made", "Svc"), ("ext", "Ext"), ("svc", "Svc"))

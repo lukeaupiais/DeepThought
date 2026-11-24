@@ -46,6 +46,10 @@ class MutationOperatorTest(unittest.TestCase):
             self.assertEqual(description["function"], "f")
             compile(tree, "<mutant>", "exec")
 
+    def test_line_ranges(self):
+        self.assertEqual(mutate_resolution.line_range("12-30"), (12, 30))
+        self.assertEqual(mutate_resolution.line_range("7"), (7, 7))
+
 
 if __name__ == "__main__":
     unittest.main()
