@@ -2022,6 +2022,52 @@ meets the catalogue's `GET /product/:sku`. With the Java change above, the
 corpus scores 42 of 42 labelled call sites and 17 of 17 service pairs, none
 wrong (37 and 14 before).
 
+### ASP.NET Core routes
+
+C# files are read for routes (`service_contracts.aspnet`):
+
+- **Controllers** (rule `service-contracts.aspnet-controller-route`). A
+  class counts when it carries `[ApiController]`, derives from
+  `Controller`, `ControllerBase` or an Ardalis.ApiEndpoints base
+  (`EndpointBaseAsync...`), or is named `...Controller`; `[NonController]`
+  excludes it. An action is a method with `[HttpGet]`, `[HttpPost]`, ...
+  (optionally with a template) or `[Route]`. Its template is joined with
+  each of the class's `[Route]` templates unless it starts with `/` or
+  `~/`. `[controller]` is the class name without `Controller`, `[action]`
+  the method name without an `Async` suffix, `[area]` the class's `[Area]`.
+  An action with no template on either level is conventionally routed
+  (`MapControllerRoute`) and not read.
+- **Minimal APIs** (rule `service-contracts.aspnet-minimal-api-route`).
+  `MapGet/MapPost/MapPut/MapDelete/MapPatch(template, ...)` and
+  `MapMethods(template, new[] { "GET", ... }, ...)` with a literal
+  template; the methods of `MapMethods` are string literals or
+  `HttpMethods.X` constants, anything else leaves it unread
+  (`methods_not_literal`). `MapGroup(prefix)` in the receiver chain, or a local bound
+  once to one, adds its prefix; builder calls such as `WithTags` or
+  `NewVersionedApi` pass through. A receiver that is a `RouteGroupBuilder`
+  or `IEndpointRouteBuilder` parameter gets an unknown base, joined with
+  any known group prefixes after it. A template that is not a literal is
+  unread (`path_not_literal`).
+
+Constraints and defaults (`{id:int}`, `{id?}`, `{*rest}`) are read as plain
+parameters. Matching is case-sensitive, so a request to `/api/catalog` does
+not meet `[controller]` read as `Catalog`, although ASP.NET Core matches
+both.
+
+Checked by hand against a lexical count of route attributes and `Map*`
+calls: eShopOnWeb `4da8212` 33 of 33 (26 attribute routes, 7 minimal API),
+dotnet/eShop `669682e` 31 of 31 with the group prefixes it builds
+(`/api/catalog/items`, `/api/orders/cancel`), grpc-dotnet `7c1a477` 5 of 5.
+CleanArchitecture `f7f9771` maps its endpoints by reflection through its own
+`MapGet(handler, template)` overloads; all 15 are unread rather than
+guessed.
+
+online-boutique's cartservice maps `GET /` to a notice that it only speaks
+gRPC. The load generator's `l.client.get("/")` has no host, so it now meets
+both that route and the frontend's `GET /` and is ambiguous instead of
+linked; the corpus scores 8 of 9 HTTP call sites, with its one HTTP service
+pair still found.
+
 ### NestJS controllers
 
 In TypeScript files that import from `@nestjs/common`, a class decorated

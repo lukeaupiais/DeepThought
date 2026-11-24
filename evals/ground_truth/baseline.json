@@ -556,8 +556,8 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 9,
-          "predicted": 9,
-          "true_positive": 9
+          "predicted": 8,
+          "true_positive": 8
         },
         "service_pairs": {
           "labelled_in_scope": 1,
