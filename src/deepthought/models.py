@@ -71,7 +71,10 @@ class Definition:
     # through pointers and type arguments. Java methods: the return type as
     # written without type arguments (``Foo``, ``Map.Entry``, ``int``). None
     # elsewhere, or when that type is of another kind (``void``, an array, a
-    # type parameter).
+    # type parameter). Rust functions and methods with a body: the type path
+    # the return type writes, joined by ``::``, through references and
+    # without type arguments (``T``, ``m::T``, ``Self``), unless it names a
+    # type parameter; None for any other return type.
     result_type: str | None = None
     # Go struct types: (name, type) for each named field whose type is
     # written as for ``result_type``. Java types: the same for each static
@@ -378,8 +381,25 @@ class CallSite:
     # declared around the call names: (``X``, ``f``) for each such argument,
     # None for any other argument. None when there is no such argument.
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
+    # Rust calls ``x.m()`` whose receiver is the result of a call: the span
+    # (line, column, end line, end column) of that call, either the receiver
+    # itself (``T::new().m()``, ``x.a().m()``) or the value of the ``let``
+    # that is the innermost declaration of the local ``x`` and binds it alone
+    # without a type (``let x = T::new();``). None elsewhere.
+    receiver_call: tuple[int, int, int, int] | None = None
 
     def __post_init__(self):
+        if self.receiver_call is not None and (
+            self.receiver_type is not None
+            or type(self.receiver_call) is not tuple
+            or len(self.receiver_call) != 4
+            or not all(type(v) is int and v >= 0 for v in self.receiver_call)
+            or self.receiver_call[0] < 1
+        ):
+            raise ValueError(
+                "receiver_call must be a span (line, column, end line, end"
+                " column), without a receiver_type"
+            )
         if self.binding is not None and (
             type(self.binding) is not tuple
             or len(self.binding) not in (0, 2)
@@ -826,6 +846,8 @@ class AnalysisResult:
                 del item["argument_calls"]
             if item["argument_fields"] is None:
                 del item["argument_fields"]
+            if item["receiver_call"] is None:
+                del item["receiver_call"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -931,6 +953,11 @@ class AnalysisResult:
                         **(
                             {"receiver_binding": tuple(item["receiver_binding"])}
                             if isinstance(item.get("receiver_binding"), list)
+                            else {}
+                        ),
+                        **(
+                            {"receiver_call": tuple(item["receiver_call"])}
+                            if isinstance(item.get("receiver_call"), list)
                             else {}
                         ),
                         **(

@@ -24,6 +24,7 @@ from deepthought.calls import (
     RUST_CALL_LOCAL_ITEM,
     RUST_CALL_PATH,
     RUST_CALL_SELF_METHOD,
+    RUST_CALL_RESULT_RECEIVER,
     RUST_CALL_TYPED_RECEIVER,
     resolve_calls,
 )
@@ -1815,6 +1816,125 @@ class RustTests(unittest.TestCase):
                 # The last invocation of a file has no `;` after it.
             },
         )
+
+    def test_receivers_that_are_call_results(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "x"\n',
+                "src/b.rs": "pub struct B;\nimpl B { pub fn k(&self) {} }\n",
+                "src/lib.rs": (
+                    "pub mod b;\n"
+                    "pub struct S;\n"
+                    "impl S {\n"
+                    "    pub fn new() -> Self { S }\n"
+                    "    pub fn f(&mut self) -> &mut Self { self }\n"  # 5
+                    "    pub fn g(&self) -> b::B { b::B }\n"
+                    "    pub fn h(&self) -> Option<S> { None }\n"
+                    "    pub fn p<T>(&self) -> T { todo!() }\n"
+                    "    pub fn q(&self) -> B { struct B; B }\n"
+                    "    pub fn r(&self) -> (S, S) { (S, S) }\n"  # 10
+                    "}\n"
+                    "pub fn make() -> S { S }\n"
+                    "pub trait Tr { fn t(&self) -> Self; fn d() -> Self { todo!() } }\n"
+                    "impl Tr for S { fn t(&self) -> Self { S } }\n"
+                    "pub fn run(o: S) {\n"
+                    "    S::new().f().f();\n"  # 16
+                    "    let x = S::new(); x.g().k();\n"
+                    "    let mut y = make(); y.f();\n"
+                    "    let z = o.h(); z.f(); o.p::<S>().f();\n"
+                    "    o.q().k(); o.r().f(); o.t().f(); (o).f().f();\n"
+                    "    let w = S::new()?; w.f(); let v = S; v.f();\n"  # 21
+                    "    let u: S = make(); u.f(); let s = missing(); s.f();\n"
+                    "    let x = 1; x.f(); (|| S)().f(); S::d().f();\n"
+                    "    let c = (|| S)(); c.f(); S::new().p::<S>();\n"
+                    "}\n"
+                ),
+            }
+        )
+        sites = {c.id: c for c in result.call_sites}
+        names = {d.id: d.symbol for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].column, sites[r.call_id].callee): (
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/lib.rs"
+            and "." in sites[r.call_id].callee
+            and sites[r.call_id].line > 14
+        }
+        typed = RUST_CALL_TYPED_RECEIVER
+        result_rule = RUST_CALL_RESULT_RECEIVER
+        unknown = "receiver_type_unknown"
+        self.maxDiff = None
+        self.assertEqual(
+            found,
+            {
+                # A call written as the receiver, `Self` as the impl's type,
+                # through a reference, and along a chain.
+                (16, 4, "S::new().f"): ("S.f", result_rule),
+                (16, 4, "S::new().f().f"): ("S.f", result_rule),
+                # The type a function returns is read where it is declared.
+                (17, 22, "x.g"): ("S.g", result_rule),
+                (17, 22, "x.g().k"): ("B.k", result_rule),
+                # An untyped `let` that binds a call's result.
+                (18, 24, "y.f"): ("S.f", result_rule),
+                # A type that names no repository type gives nothing, nor does
+                # a type parameter.
+                (19, 12, "o.h"): ("S.h", typed),
+                (19, 19, "z.f"): (None, unknown),
+                (19, 26, "o.p"): ("S.p", typed),
+                (19, 26, "o.p().f"): (None, unknown),
+                # A type is not read in the function's own body, and a tuple
+                # is no type path; `Self` in a trait impl is its type.
+                (20, 4, "o.q"): ("S.q", typed),
+                (20, 4, "o.q().k"): (None, unknown),
+                (20, 15, "o.r"): ("S.r", typed),
+                (20, 15, "o.r().f"): (None, unknown),
+                (20, 26, "o.t"): ("S.t", typed),
+                (20, 26, "o.t().f"): ("S.f", result_rule),
+                # `?`, a struct value, a parenthesized receiver and an
+                # unresolved function give nothing.
+                (21, 23, "w.f"): (None, "method_call"),
+                (21, 41, "v.f"): (None, "method_call"),
+                (22, 23, "u.f"): ("S.f", typed),
+                (22, 49, "s.f"): (None, unknown),
+                # The innermost declaration decides, and `Self` in a trait's
+                # provided function is no impl's type.
+                (23, 15, "x.f"): (None, "method_call"),
+                (23, 36, "S::d().f"): (None, unknown),
+                # A call that is no call site.
+                (24, 22, "c.f"): (None, unknown),
+                (24, 29, "S::new().p"): ("S.p", result_rule),
+            },
+        )
+        self.assertEqual(
+            {d.symbol: d.result_type for d in result.definitions if d.result_type},
+            {
+                "S.new": "Self",
+                "S.f": "Self",
+                "S.g": "b::B",
+                "S.h": "Option",
+                "S.q": "B",
+                "make": "S",
+                "Tr.d": "Self",
+                "S.t": "Self",
+            },
+        )
+        receivers = {
+            (c.line, c.column, c.callee): c.receiver_call for c in result.call_sites
+        }
+        self.assertEqual(receivers[(18, 24, "y.f")], (18, 16, 18, 22))
+        self.assertEqual(receivers[(16, 4, "S::new().f().f")], (16, 4, 16, 16))
+        self.assertIsNone(receivers[(22, 23, "u.f")])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        self.assertNotIn('"receiver_call": null', result.to_json())
+        site = next(c for c in result.call_sites if c.receiver_call)
+        for bad in ((1, 2, 3), (0, 0, 1, 1), [1, 0, 1, 1], (1, -1, 1, 1)):
+            with self.subTest(receiver_call=bad), self.assertRaises(ValueError):
+                dataclasses.replace(site, receiver_call=bad)
+        with self.assertRaises(ValueError):
+            dataclasses.replace(site, receiver_type="S")
 
     def test_methods_and_associated_functions_resolve_through_impls(self):
         result = analyze(
