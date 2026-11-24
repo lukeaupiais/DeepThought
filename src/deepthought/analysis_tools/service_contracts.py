@@ -12,6 +12,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 from hashlib import sha256
 from pathlib import PurePosixPath
 import json
+import os
 import posixpath
 import importlib.util
 import itertools
@@ -19,6 +20,11 @@ import re
 import time
 
 from .._version import __version__
+from ..data_contracts import (
+    read_tsconfig_paths,
+    resolve_script_alias,
+    resolve_script_module,
+)
 from ..engine import analyze_repository
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
@@ -52,6 +58,7 @@ from ..service_contracts.spring import (
     extract_spring,
     java_constants,
 )
+from ..service_contracts.script_constants import ScriptConstants, angular_defines
 from ..service_contracts.web import extract_web, nest_settings
 from ..syntax import identifier, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
@@ -857,9 +864,9 @@ def _stream_endpoints(root, config, sites, repo_url):
                         declaration_id=site.declaration_id,
                         role=site.role,
                         broker=binder,
-                        destination=destination + "/#"
-                        if binder == "amqp"
-                        else destination,
+                        destination=(
+                            destination + "/#" if binder == "amqp" else destination
+                        ),
                         client=(
                             "spring-cloud-stream"
                             if site.function is None
@@ -930,6 +937,61 @@ def _is_test_source(path):
         or name.endswith("_test.py")
         or re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", name) is not None
     )
+
+
+def _config_paths(root, names):
+    """Repository paths of files with one of ``names``, outside hidden,
+    ``node_modules`` and ``vendor`` folders."""
+    found = []
+    for directory, folders, files in os.walk(root):
+        folders[:] = sorted(
+            f
+            for f in folders
+            if not f.startswith(".") and f not in ("node_modules", "vendor")
+        )
+        for name in sorted(files):
+            if name in names:
+                found.append(
+                    (PurePosixPath(directory) / name).relative_to(root).as_posix()
+                )
+    return found
+
+
+def _script_constants(root, sources):
+    """String constants the repository's scripts export, import or have
+    defined by angular.json, resolving relative imports and tsconfig.json
+    ``paths`` aliases to analyzed script files."""
+    scripts = {
+        coverage.file: (tree, content, coverage.language)
+        for coverage, content, tree in sources
+        if coverage.language in ("javascript", "typescript")
+    }
+    if not scripts:
+        return None
+    files = set(scripts)
+    ts_paths, defines = {}, []
+    for path in _config_paths(root, ("tsconfig.json", "angular.json")):
+        try:
+            content = (root / path).read_bytes()
+        except OSError:
+            continue
+        if path.endswith("angular.json"):
+            defines.extend(angular_defines(path, content))
+            continue
+        found = read_tsconfig_paths(path, content)
+        if found is not None:
+            ts_paths[path.rpartition("/")[0]] = found
+    cache = {}
+
+    def resolve(file, module):
+        key = (file, module)
+        if key not in cache:
+            cache[key] = resolve_script_module(
+                file, module, files
+            ) or resolve_script_alias(file, module, files, ts_paths)
+        return cache[key]
+
+    return ScriptConstants(scripts, resolve, defines)
 
 
 def _node_package(root, file):
@@ -1217,6 +1279,7 @@ class ServiceContractTool(AnalysisTool):
             return lists[0]
 
         nest = _nest_applications(root, sources)
+        scripts = _script_constants(root, sources)
         for coverage, content, tree in sources:
             if coverage.language == "java":
                 service, context_path = config.service(coverage.file)
@@ -1243,6 +1306,11 @@ class ServiceContractTool(AnalysisTool):
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
+                    externals=(
+                        scripts.externals(coverage.file)
+                        if scripts is not None
+                        else None
+                    ),
                 )
             routes.extend(found[0])
             requests.extend(found[1])
@@ -1953,12 +2021,12 @@ class ServiceContractTool(AnalysisTool):
             execution_time_seconds=time.monotonic() - started,
             languages_processed=sorted({c.language for c in result.coverage}),
             files_processed=len(result.coverage),
-            errors=[d["message"] for d in diagnostics]
-            if result.status == "failed"
-            else [],
-            warnings=[d["message"] for d in diagnostics]
-            if result.status != "failed"
-            else [],
+            errors=(
+                [d["message"] for d in diagnostics] if result.status == "failed" else []
+            ),
+            warnings=(
+                [d["message"] for d in diagnostics] if result.status != "failed" else []
+            ),
             custom_metrics={
                 "analysis_status": result.status,
                 "model_tokens": 0,
