@@ -515,13 +515,13 @@
         },
         "servers": {
           "labelled_in_scope": 20,
-          "predicted": 15,
-          "true_positive": 15
+          "predicted": 20,
+          "true_positive": 20
         },
         "service_pairs": {
           "labelled_in_scope": 14,
-          "predicted": 12,
-          "true_positive": 12
+          "predicted": 14,
+          "true_positive": 14
         },
         "streaming": {
           "labelled_in_scope": 0,
