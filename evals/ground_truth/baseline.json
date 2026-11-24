@@ -87,24 +87,24 @@
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 60,
+          "confirmed": 104,
           "expected": 351
         },
         "2": {
-          "confirmed": 42,
+          "confirmed": 380,
           "expected": 505
         },
         "3": {
-          "confirmed": 21,
+          "confirmed": 51,
           "expected": 295
         }
       },
-      "confirmed": 123,
+      "confirmed": 535,
       "expected": 1151,
       "extra": 0,
-      "missed": 1028,
+      "missed": 616,
       "precision": 1.0,
-      "recall": 0.1069,
+      "recall": 0.4648,
       "seeds": 144,
       "seeds_undeclared": 0
     },
