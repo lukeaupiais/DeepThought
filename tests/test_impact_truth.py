@@ -206,5 +206,47 @@ class SameNameTests(unittest.TestCase):
         self.assertEqual((report["confirmed"], report["extra"]), (1, 0), samples)
 
 
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_typescript"), "TypeScript grammar"
+)
+class NestedFunctionTests(unittest.TestCase):
+    def test_a_nested_function_is_read_as_the_function_around_it(self):
+        import deepthought
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / "a.ts").write_text(
+            "export function base() {\n  return 1\n}\n\n"
+            "export function outer() {\n"
+            "  const inner = () => base()\n  return inner()\n}\n",
+            "utf-8",
+        )
+        result = deepthought.analyze_repository(
+            repo, repository_id="t", languages=("typescript",)
+        )
+        # scip-typescript makes `inner` a local symbol: the oracle's caller
+        # of base is outer, which the engine reaches through inner.
+        truth = {("a.ts", 1, "base"): {("a.ts", 1, "base"): 0, ("a.ts", 5, "outer"): 1}}
+        plain, _ = impact_truth.score(result, truth)
+        folded, _ = impact_truth.score(result, truth, fold_nested=True)
+        self.assertEqual((plain["confirmed"], plain["extra"]), (1, 1))
+        self.assertEqual((folded["confirmed"], folded["extra"]), (1, 0))
+
+
+class FunctionValueTests(unittest.TestCase):
+    def test_initializers_that_hold_a_function(self):
+        def holds(text):
+            return bool(impact_truth._FUNCTION_VALUE.match(text))
+
+        self.assertTrue(holds(" = <T extends Map<string, number>>(x: T) => x"))
+        self.assertTrue(holds(" =\n  async (c) => {"))
+        self.assertTrue(holds(": FC<\n  Props\n> = (props) => null"))
+        self.assertFalse(holds(" = new Map<string, number>()"))
+        # A class property holding a function is named `C#m.`.
+        self.assertEqual(
+            impact_truth._TERM.search("src/`c.ts`/C#fetch.").group(1), "fetch"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

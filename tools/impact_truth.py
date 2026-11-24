@@ -49,12 +49,12 @@ HEADER = "# seed_file\tseed_line\tseed_name\tfile\tline\tname\tdepth"
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
 # The last descriptor of a callable symbol: `name().` or `` `name`(). ``.
 _NAME = re.compile(r"`?([^`./#()\[\]:]+)`?\([^)]*\)\.$")
-_TERM = re.compile(r"/`?([A-Za-z_$][\w$]*)`?\.$")
+_TERM = re.compile(r"[/#]`?([A-Za-z_$][\w$]*)`?\.$")
 # After the name: `= function`, `= (...) =>`, `= <T>(...) =>` or `= x =>`,
 # optionally typed and async.
 _FUNCTION_VALUE = re.compile(
     r"\s*(?::[^=]*)?=\s*(?:async\s+)?"
-    r"(?:function\b|(?:<[^>]*>\s*)?\(|[A-Za-z_$][\w$]*\s*=>)"
+    r"(?:function\b|(?:<(?:[^<>]|<[^<>]*>)*>\s*)?\(|[A-Za-z_$][\w$]*\s*=>)"
 )
 _SCRIPTS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # Names the engine writes differently: TypeScript constructors.
@@ -129,7 +129,12 @@ def callables(index, source=None, spans=None):
                 if file not in texts:
                     texts[file] = source(file).splitlines()
                 after = texts[file][line - 1].encode("utf-8")[occurrence.range[2] :]
-                if not _FUNCTION_VALUE.match(after.decode("utf-8", "replace")):
+                # The initializer can start on a later line (`const f =`
+                # then the arrow, or type parameters split across lines).
+                after = "\n".join(
+                    [after.decode("utf-8", "replace"), *texts[file][line : line + 10]]
+                )
+                if not _FUNCTION_VALUE.match(after):
                     continue
             if not occurrence.symbol_roles & 1:
                 overloads.append((document.relative_path, line, occurrence, symbol))
@@ -341,13 +346,20 @@ def read(path):
     return dict(truth)
 
 
-def score(result, truth, max_depth=3, examples=10, aliases=None):
+def score(result, truth, max_depth=3, examples=10, aliases=None, fold_nested=False):
     """Engine dependents of each seed against the oracle's.
 
     *confirmed*: an engine dependent the oracle also reaches; *extra*: one
     it does not (a wrong link, or a caller reached through one); *missed*:
     an oracle dependent the engine does not reach. Seeds the engine does not
     declare are counted, and their dependents are all missed.
+
+    ``fold_nested``: the index makes a function declared inside another
+    one a local symbol (scip-typescript), so the oracle has no node for it
+    and counts its calls as the enclosing callable's. An engine declaration
+    that matches no oracle node and lies inside another engine declaration
+    is then read as the innermost one that encloses it, when that one is a
+    node of the truth.
     """
     from deepthought.calls import resolve_calls
 
@@ -400,6 +412,27 @@ def score(result, truth, max_depth=3, examples=10, aliases=None):
 
     definitions = {d.id: d for d in result.definitions}
     node_of = {i: oracle_node(d) for i, d in definitions.items()}
+    if fold_nested:
+        # Outermost first, so an enclosing declaration is already read.
+        order = sorted(definitions.values(), key=lambda d: (d.line - d.end_line, d.id))
+        by_file = defaultdict(list)
+        for d in order:
+            node = node_of[d.id]
+            if node[:2] not in known:
+                enclosing = [
+                    e
+                    for e in by_file[d.file]
+                    if e.line <= d.line
+                    and d.end_line <= e.end_line
+                    and (e.line, e.end_line) != (d.line, d.end_line)
+                ]
+                if enclosing:
+                    inner = min(enclosing, key=lambda e: (e.end_line - e.line, -e.line))
+                    # Only into a node of the truth: a declaration the index
+                    # does name (a method) is never merged into another.
+                    if node_of[inner.id][:2] in known:
+                        node_of[d.id] = node_of[inner.id]
+            by_file[d.file].append(d)
     sites = {s.id: s for s in result.call_sites}
     incoming = defaultdict(set)
     for r in resolve_calls(result):
