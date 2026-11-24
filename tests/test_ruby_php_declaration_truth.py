@@ -48,6 +48,13 @@ function top() {}
 """
 
 
+def _has_prism():
+    if shutil.which("ruby") is None:
+        return False
+    probe = subprocess.run(["ruby", "-e", 'require "prism"'], capture_output=True)
+    return probe.returncode == 0
+
+
 def oracle(command, name, text):
     root = Path(tempfile.mkdtemp())
     try:
@@ -102,7 +109,7 @@ class DeclarationOracleTests(unittest.TestCase):
             },
         )
 
-    @unittest.skipUnless(shutil.which("ruby"), "ruby is required")
+    @unittest.skipUnless(_has_prism(), "ruby with Prism is required")
     def test_ruby_requires(self):
         files = {
             "mygem.gemspec": 'Gem::Specification.new { |s| s.require_paths = ["src"] }\n',
