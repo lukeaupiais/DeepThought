@@ -39,10 +39,12 @@ LANGUAGES = {
         "tree_sitter_cpp",
         "language",
     ),
+    "ruby": ((".rb",), "tree_sitter_ruby", "language"),
 }
-# Languages analyzed when none are selected. JavaScript, Go, Java, Rust and C are opt-in
-# so that existing Python/TypeScript analyses keep their output and do not need
-# their grammars; select them with languages=("go", ...) or --language.
+# Languages analyzed when none are selected. JavaScript, Go, Java, Rust, C, C++
+# and Ruby are opt-in so that existing Python/TypeScript analyses keep their
+# output and do not need their grammars; select them with languages=("go", ...)
+# or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
 KINDS = {
     "function_definition": "Function",
@@ -768,6 +770,85 @@ def extract_cpp(
         macros_in = [c for c in node.named_children if c is not written]
         for child in macros_in:
             macros(child)
+    return found
+
+
+_RUBY_SCOPES = {"class": "Class", "module": "Module"}
+
+
+def _ruby_constant_path(node, content):
+    """(names, absolute) of a class or module name: ``B::C`` gives
+    (["B", "C"], False), ``::C`` gives (["C"], True)."""
+    names = []
+    while node is not None and node.type == "scope_resolution":
+        names.append(_text(node.child_by_field_name("name"), content))
+        node = node.child_by_field_name("scope")
+        if node is None:
+            return list(reversed(names)), True
+    if node.type != "constant":
+        return None
+    names.append(_text(node, content))
+    return list(reversed(names)), False
+
+
+def extract_ruby(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """Ruby modules, classes and methods, in source order.
+
+    Symbols join the enclosing modules and classes and the path written in
+    a name (``class B::C`` in ``module A`` is ``A.B.C``; ``::C`` starts at
+    the top) with ``.``. A ``def`` in a class or module body, in its
+    ``class << self`` or in a block written there (``included do``,
+    ``Class.new do``) is a ``Method`` of that class or module, whether it
+    defines an instance or a singleton method (``def self.m``); elsewhere it
+    is a ``Function``. A ``def`` inside another method's body is not
+    recorded. ``nodes`` receives id -> (node, name).
+    """
+    found, ordinals = [], {}
+
+    def add(node, name_node, symbol, kind):
+        ordinal = ordinals.get((symbol, kind), 0)
+        ordinals[(symbol, kind)] = ordinal + 1
+        definition = Definition(
+            id=identifier(repository_id, file, symbol, kind, ordinal),
+            file=file,
+            symbol=symbol,
+            kind=kind,
+            line=node.start_point.row + 1,
+            column=node.start_point.column,
+            end_line=node.end_point.row + 1,
+            end_column=node.end_point.column,
+        )
+        found.append(definition)
+        if nodes is not None:
+            nodes[definition.id] = (node, name_node)
+
+    # (node, scope, inside a class or module body)
+    stack = [(tree.root_node, (), False)]
+    while stack:
+        node, scope, in_type = stack.pop()
+        kind = _RUBY_SCOPES.get(node.type)
+        if kind is not None:
+            name = node.child_by_field_name("name")
+            path = _ruby_constant_path(name, content) if name is not None else None
+            if path is None:
+                continue
+            names, absolute = path
+            inner = (*(() if absolute else scope), *names)
+            last = name.child_by_field_name("name") if name.type != "constant" else name
+            add(node, last, ".".join(inner), kind)
+            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            continue
+        if node.type in {"method", "singleton_method"}:
+            name = node.child_by_field_name("name")
+            if name is not None:
+                text = _text(name, content)
+                symbol = ".".join((*scope, text))
+                add(node, name, symbol, "Method" if in_type else "Function")
+            # A def in a method body is defined when the method runs.
+            continue
+        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
     return found
 
 
@@ -2084,6 +2165,8 @@ def declaration_sources(
         extract_c(tree, content, repository_id, file, nodes=nodes)
     elif language == "cpp":
         extract_cpp(tree, content, repository_id, file, nodes=nodes)
+    elif language == "ruby":
+        extract_ruby(tree, content, repository_id, file, nodes=nodes)
     else:
         extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")

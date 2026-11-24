@@ -18,7 +18,14 @@ import time
 
 from .._version import __version__
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
-from ..data_contracts import extract_ddl, extract_java
+from ..data_contracts import (
+    app_config_label,
+    extract_ddl,
+    extract_django,
+    extract_java,
+    extract_sqlalchemy,
+    resolve_django,
+)
 from ..engine import analyze_repository
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser
@@ -91,8 +98,88 @@ REPOSITORY_RULE = register_rule(
 )
 
 
+SUPPORTED_LANGUAGES = ("java", "python")
 # JDBC URL markers of databases that live and die with one process.
 IN_MEMORY = (":mem:", ":memory:", "jdbc:derby:memory")
+
+
+DJANGO_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-db-table",
+        "pattern_matched",
+        "The class is a Django model (a django.db.models.Model base, directly "
+        "or through models of the repository named by unique class name) "
+        "whose own Meta sets db_table to this table.",
+    )
+)
+DJANGO_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-default-table-name",
+        "pattern_matched",
+        "The class is a concrete Django model without Meta.db_table, and this "
+        "table is Django's default name: the app label, an underscore and "
+        "the class name in lower case. The app label is Meta.app_label, else "
+        "the literal label of the app's AppConfig in apps.py, else the name "
+        "of the package holding the models module.",
+    )
+)
+DJANGO_M2M_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-many-to-many-table",
+        "pattern_matched",
+        "A ManyToManyField of the model (or of an abstract model it extends) "
+        "without a through model: its db_table, else the model's table, an "
+        "underscore and the field name, as Django names the join table.",
+    )
+)
+DJANGO_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.django-manager-call",
+        "pattern_matched",
+        "The code calls Model.objects with a QuerySet method that reads "
+        "(filter, get, all, count, ...) or writes (create, update, delete, "
+        "bulk_create, ...) somewhere in the chain, and Model is the one "
+        "Django model of the repository with that class name. Instance "
+        "save() and delete(), other managers and raw SQL are not read.",
+    )
+)
+
+
+SA_TABLENAME_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-tablename",
+        "pattern_matched",
+        "The class, in a module that imports SQLAlchemy (or Flask-SQLAlchemy "
+        "or SQLModel), sets __tablename__ to this table as a plain string.",
+    )
+)
+SA_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-table",
+        "pattern_matched",
+        "The code calls SQLAlchemy's Table (imported from sqlalchemy, or "
+        "through an imported sqlalchemy module) with this table name as its "
+        "first argument.",
+    )
+)
+SA_QUERY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-session-query",
+        "pattern_matched",
+        "The code calls .query() with an argument naming (or an attribute "
+        "of) the one SQLAlchemy mapped class of the repository with that "
+        "class name; the receiver is not checked to be a Session.",
+    )
+)
+SA_STATEMENT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-statement",
+        "pattern_matched",
+        "The code calls SQLAlchemy's select (READS) or insert, update or "
+        "delete (WRITES) on the one mapped class of the repository with that "
+        "class name.",
+    )
+)
 
 
 def _evidence(rule):
@@ -139,30 +226,40 @@ class DataContractTool(AnalysisTool):
             name="data-contracts",
             version=__version__,
             capabilities={ToolCapability.DEPENDENCY_ANALYSIS},
-            supported_languages={"java"},
+            supported_languages=set(SUPPORTED_LANGUAGES),
             requires_binary=False,
             binary_name=None,
             performance_class="unmeasured",
         )
 
     async def check_availability(self):
-        return (
-            importlib.util.find_spec("tree_sitter") is not None
-            and importlib.util.find_spec("tree_sitter_java") is not None
+        return importlib.util.find_spec("tree_sitter") is not None and any(
+            importlib.util.find_spec(f"tree_sitter_{language}") is not None
+            for language in SUPPORTED_LANGUAGES
         )
 
     async def analyze(
         self, repo_url, languages=None, file_patterns=None, skip_patterns=None
     ):
         started = time.monotonic()
-        if languages is not None and "java" not in set(languages):
-            raise ValueError("data-contracts reads java (and SQL files) only")
+        selected = tuple(
+            sorted(
+                set(SUPPORTED_LANGUAGES)
+                & set(SUPPORTED_LANGUAGES if languages is None else languages)
+            )
+        )
+        if not selected:
+            raise ValueError(
+                "data-contracts reads "
+                + ", ".join(SUPPORTED_LANGUAGES)
+                + " (and SQL files) only"
+            )
         include = ("*",) if file_patterns is None else tuple(file_patterns)
         exclude = () if skip_patterns is None else tuple(skip_patterns)
         result = analyze_repository(
             self.repo_path,
             repository_id=repo_url,
-            languages=("java",),
+            languages=selected,
             include=include,
             exclude=exclude,
         )
@@ -216,13 +313,22 @@ class DataContractTool(AnalysisTool):
             if sha256(content).hexdigest() != coverage.digest:
                 changed.append(coverage.file)
                 continue
-            sources.append((coverage.file, content))
+            sources.append((coverage.file, coverage.language, content))
         if changed:
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
             )
-        parser = make_parser("java", ".java") if sources else None
-        trees = [(f, c, parser.parse(c)) for f, c in sources]
+        parsers = {}
+        trees, python_trees = [], []
+        for file, language, content in sources:
+            if language not in parsers:
+                parsers[language] = make_parser(
+                    language, ".java" if language == "java" else ".py"
+                )
+            tree = parsers[language].parse(content)
+            (trees if language == "java" else python_trees).append(
+                (file, content, tree)
+            )
         constants, seen = {}, set()
         for _, content, tree in trees:
             for qualified, fields in java_constants(tree, content).items():
@@ -257,6 +363,7 @@ class DataContractTool(AnalysisTool):
                 counts["linked"] += 1
                 resolved.append((repository, target))
         self.last_facts = (result, ddl, mappings, repositories, resolved)
+        files = []
 
         definitions = {d.id: d for d in result.definitions}
         tables, nodes, relationships, symbols = {}, [], [], {}
@@ -313,7 +420,6 @@ class DataContractTool(AnalysisTool):
             )
 
         repository_name = f"{repo_url}::repository"
-        files = []
         for path in sorted({d.file for d in ddl}):
             file_name = f"{repo_url}::{path}::file"
             files.append(
@@ -384,6 +490,128 @@ class DataContractTool(AnalysisTool):
                         "column": repository.column,
                     },
                 )
+        # Django models, their tables and the manager calls that use them.
+        labels = {}
+        for file, content, tree in python_trees:
+            if file.rpartition("/")[2] == "apps.py":
+                label = app_config_label(tree, content)
+                if label:
+                    labels[file.rpartition("/")[0]] = label
+        models, accesses = [], []
+        for file, content, tree in python_trees:
+            found = extract_django(tree, content, file, result.definitions)
+            models.extend(found[0])
+            accesses.extend(found[1])
+        model_tables, m2m = resolve_django(models, labels)
+        by_id = {m.model_id: m for m in models}
+        django_targets = {}
+        for model_id, (name, how) in sorted(model_tables.items()):
+            model = by_id[model_id]
+            target = table(model.file, name)
+            if not model.proxy:
+                link(
+                    "MAPS_TO",
+                    symbol(model_id),
+                    target,
+                    DJANGO_TABLE_RULE if how == "explicit" else DJANGO_DEFAULT_RULE,
+                    {"line": model.line, "column": model.column},
+                )
+            django_targets.setdefault(model.name, []).append(target)
+        for model_id, field, name in m2m:
+            model = by_id[model_id]
+            link(
+                "MAPS_TO",
+                symbol(model_id),
+                table(model.file, name),
+                DJANGO_M2M_RULE,
+                {"line": model.line, "column": model.column, "member": field},
+            )
+        coverage_by_file = {c.file: c for c in result.coverage}
+        file_nodes = {}
+
+        def code(file, caller_id):
+            """The declaration that holds a use, else its file."""
+            if caller_id is not None:
+                return symbol(caller_id)
+            name = f"{repo_url}::{file}::file"
+            if file not in file_nodes:
+                coverage = coverage_by_file[file]
+                file_nodes[file] = NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "path": file,
+                        "file_path": file,
+                        "name": file,
+                        "language": coverage.language,
+                        "file_sha256": coverage.digest,
+                    },
+                )
+            return ["File"], name
+
+        django_counts = {"linked": 0, "not_a_model": 0}
+        for access in accesses:
+            targets = django_targets.get(access.model, [])
+            if len(targets) != 1:
+                django_counts["not_a_model"] += 1
+                continue
+            django_counts["linked"] += 1
+            source = code(access.file, access.caller_id)
+            for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        targets[0],
+                        DJANGO_ACCESS_RULE,
+                        {
+                            "model": access.model,
+                            "line": access.line,
+                            "column": access.column,
+                        },
+                    )
+        # SQLAlchemy mapped classes, Table() declarations and their uses.
+        sa_mappings, sa_tables, sa_accesses = [], [], []
+        for file, content, tree in python_trees:
+            found = extract_sqlalchemy(tree, content, file, result.definitions)
+            sa_mappings.extend(found[0])
+            sa_tables.extend(found[1])
+            sa_accesses.extend(found[2])
+        sa_targets = {}
+        for mapping in sa_mappings:
+            target = table(mapping.file, mapping.table)
+            sa_targets.setdefault(mapping.name, []).append(target)
+            link(
+                "MAPS_TO",
+                symbol(mapping.model_id),
+                target,
+                SA_TABLENAME_RULE,
+                {"line": mapping.line, "column": mapping.column},
+            )
+        for item in sa_tables:
+            link(
+                "DECLARES",
+                code(item.file, item.owner_id),
+                table(item.file, item.table),
+                SA_TABLE_RULE,
+                {"line": item.line, "column": item.column},
+            )
+        sa_counts = {"linked": 0, "not_a_mapped_class": 0}
+        for access in sa_accesses:
+            targets = sa_targets.get(access.model, [])
+            if len(targets) != 1:
+                sa_counts["not_a_mapped_class"] += 1
+                continue
+            sa_counts["linked"] += 1
+            link(
+                "WRITES" if access.writes else "READS",
+                code(access.file, access.caller_id),
+                targets[0],
+                SA_QUERY_RULE if access.how == "query" else SA_STATEMENT_RULE,
+                {"model": access.model, "line": access.line, "column": access.column},
+            )
+        files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
             [
                 NodeData(
@@ -434,6 +662,11 @@ class DataContractTool(AnalysisTool):
                     "association_tables": sum(1 for m in mappings if m.member),
                     "repositories": len(repositories),
                     "repository_resolution": counts,
+                    "django_models": len(model_tables),
+                    "django_access_resolution": django_counts,
+                    "sqlalchemy_mappings": len(sa_mappings),
+                    "sqlalchemy_tables": len(sa_tables),
+                    "sqlalchemy_access_resolution": sa_counts,
                     "scope": "tables from CREATE TABLE and JPA entity mappings, "
                     "read and written by Spring Data repositories; per nearest "
                     "package, without datasource configuration or SQL strings",

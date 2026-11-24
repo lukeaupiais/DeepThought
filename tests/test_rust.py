@@ -1094,6 +1094,38 @@ class RustTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             dataclasses.replace(result.definitions[0], macro_export="yes")
 
+    def test_a_file_in_two_crates_is_read_in_each_crate_alone(self):
+        # tool.rs is the bin crate's root and the lib crate's module `tool`.
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "p"\nversion = "0.1.0"\n'
+                '[lib]\npath = "src/lib.rs"\n'
+                '[[bin]]\nname = "tool"\npath = "src/bin/tool.rs"\n',
+                "src/lib.rs": '#[path = "bin/tool.rs"]\npub mod tool;\n'
+                "pub trait Thing {}\n",
+                "src/bin/tool.rs": "use crate::Thing;\npub fn f() {}\n"
+                "pub mod tool { pub fn f() {} }\n"
+                "pub fn run() { f(); Thing(); }\n",
+            }
+        )
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {c.id: c for c in result.call_sites}
+        self.assertEqual(
+            sorted(
+                (sites[r.call_id].callee, symbols.get(r.target_id), r.reason)
+                for r in resolve_calls(result)
+            ),
+            [
+                # In the lib crate the trait is no function; in the bin
+                # crate the use names nothing. The declared item's reason
+                # is the one reported.
+                ("Thing", None, "not_declared"),
+                # Not `tool.f`, which is `f` read in the bin crate's context
+                # with the lib crate's module path.
+                ("f", "f", None),
+            ],
+        )
+
     def test_calls_resolve_through_module_trees(self):
         result = analyze(
             {

@@ -192,13 +192,13 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 14,
-          "predicted": 1,
-          "true_positive": 1
+          "predicted": 13,
+          "true_positive": 13
         },
         "service_pairs": {
           "labelled_in_scope": 3,
-          "predicted": 1,
-          "true_positive": 1
+          "predicted": 3,
+          "true_positive": 3
         }
       }
     },
@@ -206,7 +206,7 @@
       "grpc": {
         "call_sites": {
           "labelled_in_scope": 20,
-          "predicted": 21,
+          "predicted": 20,
           "true_positive": 20
         },
         "service_pairs": {

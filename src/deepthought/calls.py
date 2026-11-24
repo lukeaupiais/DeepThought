@@ -187,7 +187,8 @@ class _JavaScope:
         self.package = {
             p.file: p.name
             for p in result.packages
-            if p.kind == "package" and p.file in self.roots
+            # Only Java files in a source root, which declare one package.
+            if p.file in self.roots
         }
         owners = {d.id: d for d in result.definitions}
         # (file, type symbol) -> base names, a class's superclass first.
@@ -256,12 +257,12 @@ class _JavaScope:
         found = []
         for depth in range(len(scope), -1, -1):
             prefix = ".".join(scope[:depth])
-            if prefix and self._defs(file, prefix, _JAVA_TYPES):
+            if prefix:
+                # A type's members, declared or inherited; a method's local
+                # classes (a method has no bases).
                 found = self.member(file, prefix, first, seen)
-            else:  # top level, or a local class in a method
-                found = self._defs(
-                    file, f"{prefix}.{first}" if prefix else first, _JAVA_TYPES
-                )
+            else:  # top level
+                found = self._defs(file, first, _JAVA_TYPES)
             if found:
                 break
         # A single-type import binds its name even to a type outside the

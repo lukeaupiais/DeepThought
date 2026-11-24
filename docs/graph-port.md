@@ -1352,6 +1352,42 @@ The grammar errors are mostly `#if` branches inside a class or function that
 leave braces unbalanced; from the first one on, the scope of later
 declarations in the file may be wrong.
 
+## Ruby
+
+Ruby sources (`.rb`) are analyzed when `ruby` is selected (`--language ruby`)
+and the `ruby` extra is installed (tree-sitter-ruby 0.23.1); the language is
+opt-in. Declarations are modules (`Module`), classes (`Class`) and methods.
+Symbols join the enclosing modules and classes and the path written in a
+name with `.` (`class B::C` in `module A` is `A.B.C`; `class ::C` starts at
+the top). A `def` in a class or module body, in its `class << self` or in a
+block written there (`included do`, `Class.new do`) is a `Method`, whether it
+defines an instance or a singleton method (`def self.m`); elsewhere, at the
+top level or in a block outside any class, it is a `Function`. A class whose
+name is not a constant path (`class self::Dynamic`) and what it holds are not
+recorded, nor is a `def` inside a method body, which only defines a method
+when that method runs. Methods made by metaprogramming (`attr_reader`,
+`define_method`), constants, imports (`require`), calls and superclasses are
+not recorded for Ruby yet.
+
+`tools/compare_ruby_declarations_with_prism.py` checks this against Prism
+(0.19.0, with Ruby 3.3.6), Ruby's own parser: `tools/ruby_declarations_prism.rb`
+applies the same scoping rules to Prism's tree, and a declaration matches when
+both report the same file, line and column of its name, name, kind and symbol.
+A difference on a line where Prism reports a syntax error, or after one in the
+same file, is put down to it; every other difference is unexplained.
+
+| Corpus | Files (with syntax errors) | Prism | Matched | Tree-sitter only: syntax error / after one | Prism only: syntax error / after one |
+|---|---|---|---|---|---|
+| rack/rack `b432304` | 95 (0) | 1,010 | 1,010 | 0 / 0 | 0 / 0 |
+| sinatra/sinatra `2e3f791` | 147 (0) | 1,164 | 1,164 | 0 / 0 | 0 / 0 |
+| heartcombo/devise `05811fb` | 197 (9) | 1,040 | 1,035 | 6 / 0 | 2 / 3 |
+| jekyll/jekyll `97c3bdc` | 162 (0) | 1,405 | 1,405 | 0 / 0 | 0 / 0 |
+| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,577 | 11,577 | 0 / 0 | 0 / 0 |
+
+No difference is unexplained. devise's syntax errors are its generator
+templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
+until they are rendered.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
@@ -1832,7 +1868,8 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --snapshot REV`) records
+tree-sitter --tool data-contracts --language java --language python --snapshot
+REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
 
@@ -1843,6 +1880,14 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
 | Symbol -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-repository` | pattern_matched | an interface extending a Spring Data CRUD repository (READS and WRITES) or paging-and-sorting repository (READS) whose entity type argument is a mapped entity |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-db-table` | pattern_matched | a Django model (a `django.db.models.Model` base, directly or through repository models named by unique class name) whose own `Meta.db_table` names the table |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-default-table-name` | pattern_matched | a concrete model without `db_table`: `{app_label}_{class name lower case}`, the app label being `Meta.app_label`, else the literal `label` of the app's `AppConfig` in `apps.py`, else the package holding the models module; a proxy uses its concrete base's table, an abstract model has none |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-manager-call` | pattern_matched | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, `Model` being the one model of the repository with that class name; instance `save()`/`delete()`, other managers and raw SQL are not read |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlalchemy-tablename` | pattern_matched | a class in a module importing SQLAlchemy, Flask-SQLAlchemy or SQLModel that sets `__tablename__` (plain or annotated) to a string literal |
+| File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
+| Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-statement` | pattern_matched | SQLAlchemy's `select` (READS) or `insert`, `update`, `delete` (WRITES) on a mapped class |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -1868,6 +1913,32 @@ services. All 6 entities map to a table that their own service's DDL
 declares, with no unmatched mapping. Vet's `@JoinTable` maps
 `vet_specialties`, so all 7 declared tables are mapped. All 4 repositories
 resolve to their entity.
+
+On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
+sites, redirects, flatpages) the tool finds the 13 tables those apps create
+in every Django database, and no others: `auth_group`,
+`auth_group_permissions`, `auth_permission`, `auth_user`,
+`auth_user_groups`, `auth_user_user_permissions`, `django_admin_log`,
+`django_content_type`, `django_flatpage`, `django_flatpage_sites`,
+`django_redirect`, `django_session` and `django_site`. These come from
+9 concrete models. The abstract `AbstractUser`, `PermissionsMixin` and
+`AbstractBaseSession` give none, and `auth_user_groups` comes from the
+abstract `PermissionsMixin`'s field. 16 manager calls are linked, with none
+unresolved. Over the whole repository, including Django's test apps, 1,580
+models give 1,697 tables in 33 s. 3,578 manager calls are linked, and 7,472
+are left unlinked because the class name is not a model or names several
+models.
+
+On Apache Superset's `superset/` package, outside its Alembic migrations,
+the tool maps 39 classes through `__tablename__`. `grep` for
+`__tablename__ =` finds 38; the extra one is the annotated
+`__tablename__: str = ...` of the audit coordination model. `Table()` calls
+resolve only where SQLAlchemy's `Table` is meant, so Superset's own `Table`
+dataset class is not taken for a table declaration. 151 `query()` and
+statement calls are linked to a table; 919 are left unlinked, mostly
+`.query()` calls on names that are not mapped classes. Declarative
+`__table__`, imperative mappers, `session.add`/`delete` on instances and
+textual SQL are not read.
 
 ## Commit-linked snapshots
 

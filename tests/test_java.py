@@ -451,6 +451,14 @@ class JavaTests(unittest.TestCase):
                 "import static app.Outer.Cycle.LongAdder;\n"
                 "class Statics extends Builder {}\n"
                 "class Plain extends LongAdder {}\n"
+                "class Holder { static class Builder {} class Use extends Builder {} }\n"
+            ),
+            # Outside a source root: javac could not find it by name, and
+            # its bases are not followed for member types.
+            "misplaced/Weird.java": (
+                "package app;\n"
+                "class WA { class In {} }\n"
+                "class WB extends WA { class Use extends In {} }\n"
             ),
             "src/app/Diamond.java": (
                 "package app;\n"
@@ -506,6 +514,9 @@ class JavaTests(unittest.TestCase):
                 ("D", "I3", JAVA_BASE_TYPE),
                 # Inherited along two paths, one member type: not ambiguous.
                 ("D.X", "I1.M", JAVA_BASE_TYPE),
+                # A member type found by lexical lookup is not joined by a
+                # static import of the same name.
+                ("Holder.Use", "Holder.Builder", JAVA_BASE_TYPE),
                 ("I2", "I1", JAVA_BASE_TYPE),
                 ("I3", "I1", JAVA_BASE_TYPE),
                 ("Main", "Outer", JAVA_BASE_TYPE),
@@ -531,6 +542,8 @@ class JavaTests(unittest.TestCase):
                 ("R", "Outer.Builder", JAVA_BASE_TYPE),
                 # A member type imported with import static.
                 ("Statics", "Outer.Builder", JAVA_BASE_TYPE),
+                ("WB", "WA", JAVA_BASE_TYPE),
+                ("WB.Use", None, "type_not_declared"),
             ],
         )
         sites = {c.id: c for c in result.call_sites}
@@ -683,7 +696,9 @@ class JavaTests(unittest.TestCase):
                 "      void g() {} }\n"
                 "  }\n"
                 "}\n"
-                "class Z extends A { Object two = new Base(make()) { void go() {} }; }\n"
+                "class Z extends A {\n"
+                "  Object two = new Base(make()) { void go() {} void x() { this.go(); } };\n"
+                "}\n"
             ),
         }
         result = analyze(files)
@@ -711,7 +726,8 @@ class JavaTests(unittest.TestCase):
                 (22, "g"): (("E", "E", 22, 22),),
                 (26, "g"): (("L", "E.local.L", 26, 26),),
                 # An argument of the new is outside the class body.
-                (31, "make"): None,
+                (32, "make"): None,
+                (32, "this.go"): (("Base", "Z", 32, 32),),
             },
         )
         self.assertEqual(
@@ -744,7 +760,9 @@ class JavaTests(unittest.TestCase):
                 # An enum constant's body inherits from its enum.
                 (22, "g", ("E.g", 24), JAVA_INHERITED_METHOD),
                 (26, "g", ("E.local.L.g", 28), JAVA_INHERITED_METHOD),
-                (31, "make", ("A.make", 6), JAVA_INHERITED_METHOD),
+                (32, "make", ("A.make", 6), JAVA_INHERITED_METHOD),
+                # A body on one line: its go, not Base's.
+                (32, "this.go", ("Z.go", 32), CALL_SELF_METHOD),
             ],
         )
         data = result.to_dict()

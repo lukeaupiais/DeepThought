@@ -23,6 +23,47 @@ from deepthought.storage.graph.write_coordinator import (
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_java"
 )
+PYTHON = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_python"
+)
+DJANGO = {
+    "pyproject.toml": '[project]\nname = "site"\n',
+    "shop/apps.py": "from django.apps import AppConfig\n"
+    "class ShopConfig(AppConfig):\n"
+    '    name = "shop"\n'
+    '    label = "store"\n',
+    "shop/models/__init__.py": "from .orders import Order\n",
+    "shop/models/base.py": "from django.db import models\n"
+    "class Tagged(models.Model):\n"
+    "    tags = models.ManyToManyField('Tag')\n"
+    "    class Meta:\n"
+    "        abstract = True\n",
+    "shop/models/orders.py": "from django.db import models\n"
+    "from django.db.models import Model as DjangoModel, ManyToManyField\n"
+    "from .base import Tagged\n"
+    "class Tag(DjangoModel):\n"
+    "    class Meta:\n"
+    '        db_table = "Shop_Tags"\n'
+    "class Order(Tagged):\n"
+    "    items = ManyToManyField(Tag, through='Line')\n"
+    "class Line(models.Model):\n"
+    "    class Meta:\n"
+    '        app_label = "sales"\n'
+    "class Urgent(Order):\n"
+    "    class Meta:\n"
+    "        proxy = True\n"
+    "class Plain:\n"
+    "    pass\n",
+    "shop/views.py": "from .models import Order, Tag\n"
+    "TOTAL = Order.objects.count()\n"
+    "def close(pk):\n"
+    "    Order.objects.filter(pk=pk).update(open=False)\n"
+    "    return Tag.objects.get_or_create(name='closed')\n"
+    "def urgent():\n"
+    "    return list(Urgent.objects.all())\n"
+    "def other():\n"
+    "    return Plain.objects.all()\n",
+}
 
 MODEL = "store/src/main/java/shop/model/"
 WORKSPACE = {
@@ -306,6 +347,113 @@ class ToolTests(unittest.TestCase):
             if r.type == "DECLARES" and "DbTable" in r.target_labels
         ]
         self.assertEqual(len(declared), 3)
+
+
+@unittest.skipUnless(PYTHON, "Provision the python grammar")
+class DjangoTests(unittest.TestCase):
+    def test_models_tables_and_manager_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DJANGO)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("member"),
+            )
+            for r in output.relationships
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "Line", "sales_line", "django-default-table-name", None),
+                ("MAPS_TO", "Order", "store_order", "django-default-table-name", None),
+                (
+                    "MAPS_TO",
+                    "Order",
+                    "store_order_tags",
+                    "django-many-to-many-table",
+                    "tags",
+                ),
+                ("MAPS_TO", "Tag", "shop_tags", "django-db-table", None),
+                ("READS", "close", "shop_tags", "django-manager-call", None),
+                ("READS", "close", "store_order", "django-manager-call", None),
+                ("READS", "shop/views.py", "store_order", "django-manager-call", None),
+                ("READS", "urgent", "store_order", "django-manager-call", None),
+                ("WRITES", "close", "shop_tags", "django-manager-call", None),
+                ("WRITES", "close", "store_order", "django-manager-call", None),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["django_models"], 4)
+        self.assertEqual(
+            metrics["django_access_resolution"], {"linked": 4, "not_a_model": 1}
+        )
+
+
+SQLALCHEMY = {
+    "pyproject.toml": '[project]\nname = "app"\n',
+    "app/models.py": "import sqlalchemy as sa\n"
+    "from sqlalchemy.orm import DeclarativeBase\n"
+    "from mylib import Table\n"
+    "class Base(DeclarativeBase):\n"
+    "    pass\n"
+    "class User(Base):\n"
+    '    __tablename__ = "users"\n'
+    "class Account(Base):\n"
+    '    __tablename__: str = "Accounts"\n'
+    'user_tags = sa.Table("user_tags", Base.metadata)\n'
+    'report = Table("not_sqlalchemy")\n',
+    "app/service.py": "from sqlalchemy import select, delete\n"
+    "from .models import User\n"
+    "def find(db):\n"
+    "    return db.session.query(User).all()\n"
+    "def ids():\n"
+    "    return select(User.id)\n"
+    "def purge():\n"
+    "    return delete(User)\n"
+    "def other(db):\n"
+    "    return db.session.query(Unknown)\n",
+    "app/plain.py": 'class Plain:\n    __tablename__ = "not_mapped"\n',
+}
+
+
+@unittest.skipUnless(PYTHON, "Provision the python grammar")
+class SqlAlchemyTests(unittest.TestCase):
+    def test_mapped_classes_tables_and_statements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SQLALCHEMY)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("DECLARES", "app/models.py", "user_tags", "sqlalchemy-table"),
+                ("MAPS_TO", "Account", "accounts", "sqlalchemy-tablename"),
+                ("MAPS_TO", "User", "users", "sqlalchemy-tablename"),
+                ("READS", "find", "users", "sqlalchemy-session-query"),
+                ("READS", "ids", "users", "sqlalchemy-statement"),
+                ("WRITES", "purge", "users", "sqlalchemy-statement"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sqlalchemy_access_resolution"],
+            {"linked": 3, "not_a_mapped_class": 1},
+        )
 
 
 @unittest.skipUnless(
