@@ -116,13 +116,22 @@ def bind_calls(
     for d in result.definitions:
         by_symbol[(d.file, d.symbol)].append(d)
     lines = _Lines(root)
-    covering = {}
+    covering, definitions_by_indexer = {}, {}
     for index, receipt in indexes:
         tool = next(
             (f"{n}@{v}" for n, v in index.analyzer_versions if n.startswith("scip-")),
             "scip",
         )
         view = _IndexView(index, tool, receipt)
+        # Indexes of one indexer (a second pass, one per Go module) name
+        # their global symbols by package, so a symbol one defines is the
+        # one another references; local symbols stay keyed by document.
+        shared = definitions_by_indexer.setdefault(
+            tool.split("@", 1)[0], defaultdict(list)
+        )
+        for key, found in view.definitions.items():
+            shared[key].extend(found)
+        view.definitions = shared
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
     bases = _Bases(result, definitions)
