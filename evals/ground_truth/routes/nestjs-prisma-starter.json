@@ -1,0 +1,18 @@
+{
+  "source": "src/schema.graphql, the schema NestJS generates from the code-first resolvers, committed in the repository at the pinned commit: the fields of type Query, Mutation and Subscription. Each must also be resolved (a HANDLES edge).",
+  "graphql": [
+    "Mutation.changePassword",
+    "Mutation.createPost",
+    "Mutation.login",
+    "Mutation.refreshToken",
+    "Mutation.signup",
+    "Mutation.updateUser",
+    "Query.hello",
+    "Query.helloWorld",
+    "Query.me",
+    "Query.post",
+    "Query.publishedPosts",
+    "Query.userPosts",
+    "Subscription.postCreated"
+  ]
+}

@@ -510,5 +510,21 @@
     "unjudged": 2,
     "unresolved_expected": 2438,
     "unresolved_unjudged": 4406
+  },
+  "routes": {
+    "routes-nestjs-prisma-starter": {
+      "graphql": {
+        "expected": 13,
+        "extra": 0,
+        "found": 13
+      }
+    },
+    "routes-realworld-nestjs": {
+      "http": {
+        "expected": 19,
+        "extra": 0,
+        "found": 19
+      }
+    }
   }
 }

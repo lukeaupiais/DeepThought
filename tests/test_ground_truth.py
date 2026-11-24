@@ -421,6 +421,68 @@ class DeclarationRegressionTests(unittest.TestCase):
             )
 
 
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_typescript"), "the TypeScript grammar"
+)
+class RouteTruthTests(unittest.TestCase):
+    FILES = {
+        "package.json": '{"name": "app"}',
+        "src/main.ts": (
+            "import { NestFactory } from '@nestjs/core';\n"
+            "async function boot() {\n"
+            "  const app = await NestFactory.create(AppModule);\n"
+            "  app.setGlobalPrefix('api');\n"
+            "}\n"
+        ),
+        "src/cats.controller.ts": (
+            "import { Controller, Get, Post } from '@nestjs/common';\n"
+            "@Controller('cats')\n"
+            "export class CatsController {\n"
+            "  @Get(':id')\n  one() {}\n"
+            "  @Post()\n  add() {}\n"
+            "  @Get('extra')\n  extra() {}\n"
+            "}\n"
+        ),
+        "src/schema.graphql": "type Query {\n  cat: String\n  dog: String\n}\n",
+        "src/cats.resolver.ts": (
+            "import { Query, Resolver } from '@nestjs/graphql';\n"
+            "@Resolver()\n"
+            "export class CatsResolver {\n"
+            "  @Query(() => String)\n  cat() {}\n"
+            "}\n"
+        ),
+    }
+
+    def test_routes_and_handled_fields_against_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            for name, text in self.FILES.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels = Path(tmp) / "labels.json"
+            labels.write_text(
+                json.dumps(
+                    {
+                        "http": [["GET", "/api/cats/{var}"], ["DELETE", "/api/cats"]],
+                        "neutral_http": [["GET", "/api/cats/extra"]],
+                        "graphql": ["Query.cat", "Query.dog"],
+                    }
+                ),
+                "utf-8",
+            )
+            report, samples = ground_truth.score_routes({"labels": labels}, root)
+        # POST /api/cats is read but not labelled; DELETE is labelled, not read.
+        self.assertEqual(report["http"], {"expected": 2, "found": 1, "extra": 1})
+        self.assertEqual(samples["http"]["extra"], [("POST", "/api/cats")])
+        # Query.dog is declared but has no resolver, so it is not found.
+        self.assertEqual(report["graphql"], {"expected": 2, "found": 1, "extra": 0})
+        baseline = {"http": {"expected": 2, "found": 2, "extra": 0}}
+        self.assertEqual(
+            ground_truth.route_regressions(report, baseline),
+            ["http found 2 -> 1", "http extra 0 -> 1"],
+        )
+
+
 class ContractRegressionTests(unittest.TestCase):
     BASE = {
         "http": {

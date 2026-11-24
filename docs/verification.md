@@ -291,6 +291,25 @@ Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
 `AdServiceClient.java` inside adservice, which calls its own service.
 
+### Routes and GraphQL fields
+
+The contract corpora score links between services, so a route the engine
+stops reading only shows up there if some labelled client calls it. The
+manifest's `routes` corpora score the server side directly, against labels
+the code does not produce:
+
+| Corpus | Oracle | Expected | Found | Extra |
+|---|---|---|---|---|
+| nestjs-realworld-example-app (NestJS HTTP) | the RealWorld backend API spec | 19 | 19 | 0 |
+| nestjs-prisma-starter (NestJS GraphQL, code-first) | its committed generated `schema.graphql` | 13 | 13 | 0 |
+
+An HTTP route matches on method and path, with `{var}` for any parameter; the
+global prefix (`setGlobalPrefix('api')`) has to be applied to match. A
+GraphQL root field counts only when a resolver `HANDLES` it. Routes the app
+declares beyond the spec (`GET /api`, `DELETE /api/users/{var}`, checked in
+its controllers) are listed as neutral. The gate fails on fewer found, more
+extra, or changed labels.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly
