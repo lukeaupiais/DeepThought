@@ -249,6 +249,26 @@
       "kinds": [
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-websocket-gs-messaging-stomp",
+      "url": "https://github.com/spring-guides/gs-messaging-stomp-websocket",
+      "commit": "45228a145a9fc0289aa87ed424870bfcd3c413d5",
+      "labels": "../fixtures/service_contracts/websocket-gs-messaging-stomp.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-websocket-spring-boot-angular2-stomp",
+      "url": "https://github.com/chriswhite199/spring-boot-angular2-stomp",
+      "commit": "78ade07e770f5c674a0111cb8df14ff315dfdef3",
+      "labels": "../fixtures/service_contracts/websocket-spring-boot-angular2-stomp.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
@@ -346,7 +366,7 @@
       "labels": "routes/howtographql-graphql-js.json"
     }
   ],
-  "tables_description": "ActiveRecord model tables: each model's table as ActiveRecord computes it from the app's own declarations and inflections (tools/rails_table_oracle.rb), never by running the app.",
+  "tables_description": "ActiveRecord model tables: each model's table as ActiveRecord computes it from the app's own declarations and inflections (tools/rails_table_oracle.rb), never by running the app. Mongoose model collections: each model declaration found with the TypeScript parser and named by the pluralize rules of the Mongoose version the app's lockfile pins (tools/mongoose_collection_oracle.cjs), never by running the app or Mongoose.",
   "tables": [
     {
       "name": "tables-lobsters",
@@ -412,6 +432,36 @@
       "labels": "tables/partdb.json",
       "oracle": "PHP 8.3.6 token_get_all; Doctrine migrations",
       "oracle_command": "php tools/doctrine_table_oracle.php . underscore_number_aware"
+    },
+    {
+      "name": "tables-ackee",
+      "url": "https://github.com/electerious/Ackee",
+      "commit": "700437008481bdee1cffee62bb89ec906899cff0",
+      "license": "MIT",
+      "language": "mongoose",
+      "labels": "tables/ackee.json",
+      "oracle": "TypeScript 5.6.3 parser; pluralize rules read from the pinned mongoose source (mongoose 9.11.2, the lockfile's version)",
+      "oracle_command": "node tools/mongoose_collection_oracle.cjs . node_modules/typescript node_modules/mongoose/lib/helpers/pluralize.js 9.11.2 OUT.json"
+    },
+    {
+      "name": "tables-node-express-boilerplate",
+      "url": "https://github.com/hagopj13/node-express-boilerplate",
+      "commit": "179ae84efec61b14206d0305d941daed6c6d07f9",
+      "license": "MIT",
+      "language": "mongoose",
+      "labels": "tables/node-express-boilerplate.json",
+      "oracle": "TypeScript 5.6.3 parser; pluralize rules read from the pinned mongoose source (mongoose 5.13.20, the lockfile's version)",
+      "oracle_command": "node tools/mongoose_collection_oracle.cjs . node_modules/typescript node_modules/mongoose-legacy-pluralize/index.js 5.13.20 OUT.json"
+    },
+    {
+      "name": "tables-librechat",
+      "url": "https://github.com/danny-avila/LibreChat",
+      "commit": "4700c44eb77c142b4f9f8b87476924f22890eb39",
+      "license": "MIT",
+      "language": "mongoose",
+      "labels": "tables/librechat.json",
+      "oracle": "TypeScript 5.6.3 parser; pluralize rules read from the pinned mongoose source (mongoose 8.24.9, the lockfile's version)",
+      "oracle_command": "node tools/mongoose_collection_oracle.cjs . node_modules/typescript node_modules/mongoose/lib/helpers/pluralize.js 8.24.9 OUT.json"
     }
   ]
 }

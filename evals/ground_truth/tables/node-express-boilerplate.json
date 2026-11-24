@@ -1,0 +1,61 @@
+{
+  "source": "tools/mongoose_collection_oracle.cjs: model declarations read with the TypeScript parser, collections named by the pluralize rules of mongoose 5.13.20 (mongoose-legacy-pluralize/index.js).",
+  "mongoose": "5.13.20",
+  "pluralize_overrides": [],
+  "models": [
+    {
+      "class": "src/models/token.model.js::Token",
+      "table": "tokens",
+      "line": 42,
+      "how": "default"
+    },
+    {
+      "class": "src/models/user.model.js::User",
+      "table": "users",
+      "line": 89,
+      "how": "default"
+    }
+  ],
+  "not_counted": [
+    {
+      "class": "tests/unit/models/plugins/paginate.plugin.test.js::Project",
+      "line": 19,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/paginate.plugin.test.js::Task",
+      "line": 34,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/toJSON.plugin.test.js::Model",
+      "line": 14,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/toJSON.plugin.test.js::Model",
+      "line": 23,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/toJSON.plugin.test.js::Model",
+      "line": 31,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/toJSON.plugin.test.js::Model",
+      "line": 43,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/toJSON.plugin.test.js::Model",
+      "line": 57,
+      "reason": "test source"
+    },
+    {
+      "class": "tests/unit/models/plugins/toJSON.plugin.test.js::Model",
+      "line": 84,
+      "reason": "test source"
+    }
+  ]
+}

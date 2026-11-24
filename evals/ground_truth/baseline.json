@@ -473,6 +473,58 @@
           "true_positive": 1
         }
       }
+    },
+    "contracts-websocket-gs-messaging-stomp": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
+    "contracts-websocket-spring-boot-angular2-stomp": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
     }
   },
   "declarations": {
@@ -1031,6 +1083,13 @@
     }
   },
   "tables": {
+    "tables-ackee": {
+      "expected": 6,
+      "extra": 0,
+      "found": 6,
+      "missed": 0,
+      "wrong": 0
+    },
     "tables-discourse": {
       "expected": 402,
       "extra": 0,
@@ -1052,6 +1111,13 @@
       "missed": 0,
       "wrong": 0
     },
+    "tables-librechat": {
+      "expected": 69,
+      "extra": 0,
+      "found": 0,
+      "missed": 69,
+      "wrong": 0
+    },
     "tables-lobsters": {
       "expected": 42,
       "extra": 0,
@@ -1065,6 +1131,13 @@
       "found": 275,
       "missed": 0,
       "wrong": 1
+    },
+    "tables-node-express-boilerplate": {
+      "expected": 2,
+      "extra": 0,
+      "found": 0,
+      "missed": 2,
+      "wrong": 0
     },
     "tables-partdb": {
       "expected": 28,

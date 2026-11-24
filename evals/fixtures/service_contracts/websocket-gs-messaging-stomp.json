@@ -1,0 +1,140 @@
+{
+  "corpus": "websocket-gs-messaging-stomp",
+  "repo": "https://github.com/spring-guides/gs-messaging-stomp-websocket",
+  "commit": "45228a145a9fc0289aa87ed424870bfcd3c413d5",
+  "license": "Apache-2.0",
+  "languages": [
+    "Java (Spring WebSocket, STOMP)",
+    "JavaScript (@stomp/stompjs)"
+  ],
+  "sources": [
+    "README.adoc (the guide text: endpoint, prefixes and destinations it sets up)",
+    "manual reading of complete/ at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "browser",
+      "root": "complete/src/main/resources/static"
+    },
+    {
+      "name": "server",
+      "root": "complete/src/main/java"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 1,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 2,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "browser",
+        "server",
+        "http"
+      ],
+      [
+        "browser",
+        "server",
+        "messaging"
+      ],
+      [
+        "server",
+        "browser",
+        "messaging"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "browser",
+      "to_service": "server",
+      "contract": "GET /gs-guide-websocket",
+      "client": {
+        "file": "complete/src/main/resources/static/app.js",
+        "line": 2
+      },
+      "server": {
+        "file": "complete/src/main/java/com/example/messagingstompwebsocket/WebSocketConfig.java",
+        "line": 21
+      },
+      "evidence": "@stomp/stompjs Client brokerURL (literal ws:// URL) -> registry.addEndpoint",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "server_alternatives": [
+        {
+          "file": "complete/src/main/java/com/example/messagingstompwebsocket/WebSocketConfig.java",
+          "line": 20
+        }
+      ],
+      "id": "websocket-gs-messaging-stomp#1"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "browser",
+      "to_service": "server",
+      "contract": "stomp-destination:/app/hello",
+      "client": {
+        "file": "complete/src/main/resources/static/app.js",
+        "line": 45
+      },
+      "server": {
+        "file": "complete/src/main/java/com/example/messagingstompwebsocket/GreetingController.java",
+        "line": 12
+      },
+      "evidence": "publish({destination: '/app/hello'}) -> @MessageMapping(\"/hello\") under prefix /app",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "client_url_def": {
+        "file": "complete/src/main/resources/static/app.js",
+        "line": 46
+      },
+      "id": "websocket-gs-messaging-stomp#2"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "server",
+      "to_service": "browser",
+      "contract": "stomp-destination:/topic/greetings",
+      "client": {
+        "file": "complete/src/main/java/com/example/messagingstompwebsocket/GreetingController.java",
+        "line": 13
+      },
+      "server": {
+        "file": "complete/src/main/resources/static/app.js",
+        "line": 8
+      },
+      "evidence": "@SendTo(\"/topic/greetings\") (simple broker /topic) -> subscribe('/topic/greetings')",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "websocket-gs-messaging-stomp#3"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "initial",
+      "reason": "the guide's starting project"
+    },
+    {
+      "file": "complete/src/test",
+      "reason": "integration test client"
+    }
+  ],
+  "notes": [
+    "A WebSocket connection opens with an HTTP GET handshake, so the client's connect is an http link to the endpoint path (contract GET /path); its server is the addEndpoint(...) line of registerStompEndpoints, with the method's declaration as an alternative.",
+    "STOMP frames are messaging links, producer to consumer. A client SEND to /app/x (the application destination prefix from setApplicationDestinationPrefixes) is consumed by @MessageMapping(\"/x\"); a reply via @SendTo(\"/topic/y\") is produced by the annotated method and consumed by the client's subscribe('/topic/y'). Destinations are written in full, prefix included.",
+    "The client is new StompJs.Client({brokerURL: 'ws://localhost:8080/gs-guide-websocket'}): the URL is a literal ws:// URL in a config object, not a WebSocket or SockJS constructor.",
+    "initial/ is the guide's starting point and holds no WebSocket code; the integration test's connectAsync(\"ws://localhost:{port}/gs-guide-websocket\") is a test client."
+  ]
+}

@@ -1,0 +1,898 @@
+{
+  "source": "tools/mongoose_collection_oracle.cjs: model declarations read with the TypeScript parser, collections named by the pluralize rules of mongoose 8.24.9 (helpers/pluralize.js).",
+  "mongoose": "8.24.9",
+  "pluralize_overrides": [],
+  "models": [
+    {
+      "class": "packages/data-schemas/src/models/accessRole.ts::AccessRole",
+      "table": "accessroles",
+      "line": 9,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/aclEntry.ts::AclEntry",
+      "table": "aclentries",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/action.ts::Action",
+      "table": "actions",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/agent.ts::Agent",
+      "table": "agents",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/agentApiKey.ts::AgentApiKey",
+      "table": "agentapikeys",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/agentCategory.ts::AgentCategory",
+      "table": "agentcategories",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/assistant.ts::Assistant",
+      "table": "assistants",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/auditLog.ts::AuditLog",
+      "table": "auditlogs",
+      "line": 14,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/balance.ts::Balance",
+      "table": "balances",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/banner.ts::Banner",
+      "table": "banners",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channel.ts::AgentChannel",
+      "table": "agentchannels",
+      "line": 40,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelFeedback.ts::ChannelFeedback",
+      "table": "channelfeedbacks",
+      "line": 177,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelFeedback.ts::ChannelFeedbackEvent",
+      "table": "channelfeedbackevents",
+      "line": 131,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelIdentity.ts::ChannelIdentity",
+      "table": "channelidentities",
+      "line": 76,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelRun.ts::ChannelLane",
+      "table": "channellanes",
+      "line": 218,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelRun.ts::ChannelRun",
+      "table": "channelruns",
+      "line": 180,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelScope.ts::ChannelScope",
+      "table": "channelscopes",
+      "line": 14,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/chatProject.ts::ChatProject",
+      "table": "chatprojects",
+      "line": 12,
+      "how": "argument"
+    },
+    {
+      "class": "packages/data-schemas/src/models/codeEnvironment.ts::CodeEnvironment",
+      "table": "codeenvironments",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/config.ts::Config",
+      "table": "configs",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/conversationTag.ts::ConversationTag",
+      "table": "conversationtags",
+      "line": 11,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/convo.ts::Conversation",
+      "table": "conversations",
+      "line": 23,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/favorite.ts::ToolFavorite",
+      "table": "toolfavorites",
+      "line": 10,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/file.ts::File",
+      "table": "files",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/group.ts::Group",
+      "table": "groups",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/key.ts::Key",
+      "table": "keys",
+      "line": 7,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/mcpName.ts::MCPName",
+      "table": "mcpnames",
+      "line": 19,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/mcpServer.ts::MCPServer",
+      "table": "mcpservers",
+      "line": 11,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/memory.ts::MemoryEntry",
+      "table": "memoryentries",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/message.ts::Message",
+      "table": "messages",
+      "line": 20,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/openidRefreshFlight.ts::OpenIDRefreshFlight",
+      "table": "openidrefreshflights",
+      "line": 14,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/passkey.ts::Passkey",
+      "table": "passkeys",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/pluginAuth.ts::PluginAuth",
+      "table": "pluginauths",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/preset.ts::Preset",
+      "table": "presets",
+      "line": 7,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/prompt.ts::Prompt",
+      "table": "prompts",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/promptGroup.ts::PromptGroup",
+      "table": "promptgroups",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/queuedTurn.ts::AgentQueuedTurn",
+      "table": "agentqueuedturns",
+      "line": 16,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/queuedTurn.ts::AgentQueuedTurnSequence",
+      "table": "agentqueuedturnsequences",
+      "line": 26,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/refreshTokenBridge.ts::RefreshTokenBridge",
+      "table": "refreshtokenbridges",
+      "line": 15,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/resourceLock.ts::ResourceLock",
+      "table": "resourcelocks",
+      "line": 14,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/response.ts::StoredResponse",
+      "table": "storedresponses",
+      "line": 229,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/responseScope.ts::ResponseScope",
+      "table": "responsescopes",
+      "line": 26,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/role.ts::Role",
+      "table": "roles",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/schedule.ts::Schedule",
+      "table": "schedules",
+      "line": 9,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/schedule.ts::ScheduleRun",
+      "table": "scheduleruns",
+      "line": 18,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/session.ts::Session",
+      "table": "sessions",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/sharedLink.ts::SharedLink",
+      "table": "sharedlinks",
+      "line": 7,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/skill.ts::Skill",
+      "table": "skills",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/skillDeletion.ts::SkillDeletion",
+      "table": "skilldeletions",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/skillFile.ts::SkillFile",
+      "table": "skillfiles",
+      "line": 11,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/skillSyncCredential.ts::SkillSyncCredential",
+      "table": "skillsynccredentials",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/skillSyncStatus.ts::SkillSyncStatus",
+      "table": "skillsyncstatuses",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/skillUploadIntent.ts::SkillUploadIntent",
+      "table": "skilluploadintents",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/slackRoute.ts::SlackRoute",
+      "table": "slackroutes",
+      "line": 30,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/slackRoute.ts::SlackThreadRoute",
+      "table": "slackthreadroutes",
+      "line": 61,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/slackWorkspace.ts::SlackInstall",
+      "table": "slackinstalls",
+      "line": 100,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/slackWorkspace.ts::SlackInstallGeneration",
+      "table": "slackinstallgenerations",
+      "line": 121,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/slackWorkspace.ts::SlackWorkspace",
+      "table": "slackworkspaces",
+      "line": 73,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/subagentContent.ts::SubagentContent",
+      "table": "subagentcontents",
+      "line": 63,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/systemGrant.ts::SystemGrant",
+      "table": "systemgrants",
+      "line": 13,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/token.ts::Token",
+      "table": "tokens",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/toolApprovalGrant.ts::ToolApprovalGrant",
+      "table": "toolapprovalgrants",
+      "line": 47,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/toolCall.ts::ToolCall",
+      "table": "toolcalls",
+      "line": 7,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/transaction.ts::Transaction",
+      "table": "transactions",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/triggerDelivery.ts::AgentTriggerDelivery",
+      "table": "agenttriggerdeliveries",
+      "line": 20,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/triggerLaneSequence.ts::AgentTriggerLaneSequence",
+      "table": "agenttriggerlanesequences",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/triggerUserPurge.ts::AgentTriggerUserPurge",
+      "table": "agenttriggeruserpurges",
+      "line": 12,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/models/user.ts::User",
+      "table": "users",
+      "line": 8,
+      "how": "default"
+    },
+    {
+      "class": "packages/data-schemas/src/tenant/harness.ts::Conformance",
+      "table": "conformances",
+      "line": 43,
+      "how": "argument"
+    }
+  ],
+  "not_counted": [
+    {
+      "class": "api/server/controllers/__tests__/deleteUserMcpServers.spec.js::MCPServer",
+      "line": 48,
+      "reason": "test source"
+    },
+    {
+      "class": "api/server/controllers/agents/__tests__/v1.duplicate-actions.spec.js::Action",
+      "line": 28,
+      "reason": "test source"
+    },
+    {
+      "class": "api/server/controllers/agents/__tests__/v1.duplicate-actions.spec.js::Agent",
+      "line": 25,
+      "reason": "test source"
+    },
+    {
+      "class": "api/server/controllers/agents/filterAuthorizedTools.spec.js::Agent",
+      "line": 95,
+      "reason": "test source"
+    },
+    {
+      "class": "api/server/routes/__tests__/messages-delete.spec.js::Message",
+      "line": 116,
+      "reason": "test source"
+    },
+    {
+      "class": "api/server/services/Files/process.integration.spec.js::Agent",
+      "line": 92,
+      "reason": "test source"
+    },
+    {
+      "class": "api/server/services/Files/process.integration.spec.js::File",
+      "line": 93,
+      "reason": "test source"
+    },
+    {
+      "class": "api/test/migrate-orphaned-agent-files.spec.js::Agent",
+      "line": 39,
+      "reason": "test source"
+    },
+    {
+      "class": "api/test/migrate-orphaned-agent-files.spec.js::File",
+      "line": 40,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/agents/__tests__/load.spec.ts::Agent",
+      "line": 38,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/agents/transactions.bulk-parity.spec.ts::Balance",
+      "line": 71,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/agents/transactions.bulk-parity.spec.ts::Transaction",
+      "line": 70,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/agents/transactions.spec.ts::Balance",
+      "line": 38,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/agents/transactions.spec.ts::Transaction",
+      "line": 37,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/app/credentials.spec.ts::User",
+      "line": 39,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/channels/summary.spec.ts::SummaryMessage",
+      "line": 356,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/channels/summary.spec.ts::SummaryUser",
+      "line": 228,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/code/inheritance.spec.ts::Agent",
+      "line": 113,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/files/code/process.spec.ts::File",
+      "line": 59,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/middleware/balance.spec.ts::Balance",
+      "line": 34,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/api/src/protection/private/admission.spec.ts::b",
+      "line": 171,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/aclBitops.ferretdb.spec.ts::AclEntry",
+      "line": 36,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/migrationAntiJoin.ferretdb.spec.ts::TestMigAclEntry",
+      "line": 63,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/migrationAntiJoin.ferretdb.spec.ts::TestMigAgent",
+      "line": 61,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/migrationAntiJoin.ferretdb.spec.ts::TestMigPromptGroup",
+      "line": 62,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/multiTenancy.ferretdb.spec.ts::BareDoc",
+      "line": 471,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/multiTenancy.ferretdb.spec.ts::SharedUser",
+      "line": 546,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/multiTenancy.ferretdb.spec.ts::User",
+      "line": 466,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/orgOperations.ferretdb.spec.ts::null",
+      "line": 61,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/promptLookup.ferretdb.spec.ts::FDBPrompt",
+      "line": 101,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/promptLookup.ferretdb.spec.ts::FDBPromptGroup",
+      "line": 98,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/pullAll.ferretdb.spec.ts::FDBAgent",
+      "line": 56,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/pullAll.ferretdb.spec.ts::FDBConversation",
+      "line": 54,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/pullAll.ferretdb.spec.ts::FDBGroup",
+      "line": 52,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/pullAll.ferretdb.spec.ts::FDBProject",
+      "line": 55,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/pullSubdocument.ferretdb.spec.ts::TestPullAgent",
+      "line": 53,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/pullSubdocument.ferretdb.spec.ts::TestPullUser",
+      "line": 54,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/randomPrompts.ferretdb.spec.ts::TestRandPromptGroup",
+      "line": 74,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/misc/ferretdb/sharding.ferretdb.spec.ts::OrgAssignment",
+      "line": 69,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/accessRole.spec.ts::AccessRole",
+      "line": 16,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/aclEntry.parity.spec.ts::AclEntry",
+      "line": 38,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/aclEntry.spec.ts::AclEntry",
+      "line": 26,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/assistant.avatar.spec.ts::Assistant",
+      "line": 12,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/auditLog.spec.ts::AuditLog",
+      "line": 44,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/cache.spec.ts::Balance",
+      "line": 22,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/cache.spec.ts::Transaction",
+      "line": 23,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/file.commit.spec.ts::File",
+      "line": 35,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/file.ownership.spec.ts::File",
+      "line": 37,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/file.publication.spec.ts::File",
+      "line": 84,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/fileStorage.spec.ts::File",
+      "line": 511,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/mcpServer.spec.ts::AclEntry",
+      "line": 33,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/mcpServer.spec.ts::Group",
+      "line": 36,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/mcpServer.spec.ts::MCPServer",
+      "line": 31,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/mcpServer.spec.ts::User",
+      "line": 39,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/openidRefreshFlight.spec.ts::OpenIDRefreshFlight",
+      "line": 20,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/passkey.spec.ts::Passkey",
+      "line": 36,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/refreshTokenBridge.spec.ts::RefreshTokenBridge",
+      "line": 20,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/share.test.ts::Conversation",
+      "line": 129,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/share.test.ts::File",
+      "line": 133,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/share.test.ts::Message",
+      "line": 127,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/share.test.ts::SharedLink",
+      "line": 126,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/systemGrant.spec.ts::SystemGrant",
+      "line": 25,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/transaction.initialization.spec.ts::Balance",
+      "line": 31,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/transaction.initialization.spec.ts::Transaction",
+      "line": 32,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/user.methods.spec.ts::Balance",
+      "line": 53,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/user.methods.spec.ts::User",
+      "line": 52,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.methods.spec.ts::Group",
+      "line": 26,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.methods.spec.ts::User",
+      "line": 27,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.roles.spec.ts::Group",
+      "line": 29,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.roles.spec.ts::Role",
+      "line": 31,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.roles.spec.ts::User",
+      "line": 30,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.spec.ts::Group",
+      "line": 26,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.spec.ts::Role",
+      "line": 28,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/methods/userGroup.spec.ts::User",
+      "line": 27,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/models/channelFeedback.ts::ChannelReply",
+      "line": 82,
+      "reason": "schema is not new Schema"
+    },
+    {
+      "class": "packages/data-schemas/src/models/plugins/mongoMeili.spec.ts::null",
+      "line": 60,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/models/plugins/tenantIsolation.spec.ts::null",
+      "line": 20,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/models/plugins/tenantIsolation.spec.ts::null",
+      "line": 45,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/models/plugins/tenantIsolation.spec.ts::null",
+      "line": 738,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/postgres/mongo.ts::ToolFavorite",
+      "line": 27,
+      "reason": "receiver is not a known mongoose binding"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/agent.sdk.spec.ts::SdkBindingAgent",
+      "line": 4,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/agentWorkspace.spec.ts::WorkspaceDefaultAgent",
+      "line": 5,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/agentWorkspace.spec.ts::WorkspaceDefaultAgent",
+      "line": 20,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/agentWorkspace.spec.ts::WorkspaceDefaultAgent",
+      "line": 28,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/codeEnvRef.spec.ts::SandboxFilenameRef",
+      "line": 5,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/defaults.spec.ts::CheckoutPersistenceTest",
+      "line": 5,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/schema/skillSyncStatus.spec.ts::SkillSyncStatusSchemaTest",
+      "line": 4,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/tenant/probe.spec.ts::ProbePart",
+      "line": 54,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/tenant/probe.spec.ts::ProbeWidget",
+      "line": 62,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/utils/retry.spec.ts::null",
+      "line": 55,
+      "reason": "test source"
+    },
+    {
+      "class": "packages/data-schemas/src/utils/tenantBulkWrite.spec.ts::null",
+      "line": 23,
+      "reason": "test source"
+    },
+    {
+      "class": "scripts/dependencies.test.mjs::Base",
+      "line": 500,
+      "reason": "test source"
+    },
+    {
+      "class": "scripts/dependencies.test.mjs::Child",
+      "line": 501,
+      "reason": "test source"
+    },
+    {
+      "class": "scripts/dependencies.test.mjs::Inherited",
+      "line": 521,
+      "reason": "test source"
+    },
+    {
+      "class": "scripts/dependencies.test.mjs::Sanitized",
+      "line": 474,
+      "reason": "test source"
+    }
+  ]
+}
