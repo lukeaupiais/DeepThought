@@ -2994,7 +2994,20 @@ within a namespace. A module whose Spring configuration
 `spring.datasource.url` uses that URL as its namespace, so services that
 point at the same persistent database share its tables. Otherwise, and for
 in-memory URLs (`:mem:`, `:memory:`), which give each process its own
-database, the namespace is the nearest package. One service's private
+database, a file whose deepest enclosing Compose build context is built
+by services that name exactly one database in their `environment` uses that
+database as its namespace: a connection URL (`jdbc:` dropped) whose host is a
+service of the same Compose file running a database image (`postgres`,
+`postgis`, `timescaledb`, `mysql`, `mariadb`, `percona-server`, `mongo`,
+`cockroach`, `libsql-server`), keyed by the Compose file's directory, that
+service and the URL's database. On openstatus (3836510) this puts the Go
+`private-location` service's SQL (`DB_URL=http://libsql:8080`) on the same
+`monitor`, `private_location` and `private_location_to_monitor` tables as the
+TypeScript Drizzle schema the `server`, `dashboard` and `workflows` services
+use (`DATABASE_URL=http://libsql:8080`); before, it read tables of its own
+`go.mod`. `env_file`, interpolated values, host/port/name variables split
+across several keys and URLs fixed in code are not read. Otherwise the
+namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and
 environment variables are not resolved, and migrations kept in a separate
 package from their entities meet them only through a shared datasource URL.
