@@ -1,4 +1,4 @@
-"""Guzzle and Laravel HTTP client requests and their base URLs."""
+"""Guzzle, Symfony and Laravel HTTP client requests and their base URLs."""
 
 import asyncio
 import importlib.util
@@ -76,6 +76,42 @@ class Orders
 }
 """
 
+SYMFONY = r"""<?php
+namespace App\Service;
+
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
+class Catalog
+{
+    public function __construct(private HttpClientInterface $client)
+    {
+    }
+
+    public function injected($id)
+    {
+        return $this->client->request('GET', "/api/orders/$id");
+    }
+
+    public function forBase()
+    {
+        $http = HttpClient::createForBaseUri('http://orders/api/');
+        return $http->request('POST', 'orders');
+    }
+
+    public function created()
+    {
+        $http = HttpClient::create(['base_uri' => 'http://orders']);
+        return $http->request('GET', '/api/orders/1');
+    }
+
+    public function notARequest()
+    {
+        return $this->client->get('/api/orders');
+    }
+}
+"""
+
 FILES = {
     "orders/composer.json": '{"require": {"laravel/framework": "^10.0"}}',
     "orders/app/Providers/RouteServiceProvider.php": r"""<?php
@@ -85,6 +121,8 @@ Route::prefix('api')->group(base_path('routes/api.php'));
     "orders/routes/api.php": ORDERS_ROUTES,
     "web/composer.json": '{"require": {"guzzlehttp/guzzle": "^7.0"}}',
     "web/src/Orders.php": CLIENTS,
+    "shop/composer.json": '{"require": {"symfony/http-client": "^6.0"}}',
+    "shop/src/Catalog.php": SYMFONY,
 }
 
 
@@ -119,6 +157,7 @@ class PhpClientTests(unittest.TestCase):
                 status[r.id][1],
             )
             for r in requests
+            if r.client != "symfony-http"
         )
         self.assertEqual(
             found,
@@ -170,6 +209,41 @@ class PhpClientTests(unittest.TestCase):
                     "linked",
                     "POST /api/orders",
                 ),
+            ],
+        )
+
+    def test_symfony_requests(self):
+        _, routes, requests, _, resolutions = self.tool.last_facts
+        paths = {r.id: f"{' '.join(r.methods)} {r.path}" for r in routes}
+        status = {
+            res.request_id: (res.status, paths.get(res.route_id)) for res in resolutions
+        }
+        found = sorted(
+            (
+                r.line,
+                r.method,
+                r.url.replace(PLACEHOLDER, "{?}"),
+                status[r.id][0],
+                status[r.id][1],
+            )
+            for r in requests
+            if r.client == "symfony-http"
+        )
+        self.assertEqual(
+            found,
+            [
+                # An injected client: the URL as written.
+                (15, "GET", "/api/orders/{?}", "linked", "GET /api/orders/{id}"),
+                # A relative path resolves against the base's directory.
+                (21, "POST", "http://orders/api/orders", "linked", "POST /api/orders"),
+                (
+                    27,
+                    "GET",
+                    "http://orders/api/orders/1",
+                    "linked",
+                    "GET /api/orders/{id}",
+                ),
+                # get() is not a Symfony HttpClient request method.
             ],
         )
 

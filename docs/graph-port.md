@@ -782,6 +782,7 @@ every link is `name_matched`:
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 | `tree-sitter.java-call-chained-receiver` | `e.m()` where `e` is itself a call (`a.b().m()`, `T.f().m()`, `f().m()`) whose link reaches a method declaring a class return type `T`, or `new T(...)`: `m` declared on `T` or inherited through its declared bases, overloads chosen as for other Java calls; a type-parameter or primitive return leaves it unresolved |
+| `tree-sitter.java-call-static-field-receiver` | `T.F.m()` where no variable or field named like `T`'s first name can be in scope (none declared around the call, no type around it that may inherit one) and the type `T` declares the static field or enum constant `F` with a written class type `U`: `m` declared on `U` or inherited through its declared bases |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -864,6 +865,31 @@ one method possible from that phase on, or a method that applies and is more
 specific than every other possible one. A `private` method is not a
 candidate outside the top-level class that declares it. Otherwise the call
 stays ambiguous among the arity candidates.
+
+When the overloads are still not told apart, the JDK's own supertypes are
+used: `src/deepthought/java_platform.json` lists every public type of 21 JDK
+packages (`java.lang`, `java.io`, `java.util` and its subpackages,
+`java.time`, `java.nio.file`, `java.sql` and others) with the simple names of
+all its supertypes, taken from the JDK 21 classes themselves by
+`java tools/JavaPlatformTypes.java > src/deepthought/java_platform.json`. A
+type name that no repository type in scope denotes is looked up there when a
+single-type import names it, when it is a canonical `java.` name, or when
+`java.lang` and the file's on-demand imports, all in listed packages, give it
+exactly once; a static import of the name, or an on-demand import of any
+other package, leaves it unknown. A repository enum or record then also has
+the supertypes of `java.lang.Enum` or `java.lang.Record`, and a type whose
+bases are all repository or listed JDK types has a complete set. A link only
+this decides carries `tree-sitter.java-overload-jdk-supertypes`: on gson it
+confirmed 331 links (10,904 of 11,050 in all), none contradicted, and impact
+rose from 3,955 to 4,421 of 5,070.
+
+A method declared in an enum constant's body (`ONE { int read() {...} }`) is
+named as the enum's members are, but `Definition.constant_body` marks it and
+it is no member of the enum type: a call through the enum
+(`Policy.ONE.read()`, `p.read()`) binds the method the enum declares or
+inherits, as javac does, and only a call inside that body reaches it. On gson
+this removed the 6 ambiguous calls whose candidates were constant-body
+methods and left out javac's, and confirmed 32 more links (10,936).
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
@@ -995,6 +1021,18 @@ follow the linked method's declared return type
 raised confirmed links from 9,342 to 10,457 of 11,050 with none
 contradicted; 22 of its links land where javac bound no call, mostly in the
 proto tests, whose receivers involve classes built from `.proto` files.
+Calls on a type's static field or enum constant
+(`DefaultDateTypeAdapter.DateType.DATE.createAdapterFactory(...)`,
+`JsonElementTypeAdapter.ADAPTER.read(...)`) follow the field's written type
+(`tree-sitter.java-call-static-field-receiver`): 50 more confirmed links on
+gson (10,517 of 11,050), none contradicted.
+A variable an anonymous class, an enum constant's body or a class with bases
+captures from around it (`longAdapter.read(in)` inside `new TypeAdapter<>() {...}`)
+binds its declaration only when no base of those types may give them a field
+of that name: every base is a repository type, none declares one, and the same
+holds for its own bases (`Definition.properties` lists a Java type's fields).
+Otherwise the call is left unresolved (`receiver_may_be_inherited_field`).
+This confirmed 44 more gson links (10,561), none contradicted.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -1277,6 +1315,19 @@ a receiver that is `self`, a name or a field of one is recorded as
 `receiver.name` (`self.write`, `x.y.len`); other callees (`(f)()`,
 `a().b()`, `<T as Trait>::f`) and macro invocations are not call sites. Calls
 inside item macro bodies are read as other calls are.
+
+The arguments of a standard macro whose arguments are expressions (`assert!`,
+`assert_eq!`, `assert_ne!`, their `debug_` forms, `dbg!`, `format!`,
+`format_args!`, `print!`, `println!`, `eprint!`, `eprintln!`, `write!`,
+`writeln!`, `panic!`, `todo!`, `unimplemented!`, `unreachable!` and `vec!`),
+invoked by its name or through `std::`, `core::` or `alloc::`, are read as
+expressions: the invocation's token tree is split on its top-level commas and
+each argument is parsed on its own, in place, so its calls are call sites
+like any other. Declarations around the invocation type receivers in it as
+they would outside. An argument that does not parse as an expression is
+skipped. `matches!` (a pattern argument), other macros, a macro of the same
+name under another path, and an invocation with no `;` after it in the file
+(the last tail expression of a file) are not read.
 
 A call is resolved as a use path would be, from the caller's module, after
 the names the function bodies around it bind:
@@ -2177,7 +2228,7 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
-  `CURLOPT_URL`, and Symfony HttpClient, are not read yet.
+  `CURLOPT_URL` is not read yet.
 - **Guzzle and Laravel HTTP client requests** (clients `guzzle`,
   `laravel-http`). Guzzle: `get`, `post`, `put`, `patch`, `delete`, `head`,
   `options` (and their `...Async` forms) and `request($method, $url)` on a
@@ -2194,6 +2245,15 @@ PHP files are read for routes and requests (`service_contracts.php`):
   a literal `baseUrl(...)` in the chain is prepended. A method that is not
   a literal is unknown; a dynamic method name (`->$method(...)`) is not
   read.
+- **Symfony HttpClient requests** (client `symfony-http`).
+  `request($method, $url)`, its only request method, on a client that is a
+  parameter, property or promoted constructor parameter typed
+  `Symfony\Contracts\HttpClient\HttpClientInterface`, or a local variable
+  or `$this->x` property assigned once to `HttpClient::create([...])` or
+  `HttpClient::createForBaseUri($base)`. A literal base (`base_uri`, or the
+  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). Scoped
+  clients configured in `framework.yaml` are not read: they reach code as an
+  injected interface, so their URLs stay as written.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the

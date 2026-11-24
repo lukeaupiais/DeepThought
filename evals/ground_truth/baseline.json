@@ -2,14 +2,14 @@
   "anyhow": {
     "by_rule": {
       "tree-sitter.rust-call-associated": {
-        "confirmed": 66,
+        "confirmed": 67,
         "unjudged": 6
       },
       "tree-sitter.rust-call-local-item": {
         "confirmed": 11
       },
       "tree-sitter.rust-call-path": {
-        "confirmed": 140,
+        "confirmed": 162,
         "not_indexed": 2,
         "unjudged": 5
       },
@@ -22,7 +22,7 @@
         "unjudged": 9
       }
     },
-    "confirmed": 234,
+    "confirmed": 257,
     "contradicted": 0,
     "expected": 442,
     "impact": {
@@ -50,20 +50,20 @@
       "seeds_undeclared": 0,
       "unjudged": 0
     },
-    "missed": 213,
+    "missed": 190,
     "missed_by_engine_outcome": {
-      "no_call_site": 152,
+      "no_call_site": 62,
       "unresolved:associated_item": 3,
-      "unresolved:external_crate": 3,
-      "unresolved:method_call": 54,
+      "unresolved:external_crate": 5,
+      "unresolved:method_call": 119,
       "unresolved:module_missing": 1
     },
     "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.5181,
+    "recall": 0.5701,
     "unjudged": 21,
-    "unresolved_expected": 65,
-    "unresolved_unjudged": 354
+    "unresolved_expected": 135,
+    "unresolved_unjudged": 396
   },
   "chi": {
     "by_rule": {
@@ -853,27 +853,33 @@
     }
   },
   "gson": {
-    "ambiguous_excludes": 2,
-    "ambiguous_includes": 525,
-    "ambiguous_unjudged": 53,
+    "ambiguous_includes": 176,
+    "ambiguous_unjudged": 52,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
       },
       "tree-sitter.java-call-chained-receiver": {
-        "confirmed": 1100,
+        "confirmed": 1113,
         "unjudged": 22
       },
+      "tree-sitter.java-call-static-field-receiver": {
+        "confirmed": 52
+      },
       "tree-sitter.java-call-typed-receiver": {
-        "confirmed": 4796,
+        "confirmed": 4868,
         "unjudged": 36
       },
       "tree-sitter.java-enclosing-type-method": {
-        "confirmed": 1558,
+        "confirmed": 1561,
         "unjudged": 3
       },
       "tree-sitter.java-inherited-method": {
-        "confirmed": 73,
+        "confirmed": 80,
+        "unjudged": 1
+      },
+      "tree-sitter.java-overload-jdk-supertypes": {
+        "confirmed": 331,
         "unjudged": 1
       },
       "tree-sitter.java-overload-platform-argument": {
@@ -886,40 +892,40 @@
         "confirmed": 8
       },
       "tree-sitter.java-type-member": {
-        "confirmed": 425
+        "confirmed": 426
       },
       "tree-sitter.java-type-name": {
         "confirmed": 2378,
         "unjudged": 380
       }
     },
-    "confirmed": 10457,
+    "confirmed": 10936,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 712,
+          "confirmed": 786,
           "expected": 790
         },
         "2": {
-          "confirmed": 1543,
+          "confirmed": 1675,
           "expected": 2096
         },
         "3": {
-          "confirmed": 1667,
+          "confirmed": 1960,
           "expected": 2184
         }
       },
-      "confirmed": 3922,
+      "confirmed": 4421,
       "expected": 5070,
       "extra": 0,
-      "missed": 1148,
+      "missed": 649,
       "precision": 1.0,
-      "recall": 0.7736,
+      "recall": 0.872,
       "seeds": 164,
       "seeds_undeclared": 0,
-      "unjudged": 8
+      "unjudged": 20
     },
     "inherits": {
       "confirmed": 210,
@@ -930,18 +936,19 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 708,
+    "missed": 229,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 526,
+      "ambiguous:multiple_declarations": 175,
       "no_call_site": 15,
-      "unresolved:attribute_call": 122,
-      "unresolved:receiver_type_unknown": 38,
+      "unresolved:attribute_call": 14,
+      "unresolved:receiver_may_be_inherited_field": 4,
+      "unresolved:receiver_type_unknown": 14,
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.9359,
-    "unjudged": 442,
-    "unresolved_expected": 171,
+    "recall": 0.9793,
+    "unjudged": 443,
+    "unresolved_expected": 43,
     "unresolved_unjudged": 12419
   },
   "hono": {
@@ -1190,70 +1197,72 @@
     "ambiguous_unjudged": 1,
     "by_rule": {
       "tree-sitter.rust-call-associated": {
-        "confirmed": 1057,
-        "not_indexed": 3,
+        "confirmed": 1086,
+        "not_indexed": 5,
         "unjudged": 2
       },
       "tree-sitter.rust-call-local-item": {
-        "confirmed": 24
+        "confirmed": 27
       },
       "tree-sitter.rust-call-path": {
-        "confirmed": 1691
+        "confirmed": 2549,
+        "unjudged": 2
       },
       "tree-sitter.rust-call-self-method": {
-        "confirmed": 574,
+        "confirmed": 591,
         "not_indexed": 1
       },
       "tree-sitter.rust-call-typed-receiver": {
-        "confirmed": 237,
+        "confirmed": 281,
+        "not_indexed": 2,
         "unjudged": 1
       }
     },
-    "confirmed": 3583,
+    "confirmed": 4534,
     "contradicted": 0,
     "expected": 11415,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 146,
+          "confirmed": 163,
           "expected": 368
         },
         "2": {
-          "confirmed": 358,
+          "confirmed": 380,
           "expected": 927
         },
         "3": {
-          "confirmed": 118,
+          "confirmed": 135,
           "expected": 608
         }
       },
-      "confirmed": 622,
+      "confirmed": 678,
       "expected": 1903,
       "extra": 1,
-      "missed": 1281,
-      "precision": 0.9984,
-      "recall": 0.3269,
+      "missed": 1225,
+      "precision": 0.9985,
+      "recall": 0.3563,
       "seeds": 277,
       "seeds_undeclared": 84,
       "unjudged": 0
     },
-    "missed": 7837,
+    "missed": 6915,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_declarations": 17,
-      "no_call_site": 5683,
-      "unresolved:associated_item": 191,
+      "no_call_site": 4143,
+      "unresolved:associated_item": 275,
       "unresolved:external_crate": 13,
-      "unresolved:method_call": 1903,
+      "unresolved:method_call": 2430,
       "unresolved:receiver_type_unknown": 1,
       "unresolved:type_alias": 28,
-      "unresolved:unbound_name": 1
+      "unresolved:unbound_name": 8
     },
-    "not_indexed": 4,
+    "not_indexed": 8,
     "precision": 1.0,
-    "recall": 0.3134,
-    "unjudged": 3,
-    "unresolved_expected": 2201,
-    "unresolved_unjudged": 4405
+    "recall": 0.3942,
+    "unjudged": 5,
+    "unresolved_expected": 2819,
+    "unresolved_unjudged": 5285
   },
   "routes": {
     "routes-howtographql-graphql-js": {

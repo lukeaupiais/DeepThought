@@ -260,6 +260,14 @@ def extract(
                 }
                 if _java_private(node, content):
                     arity["private"] = True
+                body = node.parent
+                if (
+                    body is not None
+                    and body.type == "class_body"
+                    and body.parent is not None
+                    and body.parent.type == "enum_constant"
+                ):
+                    arity["constant_body"] = True
                 if node.type == "method_declaration":
                     returned = _java_declared_type(
                         node.child_by_field_name("type"), None, content
@@ -275,6 +283,9 @@ def extract(
                 statics = _java_static_fields(node, content)
                 if statics:
                     arity = {"fields": statics}
+                declared = _java_field_names(node, content)
+                if declared:
+                    arity = {**(arity or {}), "properties": declared}
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -1499,6 +1510,31 @@ def rust_macro_rules(tree, content: bytes):
             yield _text(name, content).removeprefix("r#"), through
 
 
+# Standard macros whose arguments are expressions (a format string is one).
+_RUST_EXPRESSION_MACROS = {
+    "assert",
+    "assert_eq",
+    "assert_ne",
+    "debug_assert",
+    "debug_assert_eq",
+    "debug_assert_ne",
+    "dbg",
+    "eprint",
+    "eprintln",
+    "format",
+    "format_args",
+    "panic",
+    "print",
+    "println",
+    "todo",
+    "unimplemented",
+    "unreachable",
+    "vec",
+    "write",
+    "writeln",
+}
+
+
 class RustExpander:
     """Items written in invocations of item pass-through macros.
 
@@ -1511,17 +1547,95 @@ class RustExpander:
     def __init__(self, content: bytes, item_macros):
         self.content = content
         self.item_macros = frozenset(item_macros)
-        self.parser = make_parser("rust", ".rs") if self.item_macros else None
+        self.parser = None
         self.trees, self.invocations = [], {}
 
     def invocation(self, root):
         """The invocation an expanded body's root stands for, or None."""
         return self.invocations.get((root.start_byte, root.end_byte))
 
+    def parent(self, node):
+        """``node.parent``, or for an expanded body's root the invocation."""
+        if node.type == "source_file":
+            return self.invocation(node)
+        return node.parent
+
+    def _parse(self, ranges):
+        from tree_sitter import Range
+
+        if self.parser is None:
+            self.parser = make_parser("rust", ".rs")
+        self.parser.included_ranges = [
+            Range(self._point(start), self._point(end), start, end)
+            for start, end in ranges
+        ]
+        return self.parser.parse(self.content)
+
+    def _point(self, offset):
+        line = self.content.count(b"\n", 0, offset)
+        return (line, offset - (self.content.rfind(b"\n", 0, offset) + 1))
+
+    def arguments(self, node):
+        """The expressions written as arguments of an invocation of a
+        standard macro whose arguments are expressions (``assert!``,
+        ``format!``, ``vec!``, ...), each parsed on its own, in place, as an
+        expression statement; None for any other node."""
+        if node.type != "macro_invocation":
+            return None
+        name = node.child_by_field_name("macro")
+        body = next(c for c in node.named_children if c.type == "token_tree")
+        path = _text(name, self.content).split("::")
+        if path[-1] not in _RUST_EXPRESSION_MACROS or (
+            len(path) > 1
+            and path[:-1]
+            not in (
+                ["std"],
+                ["core"],
+                ["alloc"],
+                ["", "std"],
+                ["", "core"],
+                ["", "alloc"],
+            )
+        ):
+            return None
+        # The statement needs a closing `;`: the first one after the body,
+        # included after each argument, keeps every position in place.
+        semicolon = self.content.find(b";", body.end_byte)
+        if semicolon < 0:
+            return None
+        found, argument = [], []
+        for token in body.children[1:-1]:
+            if token.type == ",":
+                found.append(argument)
+                argument = []
+            else:
+                argument.append(token)
+        found.append(argument)
+        children = []
+        for tokens in found:
+            if not tokens:
+                continue
+            tree = self._parse(
+                [
+                    (tokens[0].start_byte, tokens[-1].end_byte),
+                    (semicolon, semicolon + 1),
+                ]
+            )
+            if tree.root_node.has_error:
+                continue
+            self.trees.append(tree)
+            self.invocations[(tree.root_node.start_byte, tree.root_node.end_byte)] = (
+                node
+            )
+            children.extend(tree.root_node.named_children)
+        return children
+
     def children(self, node):
+        expressions = self.arguments(node)
+        if expressions is not None:
+            return expressions
         if (
-            self.parser is None
-            or node.type != "macro_invocation"
+            node.type != "macro_invocation"
             or node.parent is None
             or not (
                 node.parent.type == "source_file"
@@ -1541,18 +1655,7 @@ class RustExpander:
             or _text(name, self.content).split("::")[-1] not in self.item_macros
         ):
             return node.named_children
-        from tree_sitter import Range
-
-        start, end = body.start_point, body.end_point
-        self.parser.included_ranges = [
-            Range(
-                (start[0], start[1] + 1),
-                (end[0], end[1] - 1),
-                body.start_byte + 1,
-                body.end_byte - 1,
-            )
-        ]
-        tree = self.parser.parse(self.content)
+        tree = self._parse([(body.start_byte + 1, body.end_byte - 1)])
         if tree.root_node.has_error:
             return node.named_children
         self.trees.append(tree)
@@ -1944,6 +2047,10 @@ def _rust_receiver(node, content):
     return None
 
 
+def _tree_parent(node):
+    return node.parent
+
+
 def _rust_mentions(node, name, content):
     """Whether an identifier ``name`` occurs in ``node`` (a pattern binds it,
     or may)."""
@@ -1954,12 +2061,13 @@ def _rust_mentions(node, name, content):
     return any(_rust_mentions(c, name, content) for c in node.named_children)
 
 
-def _rust_declared_type(node, name, content):
+def _rust_declared_type(node, name, content, parent=_tree_parent):
     """The type node of the innermost declaration of the local ``name`` that
     scopes over ``node``: a parameter or ``let`` that binds it alone and
     writes a type. None when that declaration writes none, binds it in a
     pattern, or is of any other kind (a match arm, ``if let``, ``for``, an
-    untyped closure parameter)."""
+    untyped closure parameter). ``parent`` steps out of a node, and out of
+    a macro argument to its invocation."""
     child, scope = node, node.parent
     while scope is not None:
         if scope.type == "block":
@@ -2007,11 +2115,11 @@ def _rust_declared_type(node, name, content):
             )
             if _rust_mentions(written, name, content):
                 return None
-        child, scope = scope, scope.parent
+        child, scope = scope, parent(scope)
     return None
 
 
-def _rust_type_parameters(node, content):
+def _rust_type_parameters(node, content, parent=_tree_parent):
     """The type names the generic items around ``node`` declare as
     parameters, bounds included."""
     found = set()
@@ -2026,11 +2134,11 @@ def _rust_type_parameters(node, content):
                 if current.type == "type_identifier":
                     found.add(_text(current, content))
                 stack.extend(current.named_children)
-        scope = scope.parent
+        scope = parent(scope)
     return found
 
 
-def _rust_receiver_type(node, content, callee):
+def _rust_receiver_type(node, content, callee, parent=_tree_parent):
     """``receiver_type`` of a Rust call ``x.m()``: the type path, joined by
     ``::``, that the innermost declaration of the local ``x`` writes
     (``x: A``, ``x: &m::A<T>``, ``let x: A``), or ``Self``."""
@@ -2038,7 +2146,7 @@ def _rust_receiver_type(node, content, callee):
     if not receiver:
         # A path call has no receiver.
         return {}
-    written = _rust_declared_type(node, receiver, content)
+    written = _rust_declared_type(node, receiver, content, parent)
     inner = written
     while inner is not None and inner.type in {"reference_type", "generic_type"}:
         inner = inner.child_by_field_name("type")
@@ -2046,7 +2154,7 @@ def _rust_receiver_type(node, content, callee):
         # A raw pointer is not dereferenced for a method call.
         return {}
     path = _rust_type_path(written, content)
-    if path is None or path in _rust_type_parameters(node, content):
+    if path is None or path in _rust_type_parameters(node, content, parent):
         return {}
     return {"receiver_type": path}
 
@@ -3141,6 +3249,35 @@ def _java_argument_type(node, content, cache):
     return None
 
 
+def _java_field_names(node, content):
+    """Names of every field a Java type declaration declares: its fields and
+    constants (static, private or not), enum constants and record
+    components. None when there is none."""
+    found = []
+    parameters = node.child_by_field_name("parameters")
+    if node.type == "record_declaration" and parameters is not None:
+        for component in parameters.named_children:
+            name = component.child_by_field_name("name")
+            if name is not None:
+                found.append(_text(name, content))
+    body = node.child_by_field_name("body")
+    members = list(body.named_children) if body is not None else []
+    for member in list(members):
+        if member.type == "enum_body_declarations":
+            members.extend(member.named_children)
+    for member in members:
+        if member.type == "enum_constant":
+            name = member.child_by_field_name("name")
+            if name is not None:
+                found.append(_text(name, content))
+        elif member.type in {"field_declaration", "constant_declaration"}:
+            for declarator in member.children_by_field_name("declarator"):
+                name = declarator.child_by_field_name("name")
+                if name is not None:
+                    found.append(_text(name, content))
+    return tuple(dict.fromkeys(found)) or None
+
+
 def _java_static_fields(node, content):
     """(name, type) for each static field of a Java type declaration whose
     type ``_java_declared_type`` writes (an interface's fields are static,
@@ -3496,6 +3633,47 @@ def _java_may_inherit_fields(owner):
     ) or any(c.type == "extends_interfaces" for c in owner.named_children)
 
 
+def _java_receiver(node, content, callee, cache):
+    """``receiver_type`` of a Java call, and ``receiver_inherits`` when the
+    variable's declaration is outside a type around the call that may
+    inherit a field of that name."""
+    written = _java_receiver_type(node, content, callee, cache)
+    if written is not None:
+        return {"receiver_type": written}
+    crossed = []
+    written = _java_receiver_type(node, content, callee, cache, crossed=crossed)
+    if written is None or not crossed:
+        return {"receiver_type": None}
+    return {"receiver_type": written, "receiver_inherits": True}
+
+
+def _java_names_no_variable(node, content, callee):
+    """For a Java call ``X.f.m()``: True when no variable or field named
+    ``X`` can be in scope at the call, so that ``X`` names a type or
+    package (JLS 6.5.2); None for any other callee or when one may be: a
+    declaration of ``X`` around the call, or a type around it that may
+    inherit a field ``X``."""
+    parts = callee.split(".")
+    if len(parts) < 3 or parts[0] in {"this", "super"}:
+        return None
+    name = parts[0]
+    end = (float("inf"), float("inf"))
+    ancestor = node.parent
+    while ancestor is not None:
+        if _java_declared_here(ancestor, name, content, end):
+            return None
+        if ancestor.type in _JAVA_CLASS_BODIES and _java_may_inherit_fields(
+            ancestor.parent
+        ):
+            return None
+        if ancestor.type in _JAVA_METHODS and _java_binds_pattern(
+            ancestor, name, content
+        ):
+            return None
+        ancestor = ancestor.parent
+    return True
+
+
 def _java_binds_pattern(node, name, content):
     """Whether a pattern (``o instanceof Foo x``, ``case Foo x``) in ``node``
     binds ``name``: such a variable's scope depends on control flow."""
@@ -3515,12 +3693,14 @@ def _java_binds_pattern(node, name, content):
     return False
 
 
-def _java_receiver_type(node, content, callee, cache, primitives=False):
+def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=None):
     """For a Java call ``x.m()`` or ``this.x.m()``, the type that the
     declaration of the variable or field ``x`` in scope writes (``Foo``,
     ``Map.Entry``); None when no such declaration is in scope or it writes
     no class type (``var`` without ``new``, a lambda's inferred parameter,
-    an array, a primitive, a type parameter)."""
+    an array, a primitive, a type parameter). A type between the call and
+    that declaration that may inherit a field ``x`` gives None, unless
+    ``crossed`` is a list: then each such type's body is appended to it."""
     parts = callee.split(".")
     if len(parts) == 2:
         name, fields_only = parts[0], False
@@ -3530,28 +3710,42 @@ def _java_receiver_type(node, content, callee, cache, primitives=False):
         return None
     before = (node.start_point.row, node.start_point.column)
     found, method = None, None
+    # Methods around the call inside the types it crosses: a pattern there
+    # may bind the name too.
+    outer = []
     ancestor = node.parent
     while ancestor is not None:
         body = ancestor.type in _JAVA_CLASS_BODIES
+        if (
+            found is None
+            and crossed
+            and ancestor.type in _JAVA_METHODS
+            and ancestor is not method
+        ):
+            outer.append(ancestor)
         if found is None and (body or not fields_only):
             here = _java_declared_here(ancestor, name, content, before)
             if here:
                 found = here
             elif body:
                 owner = ancestor.parent
-                if fields_only or _java_may_inherit_fields(owner):
-                    # `this.x` names a field of the innermost class; and a
-                    # field a type inherits may be the one named.
+                if fields_only:
+                    # `this.x` names a field of the innermost class.
                     return None
+                if _java_may_inherit_fields(owner):
+                    # A field a type inherits may be the one named.
+                    if crossed is None:
+                        return None
+                    crossed.append(ancestor)
         if ancestor.type in _JAVA_METHODS and method is None:
             method = ancestor
         ancestor = ancestor.parent
     if not found or found[0] is None:
         return None
-    if method is not None:
-        key = ("patterns", method.id, name)
+    for around in [method, *outer] if method is not None else outer:
+        key = ("patterns", around.id, name)
         if key not in cache:
-            cache[key] = _java_binds_pattern(method, name, content)
+            cache[key] = _java_binds_pattern(around, name, content)
         if cache[key]:
             return None
     written = found[0]
@@ -4313,9 +4507,10 @@ def extract_call_sites(
                         ),
                         **(
                             {
-                                "receiver_type": _java_receiver_type(
-                                    node, content, callee, receivers
-                                )
+                                **_java_receiver(node, content, callee, receivers),
+                                "type_qualified": _java_names_no_variable(
+                                    node, content, callee
+                                ),
                             }
                             if java
                             else {
@@ -4328,7 +4523,9 @@ def extract_call_sites(
                             if chained
                             else _go_receiver_fields(node, content, callee, receivers)
                             if go
-                            else _rust_receiver_type(node, content, callee)
+                            else _rust_receiver_type(
+                                node, content, callee, expander.parent
+                            )
                             if rust
                             else {}
                         )

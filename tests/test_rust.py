@@ -1757,6 +1757,65 @@ class RustTests(unittest.TestCase):
         self.assertEqual(receivers[(22, 48)], "Self")
         self.assertIsNone(receivers[(8, 33)])
 
+    def test_calls_in_standard_macro_arguments(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "x"\n',
+                "src/lib.rs": (
+                    "pub struct A;\n"
+                    "impl A { pub fn m(&self) -> bool { true } }\n"
+                    "pub fn f() -> i32 { 1 }\n"
+                    "macro_rules! mine { ($e:expr) => { $e } }\n"
+                    "pub fn run(x: A) {\n"  # 5
+                    '    assert!(x.m(), "{}", f(),);\n'
+                    '    assert_eq!(f(), =>); std::println!("{}", f());\n'
+                    "    let v = vec![f(); 2]; debug_assert!(vec![f()].is_empty());\n"
+                    "    assert!({ let s: A = A; s.m() });\n"
+                    '    mine!(f()); other::println!(f()); core::write!(w, "", f());\n'  # 10
+                    "    let x = 1; assert!(x.m());\n"
+                    "}\n"
+                    "pub fn g<A>(t: A) { assert!(t.m()); assert_eq!(f() =>, 1); }\n"
+                    'pub fn tail() -> String { format!("{}", f()) }\n'
+                ),
+            }
+        )
+        sites = {c.id: c for c in result.call_sites}
+        names = {d.id: d.symbol for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].column): (
+                sites[r.call_id].callee,
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        path = RUST_CALL_PATH
+        typed = RUST_CALL_TYPED_RECEIVER
+        self.maxDiff = None
+        self.assertEqual(
+            found,
+            {
+                # Each argument is read in place, a typed receiver included.
+                (6, 12): ("x.m", "A.m", typed),
+                (6, 25): ("f", "f", path),
+                # An argument that is no expression is skipped alone.
+                (7, 15): ("f", "f", path),
+                (7, 45): ("f", "f", path),
+                (8, 17): ("f", "f", path),
+                # A nested invocation, and a block's own declarations.
+                (8, 45): ("f", "f", path),
+                (9, 28): ("s.m", "A.m", typed),
+                # Other macros and paths are not read.
+                (10, 58): ("f", "f", path),
+                # The innermost declaration still decides.
+                (11, 23): ("x.m", None, "method_call"),
+                # So does a type parameter, and an argument with an error
+                # is skipped.
+                (13, 28): ("t.m", None, "method_call"),
+                # The last invocation of a file has no `;` after it.
+            },
+        )
+
     def test_methods_and_associated_functions_resolve_through_impls(self):
         result = analyze(
             {
