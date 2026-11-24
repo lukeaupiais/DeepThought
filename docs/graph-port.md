@@ -1958,10 +1958,17 @@ linked by the usual HTTP resolution:
   `service-contracts.jakarta-websocket-endpoint`). Only a Spring module's
   context path is joined.
 - **Clients.** In JavaScript and TypeScript, `new WebSocket(url)` and
-  `new SockJS(url)` are GET requests (client `websocket` or `sockjs`). The
+  `new SockJS(url)` (or `SockJS(url)`, which SockJS accepts) are GET
+  requests (client `websocket` or `sockjs`). The
   constructor is the browser's global when the file does not import it.
   Under any local name, it may also come from `ws`, `isomorphic-ws` or
   `sockjs-client`; a constructor imported from another module is not read.
+  STOMP clients name their handshake in their options: `brokerURL` given
+  to a `@stomp/stompjs` `Client` or `@stomp/rx-stomp` `RxStomp`
+  constructor or `configure` call is a `websocket` request, and `host`
+  given to an ng2-stomp-service `configure` call is a `sockjs` request (the
+  library opens `new SockJS(host)`). The client is recognised as for STOMP
+  destinations below.
   `ws://` and `wss://` URLs are read like `http://` ones. A relative URL is
   read against the site root.
 
@@ -2541,12 +2548,28 @@ meet at the `MessageDestination` of the same name:
   `@SendToUser` and `convertAndSendToUser` are `publish:user_destination`. A
   `@MessageMapping` method's default reply destination, used without
   `@SendTo`, is not read.
-- **Clients (JavaScript/TypeScript).** These calls name a destination: `send`
-  and `subscribe` with a destination first, and `publish({destination})`.
-  The call must be on a name that every assignment in the file binds to
-  `Stomp.over`, `Stomp.client`, `webstomp.over`/`webstomp.client` or a
-  `@stomp/stompjs` `Client`, or on AngularJS ngStomp's `$stomp` (rules
-  `service-contracts.stompjs-send` and `stompjs-subscribe`).
+- **Clients (JavaScript/TypeScript)** (`deepthought.service_contracts.stomp_clients`).
+  The call must be on a name (`x`, or `this.x` for a class member) that
+  every declaration and assignment in the file gives the same client kind.
+  A value gives a kind when it is a factory call or `new` of the client
+  class. In TypeScript a declaration typed with the class also gives the
+  kind: a variable or field without a value, a parameter (and `this.x` for
+  a constructor parameter property), or a getter's return type.
+  - `stompjs`: `Stomp.over`, `Stomp.client`, `webstomp.over`/
+    `webstomp.client`, a `@stomp/stompjs` `Client`, the browser bundle's
+    global `StompJs.Client` (when the file does not bind `StompJs`), or
+    AngularJS ngStomp's `$stomp`. `send` and `subscribe` with a destination
+    first, and `publish({destination})` (rules
+    `service-contracts.stompjs-send` and `stompjs-subscribe`).
+  - `rx-stomp`: a `@stomp/rx-stomp` `RxStomp` (or the global
+    `RxStomp.RxStomp`). `publish({destination})` and `watch(destination)`
+    or `watch({destination})` (rules `service-contracts.rx-stomp-publish`
+    and `rx-stomp-watch`).
+  - `ng2-stomp-service`: an ng2-stomp-service `StompService`, usually an
+    injected constructor parameter. `send(destination, body)` and
+    `subscribe(destination, callback)` (rules
+    `service-contracts.ng2-stomp-service-send` and
+    `ng2-stomp-service-subscribe`).
 
 Destination patterns with `{variables}` are kept as written. A client
 destination with unknown text is not read, so it never meets them.
@@ -2555,6 +2578,9 @@ destination with unknown text is not read, so it never meets them.
 |---|---|---|
 | mark-dev/chessfactory `b54acdb` | 14 server mappings (2 prefixes), 10 client sends and subscribes | 9 of the 10 client sites meet their handler or publisher. The 10th subscribes to `/user/queue/chesslobby`, whose publisher is a `convertAndSendToUser` (unread). The 7 client sites built from variables are unread |
 | ben-rampel/Poker `025a147` | 1 mapping, 1 ngStomp send | Linked. The topic is built from a variable on both sides, so it is unread |
+| spring-guides/gs-messaging-stomp-websocket `45228a1` (labelled corpus) | 1 mapping, 1 `@SendTo`, `StompJs.Client` bundle global | Handshake, send and subscribe all link: 3 of 3 labelled links, none wrong (none before) |
+| chriswhite199/spring-boot-angular2-stomp `78ade07` (labelled corpus) | 1 mapping, 1 `@SendTo`, injected ng2-stomp-service | 3 of 3 labelled links, none wrong (none before) |
+| jhipster/jhipster-sample-app-websocket `410a632` | 1 mapping, 2 publishers, RxStomp behind a typed getter | `watch('/topic/tracker')` meets both server publishers and `publish('/topic/activity')` meets the mapping. The SockJS handshake URL goes through `Location.prepareExternalUrl`, so it is unknown |
 | leansd/cotrip, ygunayer/realtime-messaging | 1 mapping + 1 `@SendTo` each | Found; the clients are in HTML |
 | ocinpp/springboot-sockjs-stomp-vue-sample | 2 `convertAndSend` | Found; the client is in HTML |
 | apssouza22/java-microservice (corpus) | 1 mapping, 1 `@SendTo`, 1 `convertAndSend` | Found; its messaging ground-truth score is unchanged |

@@ -332,16 +332,43 @@ MESSAGE_RULES = {
     ("stompjs", "publish"): _message_rule(
         "service-contracts.stompjs-send",
         "send(destination, ...) or publish({destination}) on a name that every "
-        "assignment in the file binds to Stomp.over, Stomp.client, webstomp or "
-        "a @stomp/stompjs Client, or on AngularJS ngStomp's $stomp, names this "
-        "destination." + _SAME_NAME,
+        "declaration and assignment in the file binds to Stomp.over, "
+        "Stomp.client, webstomp or a @stomp/stompjs Client (or the StompJs.Client "
+        "browser global), or types as that Client, or on AngularJS ngStomp's "
+        "$stomp, names this destination." + _SAME_NAME,
     ),
     ("stompjs", "consume"): _message_rule(
         "service-contracts.stompjs-subscribe",
-        "subscribe(destination, ...) on a name that every assignment in the "
-        "file binds to Stomp.over, Stomp.client, webstomp or a @stomp/stompjs "
-        "Client, or on AngularJS ngStomp's $stomp, names this destination."
-        + _SAME_NAME,
+        "subscribe(destination, ...) on a name that every declaration and "
+        "assignment in the file binds to Stomp.over, Stomp.client, webstomp or "
+        "a @stomp/stompjs Client (or the StompJs.Client browser global), or "
+        "types as that Client, or on AngularJS ngStomp's $stomp, names this "
+        "destination." + _SAME_NAME,
+    ),
+    ("rx-stomp", "publish"): _message_rule(
+        "service-contracts.rx-stomp-publish",
+        "publish({destination}) on a name that every declaration and "
+        "assignment in the file binds to, or types as, a @stomp/rx-stomp "
+        "RxStomp names this destination." + _SAME_NAME,
+    ),
+    ("rx-stomp", "consume"): _message_rule(
+        "service-contracts.rx-stomp-watch",
+        "watch(destination) or watch({destination}) on a name that every "
+        "declaration and assignment in the file binds to, or types as, a "
+        "@stomp/rx-stomp RxStomp names this destination." + _SAME_NAME,
+    ),
+    ("ng2-stomp-service", "publish"): _message_rule(
+        "service-contracts.ng2-stomp-service-send",
+        "send(destination, body) on a name that every declaration and "
+        "assignment in the file binds to, or types as, an ng2-stomp-service "
+        "StompService (an injected constructor parameter) names this "
+        "destination." + _SAME_NAME,
+    ),
+    ("ng2-stomp-service", "consume"): _message_rule(
+        "service-contracts.ng2-stomp-service-subscribe",
+        "subscribe(destination, callback) on a name that every declaration and "
+        "assignment in the file binds to, or types as, an ng2-stomp-service "
+        "StompService names this destination." + _SAME_NAME,
     ),
     ("graphql-subscriptions", "publish"): _message_rule(
         "service-contracts.graphql-pubsub-publish",
