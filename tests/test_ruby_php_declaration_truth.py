@@ -103,6 +103,60 @@ class DeclarationOracleTests(unittest.TestCase):
         )
 
     @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_php_anonymous_class_after_an_attribute_or_modifier(self):
+        rows, _ = oracle(
+            ["php", str(ROOT / "tools/php_declaration_truth.php")],
+            "a.php",
+            "<?php\n$a = new #[Q('x')] class extends N {\n"
+            "    public function via() {}\n};\n"
+            "$b = new readonly class { function f() {} };\n",
+        )
+        self.assertEqual(rows, {(3, "via", "method", 3), (5, "f", "method", 5)})
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_php_imports(self):
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "src/A").mkdir(parents=True)
+            (root / "src/B").mkdir(parents=True)
+            (root / "src/A/X.php").write_text(
+                "<?php\nnamespace A;\n"
+                "use B\\{Y, Z as Zed};\n"
+                "use function B\\helper;\n"
+                "use const B\\LIMIT;\n"
+                "use Psr\\Log\\LoggerInterface;\n"
+                "use B;\n"
+                "class X { use T; function f() { $g = function () use ($x) {}; } }\n",
+                "utf-8",
+            )
+            (root / "src/B/Y.php").write_text(
+                "<?php\nnamespace B;\ninterface Y {}\nclass Z {}\n"
+                "function helper() {}\ntrait T {}\n",
+                "utf-8",
+            )
+            out = subprocess.run(
+                ["php", str(ROOT / "tools/php_import_truth.php"), str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        finally:
+            shutil.rmtree(root)
+        rows = {tuple(line.split("\t")) for line in out.splitlines() if line[0] != "#"}
+        # The group, the function and the namespace (B declares Y, Z, T)
+        # resolve; the Psr name is outside; the constant, the trait use and
+        # the closure's `use` are not listed.
+        self.assertEqual(
+            rows,
+            {
+                ("src/A/X.php", "3", "import", "src/B/Y.php", "0", "module"),
+                ("src/A/X.php", "4", "import", "src/B/Y.php", "0", "module"),
+                ("src/A/X.php", "6", "import", "-", "0", "external"),
+                ("src/A/X.php", "7", "import", "src/B/Y.php", "0", "module"),
+            },
+        )
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
     def test_php_file_with_syntax_error_is_not_indexed(self):
         _, out = oracle(
             ["php", str(ROOT / "tools/php_declaration_truth.php")],
