@@ -155,6 +155,30 @@
     "confirmed": 1044,
     "contradicted": 0,
     "expected": 2197,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 52,
+          "expected": 309
+        },
+        "2": {
+          "confirmed": 50,
+          "expected": 531
+        },
+        "3": {
+          "confirmed": 17,
+          "expected": 924
+        }
+      },
+      "confirmed": 119,
+      "expected": 1764,
+      "extra": 0,
+      "missed": 1645,
+      "precision": 1.0,
+      "recall": 0.0675,
+      "seeds": 107,
+      "seeds_undeclared": 0
+    },
     "imports": {
       "confirmed": 12,
       "contradicted": 0,

@@ -27,7 +27,11 @@ kept.
 
 Usage:
   python tools/impact_truth.py derive INDEX CALLS_TSV HISTORY \\
-      --language L --revision PIN [--commits 30] [--max-depth 3] > impact.tsv
+      --language L --revision PIN [--commits 30] [--max-depth 3] \\
+      [--spans SPANS_TSV] > impact.tsv
+
+For Go, scip-go records no definition spans; pass the output of
+``go run tools/go_function_spans.go WORKSPACE`` as ``--spans``.
 """
 
 import argparse
@@ -50,6 +54,7 @@ _FUNCTION_VALUE = re.compile(
     r"\s*(?::[^=]*)?=\s*(?:async\s+)?"
     r"(?:function\b|(?:<[^>]*>\s*)?\(|[A-Za-z_$][\w$]*\s*=>)"
 )
+_SCRIPTS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # Names the engine writes differently: TypeScript constructors.
 _RENAMED = {"<constructor>": "constructor"}
 
@@ -80,7 +85,7 @@ def _python_block(lines, line):
 _PY_DEF = re.compile(r"^\s*(?:async\s+)?def\s+$")
 
 
-def callables(index, source=None):
+def callables(index, source=None, spans=None):
     """``({(file, line): (name, first_line, last_line)}, {alias: node})``
     for every callable the index defines with an enclosing range (1-based).
 
@@ -89,7 +94,8 @@ def callables(index, source=None):
     included, are references on a ``def`` line. With ``source`` (a function
     from a file to its text), each such ``def`` becomes an alias of the
     first: one node whose spans are all of them, the block found by
-    indentation.
+    indentation. ``spans`` (``{(file, name_line): (first, last)}``, from
+    the language's own parser) supplies spans the index does not record.
     """
     from deepthought._scip import scip_pb2
 
@@ -97,6 +103,8 @@ def callables(index, source=None):
     data.ParseFromString(Path(index).read_bytes())
     found, by_symbol, overloads, texts = {}, {}, [], {}
     for document in data.documents:
+        if document.relative_path.startswith("../"):
+            continue  # outside the repository (scip-go's build cache)
         for occurrence in document.occurrences:
             symbol = occurrence.symbol
             if symbol.startswith("local "):
@@ -108,7 +116,12 @@ def callables(index, source=None):
             if not match:
                 # A variable holding a function (`const f = () => ...`).
                 match = _TERM.search(descriptors)
-                if not (match and occurrence.symbol_roles & 1 and source):
+                if not (
+                    match
+                    and occurrence.symbol_roles & 1
+                    and source
+                    and document.relative_path.endswith(_SCRIPTS)
+                ):
                     continue
                 file = document.relative_path
                 if file not in texts:
@@ -119,11 +132,14 @@ def callables(index, source=None):
             if not occurrence.symbol_roles & 1:
                 overloads.append((document.relative_path, line, occurrence, symbol))
                 continue
-            if not len(occurrence.enclosing_range):
+            if len(occurrence.enclosing_range):
+                span = list(occurrence.enclosing_range)
+                first = span[0] + 1
+                last = (span[2] if len(span) == 4 else span[0]) + 1
+            elif spans and (document.relative_path, line) in spans:
+                first, last = spans[(document.relative_path, line)]
+            else:
                 continue
-            span = list(occurrence.enclosing_range)
-            first = span[0] + 1
-            last = (span[2] if len(span) == 4 else span[0]) + 1
             name = _RENAMED.get(match.group(1), match.group(1))
             found[(document.relative_path, line)] = (name, first, last)
             by_symbol.setdefault(symbol, (document.relative_path, line))
@@ -232,11 +248,21 @@ def seeds(nodes, repo, language, revision, commits, aliases=None):
     return sorted(chosen)
 
 
-def derive(index, calls, repo, language, revision, commits=30, max_depth=3):
+def read_spans(path):
+    """tools/go_function_spans.go output as ``callables`` takes it."""
+    spans = {}
+    for text in Path(path).read_text("utf-8").splitlines():
+        if text and not text.startswith("#"):
+            file, line, first, last = text.split("\t")
+            spans[(file, int(line))] = (int(first), int(last))
+    return spans
+
+
+def derive(index, calls, repo, language, revision, commits=30, max_depth=3, spans=None):
     from ground_truth import read_truth
 
     nodes, aliases = callables(
-        index, lambda file: git(repo, "show", f"{revision}:{file}")
+        index, lambda file: git(repo, "show", f"{revision}:{file}"), spans
     )
     positions, _ = read_truth(calls)
     incoming = call_graph(nodes, positions, aliases)
@@ -358,6 +384,9 @@ def main(argv=None):
     derive_cmd.add_argument("--revision", required=True)
     derive_cmd.add_argument("--commits", type=int, default=30)
     derive_cmd.add_argument("--max-depth", type=int, default=3)
+    derive_cmd.add_argument(
+        "--spans", type=Path, help="function spans for an index without them"
+    )
     args = parser.parse_args(argv)
     rows = derive(
         args.index,
@@ -367,6 +396,7 @@ def main(argv=None):
         args.revision,
         args.commits,
         args.max_depth,
+        read_spans(args.spans) if args.spans else None,
     )
     write(rows, sys.stdout)
     return 0

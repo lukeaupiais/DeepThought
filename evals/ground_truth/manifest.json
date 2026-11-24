@@ -50,7 +50,9 @@
       "oracle_command": "scip-go",
       "imports": "imports/cobra.tsv",
       "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
-      "imports_granularity": "directory"
+      "imports_granularity": "directory",
+      "impact": "impact/cobra.tsv",
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv"
     },
     {
       "name": "anyhow",
