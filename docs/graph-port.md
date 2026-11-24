@@ -2913,7 +2913,9 @@ definitions and extensions, and of the parsed operations' first selection
 level, with the lines and columns of their names. Template substitutions
 (`${...}`) are blanked before parsing. Without graphql-core the tool raises
 `GraphqlCoreMissing` instead of reading GraphQL another way; a source
-graphql-core rejects is unread.
+graphql-core rejects is unread. On the 32 GraphQL validation repositories
+removing the tokenizer fallback changes no link; one deliberately invalid
+gqlgen test schema is now counted as `graphql:schema_not_parsed`.
 
 Counted as unread:
 - `graphql:schema_not_parsed` and `graphql:operation_not_parsed`: a schema
