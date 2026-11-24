@@ -23,11 +23,17 @@
 // (they name no declaration), but a constructor that delegates depends on the
 // one it calls, which impact truth needs.
 //
+// With --recovered first, prints instead only the calls left out above for
+// error recovery, each bound to every same-named overload javac could have
+// chosen among (one row per overload of the repository). These are edges
+// the oracle cannot rule on: impact truth uses them to tell a dependent it
+// cannot judge from a wrong one.
+//
 // Usage:
 //   java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED \
 //     --add-exports jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED \
 //     --add-exports jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED \
-//     tools/JavaCallTruth.java [--bases | --chains] REPOSITORY ROOT [SOURCEPATH_ROOT ...]
+//     tools/JavaCallTruth.java [--bases | --chains | --recovered] REPOSITORY ROOT [SOURCEPATH_ROOT ...]
 
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -99,7 +105,8 @@ public class JavaCallTruth {
     public static void main(String[] arguments) throws Exception {
         boolean bases = arguments.length > 0 && arguments[0].equals("--bases");
         boolean chains = arguments.length > 0 && arguments[0].equals("--chains");
-        String[] args = bases || chains
+        boolean recovered = arguments.length > 0 && arguments[0].equals("--recovered");
+        String[] args = bases || chains || recovered
             ? java.util.Arrays.copyOfRange(arguments, 1, arguments.length) : arguments;
         repository = Path.of(args[0]).toAbsolutePath().normalize();
         Path root = repository.resolve(args[1]);
@@ -131,6 +138,11 @@ public class JavaCallTruth {
             LineMap lines = unit.getLineMap();
             new TreePathScanner<Void, Void>() {
                 void emit(Tree name, String text, Element element) {
+                    if (recovered) return;
+                    emitAny(name, text, element);
+                }
+
+                void emitAny(Tree name, String text, Element element) {
                     String bound;
                     try {
                         bound = target(element);
@@ -219,19 +231,44 @@ public class JavaCallTruth {
                     return false;
                 }
 
+                // Every same-named overload of the called element, for a call
+                // javac chose by error recovery.
+                void overloads(ExpressionTree tree, List<? extends ExpressionTree> arguments) {
+                    Element called = trees.getElement(getCurrentPath());
+                    if (called == null || called.getEnclosingElement() == null) return;
+                    if (tree instanceof ParameterizedTypeTree parameterized) {
+                        tree = (ExpressionTree) parameterized.getType();
+                    }
+                    String text = tree instanceof IdentifierTree identifier
+                        ? identifier.getName().toString()
+                        : tree instanceof MemberSelectTree select ? select.getIdentifier().toString() : null;
+                    if (text == null) return;
+                    for (Element e : called.getEnclosingElement().getEnclosedElements()) {
+                        if (e.getKind() == called.getKind() && e.getSimpleName().equals(called.getSimpleName())) {
+                            emitAny(tree, text, e);
+                        }
+                    }
+                }
+
                 @Override
                 public Void visitMethodInvocation(MethodInvocationTree node, Void unused) {
                     if (bases) return super.visitMethodInvocation(node, unused);
-                    if (erroneous(node.getArguments())) return super.visitMethodInvocation(node, unused);
+                    if (erroneous(node.getArguments())) {
+                        if (recovered) overloads(node.getMethodSelect(), node.getArguments());
+                        return super.visitMethodInvocation(node, unused);
+                    }
                     name(node.getMethodSelect(), trees.getElement(getCurrentPath()));
                     return super.visitMethodInvocation(node, unused);
                 }
 
                 @Override
                 public Void visitNewClass(NewClassTree node, Void unused) {
-                    if (!bases && !chains && node.getClassBody() == null
-                            && !erroneous(node.getArguments())) {
-                        name(node.getIdentifier(), trees.getElement(getCurrentPath()));
+                    if (!bases && !chains && node.getClassBody() == null) {
+                        if (!erroneous(node.getArguments())) {
+                            name(node.getIdentifier(), trees.getElement(getCurrentPath()));
+                        } else if (recovered) {
+                            overloads(node.getIdentifier(), node.getArguments());
+                        }
                     }
                     return super.visitNewClass(node, unused);
                 }

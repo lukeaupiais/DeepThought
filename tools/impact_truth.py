@@ -339,6 +339,7 @@ def derive(
     max_depth=3,
     spans=None,
     extra_calls=(),
+    possible_calls=(),
 ):
     from ground_truth import read_truth
 
@@ -355,17 +356,36 @@ def derive(
         for site, targets in read_truth(path)[0].items():
             positions.setdefault(site, set()).update(targets)
     incoming = call_graph(nodes, positions, aliases, language != "python")
-    rows = []
+    # Calls the oracle cannot rule on (javac's error recovery), bound to every
+    # target they could take: a dependent reached only through one of them
+    # is neither expected nor wrong.
+    possible = {site: set(targets) for site, targets in positions.items()}
+    for path in possible_calls:
+        for site, targets in read_truth(path)[0].items():
+            possible.setdefault(site, set()).update(targets)
+    widened = (
+        call_graph(nodes, possible, aliases, language != "python")
+        if possible_calls
+        else incoming
+    )
+    rows, unjudged = [], []
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
-        for (file, line), depth in sorted(reach(incoming, seed, max_depth).items()):
+        reached = reach(incoming, seed, max_depth)
+        for (file, line), depth in sorted(reached.items()):
             rows.append(
                 (*seed, nodes[seed][0], file, line, nodes[(file, line)][0], depth)
             )
-    return rows, aliases, nodes
+        for node in sorted(set(reach(widened, seed, max_depth)) - set(reached)):
+            unjudged.append((*seed, *node))
+    return rows, aliases, nodes, unjudged
 
 
-def write(rows, stream, aliases=None, nodes=None):
+def write(rows, stream, aliases=None, nodes=None, unjudged=()):
     print(HEADER, file=stream)
+    # Dependents of a seed reached only through a call the oracle cannot
+    # rule on: an engine dependent here is unjudged, not extra.
+    for seed_file, seed_line, file, line in sorted(unjudged):
+        print(f"# unjudged\t{seed_file}\t{seed_line}\t{file}\t{line}", file=stream)
     # Every oracle callable, so the scorer can tell a declaration the index
     # does not name (no node can judge it) from one the truth just does not
     # list.
@@ -391,6 +411,16 @@ def read_aliases(path):
             _, file, line, canonical = text.split("\t")
             aliases[(file, int(line))] = int(canonical)
     return aliases
+
+
+def read_unjudged(path):
+    """{(seed_file, seed_line, file, line)} from ``# unjudged`` rows."""
+    found = set()
+    for text in Path(path).read_text("utf-8").splitlines():
+        if text.startswith("# unjudged\t"):
+            _, sf, sl, f, ln = text.split("\t")
+            found.add((sf, int(sl), f, int(ln)))
+    return found
 
 
 def read_nodes(path):
@@ -421,6 +451,7 @@ def score(
     aliases=None,
     fold_nested=False,
     nodes=None,
+    unjudged=None,
 ):
     """Engine dependents of each seed against the oracle's.
 
@@ -440,6 +471,10 @@ def score(
     dependent that is none of them, such as a function scip-typescript makes
     local inside an anonymous callback, cannot be judged: it is *unjudged*,
     not extra, and the search still goes through it.
+
+    ``unjudged``: (seed file, seed line, file, line) pairs the truth's
+    ``# unjudged`` rows list, dependents reached only through a call the
+    oracle cannot rule on. An engine dependent among them is unjudged too.
     """
     from deepthought.calls import resolve_calls
 
@@ -523,6 +558,22 @@ def score(
             if source != target:
                 incoming[target].add(source)
     engine_nodes = set(node_of.values())
+    # An unjudged row names the oracle's line for a callable (its name
+    # line); an engine node the truth does not otherwise list keeps its
+    # declaration's first line (an annotation), so match on the span.
+    spans = defaultdict(list)
+    for i, d in definitions.items():
+        spans[node_of[i]].append((d.line, d.end_line))
+    unjudged_lines = defaultdict(set)
+    for sf, sl, f, ln in unjudged or ():
+        unjudged_lines[(sf, sl, f)].add(ln)
+
+    def is_unjudged(seed, node):
+        lines = unjudged_lines.get((*seed[:2], node[0]), ())
+        return node[1] in lines or any(
+            start <= ln <= end for start, end in spans.get(node, ()) for ln in lines
+        )
+
     totals = {"seeds": len(truth), "seeds_undeclared": 0}
     counts = {"expected": 0, "confirmed": 0, "missed": 0, "extra": 0, "unjudged": 0}
     by_depth = defaultdict(lambda: {"expected": 0, "confirmed": 0})
@@ -545,7 +596,9 @@ def score(
                 counts["missed"] += 1
                 samples["missed"].append([*seed[:2], *node[:2], node[2], depth])
         for node, depth in sorted(reached.items()):
-            if node not in expected and nodes and node[:2] not in nodes:
+            if node not in expected and (
+                (nodes and node[:2] not in nodes) or is_unjudged(seed, node)
+            ):
                 counts["unjudged"] += 1
             elif node not in expected:
                 counts["extra"] += 1
@@ -584,8 +637,16 @@ def main(argv=None):
         default=[],
         help="more edges in the call-truth format (Java constructor chains)",
     )
+    derive_cmd.add_argument(
+        "--possible-calls",
+        type=Path,
+        action="append",
+        default=[],
+        help="edges the oracle cannot rule on (derive-java --recovered): "
+        "dependents reached only through them are listed as unjudged",
+    )
     args = parser.parse_args(argv)
-    rows, aliases, nodes = derive(
+    rows, aliases, nodes, unjudged = derive(
         None if args.index == "-" else Path(args.index),
         args.calls,
         args.history,
@@ -595,11 +656,12 @@ def main(argv=None):
         args.max_depth,
         read_spans(args.spans) if args.spans else None,
         args.extra_calls,
+        args.possible_calls,
     )
     # scip-typescript gives a function inside another a local symbol, so
     # the truth lists every node to tell those apart from unlisted ones.
     scripts = args.language in {"typescript", "javascript"}
-    write(rows, sys.stdout, aliases, nodes if scripts else None)
+    write(rows, sys.stdout, aliases, nodes if scripts else None, unjudged)
     return 0
 
 
