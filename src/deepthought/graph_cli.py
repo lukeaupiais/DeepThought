@@ -65,6 +65,7 @@ def parser():
         choices=(
             "c",
             "cpp",
+            "csharp",
             "go",
             "java",
             "javascript",

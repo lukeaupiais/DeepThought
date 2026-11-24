@@ -57,6 +57,7 @@ def main(argv=None) -> int:
         choices=(
             "c",
             "cpp",
+            "csharp",
             "go",
             "java",
             "javascript",

@@ -72,6 +72,7 @@ class RegistryTests(unittest.TestCase):
             {
                 "c",
                 "cpp",
+                "csharp",
                 "go",
                 "java",
                 "javascript",
