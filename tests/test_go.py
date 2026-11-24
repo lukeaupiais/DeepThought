@@ -277,6 +277,10 @@ class GoTests(unittest.TestCase):
         self.assertEqual(
             found[(15, "c.Up")], ("unresolved", "not_declared_on_type", None)
         )
+        # A call's result, of a function the package does not declare.
+        self.assertEqual(
+            found[(33, "m.Root")], ("unresolved", "receiver_type_unknown", None)
+        )
         for line, callee in (
             (17, "p.Name"),
             (21, "v.Root"),
@@ -284,13 +288,107 @@ class GoTests(unittest.TestCase):
             (47, "l.Root"),
             (28, "t.Name"),
             (31, "xs.Root"),
-            (33, "m.Root"),
             (35, "b.Root"),
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(
                     found[(line, callee)], ("unresolved", "attribute_call", None)
                 )
+
+    def test_receivers_bound_to_a_function_result(self):
+        files = {
+            "go.mod": "module example.com/app\n",
+            "lib/lib.go": (
+                "package lib\n"
+                "type Mux struct{ Sub *Mux }\n"
+                "func NewMux() *Mux { return nil }\n"
+                "func (m *Mux) Use() {}\n"
+                "func Pair() (*Mux, error) { return nil, nil }\n"
+                "func Plain() int { return 0 }\n"
+                "func Twice() *Mux { return nil }\n"
+                "var Std = &Mux{}\n"
+                "func Root() *Mux { return nil }\n"
+            ),
+            "lib/twice.go": "package lib\nfunc Twice() *Mux { return nil }\n",
+            "app.go": (
+                "package app\n"
+                "type Box struct{}\n"
+                "func (b Box) Open() {}\n"
+                "func newBox() Box { return Box{} }\n"
+                "func Get[T any]() T { var t T; return t }\n"
+            ),
+            "use.go": (
+                "package app\n"
+                'import "example.com/app/lib"\n'
+                "func Use(other func() Box) {\n"
+                "\tr := lib.NewMux()\n"
+                "\tr.Use()\n"  # 5: an imported function
+                "\tb := newBox()\n"
+                "\tb.Open()\n"  # 7: a function of the package
+                "\tm, err := lib.Pair()\n"
+                "\tm.Use(); _ = err\n"  # 9: the first result
+                "\tr.Sub.Use()\n"  # 10: then a field
+                "\tlib.NewMux().Sub.Use()\n"  # 11: not through a variable
+                "\to := other()\n"
+                "\to.Open()\n"  # 13: a parameter named like the call
+                "\tlib := Box{}\n"
+                "\tl := lib.NewMux()\n"
+                "\tl.Use()\n"  # 16: lib is now a variable
+                "\tg := Get[Box]()\n"
+                "\tg.Open()\n"  # 18: a generic call is not followed
+                "}\n"
+                "func Later() {\n"
+                "\tt := lib.Twice()\n"
+                "\tt.Use()\n"  # 22: declared twice in the package
+                "\tp := lib.Plain()\n"
+                "\tp.Use()\n"  # 24: a result of a type with no methods
+                "\ts := lib.Std.Root()\n"
+                "\ts.Use()\n"  # 26: a method of a package variable
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].symbol if r.target_id else r.reason
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "use.go"
+            and "." in sites[r.call_id].callee
+            and sites[r.call_id].callee.split(".")[0] in "r b m o l g t p s".split()
+        }
+        self.assertEqual(
+            found,
+            {
+                (5, "r.Use"): "Mux.Use",
+                (7, "b.Open"): "Box.Open",
+                (9, "m.Use"): "Mux.Use",
+                (10, "r.Sub.Use"): "Mux.Use",
+                (13, "o.Open"): "attribute_call",
+                (16, "l.Use"): "receiver_type_unknown",
+                (18, "g.Open"): "attribute_call",
+                (22, "t.Use"): "receiver_type_unknown",
+                (24, "p.Use"): "not_declared_on_type",
+                (26, "s.Use"): "attribute_call",
+            },
+        )
+        fields = {
+            (s.line, s.callee): (s.receiver_function, s.receiver_steps)
+            for s in sites.values()
+        }
+        self.assertEqual(fields[(10, "r.Sub.Use")], ("lib.NewMux", ("Sub",)))
+        self.assertEqual(fields[(7, "b.Open")], ("newBox", None))
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        site = sites[next(iter(sites))]
+        for bad in (
+            {"receiver_function": ""},
+            {"receiver_function": "F", "receiver_type": "T"},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                replace(site, **bad)
+        replace(site, receiver_function="F", receiver_steps=("f",))
 
     def test_receiver_types_follow_fields_results_elements_and_variables(self):
         files = {

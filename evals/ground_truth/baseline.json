@@ -72,33 +72,33 @@
         "confirmed": 377
       },
       "tree-sitter.go-call-typed-receiver": {
-        "confirmed": 298
+        "confirmed": 670
       }
     },
-    "confirmed": 949,
+    "confirmed": 1321,
     "contradicted": 0,
     "expected": 1223,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 90,
+          "confirmed": 106,
           "expected": 106
         },
         "2": {
-          "confirmed": 179,
+          "confirmed": 205,
           "expected": 206
         },
         "3": {
-          "confirmed": 47,
+          "confirmed": 86,
           "expected": 87
         }
       },
-      "confirmed": 316,
+      "confirmed": 397,
       "expected": 399,
       "extra": 0,
-      "missed": 83,
+      "missed": 2,
       "precision": 1.0,
-      "recall": 0.792,
+      "recall": 0.995,
       "seeds": 87,
       "seeds_undeclared": 0
     },
@@ -110,17 +110,17 @@
       "recall": 1.0,
       "unresolved_external": 276
     },
-    "missed": 383,
+    "missed": 26,
     "missed_by_engine_outcome": {
       "no_call_site": 15,
-      "unresolved:attribute_call": 361,
       "unresolved:no_declaration": 3,
-      "unresolved:not_declared_on_type": 4
+      "unresolved:not_declared_on_type": 4,
+      "unresolved:receiver_type_unknown": 4
     },
     "precision": 1.0,
-    "recall": 0.6868,
-    "unresolved_expected": 369,
-    "unresolved_unjudged": 2290
+    "recall": 0.9787,
+    "unresolved_expected": 11,
+    "unresolved_unjudged": 2276
   },
   "click": {
     "ambiguous_includes": 5,
@@ -221,11 +221,11 @@
         "confirmed": 566
       },
       "tree-sitter.go-call-typed-receiver": {
-        "confirmed": 1084,
+        "confirmed": 1086,
         "not_indexed": 2
       }
     },
-    "confirmed": 2128,
+    "confirmed": 2130,
     "contradicted": 0,
     "expected": 2197,
     "impact": {
@@ -261,16 +261,16 @@
       "recall": 1.0,
       "unresolved_external": 174
     },
-    "missed": 81,
+    "missed": 79,
     "missed_by_engine_outcome": {
       "no_call_site": 32,
-      "unresolved:attribute_call": 43,
+      "unresolved:attribute_call": 41,
       "unresolved:no_declaration": 6
     },
     "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.9631,
-    "unresolved_expected": 49,
+    "recall": 0.964,
+    "unresolved_expected": 47,
     "unresolved_unjudged": 1932
   },
   "contracts": {

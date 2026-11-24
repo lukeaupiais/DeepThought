@@ -276,9 +276,15 @@ class CallSite:
     # Python calls ``x.m()``: the class name (``T``, ``m.T``) that the
     # binding of ``x`` writes. None elsewhere.
     receiver_type: str | None = None
-    # Go: how the receiver's type follows from ``receiver_type``, one step
-    # each: a field name ``f``, a method call ``M()`` (its first result), or
-    # ``[]`` (an element of a slice). None when the receiver is ``x`` itself.
+    # Go calls on a variable bound to a function's result (``x := F()``,
+    # ``x := pkg.F()``): that function, ``F`` or ``pkg.F``, in place of
+    # ``receiver_type``; the receiver's type is its first result. None
+    # elsewhere.
+    receiver_function: str | None = None
+    # Go: how the receiver's type follows from ``receiver_type`` (or
+    # ``receiver_function``), one step each: a field name ``f``, a method
+    # call ``M()`` (its first result), or ``[]`` (an element of a slice).
+    # None when the receiver is ``x`` itself.
     receiver_steps: tuple[str, ...] | None = None
 
     def __post_init__(self):
@@ -286,8 +292,16 @@ class CallSite:
             not isinstance(self.receiver_type, str) or not self.receiver_type
         ):
             raise ValueError("receiver_type must be a nonempty string or None")
+        if self.receiver_function is not None and (
+            not isinstance(self.receiver_function, str)
+            or not self.receiver_function
+            or self.receiver_type is not None
+        ):
+            raise ValueError(
+                "receiver_function must be a nonempty string, without a type"
+            )
         if self.receiver_steps is not None and (
-            self.receiver_type is None
+            (self.receiver_type is None and self.receiver_function is None)
             or type(self.receiver_steps) is not tuple
             or not self.receiver_steps
             or not all(isinstance(step, str) and step for step in self.receiver_steps)
@@ -617,6 +631,8 @@ class AnalysisResult:
                 del item["shadowed"]
             if item["receiver_type"] is None:
                 del item["receiver_type"]
+            if item["receiver_function"] is None:
+                del item["receiver_function"]
             if item["receiver_steps"] is None:
                 del item["receiver_steps"]
         for item in data["imports"]:

@@ -352,7 +352,8 @@ CALL_RULES.update(
             "receiver's type T, in the package that declares T. The type is "
             "followed from what is written: a variable's declaration, a "
             "struct field's declared type, the first declared result of a "
-            "method, the element of a slice or array, a type assertion; a "
+            "method or of a function 'F()' or 'pkg.F()', the element of a "
+            "slice or array, a type assertion; a "
             "step that names nothing, or more than one declaration, leaves the "
             "call unresolved. Promoted methods of embedded fields are not "
             "followed.",
