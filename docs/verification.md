@@ -155,6 +155,11 @@ line 35, `processor(stream)` calls the loop variable of
 `for processor in processors`, and the engine links it to the module-level
 function `processor` defined on line 42.
 
+`check` refuses to score (exit status 2) when a grammar or the YAML reader a
+selected corpus needs is not installed. Without them the engine reports files
+unavailable and gateway routes unread instead of failing, so the scores would
+drop as if it had regressed. Install the package with its `languages` extra.
+
 ### Inheritance
 
 `inherits/NAME.tsv` holds expected declared supertypes in the same format, keyed

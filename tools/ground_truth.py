@@ -509,8 +509,45 @@ def contract_regressions(report, baseline):
     return problems
 
 
+# What the contract scorer needs beyond the grammars: gateway routes in YAML.
+CONTRACT_MODULES = ("yaml",)
+CONTRACT_LANGUAGES = ("python", "typescript", "javascript", "go", "java")
+
+
+def missing_requirements(manifest, names=()):
+    """Modules the selected corpora need that are not installed.
+
+    A missing grammar or YAML reader does not fail analysis: files are
+    reported unavailable and gateway routes unread, so scores drop as if the
+    engine had regressed. ``check`` refuses to score instead.
+    """
+    import importlib.util
+
+    from deepthought.syntax import LANGUAGES
+
+    def selected(corpus):
+        return not names or corpus["name"] in names
+
+    modules = set()
+    for corpus in manifest["corpora"] + manifest.get("declarations", []):
+        if selected(corpus):
+            modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
+    if any(selected(c) for c in manifest.get("contracts", ())):
+        modules.update(CONTRACT_MODULES)
+        modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
+    return sorted(m for m in modules if importlib.util.find_spec(m) is None)
+
+
 def check(names, cache, update=False, examples=10):
     manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
+    missing = missing_requirements(manifest, names)
+    if missing:
+        raise RuntimeError(
+            "not installed: "
+            + ", ".join(missing)
+            + " (install the package with its `languages` extra); scores "
+            "without them would read as regressions"
+        )
     baseline_path = CORPUS / "baseline.json"
     baseline = json.loads(baseline_path.read_text("utf-8"))
     reports, failed = {}, False
@@ -750,9 +787,13 @@ def main(argv=None):
         )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0
-    reports, failed = check(
-        set(args.corpus), args.cache, args.update_baseline, args.examples
-    )
+    try:
+        reports, failed = check(
+            set(args.corpus), args.cache, args.update_baseline, args.examples
+        )
+    except RuntimeError as error:
+        print(f"ground_truth check: {error}", file=sys.stderr)
+        return 2
     coverage = rule_coverage(reports)
     print(json.dumps({"corpora": reports, "rule_coverage": coverage}, indent=2))
     return 1 if failed else 0
