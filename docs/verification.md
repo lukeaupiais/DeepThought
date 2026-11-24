@@ -661,8 +661,8 @@ that line name exactly the labelled (table, access) pairs.
 
 | Corpus | Commit | Lines | Found | Wrong | Missed | Extra |
 |---|---|---|---|---|---|---|
-| Ghost | 7ada5b0 | 873 | 642 | 0 | 231 | 0 |
-| Backstage | b3ed969 | 399 | 328 | 1 | 70 | 0 |
+| Ghost | 7ada5b0 | 873 | 736 | 0 | 137 | 0 |
+| Backstage | b3ed969 | 396 | 365 | 0 | 31 | 0 |
 
 The labels were made without reading the engine's Knex reader. Ghost reaches
 Knex through migration callbacks whose untyped parameter is named
@@ -670,8 +670,9 @@ Knex through migration callbacks whose untyped parameter is named
 its data seeders' `this.transaction` field, as well as through `knex`
 itself. Backstage hands its transactions to callbacks named `tx` and keeps most
 table names in constants, some imported from a sibling `tables.ts`. A
-schema-qualified table keeps its schema in the label
-(`information_schema.statistics`).
+schema qualifier is dropped (`app.users` names `users`), since tables join
+across readers by name, and a database's own catalog (`information_schema.*`,
+`pg_catalog.*`, `pg_*`, `sqlite_*`, ...) is listed under `not_counted`.
 
 ## Metamorphic checks
 
