@@ -166,8 +166,15 @@ arbitrary object gets no edge.
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
 | `tree-sitter.js-call-static-method` | JavaScript/TypeScript: `C.m()` to the method `m` that the class `C` declares `static` (`Definition.static`), as ky's `Ky.create(...)` and `NonError.wrap(...)`. `C` is the class declared where the call's scopes see `C` (`CallSite.binding` records that declaration for `x.m` calls too), or the one class a named or default import binds to `C`, followed as for `call-imported-name`. A static method `C` inherits is not followed (`static_not_declared`), and a name a scope binds to anything else (a parameter, `const C = other`) leaves the call `attribute_call` |
+| `tree-sitter.js-call-typed-receiver` | JavaScript/TypeScript: `x.m()` where the declaration of `x` the call sees (`CallSite.binding`) is a variable or parameter annotated `x: C` or `x: C<...>`, or a variable initialized with `new C(...)`. `C` is found as for `js-call-static-method`, from where `x` is declared (`CallSite.receiver_type` and `receiver_binding`), and must be one class that no interface or namespace merges with. It links to the instance method `m` that `C` declares, or that it inherits through `extends`, class by class. An instance field or constructor parameter property named `m` on the way hides the method (`field_not_method`, `Definition.properties`), and a base that names no repository class stops the lookup (`base_not_resolved`), since it may declare `m`. A file that declares an interface or type alias named `C` anywhere is not read, since that name may be the type. Receivers typed any other way (a function's result, a callback parameter typed by its context, `this.x`), interfaces, private names `x.#m` and methods named on an object type stay `attribute_call` |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
+
+In JavaScript and TypeScript, a `new C(...)` that one of these rules links to
+the class `C` links instead to the `constructor` that `C` declares, which is
+the code the construction runs; the rule stays the one that found `C`. A class
+that declares no constructor (one it inherits is not followed), or several
+constructor overload signatures, keeps the link to the class.
 
 A name bound both by an import and a local declaration, or declared more than
 once, is ambiguous and gets no edge. Python `typing.overload` signatures
@@ -750,7 +757,7 @@ every link is `name_matched`:
 | `tree-sitter.java-static-import` | `m()` declared by no enclosing type: a method of a type imported with `import static`, by name or `*` |
 | `tree-sitter.call-self-method` | `this.m()`: the innermost enclosing type's `m` |
 | `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
-| `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
+| `tree-sitter.java-type-name` | `new T()`: the constructor of the type `T` names, by the same lookup, that the arguments select (overloads chosen as for methods, below). When `T` declares no constructor, or the arguments leave none or more than one, the link is to the type |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 
@@ -1956,7 +1963,8 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 |---|---|---|
 | `service-contracts.spring-route-mapping` | pattern_matched | handler -> HANDLES -> HttpRoute |
 | `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
-| `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name`; only that service's routes are candidates |
+| `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name` or deployment name, or to a host name only that service's deployments answer to (see "Services named by their deployments"); only that service's routes are candidates |
+| `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
 
@@ -1977,6 +1985,49 @@ routes registered in code are not followed.
 Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
+
+#### Services named by their deployments
+
+Routes whose language names no service (everything but Spring modules with
+a `spring.application.name`) take the name of the deployments that run
+their file (`service_contracts.deployed`), when those share one:
+
+- A Compose service whose `build` context is the file's directory or an
+  ancestor of it (the nearest one any deployment builds) is named after
+  itself and answers to that name.
+- A Kubernetes container whose image (without tag or digest) a Skaffold
+  `build.artifacts` entry builds from exactly one context is named after
+  its workload (`Deployment/frontend` gives `frontend`) and answers to the
+  names of the Services in the same manifest directory and namespace whose
+  selector its pod template labels match (`frontend`, `frontend-external`).
+  Helm templates and manifests that are not plain YAML are not read; images
+  that no Skaffold artifact builds (a registry path in a release manifest)
+  place nothing.
+
+A host name that deployments of two different services answer to names
+neither. A request whose literal host is one of these names has only that
+service's routes as candidates (`http-service-path`).
+
+**Locust's `--host`.** A Locust request written without a host (`self.client
+.get("/cart")`) takes the URL that `--host` (or `-H`) gives on the `locust`
+command line of the deployments running its file: a Kubernetes container's
+`command` and `args`, else the `ENTRYPOINT` and `CMD` of the Dockerfile in
+its build context (`args` replace `CMD`). `${VAR}` and `$VAR` take the
+literal value the deployment sets (container `env` `value`, Compose
+`environment`); an unset or non-literal variable gives no host. All the
+deployments must give the same host, which the link records as `host_from`
+(the deployments' labels) under the `locust-host-*` rules. Shell scripts the
+command runs, `host` attributes of the user class and `LOCUST_HOST` are not
+read.
+
+Online Boutique: `kubernetes-manifests/loadgenerator.yaml` sets
+`FRONTEND_ADDR=frontend:80`, and `src/loadgenerator/Dockerfile` runs
+`locust --host="http://${FRONTEND_ADDR}"`, so its `GET /`, which the
+cartservice's `MapGet("/")` made ambiguous, links to the frontend again: 9
+of 9 labelled HTTP call sites. The edge diff against `main` over
+robot-shop, train-ticket, the C# repositories and 16 other validation
+repositories changes only these 9 Locust links (from `http-path` to
+`locust-host-service-path`).
 
 #### Apache HttpClient and fields set by constructors
 
@@ -2063,10 +2114,9 @@ CleanArchitecture `f7f9771` maps its endpoints by reflection through its own
 guessed.
 
 online-boutique's cartservice maps `GET /` to a notice that it only speaks
-gRPC. The load generator's `l.client.get("/")` has no host, so it now meets
-both that route and the frontend's `GET /` and is ambiguous instead of
-linked; the corpus scores 8 of 9 HTTP call sites, with its one HTTP service
-pair still found.
+gRPC. The load generator's `l.client.get("/")` written without a host meets
+both that route and the frontend's `GET /`; the host its deployment gives
+it picks the frontend (see "Services named by their deployments").
 
 ### C# HttpClient requests
 
@@ -3197,7 +3247,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongodb-collection` | pattern_matched | a MongoDB driver collection opened by its literal name, `<db>.collection('name')`, in a file importing `mongodb`, `mongoose` or `mongoskin` (or typing `typeof import('mongoose')`), on a database handle: `x.db`, `x.db(...)`, `x.connection`, or a name the file binds only to one of those or types as mongodb's `Db`. The method on the collection, directly or through a variable holding it in the same function, gives READS (`find`, `aggregate`, `watch`, ...) or WRITES (`insertOne`, `updateMany`, `drop`, ...), and any other use both. The collection is the same DbTable as a Mongoose model's |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongodb-collection` | pattern_matched | a MongoDB driver collection opened by its literal name, `<db>.collection('name')`, in a file importing `mongodb`, `mongoose` or `mongoskin` (or typing `typeof import('mongoose')`) or below a `package.json` that depends on one (Node resolves the module from there; NodeBB keeps its manifest in `install/package.json` and stays unread), on a database handle: `x.db`, `x.db(...)`, `x.connection`, `a \|\| b` or `a ?? b` of handles, or a name the file binds (declarations and plain assignments; `let db;` alone binds nothing) only to handles or types as mongodb's `Db`. The method on the collection, directly, through a variable holding it in the same function, or through `this.f` anywhere in the file when the collection is assigned to `this.f`, gives READS (`find`, `aggregate`, `watch`, `stats`, ...) or WRITES (`insertOne`, `updateMany`, `drop`, `ensureIndex`, `initializeUnorderedBulkOp`, ...), and any other use both. On Countly (labels of #197) this links 577 of 1,148 accesses with 0 wrong, up from 16; the rest go through function parameters and names bound to values the file cannot see (`countlyDb = dbs[0]`). The collection is the same DbTable as a Mongoose model's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |

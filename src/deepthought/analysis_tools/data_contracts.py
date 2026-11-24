@@ -49,6 +49,7 @@ from ..data_contracts import (
     extract_typeorm,
     extract_sequelize,
     extract_mongodb_collections,
+    _MONGODB_MODULES as MONGODB_MODULES,
     extract_mongoose,
     extract_php_doctrine,
     doctrine_xml,
@@ -685,13 +686,17 @@ MONGODB_COLLECTION_RULE = register_rule(
         "data-contracts.mongodb-collection",
         "pattern_matched",
         "In a file importing mongodb, mongoose or mongoskin (as a value or in "
-        "a typeof import() type), the code opens "
+        "a typeof import() type), or below a package.json that depends on "
+        "one, the code opens "
         "a MongoDB driver collection by its literal name, "
         "<db>.collection('name'), on a database handle: x.db, x.db(...), "
-        "x.connection, or a name the file binds only to one of those or "
+        "x.connection, a || or ?? of handles, or a name the file binds (by "
+        "declarations and assignments) only to handles or "
         "types as mongodb's Db. A read method (find, aggregate, ...) on the "
         "collection, directly or through a variable holding it in the same "
-        "function, gives READS, a write method (insertOne, updateMany, "
+        "function, or through this.f anywhere in the file when the "
+        "collection is assigned to this.f, "
+        "gives READS, a write method (insertOne, updateMany, ensureIndex, "
         "drop, ...) gives WRITES, and any other use gives both. The name is "
         "the collection itself; no pluralizing applies.",
     )
@@ -1716,6 +1721,8 @@ class DataContractTool(AnalysisTool):
                     )
         # Mongoose: models, their collections and static calls.
         mongoose_files, mongoose_specs = {}, []
+        # Directories of package.json files depending on a MongoDB module.
+        mongodb_packages = set()
         for path in _sql_files(root, include, exclude, "package.json"):
             if not path.endswith("package.json"):
                 continue
@@ -1731,6 +1738,18 @@ class DataContractTool(AnalysisTool):
                 if isinstance(spec, str):
                     digests[path] = sha256(content).hexdigest()
                     mongoose_specs.append(spec)
+            if any(
+                isinstance(manifest.get(section), dict)
+                and any(m in manifest[section] for m in MONGODB_MODULES)
+                for section in (
+                    "dependencies",
+                    "devDependencies",
+                    "peerDependencies",
+                    "optionalDependencies",
+                )
+            ):
+                digests[path] = sha256(content).hexdigest()
+                mongodb_packages.add(path.rpartition("/")[0])
         for file, content, tree in script_trees:
             found = extract_mongoose(tree, content, file, result.definitions)
             if found is not None:
@@ -1820,9 +1839,25 @@ class DataContractTool(AnalysisTool):
                         )
         # MongoDB driver collections opened by name.
         mongodb_counts = {"linked": 0}
+
+        def mongodb_package(path):
+            """The nearest enclosing directory whose package.json depends on
+            a MongoDB module (Node resolves the module from there), or None."""
+            directory = path.rpartition("/")[0]
+            while True:
+                if directory in mongodb_packages:
+                    return directory
+                if not directory:
+                    return None
+                directory = directory.rpartition("/")[0]
+
         for file, content, tree in script_trees:
             for use in extract_mongodb_collections(
-                tree, content, file, result.definitions
+                tree,
+                content,
+                file,
+                result.definitions,
+                project=mongodb_package(file) is not None,
             ):
                 mongodb_counts["linked"] += 1
                 target = table(use.file, table_key(use.collection))

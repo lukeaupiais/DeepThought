@@ -1265,6 +1265,64 @@ class JavaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replace(site, arguments=2, argument_calls=((1, 0, 1, 2),))
 
+    def test_new_links_to_the_constructor_the_arguments_select(self):
+        lines = [
+            "package p;",
+            "class Box {",
+            "  Box() {}",  # 3
+            "  Box(int x) {}",  # 4
+            "  Box(String s) {}",  # 5
+            "  Box(Object o, int n) {}",  # 6
+            "  Box(String o, int n) {}",  # 7
+            "}",
+            "class Plain {}",  # 9
+            "class Sub extends Box {}",  # 10
+            "class One { One(int x) {} }",  # 11
+            "class Main {",
+            "  static class In { In(int x) {} }",  # 13
+            "  void m(Object o, String s) {",
+            "    new Box();",  # 15
+            "    new Box(1);",  # 16
+            '    new Box("s");',  # 16
+            "    new Box(o, 1);",  # 18: Object, so not the String overload
+            "    new Box(s, 1);",  # 19: the most specific
+            "    new Box(null);",  # 20: String only takes null
+            "    new Box(o);",  # 21: no constructor applies, kept on Box
+            "    new Plain();",  # 22
+            "    new Sub();",  # 23
+            "    new One(1, 2);",  # 24: no arity fits
+            "    new Main.In(1);",  # 24: a member type's constructor
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Box.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].line: (
+                definitions[r.target_id].line,
+                definitions[r.target_id].kind,
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if r.target_id
+        }
+        for line, target, kind in (
+            (15, 3, "Constructor"),
+            (16, 4, "Constructor"),
+            (17, 5, "Constructor"),
+            (18, 6, "Constructor"),
+            (19, 7, "Constructor"),
+            (20, 5, "Constructor"),
+            (21, 2, "Class"),
+            (22, 9, "Class"),
+            (23, 10, "Class"),
+            (24, 11, "Class"),
+            (25, 13, "Constructor"),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(found[line], (target, kind, JAVA_TYPE_NAME))
+
     def test_operator_expressions_have_their_result_types(self):
         lines = [
             "package p;",

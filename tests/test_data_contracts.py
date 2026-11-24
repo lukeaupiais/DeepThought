@@ -2783,6 +2783,79 @@ export function notMongoose(x: typeof Other) {
             ],
         )
 
+    def test_package_dependency_gates_and_assigned_handles(self):
+        files = {
+            "package.json": '{"dependencies": {"mongodb": "6.0.0"}}',
+            "src/mongo.js": """const connection = require('./connection');
+let db;
+async function init(mod) {
+  const client = await connection.connect();
+  db = client.db();
+  const shared = mod.db || db;
+  await db.collection('objects').createIndex({ key: 1 });
+  await shared.collection('objects').ensureIndex({ key: 1 });
+  return db.collection('objects').initializeUnorderedBulkOp();
+}
+""",
+            "src/jobs.js": """class Manager {
+  start(common) {
+    this.collection = common.db.collection('jobs');
+  }
+  next() {
+    return this.collection.find({}).toArray();
+  }
+}
+""",
+            "src/cache.js": """let store;
+store = new Map();
+store.collection('ignored');
+""",
+            "web/package.json": "{}",
+            "web/other.js": "function f(x) { x.db.collection('below'); }\n",
+            "lib/package.json": '{"name": "lib"}',
+        }
+        other = {
+            "package.json": "{}",
+            "src/plain.js": "function f(x) { x.db.collection('ungated'); }\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["javascript"])
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, other)
+            ungated = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["javascript"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[1],
+                r.properties["collection"],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        # No file imports mongodb; the root package.json depends on it, and
+        # Node resolves it from there for web/ too. A name assigned only
+        # handles is one; store is assigned a Map.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "src/jobs.js", "jobs", 3),
+                ("READS", "web/other.js", "below", 1),
+                ("WRITES", "src/mongo.js", "objects", 7),
+                ("WRITES", "src/mongo.js", "objects", 8),
+                ("WRITES", "src/mongo.js", "objects", 9),
+                ("WRITES", "web/other.js", "below", 1),
+            ],
+        )
+        self.assertEqual(
+            [r for r in ungated.relationships if r.type in ("READS", "WRITES")], []
+        )
+
     def test_driver_collections_by_name(self):
         files = {
             "package.json": "{}",
@@ -2860,7 +2933,8 @@ export const users = () => db.collection('users').get();
         }
         self.assertEqual(len(users), 1)
         self.assertEqual(
-            output.metadata.custom_metrics["mongodb_collections"], {"linked": 7}
+            output.metadata.custom_metrics["mongodb_collections"],
+            {"linked": 7},
         )
 
     def test_models_collections_and_calls(self):

@@ -338,6 +338,12 @@ _CALL_RULE_TEXT = {
     "the one class a named import binds to C (followed as for an imported "
     "name), and m a method that class declares 'static'. Static methods it "
     "inherits are not followed.",
+    call_rules.CALL_JS_TYPED_RECEIVER: "A JavaScript or TypeScript 'x.m()' "
+    "where the declaration of x the call sees annotates it with a class or "
+    "initializes it with 'new' of that class, the class found as for a "
+    "static method's C, links to the instance method m that class declares "
+    "or inherits through 'extends'. A field of that name in a class on the "
+    "way, or a base that names no repository class, stops the lookup.",
     call_rules.CALL_PYTHON_TYPED_RECEIVER: "A Python 'x.m()' where x is a "
     "parameter annotated with a repository class, or a local whose one "
     "binding calls or annotates that class, links to m declared on the "

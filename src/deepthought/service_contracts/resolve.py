@@ -29,11 +29,12 @@ class RequestResolution:
     gateway: str | None = None  # "file:line" of the gateway route followed
 
 
-def resolve_requests(routes, requests, gateways=()):
+def resolve_requests(routes, requests, gateways=(), hosts=None):
     """One resolution per request, in request order.
 
     The target service is the request's explicit service name (a Feign
-    client's), else its URL's literal host. If it equals the name of a
+    client's), else its URL's literal host, or the service that ``hosts``
+    ({host name: service}) gives for it. If it equals the name of a
     service that declares routes, only that service's routes are candidates
     (rule ``http-service-path``). Otherwise every route is a candidate (rule
     ``http-path``). The most specific compatible route wins (see
@@ -64,7 +65,7 @@ def resolve_requests(routes, requests, gateways=()):
                 RequestResolution(request.id, "unresolved", reason=target.reason)
             )
             continue
-        service = request.target_service or target.host
+        service = request.target_service or (hosts or {}).get(target.host, target.host)
         segments, gateway, forwarded = target.segments, None, False
         if service not in services and target.host is None:
             matches = forward(gateways, target.segments)

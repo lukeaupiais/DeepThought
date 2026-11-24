@@ -62,6 +62,9 @@ class HttpRequest:
     # The calls ("file:line") whose arguments, given to the parameters of
     # the function around the site, give this URL and method.
     argument_from: tuple = ()
+    # The command line and deployments ("file" or "file:unit") that give a
+    # host to a request written without one (Locust's --host).
+    host_from: tuple = ()
 
 
 @dataclass(frozen=True)
