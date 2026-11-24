@@ -8,6 +8,9 @@ ambiguous, with a reason, and produces no link.
 """
 
 from collections import defaultdict
+from functools import cache
+from importlib import resources
+import json
 from dataclasses import dataclass, field, replace
 import posixpath
 
@@ -46,6 +49,7 @@ JAVA_TYPED_RECEIVER = "tree-sitter.java-call-typed-receiver"
 JAVA_CHAINED_RECEIVER = "tree-sitter.java-call-chained-receiver"
 JAVA_STATIC_FIELD_RECEIVER = "tree-sitter.java-call-static-field-receiver"
 JAVA_PLATFORM_ARGUMENT = "tree-sitter.java-overload-platform-argument"
+JAVA_JDK_SUPERTYPES = "tree-sitter.java-overload-jdk-supertypes"
 JAVA_FIELD_ARGUMENT = "tree-sitter.java-overload-static-field-argument"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
@@ -375,6 +379,19 @@ _JAVA_LANG = {
 }
 
 
+@cache
+def _java_platform():
+    """(JDK packages whose every public type is listed, canonical name ->
+    simple names of the type and of all its supertypes), from
+    ``java_platform.json`` (see tools/JavaPlatformTypes.java)."""
+    data = json.loads(
+        resources.files(__package__).joinpath("java_platform.json").read_text("utf-8")
+    )
+    return frozenset(data["packages"]), {
+        name: frozenset(names) for name, names in data["supertypes"].items()
+    }
+
+
 def _java_split(written):
     """A Java type as written: its element type and array dimensions."""
     base = written.removesuffix("...").rstrip("[]")
@@ -418,6 +435,9 @@ class _JavaScope:
         # ``f`` of the type ``X`` (see ``methods``).
         self._fields = False
         self._supertypes = {}
+        # Whether subtype checks may use the supertypes of JDK types listed
+        # in ``java_platform.json`` (see ``methods``).
+        self._jdk = False
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
         self.static = defaultdict(list)  # (file, member) -> type FQNs
@@ -545,23 +565,39 @@ class _JavaScope:
         if len(chosen) > 1:
             # Only the rule that JDK types are no repository subtypes may
             # tell the overloads apart; a link it decides carries its rule.
+            flag = self._platform
             self._platform = True
             try:
                 narrowed = self.overloads(site, scope, fitting)
             finally:
-                self._platform = False
+                self._platform = flag
             if len(narrowed) == 1:
                 return CallResolution(
                     site.id, "linked", narrowed[0].definition.id, JAVA_PLATFORM_ARGUMENT
                 )
+        if len(chosen) > 1:
+            # Only the supertypes of JDK types (and that they are no
+            # repository subtypes) may tell the overloads apart; a link
+            # they decide carries their rule.
+            flags = self._platform, self._jdk
+            self._platform = self._jdk = True
+            try:
+                narrowed = self.overloads(site, scope, fitting)
+            finally:
+                self._platform, self._jdk = flags
+            if len(narrowed) == 1:
+                return CallResolution(
+                    site.id, "linked", narrowed[0].definition.id, JAVA_JDK_SUPERTYPES
+                )
         if len(chosen) > 1 and site.argument_fields:
             # Only the types of static fields named as arguments may tell
             # the overloads apart; a link they decide carries their rule.
+            flag = self._fields
             self._fields = True
             try:
                 narrowed = self.overloads(site, scope, fitting)
             finally:
-                self._fields = False
+                self._fields = flag
             if len(narrowed) == 1:
                 return CallResolution(
                     site.id, "linked", narrowed[0].definition.id, JAVA_FIELD_ARGUMENT
@@ -578,11 +614,37 @@ class _JavaScope:
             )
         return resolution
 
+    def platform(self, file, written):
+        """Simple names of a JDK type and of all its supertypes, for a type
+        name written in ``file`` that no repository type in scope denotes:
+        a single-type import of it, a canonical ``java.`` name, or else
+        ``java.lang`` and the file's on-demand imports, when each of those
+        is a listed JDK package and exactly one of them has the type. None
+        when the name may denote another type."""
+        if not self._jdk or file not in self.roots:
+            return None  # its imports are not recorded
+        packages, table = _java_platform()
+        first, *rest = written.split(".")
+        tail = "".join(f".{part}" for part in rest)
+        if self.static.get((file, first)):
+            return None  # a static import may name a member type
+        specs = self.single.get((file, first))
+        if specs:
+            found = {table.get(spec + tail) for spec in specs}
+            return found.pop() if len(found) == 1 else None
+        if first == "java":
+            return table.get(written)
+        demand = self.on_demand.get(file, ())
+        if any(package not in packages for package in demand):
+            return None
+        named = {f"{p}.{written}" for p in ("java.lang", *demand)} & table.keys()
+        return table[named.pop()] if len(named) == 1 else None
+
     def supertypes(self, file, scope, written):
         """(simple names of a type and of every supertype, whether that set
         is complete) for a class type written in ``file`` at ``scope``; None
         when the name denotes more than one type."""
-        key = (file, tuple(scope), written)
+        key = (file, tuple(scope), written, self._jdk)
         if key in self._supertypes:
             return self._supertypes[key]
         simple = written.split(".")[-1]
@@ -591,9 +653,12 @@ class _JavaScope:
             result = None
         elif not found:
             known = written in {simple, f"java.lang.{simple}"} and simple in _JAVA_LANG
+            platform = None if known else self.platform(file, written)
             result = (
                 (frozenset(_JAVA_LANG[simple]), True)
                 if known
+                else (platform, True)
+                if platform is not None
                 else (frozenset({simple, "Object"}), False)
             )
         else:
@@ -605,7 +670,12 @@ class _JavaScope:
                 seen.add(d.id)
                 names.add(d.symbol.split(".")[-1])
                 if d.kind in {"Enum", "Record"}:
-                    complete = False  # Enum or Record, and what they implement
+                    # java.lang.Enum or java.lang.Record, and what they
+                    # implement.
+                    if self._jdk:
+                        names |= _java_platform()[1][f"java.lang.{d.kind}"]
+                    else:
+                        complete = False
                 outer = d.symbol.split(".")[:-1]
                 for base in self.bases.get((d.file, d.symbol), ()):
                     bases = self.type(d.file, outer, base)
@@ -614,7 +684,10 @@ class _JavaScope:
                         continue
                     last = base.split(".")[-1]
                     names.add(last)
-                    if bases or last not in _JAVA_LANG:
+                    platform = None if bases else self.platform(d.file, base)
+                    if platform is not None:
+                        names |= platform
+                    elif bases or last not in _JAVA_LANG:
                         complete = False
                     else:
                         names |= _JAVA_LANG[last]

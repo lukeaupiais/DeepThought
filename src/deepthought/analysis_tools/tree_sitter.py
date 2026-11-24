@@ -410,6 +410,14 @@ _CALL_RULE_TEXT = {
     "(T, m.T, Optional[T], T | None), looked up where that function is "
     "defined; that class declares or inherits the method through its "
     "declared bases.",
+    call_rules.JAVA_JDK_SUPERTYPES: "A Java call among overloads that only the "
+    "supertypes of JDK types tell apart: for a type that a single-type import, "
+    "a canonical java. name, or java.lang and the file's on-demand imports "
+    "name in one of the JDK packages java_platform.json lists in full, its "
+    "supertypes are those the JDK declares (tools/JavaPlatformTypes.java, JDK "
+    "21), a repository enum or record extends java.lang.Enum or "
+    "java.lang.Record, and a JDK type is no repository subtype; with those, "
+    "exactly one overload is the one javac chooses (JLS 15.12.2).",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
     call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "

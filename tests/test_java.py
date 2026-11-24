@@ -16,6 +16,7 @@ from deepthought.calls import (
     JAVA_ENCLOSING_METHOD,
     JAVA_FIELD_ARGUMENT,
     JAVA_INHERITED_METHOD,
+    JAVA_JDK_SUPERTYPES,
     JAVA_STATIC_IMPORT,
     JAVA_PLATFORM_ARGUMENT,
     JAVA_TYPE_MEMBER,
@@ -1185,14 +1186,14 @@ class JavaTests(unittest.TestCase):
             (74, "a.k", 27),
             (75, "a.k", 27),
             (76, "a.k", 27),
-            (77, "a.j", [29, 30]),
+            (77, "a.j", 29),  # AbstractList is a Collection (the JDK)
             (78, "a.v", 31),
             (79, "a.v", 32),
             (80, "a.g", [33, 34]),
             (81, "a.h", 36),
             (41, "h", 35),
             (82, "a.s", [11, 12]),
-            (83, "a.e", [37, 38]),
+            (83, "a.e", 37),  # an enum is no String
             (84, "a.d", 39),
             (85, "a.s", 11),
             (86, "a.p", 43),
@@ -1348,7 +1349,7 @@ class JavaTests(unittest.TestCase):
             (22, "a.j", [10, 11]),
             (23, "a.j", [10, 11]),
             (24, "a.j", [10, 11]),
-            (25, "a.t", [14, 15]),
+            (25, "a.t", 15),  # a Map is no Type (the JDK)
             (26, "a.j", [10, 11]),
         ):
             with self.subTest(line=line, callee=callee):
@@ -1359,6 +1360,70 @@ class JavaTests(unittest.TestCase):
             if r.status == "linked" and sites[r.call_id].line in {20, 21}
         }
         self.assertEqual(rules, dict.fromkeys((20, 21), JAVA_PLATFORM_ARGUMENT))
+
+    def test_jdk_supertypes_tell_overloads_apart(self):
+        lines = [
+            "package p;",  # 1
+            "import java.io.Closeable;",
+            "import java.io.StringWriter;",
+            "import java.util.*;",
+            "class Out implements Closeable {",  # 5
+            "  public void close() {}",
+            "}",
+            "class Api {",
+            "  void w(Out x) {}",  # 9
+            "  void w(Appendable x) {}",  # 10
+            "  void c(Collection<?> x) {}",  # 11
+            "  void c(Map<?, ?> x) {}",  # 12
+            "}",
+            "class Main {",
+            "  void m(Api a, Out out, StringWriter sw, ArrayList<String> list) {",
+            "    a.w(out);",  # 16: a Closeable is no Appendable
+            "    a.w(sw);",  # 17: a JDK type is no Out
+            "    a.c(list);",  # 18: java.util.* gives ArrayList
+            "  }",
+            "}",
+        ]
+        other = [
+            "package q;",  # 1
+            "import java.util.*;",
+            "import r.*;",
+            "class Api {",
+            "  void c(Collection<?> x) {}",  # 5
+            "  void c(Map<?, ?> x) {}",  # 6
+            "}",
+            "class Main {",
+            "  void m(Api a, ArrayList<String> list) {",
+            "    a.c(list);",  # 10: r may have an ArrayList
+            "  }",
+            "}",
+        ]
+        result = analyze(
+            {
+                "src/p/Api.java": "\n".join(lines) + "\n",
+                "src/q/Api.java": "\n".join(other) + "\n",
+            }
+        )
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].line): (
+                (definitions[r.target_id].line, r.rule_id)
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee.startswith("a.")
+        }
+        self.assertEqual(
+            found,
+            {
+                ("src/p/Api.java", 16): (9, JAVA_JDK_SUPERTYPES),
+                ("src/p/Api.java", 17): (10, JAVA_PLATFORM_ARGUMENT),
+                ("src/p/Api.java", 18): (11, JAVA_JDK_SUPERTYPES),
+                ("src/q/Api.java", 10): [5, 6],
+            },
+        )
 
     def test_method_call_arguments_have_their_methods_return_types(self):
         lines = [
@@ -1772,7 +1837,7 @@ class JavaTests(unittest.TestCase):
             "  void m(Api a) {",
             "    a.cl(null);",  # 14: an array is Cloneable
             "    a.one(new Ext());",  # 15: an unknown class is no array
-            "    a.rec(new R());",  # 16: a record extends Record
+            "    a.rec(new R());",  # 16: a record extends java.lang.Record
             "  }",
             "}",
         ]
@@ -1788,7 +1853,7 @@ class JavaTests(unittest.TestCase):
             for r in resolve_calls(result)
             if sites[r.call_id].callee.startswith("a.")
         }
-        self.assertEqual(found, {14: 6, 15: 7, 16: [9, 10]})
+        self.assertEqual(found, {14: 6, 15: 7, 16: 9})
 
     def test_an_override_needs_parameter_types_that_may_be_the_same(self):
         files = {
