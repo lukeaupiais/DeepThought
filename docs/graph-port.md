@@ -1721,6 +1721,35 @@ Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
 
+### NestJS controllers
+
+In TypeScript files that import from `@nestjs/common`, a class decorated
+`@Controller(path)` (a string, an array of strings, `{ path }`, or nothing)
+declares a route for each method decorator `@Get`, `@Post`, `@Put`,
+`@Delete`, `@Patch`, `@Options`, `@Head` or `@All` imported from that
+package, under each controller path and method path. `:id` is a variable
+and a final `*name` segment matches the rest. The handler is the method.
+The application's global prefix comes from `setGlobalPrefix("literal")` in
+a TypeScript file of the same Node package (nearest `package.json`), and
+applies to every route of that package. The rule is
+`service-contracts.nestjs-route` (pattern_matched).
+
+Counted as unread instead of guessed, by reason:
+- `version`: a controller or method with a version, since URI versioning
+  depends on the versioning type;
+- `versioning`: every route of a package that calls `enableVersioning`;
+- `router_module`: every route of a package that uses `RouterModule`;
+- `global_prefix_options`, `global_prefix_not_literal` and
+  `global_prefix_ambiguous`: every route of a package whose global prefix
+  has exclusions, is not a literal, or is set to two different values.
+
+On the 39 samples of the NestJS repository (commit `fed38a71`), 81 routes
+are read from 81 route decorators. The samples' own end-to-end tests make
+83 requests with a literal path, leaving out GraphQL and Swagger JSON. 81
+of them match a route of the same sample. The other two are not controller
+routes: the Swagger UI page, and a test that expects 404 for `GET` on a
+`POST` route.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
@@ -1898,9 +1927,39 @@ another class (`Queues.queueName`) through the file's imports or package
 when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
-destination with unknown text is counted as unread. Spring Cloud Stream
-bindings (destinations set per service in configuration, used through
-library code) are not read yet.
+destination with unknown text is counted as unread.
+
+### Spring Cloud Stream
+
+Spring Cloud Stream code names a binding and each service's configuration
+names its destination (`deepthought.service_contracts.cloud_stream`). Read
+sites, in Java:
+
+- consume: a `@StreamListener` method whose value or `target` names a
+  binding (`Sink.INPUT` and `Processor.INPUT` are `input`);
+- publish: `send(...)` on `x.output()` where `x` is declared only as
+  `Source` or `Processor`, or on a name assigned only such a call; `@SendTo`
+  on a stream listener; `StreamBridge.send("binding", ...)`.
+
+The code runs in its own Maven module when that module names a service
+(`spring.application.name`), else in every repository module whose `pom.xml`
+depends on that module's artifact and names a service. Each such service
+gives one endpoint: its destination is
+`spring.cloud.stream.bindings.<binding>.destination` from the service's
+configuration (the config-server sources included), or the binding name when
+the key is not set. The broker is Kafka or RabbitMQ by the
+`spring-cloud-stream-binder-*` (or `spring-cloud-starter-stream-*`)
+dependency of the service module or a repository module it depends on. The
+Kafka binder's destination is a topic; the RabbitMQ binder publishes to a
+topic exchange named by the destination and binds each consumer group's
+queue to it with `#`, so both sides meet at `destination/#`. Rules are
+`service-contracts.spring-cloud-stream-output` and `-listener`.
+
+Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
+`binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
+both) and `destination_not_literal` (a placeholder in the configured
+destination). The functional style (`Consumer`/`Supplier`/`Function` beans
+named by `spring.cloud.function.definition`) is not read yet.
 
 ### Validation
 
@@ -1943,7 +2002,7 @@ Labelled message links (`--kind messaging`):
 |---|---|---|---|---|
 | ewolff/microservice-kafka (Spring Kafka, two consumers) | 2 | 2 | 2 | 0 |
 | robot-shop (pika publish to Go `amqp` consumer) | 1 | 1 | 1 | 0 |
-| apssouza22/java-microservice (Spring Cloud Stream) | 1 | 0 | 0 | 1: Spring Cloud Stream is not read |
+| apssouza22/java-microservice (Spring Cloud Stream, RabbitMQ binder, library publisher) | 1 | 1 | 1 | 0 |
 
 Train-ticket has no labelled messages; its four publish-to-consume pairs
 (food to delivery on `food_delivery`, and preserve, preserve-other and
