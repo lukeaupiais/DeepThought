@@ -700,7 +700,7 @@ class SqlUse:
 
     file: str
     owner_id: str | None  # the innermost declaration holding it
-    how: str  # spring-data-query | jpa-query | jdbc-sql | jdbc-insert-table
+    how: str  # spring-data-query | jpa-query | jdbc-sql | jdbc-insert-table | mybatis-annotation
     jpql: bool
     statement: Statement | None  # None: text the file does not fix
     line: int
@@ -733,7 +733,8 @@ def extract_java_sql(tree, content, file, definitions, constants=None):
     imports = _Imports(root, content)
     persistence = any(_imports_package(imports, p) for p in _PERSISTENCE)
     jdbc = _imports_package(imports, _SPRING_JDBC)
-    if not (persistence or jdbc or _imports_package(imports, _SPRING_DATA)):
+    mybatis = _imports_package(imports, _MYBATIS)
+    if not (persistence or jdbc or mybatis or _imports_package(imports, _SPRING_DATA)):
         return []
     values = _Values(root, content, constants, imports)
     found = []
@@ -765,9 +766,24 @@ def extract_java_sql(tree, content, file, definitions, constants=None):
         stack.extend(reversed(node.named_children))
         if node.type == "method_declaration":
             for written, annotation in _annotations(node, content):
-                if written.rpartition(".")[2] != "Query" or not _from(
-                    imports, written, (_SPRING_DATA,)
+                kind = written.rpartition(".")[2]
+                if (
+                    mybatis
+                    and kind in ("Select", "Insert", "Update", "Delete")
+                    and _from(imports, written, (_MYBATIS,))
                 ):
+                    # MyBatis joins the strings of an array with spaces.
+                    strings = values.strings(_arguments(annotation).get("value"))
+                    text = (
+                        None
+                        if not strings
+                        else mybatis_script(
+                            PLACEHOLDER if PLACEHOLDER in strings else " ".join(strings)
+                        )
+                    )
+                    use(node, "mybatis-annotation", False, text)
+                    continue
+                if kind != "Query" or not _from(imports, written, (_SPRING_DATA,)):
                     continue
                 arguments = _arguments(annotation)
                 value = arguments.get("value")
@@ -3569,3 +3585,160 @@ def resolve_script_module(file, source, files):
     candidates += [stem + s for s in _SCRIPT_SUFFIXES]
     candidates += [f"{path}/index{s}" for s in _SCRIPT_SUFFIXES]
     return next((c for c in candidates if c in files), None)
+
+
+# MyBatis: mapper XML and annotations -----------------------------------------
+
+_MYBATIS = "org.apache.ibatis.annotations"
+MYBATIS_STATEMENTS = ("select", "insert", "update", "delete")
+
+
+@dataclass
+class _XmlElement:
+    tag: str
+    attributes: dict
+    children: list  # str or _XmlElement
+    line: int
+
+
+def _parse_xml(content):
+    """The root element of an XML document, with line numbers, or None.
+    External entities and DTDs are not loaded."""
+    import xml.parsers.expat
+
+    parser = xml.parsers.expat.ParserCreate()
+    root, stack = [], []
+
+    def start(tag, attributes):
+        element = _XmlElement(tag, attributes, [], parser.CurrentLineNumber)
+        (stack[-1].children if stack else root).append(element)
+        stack.append(element)
+
+    def end(tag):
+        stack.pop()
+
+    def text(data):
+        if stack:
+            stack[-1].children.append(data)
+
+    def entity(*_):
+        raise ValueError("entity declarations are not read")
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = text
+    parser.EntityDeclHandler = entity
+    try:
+        parser.Parse(content, True)
+    except (xml.parsers.expat.ExpatError, ValueError):
+        return None
+    return root[0] if root else None
+
+
+_MYBATIS_PARAMETER = re.compile(r"#\{[^}]*\}")
+_MYBATIS_SUBSTITUTION = re.compile(r"\$\{[^}]*\}")
+
+
+def _mybatis_text(element, fragments, depth=0):
+    """The SQL of a statement element with every dynamic branch kept:
+    ``<if>``/``<choose>``/``<foreach>`` bodies, ``<where>`` and ``<set>``
+    keywords, ``<trim>`` prefixes and suffixes, and ``<include>`` of a
+    ``<sql>`` fragment; ``<selectKey>`` and ``<bind>`` are left out, and an
+    include that is not found leaves unfixed text."""
+    parts = []
+    for child in element.children:
+        if isinstance(child, str):
+            parts.append(child)
+            continue
+        tag = child.tag
+        if tag in ("selectKey", "bind"):
+            continue
+        if tag == "include":
+            fragment = fragments.get(child.attributes.get("refid", ""))
+            parts.append(
+                PLACEHOLDER
+                if fragment is None or depth > 10
+                else _mybatis_text(fragment, fragments, depth + 1)
+            )
+            continue
+        inner = _mybatis_text(child, fragments, depth)
+        if tag == "where":
+            inner = f" WHERE {inner} "
+        elif tag == "set":
+            inner = f" SET {inner} "
+        elif tag == "trim":
+            a = child.attributes
+            inner = f" {a.get('prefix', '')} {inner} {a.get('suffix', '')} "
+        elif tag == "foreach":
+            a = child.attributes
+            inner = f" {a.get('open', '')} {inner} {a.get('close', '')} "
+        parts.append(f" {inner} ")
+    return "".join(parts)
+
+
+def mybatis_sql(text):
+    """SQL with MyBatis parameters: ``#{x}`` is a bind marker, ``${x}`` text
+    the code does not fix."""
+    return _MYBATIS_SUBSTITUTION.sub(PLACEHOLDER, _MYBATIS_PARAMETER.sub("?", text))
+
+
+def _sql_statement(text):
+    if text is None or text.replace(PLACEHOLDER, "").strip() == "":
+        return None
+    statement = statement_tables(text)
+    if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+        return None
+    return statement
+
+
+@dataclass(frozen=True)
+class MapperStatement:
+    file: str
+    namespace: str
+    id: str
+    statement: Statement | None
+    line: int
+
+
+def extract_mybatis_xml(file, content):
+    """The statements of a MyBatis mapper XML file (root ``<mapper
+    namespace>``), or None when the file is not one."""
+    root = _parse_xml(content)
+    if root is None or root.tag != "mapper" or not root.attributes.get("namespace"):
+        return None
+    namespace = root.attributes["namespace"]
+    fragments = {}
+    for child in root.children:
+        if (
+            isinstance(child, _XmlElement)
+            and child.tag == "sql"
+            and "id" in child.attributes
+        ):
+            fragments[child.attributes["id"]] = child
+            fragments[f"{namespace}.{child.attributes['id']}"] = child
+    found = []
+    for child in root.children:
+        if not isinstance(child, _XmlElement) or child.tag not in MYBATIS_STATEMENTS:
+            continue
+        if "id" not in child.attributes:
+            continue
+        text = mybatis_sql(_mybatis_text(child, fragments))
+        found.append(
+            MapperStatement(
+                file,
+                namespace,
+                child.attributes["id"],
+                _sql_statement(text),
+                child.line,
+            )
+        )
+    return found
+
+
+def mybatis_script(text):
+    """The SQL of an annotation value: a ``<script>`` element is read as
+    mapper XML."""
+    if text is not None and text.lstrip().startswith("<script>"):
+        root = _parse_xml(text.encode("utf-8"))
+        text = PLACEHOLDER if root is None else _mybatis_text(root, {})
+    return None if text is None else mybatis_sql(text)
