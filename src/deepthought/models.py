@@ -53,6 +53,10 @@ class Definition:
     # Java methods and constructors declared ``private``, which subtypes do
     # not inherit: True. None elsewhere.
     private: bool | None = None
+    # Java methods declared in an enum constant's body (``A { void m() {} }``),
+    # named as the enum's members are: True. They are no members of the enum
+    # type; a call through it binds the enum's own or inherited method.
+    constant_body: bool | None = None
     # JavaScript and TypeScript methods declared ``static``: True. None
     # elsewhere.
     static: bool | None = None
@@ -137,6 +141,8 @@ class Definition:
             raise ValueError("parameter_types must be a tuple of nonempty strings")
         if self.private is not None and self.private is not True:
             raise ValueError("private must be True or None")
+        if self.constant_body not in (None, True):
+            raise ValueError("constant_body must be True or None")
         if self.static is not None and self.static is not True:
             raise ValueError("static must be True or None")
         if self.default_export is not None and self.default_export is not True:
@@ -825,6 +831,8 @@ class AnalysisResult:
                 del item["parameter_types"]
             if item["private"] is None:
                 del item["private"]
+            if item["constant_body"] is None:
+                del item["constant_body"]
             if item["static"] is None:
                 del item["static"]
             if item["default_export"] is None:
