@@ -23,6 +23,10 @@ FAKE = textwrap.dedent(
     from deepthought._scip import scip_pb2
     argv = sys.argv[1:]
     output = argv[argv.index("--output") + 1]
+    if "--infer-tsconfig" in argv:
+        # As scip-typescript does: the inferred config lands in the workspace.
+        with open("tsconfig.json", "w") as config:
+            config.write("{{}}")
     index = scip_pb2.Index()
     index.metadata.tool_info.name = os.environ["FAKE_NAME"]
     index.metadata.tool_info.version = os.environ["FAKE_VERSION"]
@@ -144,6 +148,23 @@ class IndexersTest(unittest.TestCase):
             self.root, self.out, languages=("go",), environ=self.environ()
         )
         self.assertEqual(report["coverage"]["main.go"]["reason"], "no_go_module")
+
+    def test_an_inferred_tsconfig_does_not_stay_in_the_workspace(self):
+        (self.root / "web.ts").write_text("export const a = 1;\n")
+        self.fake("scip-typescript")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("typescript",),
+            environ=self.environ(
+                FAKE_NAME="scip-typescript",
+                FAKE_VERSION="0.6.2",
+                FAKE_DOCUMENTS="web.ts",
+            ),
+        )
+        self.assertEqual(report["runs"][0]["status"], "indexed")
+        self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
+        self.assertFalse((self.root / "tsconfig.json").exists())
 
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
