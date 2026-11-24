@@ -6,6 +6,7 @@
 import importlib
 from hashlib import sha256
 import json
+import posixpath
 import re
 
 from .models import CallSite, Definition, ImplBlock, Import, PackageClause, Supertype
@@ -3542,6 +3543,150 @@ def _cargo_header(lines, table, index):
                 return row, match.start(1), match.end(1)
             seen += 1
     return None
+
+
+def _strip_jsonc(text):
+    """JSON text of a JSON-with-comments file (tsconfig.json): comments and
+    trailing commas outside strings removed."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i : j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        else:
+            out.append(c)
+            i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+def _repository_path(directory, *parts):
+    """A path joined below ``directory`` and normalized, ``.`` for the
+    repository root; None when it is absolute or leaves the repository."""
+    if any(part.startswith("/") or "\\" in part for part in parts):
+        return None
+    joined = posixpath.normpath(posixpath.join(directory or ".", *parts))
+    if joined == ".." or joined.startswith("../"):
+        return None
+    return joined
+
+
+def _script_fact(repository_id, file, kind, specifier, names, ordinal):
+    return Import(
+        id=identifier(repository_id, file, f"{kind}:{specifier}", "Import", ordinal),
+        file=file,
+        specifier=specifier,
+        kind=kind,
+        line=1,
+        column=0,
+        end_line=1,
+        end_column=0,
+        names=names,
+    )
+
+
+def extract_script_config(
+    content: bytes, repository_id: str, file: str
+) -> tuple[list[Import], bool]:
+    """The module resolution facts of a ``tsconfig.json`` or
+    ``jsconfig.json``, and whether it could be read.
+
+    One ``script_config`` fact names the file. Its ``names`` hold
+    ``inherited`` when the file ``extends`` another and its own options do
+    not settle ``paths`` (no ``paths``, or ``paths`` without ``baseUrl``,
+    which an extended file may set), and ``unreadable`` when it is not JSON
+    with comments. Each ``compilerOptions.paths`` entry is a ``path_alias``
+    fact: the pattern, and its targets joined below ``baseUrl`` (else the
+    file's directory) as repository paths, ``.`` for the root. Targets that
+    leave the repository are dropped. ``include``, ``exclude``,
+    ``references`` and ``baseUrl`` lookups without ``paths`` are not read.
+    """
+    directory = posixpath.dirname(file)
+    name = posixpath.basename(file)
+    try:
+        config = json.loads(_strip_jsonc(content.decode("utf-8")))
+    except (ValueError, UnicodeDecodeError):
+        config = None
+    if not isinstance(config, dict):
+        return [
+            _script_fact(repository_id, file, "script_config", name, ("unreadable",), 0)
+        ], False
+    options = config.get("compilerOptions")
+    options = options if isinstance(options, dict) else {}
+    paths = options.get("paths")
+    base = options.get("baseUrl")
+    flags = ()
+    if "extends" in config and (
+        not isinstance(paths, dict) or not isinstance(base, str)
+    ):
+        flags = ("inherited",)
+    facts = [_script_fact(repository_id, file, "script_config", name, flags, 0)]
+    if not isinstance(paths, dict):
+        return facts, True
+    base = (
+        _repository_path(directory, base) if isinstance(base, str) else directory or "."
+    )
+    if base is None:
+        return facts, True
+    for ordinal, (pattern, targets) in enumerate(paths.items()):
+        if not pattern or not isinstance(targets, list) or pattern.count("*") > 1:
+            continue
+        joined = tuple(
+            path
+            for target in targets
+            if isinstance(target, str) and target and target.count("*") <= 1
+            for path in [_repository_path(base, target)]
+            if path is not None
+        )
+        facts.append(
+            _script_fact(repository_id, file, "path_alias", pattern, joined, ordinal)
+        )
+    return facts, True
+
+
+# The package.json fields TypeScript reads for a directory, in its order.
+_PACKAGE_ENTRY_FIELDS = ("typings", "types", "main")
+
+
+def extract_package_entries(
+    content: bytes, repository_id: str, file: str
+) -> tuple[list[Import], bool]:
+    """The entry files a ``package.json`` names for a directory import, and
+    whether it could be read: one ``package_entry`` fact per ``typings``,
+    ``types`` and ``main`` field, in that order, with the field as its name
+    and the entry as a repository path. ``exports`` is not read: TypeScript
+    applies it to package lookups, not to a path a ``paths`` alias names."""
+    directory = posixpath.dirname(file)
+    try:
+        manifest = json.loads(content.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return [], False
+    if not isinstance(manifest, dict):
+        return [], False
+    facts = []
+    for ordinal, field in enumerate(_PACKAGE_ENTRY_FIELDS):
+        entry = manifest.get(field)
+        path = (
+            _repository_path(directory, entry)
+            if isinstance(entry, str) and entry
+            else None
+        )
+        if path is not None:
+            facts.append(
+                _script_fact(
+                    repository_id, file, "package_entry", path, (field,), ordinal
+                )
+            )
+    return facts, True
 
 
 def extract_cargo_manifest(

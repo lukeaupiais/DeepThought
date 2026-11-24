@@ -1440,7 +1440,60 @@ export async function place(id: number) {
 }
 
 
+DRIZZLE_WORKSPACE = {
+    "packages/db/package.json": '{"name": "@acme/db", "exports": {".": "./src/index.ts", '
+    '"./schema": {"types": "./src/schema/index.ts", "import": "./src/schema/index.ts"}}}',
+    "packages/db/src/index.ts": "export const version = 1;\n",
+    "packages/db/src/schema/index.ts": "export * from './posts';\n",
+    "packages/db/src/schema/posts.ts": """\
+import { pgTable, text } from 'drizzle-orm/pg-core';
+
+export const posts = pgTable('post', { id: text('id') });
+""",
+    "apps/core/package.json": '{"name": "core", "dependencies": {"@acme/db": "workspace:*"}}',
+    "apps/core/src/database/schema.ts": "export * from '@acme/db/schema';\n",
+    "apps/core/src/posts.service.ts": """\
+import { posts } from './database/schema';
+
+export const list = (db) => db.select().from(posts);
+export const add = (db) => db.insert(posts).values({});
+""",
+    # A client-side collection named like a table is not the table.
+    "apps/admin/package.json": '{"name": "admin"}',
+    "apps/admin/src/post.ts": "export const posts = createCollection('posts');\n",
+    "apps/admin/src/post.mutations.ts": """\
+import { posts } from './post';
+
+export const remove = (tx, id) => tx.delete(posts, id);
+""",
+}
+
+
 class DrizzleTests(unittest.TestCase):
+    def test_imports_through_a_workspace_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DRIZZLE_WORKSPACE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.source_match["qualified_name"].split("::")[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        service = "apps/core/src/posts.service.ts"
+        self.assertEqual(
+            rows, [("READS", "post", service), ("WRITES", "post", service)]
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["drizzle_access_resolution"],
+            {"linked": 2, "not_a_table": 1},
+        )
+
     def test_tables_and_queries(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, DRIZZLE)

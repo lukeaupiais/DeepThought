@@ -152,7 +152,7 @@ Baseline (calls):
 | hono | typescript | 3,009 | 5,652 | 23 | 0.9959 | 0.5274 |
 | cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
 | chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
-| preact | javascript | 3,884 | 2,031 | 6 | 0.9971 | 0.2634 |
+| preact | javascript | 3,884 | 4,426 | 0 | 1.0 | 0.8671 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
 | gson | java | 11,050 | 9,212 | 0 | 1.0 | 0.8246 |
@@ -166,9 +166,10 @@ missed groups are:
   (`module_attribute_not_declared`); 541 method calls on values.
 - cobra: 1,115 method calls on values (`attribute_call`).
 - ky: 97 calls with no extracted call site, mostly `this.#private()` methods.
-- preact: 2,812 calls of a name imported from a file that only re-exports it
-  (`export { render } from './render'`) or through a package alias
-  (`import { render } from 'preact'`), `imported_name_not_declared`.
+- preact: 467 calls of an imported name the engine cannot follow to a
+  declaration (`imported_name_not_declared`), down from 2,812 once re-exports
+  and the jsconfig.json `paths` aliases (`import { render } from 'preact'`)
+  are read.
 - ripgrep and anyhow: calls with no extracted call site (5,944 and 154),
   mostly method chains and calls inside macro invocations such as
   `assert_eq!(...)`, and 2,152 and 65 method calls on values.
@@ -178,11 +179,10 @@ line 35, `processor(stream)` calls the loop variable of
 `for processor in processors`, and the engine links it to the module-level
 function `processor` defined on line 42.
 
-preact's 6 contradictions are one defect: a call binds to a `let` or `const`
-of the same name declared in a sibling function scope. In
-`test/browser/events.test.jsx` line 418, `click(1)` calls the `click`
-declared on line 415 in the same `it(...)` callback, and the engine links it
-to the `click` declared on line 35 in another one.
+preact's former 6 contradictions were one defect, fixed by block-scoped
+bindings: a call bound to a `let` or `const` of the same name declared in a
+sibling function scope (`click(1)` in `test/browser/events.test.jsx` line
+418).
 
 preact is a JavaScript project with hand-written TypeScript declarations
 beside its sources (`src/index.d.ts`). Indexed as it is, TypeScript binds a
@@ -222,12 +222,15 @@ outside the repository. Recall is over import lines with a repository target.
 | hono | 1,007 | 1,003 | 0 | 1.0 | 0.996 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 442 | 195 | 0 | 1.0 | 0.4412 |
+| preact | 442 | 435 | 0 | 1.0 | 0.9842 |
 
 Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
 tests are outside its TypeScript project, so the index does not cover them.
-preact's missed imports are package aliases (`'preact'`, `'preact/hooks'`),
-which the engine does not read.
+preact's package aliases (`'preact'`, `'preact/hooks'`) resolve through its
+jsconfig.json `paths`. The oracle maps only the entry points its vitest
+config aliases, so `'preact/compat/scheduler'`, which the engine leaves
+ambiguous between `compat/scheduler.js` and `compat/scheduler.mjs`, is not
+judged.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 

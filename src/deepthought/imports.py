@@ -20,6 +20,9 @@ PYTHON_FROM_IMPORT_SUBMODULE = "tree-sitter.python-from-import-submodule"
 TYPESCRIPT_RELATIVE_MODULE = "tree-sitter.typescript-relative-module"
 JAVASCRIPT_RELATIVE_FILE = "tree-sitter.javascript-relative-file"
 JAVASCRIPT_EXTENSIONLESS_MODULE = "tree-sitter.javascript-extensionless-module"
+TYPESCRIPT_PATH_ALIAS = "tree-sitter.typescript-path-alias"
+JAVASCRIPT_PATH_ALIAS = "tree-sitter.javascript-path-alias"
+SCRIPT_DECLARATION_SOURCE = "tree-sitter.script-declaration-source"
 GO_MODULE_PACKAGE = "tree-sitter.go-module-package"
 JAVA_PACKAGE_MEMBER = "tree-sitter.java-package-member"
 JAVA_SAME_SOURCE_ROOT = "tree-sitter.java-same-source-root"
@@ -48,6 +51,9 @@ _TS_JS_EXTENSIONS = {".js": (".ts", ".tsx", ".d.ts"), ".jsx": (".tsx",)}
 _JS_EXTENSIONLESS = (".js", ".jsx")
 _JS_INDEX = ("/index.js", "/index.jsx")
 _JS_EXTENSIONS = (".js", ".jsx", ".mjs", ".cjs")
+_SCRIPT_KINDS = frozenset({"script_config", "path_alias", "package_entry"})
+# The reason given to configuration facts, which are not imports.
+RESOLUTION_CONFIGURATION = "resolution_configuration"
 
 
 @dataclass(frozen=True)
@@ -164,10 +170,10 @@ def _first(item: Import, candidates, files, rule):
     return ImportResolution(item.id, "linked", (ImportLink(target, rule),))
 
 
-def _typescript(item: Import, files):
+def _typescript(item: Import, files, scripts):
     joined, unresolved = _relative_target(item)
     if unresolved:
-        return unresolved
+        return scripts.resolve(item, unresolved)
     stem, extension = posixpath.splitext(joined)
     if extension in _TS_JS_EXTENSIONS:
         # A ".js" specifier names the TypeScript source first, then the file.
@@ -186,10 +192,10 @@ def _typescript(item: Import, files):
     return _first(item, candidates, files, TYPESCRIPT_RELATIVE_MODULE)
 
 
-def _javascript(item: Import, files):
+def _javascript(item: Import, files, scripts):
     joined, unresolved = _relative_target(item)
     if unresolved:
-        return unresolved
+        return scripts.resolve(item, unresolved)
     if posixpath.splitext(joined)[1] in _JS_EXTENSIONS:
         return _first(item, [joined], files, JAVASCRIPT_RELATIVE_FILE)
     # Extensionless specifiers follow the bundler/CommonJS convention; Node ES
@@ -200,6 +206,175 @@ def _javascript(item: Import, files):
         *((base + suffix).lstrip("/") for suffix in _JS_INDEX),
     ]
     return _first(item, candidates, files, JAVASCRIPT_EXTENSIONLESS_MODULE)
+
+
+class _ScriptIndex:
+    """TypeScript's ``paths`` mapping of bare specifiers, as the nearest
+    tsconfig.json (else jsconfig.json, in the same directory) of the
+    importing file declares it, with the entries package.json files name for
+    the directories it reaches."""
+
+    def __init__(self, result: AnalysisResult, files):
+        self.files = files
+        self.configs, self.aliases, self.entries = {}, {}, {}
+        for item in result.imports:
+            directory = posixpath.dirname(item.file)
+            if item.kind == "script_config":
+                current = self.configs.get(directory)
+                if current is None or item.specifier == "tsconfig.json":
+                    self.configs[directory] = item
+            elif item.kind == "path_alias":
+                self.aliases.setdefault(item.file, []).append(item)
+            elif item.kind == "package_entry":
+                self.entries.setdefault(directory, []).append(item)
+        for entries in self.entries.values():
+            entries.sort(key=lambda e: _PACKAGE_ENTRY_ORDER.index(e.names[0]))
+
+    def _config(self, file):
+        directory = posixpath.dirname(file)
+        while True:
+            if directory in self.configs:
+                return self.configs[directory]
+            if not directory:
+                return None
+            directory = posixpath.dirname(directory)
+
+    def resolve(self, item: Import, unresolved):
+        """The link a bare specifier's alias gives, else ``unresolved``."""
+        if unresolved.reason != "non_relative_specifier":
+            return unresolved
+        config = self._config(item.file)
+        if config is None:
+            return unresolved
+        if config.names:
+            reason = (
+                "script_config_unreadable"
+                if "unreadable" in config.names
+                else "path_alias_inherited"
+            )
+            return ImportResolution(item.id, "unresolved", reason=reason)
+        alias = _match_alias(item.specifier, self.aliases.get(config.file, ()))
+        if alias is None:
+            return unresolved
+        pattern, targets = alias
+        for target in targets:
+            found = self._lookup(target)
+            if found is not None and found[0] != item.file:
+                path, declaration = found
+                stem, extension = posixpath.splitext(path)
+                twins = tuple(
+                    stem + suffix
+                    for suffix in _JS_EXTENSIONS
+                    if suffix != extension and stem + suffix in self.files
+                )
+                if extension in _JS_EXTENSIONS and twins:
+                    # A CommonJS and an ES module build side by side: which
+                    # one runs depends on the loader, not on the path.
+                    return ImportResolution(
+                        item.id,
+                        "ambiguous",
+                        reason="module_format_twins",
+                        candidates=tuple(sorted((path, *twins))),
+                    )
+                rule = (
+                    SCRIPT_DECLARATION_SOURCE
+                    if declaration
+                    else JAVASCRIPT_PATH_ALIAS
+                    if item.file.endswith(_JS_EXTENSIONS)
+                    else TYPESCRIPT_PATH_ALIAS
+                )
+                return ImportResolution(item.id, "linked", (ImportLink(path, rule),))
+        return ImportResolution(item.id, "unresolved", reason="no_analyzed_file")
+
+    def _lookup(self, path):
+        """(file, through a declaration's source) TypeScript loads for a
+        mapped path: TypeScript extensions on the file, then on the
+        directory (its package.json entries, then index), then JavaScript
+        ones in the same order, as with allowJs."""
+        files = self.files
+        base = "" if path == "." else path
+        stem, extension = posixpath.splitext(base)
+        if extension in _TS_JS_EXTENSIONS:
+            for candidate in (
+                *(stem + suffix for suffix in _TS_JS_EXTENSIONS[extension]),
+                base,
+            ):
+                if candidate in files:
+                    return candidate, False
+            return None
+        if extension in (".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"):
+            return (base, False) if base in files else None
+        entries = self.entries.get(base, ())
+        for suffixes, index, javascript in (
+            (_TS_EXTENSIONLESS, _TS_INDEX, False),
+            (_JS_EXTENSIONLESS, _JS_INDEX, True),
+        ):
+            for suffix in suffixes:
+                if base and base + suffix in files:
+                    return base + suffix, False
+            for entry in entries:
+                found = _package_entry(entry, files, javascript)
+                if found is not None:
+                    return found
+            for suffix in index:
+                candidate = (base + suffix).lstrip("/")
+                if candidate in files:
+                    return candidate, False
+        return None
+
+
+_PACKAGE_ENTRY_ORDER = ("typings", "types", "main")
+
+
+def _package_entry(entry: Import, files, javascript):
+    """The file a package.json entry gives in one lookup pass, as TypeScript
+    loads it. A ``typings`` or ``types`` declaration file that is not
+    analyzed stands for the JavaScript source beside it."""
+    path = entry.specifier
+    stem, extension = posixpath.splitext(path)
+    if entry.names[0] != "main":
+        if javascript:
+            return None
+        if path in files:
+            return path, False
+        if path.endswith(".d.ts"):
+            for suffix in _JS_EXTENSIONLESS:
+                if path[: -len(".d.ts")] + suffix in files:
+                    return path[: -len(".d.ts")] + suffix, True
+        return None
+    if javascript:
+        return (path, False) if extension in _JS_EXTENSIONS and path in files else None
+    if extension in _TS_JS_EXTENSIONS:
+        for suffix in _TS_JS_EXTENSIONS[extension]:
+            if stem + suffix in files:
+                return stem + suffix, False
+    return None
+
+
+def _match_alias(specifier, aliases):
+    """(pattern, targets) of the ``paths`` entry TypeScript applies: an exact
+    pattern, else the wildcard pattern with the longest prefix."""
+    best = None
+    for alias in aliases:
+        pattern = alias.specifier
+        if "*" not in pattern:
+            if pattern == specifier:
+                return pattern, alias.names
+            continue
+        prefix, _, suffix = pattern.partition("*")
+        if (
+            specifier.startswith(prefix)
+            and specifier.endswith(suffix)
+            and len(specifier) >= len(prefix) + len(suffix)
+            and (best is None or len(prefix) > best[0])
+        ):
+            rest = specifier[len(prefix) : len(specifier) - len(suffix)]
+            best = (
+                len(prefix),
+                pattern,
+                tuple(posixpath.normpath(t.replace("*", rest)) for t in alias.names),
+            )
+    return None if best is None else best[1:]
 
 
 def _go_modules(result: AnalysisResult):
@@ -848,13 +1023,19 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     java = _java_index(result)
     rust = _RustIndex(result, files, languages)
     php = _php_index(result)
+    scripts = _ScriptIndex(result, files)
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
-        if language == "python":
+        if item.kind in _SCRIPT_KINDS:
+            # Configuration read by resolution, not a dependency of the file.
+            resolutions.append(
+                ImportResolution(item.id, "unresolved", reason=RESOLUTION_CONFIGURATION)
+            )
+        elif language == "python":
             resolutions.append(_python(item, files, roots))
         elif language == "javascript":
-            resolutions.append(_javascript(item, files))
+            resolutions.append(_javascript(item, files, scripts))
         elif language == "go":
             resolutions.append(_go(item, modules, packages))
         elif language == "java":
@@ -864,5 +1045,5 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
         elif language == "php":
             resolutions.append(_php(item, *php))
         else:
-            resolutions.append(_typescript(item, files))
+            resolutions.append(_typescript(item, files, scripts))
     return tuple(resolutions)

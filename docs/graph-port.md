@@ -121,10 +121,19 @@ with the specifier, names, line, import ID and rule:
 | `tree-sitter.typescript-relative-module` | resolved | `./x`, `../x`: `x.ts`, `x.tsx`, `x.d.ts`, then `x/index.*`; `.js`/`.jsx` map to their TypeScript sources; when JavaScript is analyzed, JavaScript files are tried after every TypeScript candidate, as with `allowJs`; `package.json` is not read |
 | `tree-sitter.javascript-relative-file` | resolved | a JavaScript file's `./x.js`, `./x.jsx`, `./x.mjs`, `./x.cjs`: the analyzed file at exactly that path |
 | `tree-sitter.javascript-extensionless-module` | pattern_matched | a JavaScript file's `./x`: `x.js`, `x.jsx`, `x.mjs`, `x.cjs`, then `x/index.js`, `x/index.jsx`, the bundler/CommonJS convention; Node ES modules would reject the specifier, and bundler configuration is not read |
+| `tree-sitter.typescript-path-alias` | resolved | a TypeScript file's bare specifier matching a `compilerOptions.paths` pattern of the nearest `tsconfig.json` (else `jsconfig.json` in the same directory): an exact pattern, else the wildcard pattern with the longest prefix; each target, below `baseUrl` or the config's directory, is tried in TypeScript's order (TypeScript extensions on the file, then the directory's `package.json` `typings`, `types` and `main`, then `index.*`; then the same with JavaScript extensions); the first target that reaches an analyzed file wins. A nearer config without `paths` shadows a farther one; a config that `extends` another without settling `paths` and `baseUrl` itself leaves the specifier unresolved (`path_alias_inherited`), as does one that is not JSON with comments (`script_config_unreadable`); `include`, `exclude`, `references`, `exports` and `baseUrl` without `paths` are not read |
+| `tree-sitter.javascript-path-alias` | pattern_matched | a JavaScript file's bare specifier resolved by the same `paths` lookup; the runtime reaches that file only through a matching bundler or test-runner alias, which is not read |
+| `tree-sitter.script-declaration-source` | pattern_matched | a `paths` lookup that reaches a directory whose `package.json` `typings` or `types` names a declaration file that is not analyzed: the JavaScript file of the same name beside it (`src/index.d.ts` -> `src/index.js`), which the declaration describes by convention |
 | `tree-sitter.go-module-package` | resolved | a Go import path inside the importing file's own module (nearest `go.mod`): the directory at that path below the module root, linked to every non-test file of its package; `main` packages are not importable, and `vendor/`, `replace` and `go.work` are not read |
 
-Anything else gets no edge. Non-relative TypeScript and JavaScript specifiers (packages, `paths`
-aliases), Python imports matching several roots, imports beyond the repository
+`tsconfig.json`, `jsconfig.json` and `package.json` files are read as
+configuration facts (File nodes with no IMPORTS of their own) when TypeScript
+or JavaScript is analyzed. A `paths` target that is a `.js` file with a
+`.mjs` or `.cjs` twin beside it is left ambiguous (`module_format_twins`):
+which build runs depends on the loader.
+
+Anything else gets no edge. Package specifiers that no `paths` pattern maps,
+Python imports matching several roots, imports beyond the repository
 root, self-imports and modules outside the analyzed files are reported instead:
 each File node lists its `unresolved_imports` and `ambiguous_imports`
 specifiers, and tool metadata counts linked, ambiguous and unresolved imports.
@@ -2340,6 +2349,9 @@ a traced value, and consumer groups, brokers and clusters are not checked.
 | Go `amqp` (streadway, amqp091-go) | `Publish(exchange, key, ...)` | `Consume(queue, ...)` |
 | kafkajs | `send({topic})` or `sendBatch({topicMessages: [{topic}]})` on a name every assignment binds to `producer()` of a kafkajs `Kafka` | `subscribe({topic})` or `subscribe({topics: [...]})` on a `consumer()` of one |
 | amqplib (promise and callback APIs) | `publish(exchange, key, ...)` or `sendToQueue(queue, ...)` on a channel | `consume(queue, ...)` on a channel |
+| segmentio/kafka-go | a `Writer`, `WriterConfig` or `Message` literal with `Topic` | a `ReaderConfig` literal with `Topic` or `GroupTopics` |
+| sarama (IBM, Shopify) | a `ProducerMessage` literal with `Topic` | `ConsumePartition(topic, ...)`, or a group's `Consume(ctx, []string{...}, handler)` |
+| confluent-kafka-go | a `TopicPartition` literal with `Topic` (`&name` is read as `name`) | `Subscribe(topic, ...)`, `SubscribeTopics([]string{...}, ...)` |
 
 Each publish rule is `service-contracts.<client>-send`/`-publish` and each
 consume rule `-listener`/`-consumer`/`-consume`; all are pattern_matched.
@@ -2374,6 +2386,14 @@ that imports `amqplib` or `amqplib/callback_api`, of one of these kinds:
 A channel passed in from another file is not read. A kafkajs topic given as
 a regular expression is `consume:topic_pattern`.
 
+The Go Kafka clients are read in files that import them. A producer or
+consumer is placed where the literal or call is written, which is not always
+where messages are sent: a kafka-go `Writer` built in a constructor publishes
+from that constructor. A confluent-kafka-go topic that starts with `^` is a
+pattern (`consume:topic_pattern`). Kafka has no empty topic, so a topic that
+folds to `""` (a package variable that a flag sets at run time, say) is
+`empty_topic` for every client.
+
 | Repository | Literal sites | Outcome |
 |---|---|---|
 | rabbitmq/rabbitmq-tutorials `6deb41d` `javascript-nodejs` (callback API) | 14 publish and consume calls | 8 read, and `hello`, `task_queue` and `rpc_queue` meet. The 6 unread take the routing key from arguments, reply to `msg.properties.replyTo`, or consume a server-named queue (`q.queue`) |
@@ -2382,6 +2402,14 @@ a regular expression is `consume:topic_pattern`.
 | tulios/kafkajs `55b0b41` `examples` | | Not read: they import the library from `../index` |
 
 No edge is wrong. On the corpora, nothing changes.
+
+| Go repository (`examples/`) | Outcome |
+|---|---|
+| segmentio/kafka-go `2e0b396` | 4 sites, all with topics from environment variables, so unread |
+| IBM/sarama `66eb733` | 2 `ProducerMessage` topics read, both correct. 2 flag-set topics are `empty_topic` and 6 are not literal |
+| confluentinc/confluent-kafka-go `eb0eb14` | 6 sites read (5 produces, 1 subscribe), all correct. 40 take their topic from arguments or flags and are unread |
+
+No Go edge is wrong. On the corpora, nothing changes.
 
 ### STOMP destinations
 
@@ -2756,7 +2784,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and relative imports, aliases, re-exports and `export *` included, while a package import, a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
@@ -2909,6 +2937,18 @@ next line and 23 use an imported alias (`page as pageTable`). On
 jackblatch/OneStopShop `31208da` the tool reads all 6 tables and its 59
 calls are exactly the lines `grep` finds.
 
+On mx-space/core `06e732e`, whose app re-exports its Drizzle schema from a
+workspace package (`export * from '@mx-space/db-schema/schema'`), the tool
+reads all 69 `pgTable` declarations. A single-line `grep` for the
+query-builder methods with a table variable finds 821 lines outside the
+test sources. The tool links 778 of them. Following the workspace
+re-export added 14 edges that it missed before, and no edge went away. The
+others are 30 calls in scripts that load the schema through
+`await import(...)`, and 13 `tx.update(posts, ...)` calls in the admin
+frontend on client-side collections named like tables, which are rightly
+not linked. Openstatus, OneStopShop, the nest samples and prisma-examples
+are unchanged.
+
 On mybatis/jpetstore-6 `b7433c2` the tool reads all 25 mapper statements,
 ties each to its mapper interface method, and every table they name is one
 that the application's DDL declares. On macrozheng/mall `dcaa93b`, 906
@@ -3010,8 +3050,9 @@ carries the name. The package's entry points (`exports["."]`, `types`,
 under a tsconfig's `outDir` in the package's directory, as the source under
 `rootDir` that the compiler writes it from (`dist/index.js` from
 `src/index.ts`). `export * from` is followed, and a name that two star
-exports both give is no export, as in ES modules. Only the Mongoose reader
-resolves workspace packages so far. On novuhq/novu `d688aea` the tool links
+exports both give is no export, as in ES modules. The Mongoose, Drizzle and Sequelize
+readers resolve workspace packages; a subpath (`@scope/db/schema`) goes
+through the package's `exports` map when it has one. On novuhq/novu `d688aea` the tool links
 1,409 repository calls, where it linked none before. Of the 1,335
 `this.<x>Repository.<base method>(` lines a single-line `grep` finds
 outside the tests, 1,033 are linked. The others are methods the subclass
