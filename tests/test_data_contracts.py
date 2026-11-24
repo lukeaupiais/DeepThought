@@ -1335,6 +1335,57 @@ class KnexTests(unittest.TestCase):
             output.metadata.custom_metrics["knex"], {"queries": 7, "created": 2}
         )
 
+    def test_constant_tables_and_knex_type_aliases(self):
+        files = {
+            "package.json": '{"dependencies": {"knex": "3"}}',
+            "src/tables.ts": (
+                "export const TASKS = 'tasks';\n"
+                "export const TWICE = 'a';\n"
+                "export const TWICE = 'b';\n"
+                "export let LOOSE = 'loose';\n"
+            ),
+            "src/repo.ts": (
+                "import { type Knex } from 'knex';\n"
+                "import { TASKS, TWICE, LOOSE } from './tables';\n"
+                "const RUNS = 'runs';\n"
+                "type Connection = Knex | Knex.Transaction;\n"
+                "export async function list(db: Connection) {\n"
+                "  await db(TASKS).select();\n"  # 6: imported constant
+                "  await db(RUNS).insert({});\n"  # 7: the file's constant
+                "  await db(TWICE).select();\n"  # 8: declared twice
+                "  await db(LOOSE).select();\n"  # 9: not a const
+                "}\n"
+                "export async function shadow(db: Knex, RUNS: string) {\n"
+                "  await db(RUNS).select();\n"  # 12: a parameter, not the const
+                "}\n"
+                "export async function sub(query: Knex.QueryBuilder) {\n"
+                "  await query.from('steps');\n"  # 15: a typed query builder
+                "}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "steps", 15),
+                ("READS", "tasks", 6),
+                ("WRITES", "runs", 7),
+            ],
+        )
+
     def test_without_knex_nothing_is_read(self):
         files = {
             "package.json": "{}",
