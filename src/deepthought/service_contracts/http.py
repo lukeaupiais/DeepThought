@@ -79,6 +79,7 @@ class RequestTarget:
     host: str | None
     segments: tuple[str, ...]  # PLACEHOLDER marks text the source does not fix
     reason: str | None = None  # why no path could be read
+    port: int | None = None  # the literal port after a literal host
 
     @property
     def display(self) -> str:
@@ -90,8 +91,8 @@ class RequestTarget:
 def request_target(url: str) -> RequestTarget:
     """Read a client URL in which PLACEHOLDER marks unknown text.
 
-    ``scheme://host[:port]/path`` keeps the literal host (lowercased, port
-    dropped). A URL that starts with unknown text (a base URL variable) keeps
+    ``scheme://host[:port]/path`` keeps the literal host (lowercased) and
+    its literal port. A URL that starts with unknown text (a base URL variable) keeps
     only the path that follows it, which must start with ``/``; the unknown
     base is assumed to add no path segments. Query strings and fragments are
     dropped, as are URI template variables (``{name}``), which become unknown
@@ -99,14 +100,15 @@ def request_target(url: str) -> RequestTarget:
     """
     url = re.sub(r"\{[^{}/]*\}", PLACEHOLDER, url)
     url = re.split(r"[?#]", url, maxsplit=1)[0]
-    host = None
+    host = port = None
     match = _SCHEME.match(url)
     if match:
         rest = url[match.end() :]
         authority, slash, path = rest.partition("/")
         if not authority:
             return RequestTarget(None, (), "no_host")
-        name = authority.split("@")[-1].split(":")[0]
+        name, _, written_port = authority.split("@")[-1].partition(":")
+        port = int(written_port) if written_port.isdigit() else None
         if PLACEHOLDER not in name:
             host = name.lower()
         # A host that is not literal ("http://" + host + "/path") leaves the
@@ -129,7 +131,7 @@ def request_target(url: str) -> RequestTarget:
     # A path with no literal text ("/" + path) fixes nothing to match.
     if segments and all(s == PLACEHOLDER for s in segments):
         return RequestTarget(None, (), "no_literal_path")
-    return RequestTarget(host, segments)
+    return RequestTarget(host, segments, port=port if host else None)
 
 
 def _segment_rank(request: str, route: Segment) -> int | None:

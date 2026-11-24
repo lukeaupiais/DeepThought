@@ -87,20 +87,14 @@ def parser():
         "--scip-index",
         type=Path,
         action="append",
-        help="Source-bound SCIP index for --tool scip, default workspace/index.scip; "
-        "repeat for one index per indexer (deepthought index-scip writes them)",
+        help="Read this source-bound SCIP index in --tool scip instead of the "
+        "indexes the run writes; repeat for one index per indexer",
     )
     index.add_argument(
         "--scip-output-dir",
         type=Path,
-        help="Keep the SCIP indexes the tree-sitter tool binds calls with here "
+        help="Keep the SCIP indexes this run writes here "
         "(default: a temporary directory)",
-    )
-    index.add_argument(
-        "--allow-uncovered",
-        action="store_true",
-        help="Import even when Python, TypeScript, JavaScript or Go files have "
-        "no SCIP index; their calls fall back to the parser's rules",
     )
     index.add_argument(
         "--previous-artifact",
@@ -296,15 +290,16 @@ def parser():
 
 
 def index_scip(args, directory):
-    """Run the pinned SCIP indexers for an ``index`` run's tree-sitter tool.
+    """Run the pinned SCIP indexers over an ``index`` run's files.
 
-    Returns the ``index_workspace`` report, cut to the files the run analyzes,
-    and the ingested indexes. Every analyzed Python, TypeScript, JavaScript and
-    Go file must be covered unless ``--allow-uncovered``; each uncovered file
-    is named on stderr with the reason."""
+    Every run does this, whatever its tools. Returns the ``index_workspace``
+    report, cut to the files the run analyzes, and the ingested indexes. A
+    missing, failing or wrong-version indexer stops the run; each file without
+    an index is named on stderr with the reason."""
     from fnmatch import fnmatchcase
 
-    from .indexers import LANGUAGE_INDEXERS, index_workspace, ingest_indexed
+    from .indexers import LANGUAGE_INDEXERS, failed_files, index_workspace
+    from .indexers import ingest_indexed
 
     requested = args.language or LANGUAGE_INDEXERS
     languages = tuple(sorted(set(requested) & set(LANGUAGE_INDEXERS)))
@@ -337,31 +332,46 @@ def index_scip(args, directory):
             )
     for path, entry in sorted(uncovered.items()):
         print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
-    if uncovered and not args.allow_uncovered:
+    failed = failed_files(report)
+    if failed:
         raise ValueError(
-            f"{len(uncovered)} source files have no SCIP index; install the "
-            "pinned indexers (deepthought indexers) or pass --allow-uncovered"
+            f"{len(failed)} source files have no SCIP index because an indexer "
+            "is missing or failed; install the pinned indexers "
+            "(deepthought indexers lists them)"
         )
     return report, ingest_indexed(report, args.repository_id, args.workspace)
 
 
 async def execute(args):
+
+    scip_report, scip_indexes, scratch = None, [], None
+    if args.command == "index":
+        import tempfile
+
+        directory = args.scip_output_dir
+        if directory is None:
+            directory = scratch = tempfile.mkdtemp(prefix="deepthought-scip-")
+        try:
+            scip_report, scip_indexes = index_scip(args, directory)
+        except BaseException:
+            _remove(scratch)
+            raise
+    try:
+        return await _execute(args, scip_report, scip_indexes)
+    finally:
+        _remove(scratch)
+
+
+def _remove(directory):
+    if directory is not None:
+        import shutil
+
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+async def _execute(args, scip_report, scip_indexes):
     from .storage.graph.connection import Neo4jConnectionManager
 
-    if args.command == "index" and "tree-sitter" in (args.tool or ["tree-sitter"]):
-        if args.scip_output_dir is not None:
-            scip_report, scip_indexes = index_scip(args, args.scip_output_dir)
-        else:
-            import tempfile
-
-            with tempfile.TemporaryDirectory() as directory:
-                scip_report, scip_indexes = index_scip(args, directory)
-    elif args.command == "index":
-        if args.scip_output_dir is not None or args.allow_uncovered:
-            raise ValueError(
-                "--scip-output-dir and --allow-uncovered belong to the tree-sitter tool"
-            )
-        scip_report, scip_indexes = None, []
     config = connection_settings()
     manager = Neo4jConnectionManager(**config)
     driver = await manager.connect()
@@ -406,8 +416,15 @@ async def execute(args):
                     name,
                     args.workspace,
                     **(
-                        {"index_paths": args.scip_index}
-                        if name == "scip" and args.scip_index is not None
+                        {
+                            "index_paths": args.scip_index
+                            or [
+                                run["index"]
+                                for run in (scip_report or {"runs": []})["runs"]
+                                if run["status"] == "indexed"
+                            ]
+                        }
+                        if name == "scip"
                         else {"max_files": args.max_files}
                         if name == "data-contracts" and args.max_files is not None
                         else {}

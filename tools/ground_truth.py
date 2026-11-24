@@ -73,8 +73,11 @@ def _descriptor_name(native_id):
     return names[-1] if names else None
 
 
-_SELF_BUILTIN = re.compile(
-    r"\b(?:self|cls)\.\s*\0scip-python python python-stdlib \S+ builtins/[^#/]+(?:#|\(\)\.)$"
+# An attribute (``x.set``, ``self.set``, ``f().set``) bound to a top-level
+# builtin. Only the ``builtins`` module itself has those as attributes.
+_ATTRIBUTE_BUILTIN = re.compile(
+    r"(?<![\w.])(?!builtins\s*\.\s*\0)[\w.()\[\]'\"]*[\w)\]]\s*\.\s*"
+    r"\0scip-python python python-stdlib \S+ builtins/[^#/]+(?:#|\(\)\.)$"
 )
 _ALL = re.compile(r"^__all__\s*=\s*[\[(]([^\])]*)[\])]", re.M)
 
@@ -299,12 +302,13 @@ def derive(workspace, index):
             # opening parenthesis without calling it.
             continue
         native = _star_export(r.native_id, written, r.file, defined, text_of)
-        if native is None or _SELF_BUILTIN.search(
+        if native is None or _ATTRIBUTE_BUILTIN.search(
             _slice(line, 0, r.column, encoding) + "\0" + r.native_id
         ):
             # scip-python binds `self.set(...)` in a class that defines
-            # `set` to the builtin `set`: an attribute of self is never a
-            # top-level builtin, so the row is left unjudged.
+            # `set`, and `cookies.set(...)` on a typed receiver, to the
+            # builtin `set`: an attribute is never a top-level builtin
+            # (except on the `builtins` module), so the row is unjudged.
             continue
         if native in defined:
             targets = defined[native]

@@ -874,6 +874,28 @@ class CalleeAtTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     type(site)(**{**site.__dict__, "callee_at": wrong})
 
+    def test_awaited_calls_with_type_arguments_are_recorded(self):
+        # The grammar reads `await a.f<T>()` as a call of `await a.f`.
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "a.ts").write_text(
+                "async function h(c) {\n"
+                "  await c.req.parseBody<{ a: string }>();\n"
+                "  await f<T>(); await g(); x.y<T>();\n"
+                "}\n"
+            )
+            result = analyze_repository(
+                root, repository_id="r", languages=("typescript",)
+            )
+            self.assertEqual(
+                sorted((s.callee, s.callee_at) for s in result.call_sites),
+                [
+                    ("c.req.parseBody", (2, 14)),
+                    ("f", (3, 8)),
+                    ("g", (3, 22)),
+                    ("x.y", (3, 29)),
+                ],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
