@@ -158,10 +158,114 @@ class CppTests(unittest.TestCase):
             b"/* class API K {\n */": b"/* class API K {\n */",
             b'"class API L {"': b'"class API L {"',
             b'\'"\' class API M { ""': b'\'"\' class     M { ""',
+            # A line holding only an upper-case name with an underscore.
+            b"FMT_BEGIN_EXPORT\nclass N {": b"                \nclass N {",
+            b"x;\n  API_CALL  \r\nint f();": b"x;\n            \r\nint f();",
+            b"LAST_LINE": b"         ",
+            # Not one: a name without an underscore, lower case, a macro's
+            # continued line, a line with more on it.
+            b"\nNOUNDERSCORE\n": b"\nNOUNDERSCORE\n",
+            b"\nlower_case\n": b"\nlower_case\n",
+            b"#define X \\\n  FMT_A \\\n": b"#define X \\\n  FMT_A \\\n",
+            b"\nFMT_A int f();\n": b"\nFMT_A int f();\n",
+            b"/*\nFMT_A\n*/": b"/*\nFMT_A\n*/",
         }
         for written, parsed in cases.items():
             self.assertEqual(prepare_source("cpp", written), parsed, written)
         self.assertEqual(prepare_source("c", b"struct API S {"), b"struct API S {")
+
+    def test_text_the_grammar_misreads_declares_no_function(self):
+        result = analyze(
+            {
+                "a.h": "class S {\n"
+                "  enum : unsigned { mask = 1 };\n"
+                "  MACRO S(int n) noexcept\n"
+                "      : size_(n), cap_(n) {}\n"
+                "  int bits : 3, more : 2;\n"
+                "};\n"
+                "struct T { int a; } make();\n"
+                "FMT_BEGIN_EXPORT\n"
+                "template <typename C> class View { int size() const; };\n"
+            }
+        )
+        self.assertEqual(
+            [(d.line, d.symbol, d.kind) for d in result.definitions],
+            [
+                (1, "S", "Class"),
+                # An unnamed enum: the grammar reads `enum :` with a missing
+                # name.
+                # Member initializers after a macro read as bit-field
+                # declarators; the constructor is kept.
+                (3, "S.S", "Method"),
+                # A function cannot return a class defined in its
+                # declaration.
+                (7, "T", "Struct"),
+                # A macro alone on its line is blanked.
+                (9, "View", "Class"),
+                (9, "View.size", "Method"),
+            ],
+        )
+
+    def test_macros_before_constructors_and_macro_statements(self):
+        result = analyze(
+            {
+                "a.h": "class C {\n"
+                "  FMT_CONSTEXPR explicit C(int a) : a_(a), b_{a} {}\n"
+                "  FMT_CONSTEXPR20 ~C() = default;\n"
+                "  void f();\n"
+                "};\n",
+                "b.h": "FMT_TYPE_CONSTANT(int, int_type);\n"
+                "namespace N {\n"
+                "N(int, x);\n"
+                "}\n",
+                "c.h": "namespace n {\n"
+                "class L {\n"
+                " public:\n"
+                "  L(int n)\n"
+                "      :\n"
+                "#if !defined(NDEBUG)\n"
+                "        n_(n),\n"
+                "#endif\n"
+                "        m_(n) {}\n"
+                "  void f();\n"
+                "};\n"
+                "}\n",
+                "e.h": "namespace n {\n"
+                "class D {\n"
+                " public:\n"
+                "  M(int n)\n"
+                "      :\n"
+                "#if X\n"
+                "        n_(n),\n"
+                "#endif\n"
+                "        m_(n) {}\n"
+                "  void f();\n"
+                "};\n"
+                "}\n",
+            }
+        )
+        found = [(d.file, d.line, d.symbol, d.kind) for d in result.definitions]
+        self.assertEqual(
+            [f[1:] for f in found if f[0] in ("a.h", "b.h")],
+            [
+                # a.h: the macro before a constructor or destructor is
+                # blanked, so the class keeps its later members. b.h: a
+                # macro's invocation as a statement declares nothing.
+                (1, "C", "Class"),
+                (2, "C.C", "Method"),
+                (3, "C.~C", "Method"),
+                (4, "C.f", "Method"),
+                # Even inside a namespace of the same name.
+                (2, "N", "Namespace"),
+            ],
+        )
+        # c.h: a constructor whose initializers the grammar cannot parse is
+        # kept, since it names its class.
+        self.assertIn(("c.h", 4, "n.L.L", "Method"), found)
+        self.assertIn(("c.h", 10, "n.L.f", "Method"), found)
+        # e.h: one that names another class is a macro's invocation.
+        self.assertIn(("e.h", 10, "n.D.f", "Method"), found)
+        self.assertNotIn("n.D.M", [f[2] for f in found])
 
     def test_headers_are_cpp_when_cpp_is_selected(self):
         files = {"a.h": "int f(void);\n", "b.c": "int g(void);\n"}
