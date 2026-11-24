@@ -1764,6 +1764,45 @@ of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
 
+### GraphQL root fields
+
+Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL
+server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
+`protocol` `graphql`), scoped to the Node package (the nearest
+`package.json`) of the files that declare or resolve it
+(`deepthought.service_contracts.graphql`):
+
+- Schema files (`*.graphql`, `*.gql`) declare the fields of `type Query`,
+  `type Mutation` and `type Subscription`, including `extend type` blocks.
+  Descriptions, comments, arguments and directives are skipped. The node
+  records them as `declared_in`.
+- NestJS resolvers: a method of a class decorated `@Resolver` that carries
+  `@Query`, `@Mutation` or `@Subscription`, all imported from
+  `@nestjs/graphql`, resolves the field named by the decorator's literal
+  name (`@Query('cats')`), the `name` of its options, or else the method
+  name. It links to the field by `HANDLES` (rule
+  `service-contracts.nestjs-graphql-resolver`, pattern_matched).
+
+Counted as unread:
+- `graphql:schema_root_renamed`: a schema that renames its root types;
+- `graphql:field_not_literal`: a resolver name that is not literal;
+- `graphql:declared_not_resolved`: a declared field that no read resolver
+  handles;
+- `graphql:resolved_not_declared`: a resolved field missing from a package
+  that has schema files.
+
+Clients, resolver maps (Apollo `resolvers` objects) and field resolvers of
+object types are not read yet.
+
+On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
+GraphQL servers, 23 of them also declared in schema files. The two
+code-first samples commit the `schema.gql` that Nest itself generates from
+the decorators, and its fields are exactly the ones read from the
+resolvers. In the schema-first samples, every declared field has a
+resolver and every resolver has a declaration. The four root fields that
+the samples' end-to-end tests query (other than introspection) are all
+among them.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
@@ -2062,6 +2101,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 
@@ -2084,8 +2124,8 @@ never name a table. Tables are named after `FROM`, `JOIN`,
 FROM` and `TRUNCATE`; the targets of the last five are written and the rest
 read. Common table expressions, functions in `FROM`, `FROM` inside function
 arguments, comments and string literals are skipped, and a name holding text
-the code does not fix is dropped. SQL built at run time, `EntityManager`
-`persist`/`merge`/`remove`, named queries and other persistence frameworks
+the code does not fix is dropped. SQL built at run time, entities passed
+through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
 Test sources (`src/test/`) are skipped.
 
@@ -2108,7 +2148,11 @@ times (JDBC, JPA and Spring Data JPA), the tool reads all 24 statements that
 links to the tables its text names: for instance the JDBC
 `loadPetsAndVisits` reads `pets` and `visits`, the owner and pet `save`
 methods write their tables, and the constructors that set up a
-`SimpleJdbcInsert` write `owners`, `pets` and `visits`. On spring-petclinic-microservices the 2 `@Query` methods of
+`SimpleJdbcInsert` write `owners`, `pets` and `visits`. All 7
+`EntityManager` calls of the JPA variant resolve: `find` reads `pets` and
+each `save` writes its entity's table.
+
+On spring-petclinic-microservices the 2 `@Query` methods of
 `PetRepository` read `types`, which its CRUD repository of pets did not
 reach.
 

@@ -160,6 +160,31 @@ selected corpus needs is not installed. Without them the engine reports files
 unavailable and gateway routes unread instead of failing, so the scores would
 drop as if it had regressed. Install the package with its `languages` extra.
 
+### Imports
+
+`derive-imports` reads an index's references to module and package symbols.
+On a line of an import statement, the rightmost module reference (the
+innermost module of a dotted path) names what the statement imports: the
+files that define it, their directories for Go packages, or `external` when
+the repository defines none. Indexer quirks are normalized: scip-python names
+a relative import's module without its package (rebuilt from the leading dots
+and the importing module) and gives some references the installed version
+instead of the commit (versions are ignored). An engine import is judged by
+the truth lines it spans: *confirmed* when it links an expected target,
+*contradicted* when it links elsewhere or links a module the oracle places
+outside the repository. Recall is over import lines with a repository target.
+
+| Corpus | Expected | Confirmed | Contradicted | Precision | Recall |
+|---|---|---|---|---|---|
+| click | 331 | 331 | 0 | 1.0 | 1.0 |
+| ky | 98 | 98 | 0 | 1.0 | 1.0 |
+| cobra | 12 | 12 | 0 | 1.0 | 1.0 |
+
+Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
+tests are outside its TypeScript project, so the index does not cover them.
+Rust is not covered: rust-analyzer references the item a `use` names, not a
+module, and the engine links items too, so it needs its own derivation.
+
 ### Inheritance
 
 `inherits/NAME.tsv` holds expected declared supertypes in the same format, keyed
@@ -214,6 +239,31 @@ kind mismatches). Its extras include member initializers read as functions
 (`size_(sz)` in `buffer`'s constructor) and an anonymous enum with an empty
 name. cJSON's extras are three functions in a preprocessor branch clang did
 not take.
+
+### Ruby and PHP declarations
+
+The same scorer covers Ruby and PHP, with each language's own parser as the
+oracle. `tools/ruby_declaration_truth.rb` walks Ripper's syntax tree: a
+`def` in a class, module or `class << self` body is a `method`, as is any
+singleton `def x.m` (on `self` or another object); any other `def` is a
+`function`. `tools/php_declaration_truth.php` reads `token_get_all`: a named
+function in a class, interface, trait, enum or anonymous class body is a
+`method`, other named functions are `function`s, and a declaration begins at
+its first attribute or modifier. Closures, `X::class` and `use function`
+imports are not declarations. Files that do not parse (`php -l`) are left
+unindexed.
+
+| Corpus | Expected | Found | Kind mismatch | Missed | Extra |
+|---|---|---|---|---|---|
+| rack (Ruby) | 1014 | 950 | 60 | 4 | 0 |
+| Slim (PHP) | 876 | 863 | 0 | 13 | 0 |
+
+rack's kind mismatches are all singleton methods defined outside a class
+body (`def self.x` at the top of a file, `def object.close` in a test
+block), which the engine reads as functions; its misses are singleton
+methods on an instance variable or nested in another method. Slim's misses
+are the methods of anonymous classes and three functions declared inside a
+method body.
 
 ### Service contracts
 
