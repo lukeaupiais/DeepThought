@@ -363,6 +363,9 @@ def _js_modules(root, content):
                         names[text(item.named_children[-1], content)] = module
                     elif item.type == "named_imports":
                         for spec in item.named_children:
+                            # Comments may sit between the braces.
+                            if spec.type != "import_specifier":
+                                continue
                             alias = spec.child_by_field_name(
                                 "alias"
                             ) or spec.child_by_field_name("name")
