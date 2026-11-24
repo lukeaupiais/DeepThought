@@ -58,7 +58,7 @@ from ..service_contracts.graphql import (
     template_schemas,
 )
 from ..service_contracts.http import PLACEHOLDER
-from ..service_contracts.model import HttpRoute, Unread
+from ..service_contracts.model import HttpRequest, HttpRoute, Unread
 from ..service_contracts.listeners import kratos_ports
 from ..service_contracts.protoc import route_path
 from ..service_contracts.messaging import (
@@ -67,6 +67,7 @@ from ..service_contracts.messaging import (
     extract_messaging,
     stomp_prefixes,
 )
+from ..service_contracts.oapi_codegen import generated_requests
 from ..service_contracts.openapi import generated_apis
 from ..service_contracts.aspnet import extract_aspnet
 from ..service_contracts.csharp_http import (
@@ -685,6 +686,24 @@ ARGUMENT_RULE = _message_rule(
     "module, in place of the parameters. The site itself is read by the rule "
     "in site_rule; argument_from lists the calls." + _SAME_NAME,
 )
+_OAPI_CODEGEN = (
+    "oapi-codegen, run by a //go:generate directive of the repository with "
+    "client among the kinds it generates, made this request builder "
+    "(New<Operation>Request) for an operation of the spec the directive "
+    "names; the generated file declares it. The method and path are the "
+    "operation's, under the server URL the client is given at run time, "
+    "which is not read. "
+)
+OAPI_CODEGEN_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.oapi-codegen-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _OAPI_CODEGEN + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -2349,6 +2368,38 @@ class ServiceContractTool(AnalysisTool):
                     rpc=f"{binding.service}/{binding.method}",
                 )
             )
+        # Go clients oapi-codegen generates from a spec of the repository:
+        # each operation is sent from its request builder, read from the spec
+        # instead of the generated code's unknown URLs.
+        go_files = {c.file: content for c, content, _ in sources if c.language == "go"}
+        oapi_requests, oapi_unread = (
+            generated_requests(root, go_files) if go_files else ([], [])
+        )
+        outputs = {item.file for item in oapi_requests}
+        requests = [
+            r for r in requests if not (r.file in outputs and r.client == "go-net-http")
+        ]
+        for item in oapi_requests:
+            enclosing = [
+                d
+                for d in result.definitions
+                if d.file == item.file and d.line <= item.line <= d.end_line
+            ]
+            requests.append(
+                HttpRequest(
+                    id=identifier(repo_url, item.file, item.function, "HttpRequest", 0),
+                    file=item.file,
+                    line=item.line,
+                    column=0,
+                    caller_id=max(enclosing, key=lambda d: d.line).id
+                    if enclosing
+                    else None,
+                    method=item.http_method,
+                    url=PLACEHOLDER + item.path,
+                    client="oapi-codegen",
+                    declared_in=f"{item.spec_file}:{item.spec_line}",
+                )
+            )
         gateways, gateway_unread = _gateways(root, config, sources)
         deployments = Deployments(deployed_units(root))
         routes, requests = _deployed(root, deployments, routes, requests)
@@ -2580,6 +2631,7 @@ class ServiceContractTool(AnalysisTool):
                                 else {
                                     "openapi-java": OPENAPI_REQUEST_RULES,
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
+                                    "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
@@ -2933,6 +2985,9 @@ class ServiceContractTool(AnalysisTool):
             unread_counts[f"graphql:{reason}"] = count
         for item in openapi_unread:
             key = f"openapi:{item.reason}"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
+        for item in oapi_unread:
+            key = f"oapi_codegen:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         for item in gateway_unread:
             key = f"gateway:{item.reason}"
