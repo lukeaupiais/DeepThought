@@ -211,6 +211,22 @@ class CloudStreamTests(unittest.TestCase):
             ],
         )
         self.assertEqual({e.client for e in self.endpoints}, {"spring-cloud-stream"})
+        # Library code records the service that runs it; a service's own
+        # code does not.
+        self.assertEqual(
+            sorted(
+                {
+                    (e.file.rpartition("/")[2], e.module, e.service)
+                    for e in self.endpoints
+                },
+                key=str,
+            ),
+            [
+                ("Invoices.java", None, None),
+                ("Publisher.java", "orders", "orders"),
+                ("Publisher.java", "shipping", "shipping"),
+            ],
+        )
         # mailer and both have no single binder.
         binder_unknown = [
             ("Publisher.java", line, "publish", "binder_unknown")
@@ -258,6 +274,14 @@ class CloudStreamTests(unittest.TestCase):
                 "service-contracts.spring-cloud-stream-output",
             ),
             edges,
+        )
+        self.assertEqual(
+            sorted(
+                r.properties.get("service", "")
+                for r in self.output.relationships
+                if r.type == "PUBLISHES"
+            ),
+            ["orders"] * 4 + ["shipping"] * 4,
         )
         for relationship in self.output.relationships:
             if relationship.type in ("PUBLISHES", "CONSUMES"):

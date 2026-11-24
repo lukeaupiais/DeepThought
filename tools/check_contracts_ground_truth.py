@@ -232,16 +232,31 @@ def _message_pairs(endpoints, roots):
         if endpoint.role != "publish":
             continue
         for consumer in consumers.get((endpoint.broker, endpoint.destination), []):
-            # Library code run by several services sends from one site.
-            key = (endpoint.file, endpoint.line, consumer.file, consumer.line)
-            if key in seen:
+            # Library code run by several services sends from one site; the
+            # service is the one that runs it.
+            sender = _service_of(
+                f"{endpoint.module}/" if endpoint.module else endpoint.file, roots
+            )
+            receiver = _service_of(
+                f"{consumer.module}/" if consumer.module else consumer.file, roots
+            )
+            key = (
+                endpoint.file,
+                endpoint.line,
+                consumer.file,
+                consumer.line,
+                sender,
+                receiver,
+            )
+            if key in seen or (sender is not None and sender == receiver):
+                # The corpora label links between services, not within one.
                 continue
             seen.add(key)
             pairs.append(
                 {
                     "kind": "messaging",
-                    "from_service": _service_of(endpoint.file, roots),
-                    "to_service": _service_of(consumer.file, roots),
+                    "from_service": sender,
+                    "to_service": receiver,
                     "file": endpoint.file,
                     "line": endpoint.line,
                     "server_file": consumer.file,

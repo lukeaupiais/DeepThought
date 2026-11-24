@@ -126,13 +126,13 @@
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       }
     },
@@ -232,13 +232,13 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 42,
-          "predicted": 4,
-          "true_positive": 4
+          "predicted": 36,
+          "true_positive": 36
         },
         "service_pairs": {
           "labelled_in_scope": 17,
-          "predicted": 3,
-          "true_positive": 3
+          "predicted": 13,
+          "true_positive": 13
         }
       },
       "messaging": {

@@ -321,6 +321,8 @@ def _stream_endpoints(root, config, sites, repo_url):
                     broker=binder,
                     destination=destination,
                     client="spring-cloud-stream",
+                    module=None if current == module else current,
+                    service=None if current == module else service,
                 )
             )
     return endpoints, unread
@@ -848,6 +850,12 @@ class ServiceContractTool(AnalysisTool):
                         "client": endpoint.client,
                         "line": endpoint.line,
                         "column": endpoint.column,
+                        **({"service": endpoint.service} if endpoint.service else {}),
+                        **(
+                            {"service_module": endpoint.module}
+                            if endpoint.module
+                            else {}
+                        ),
                         **_evidence(MESSAGE_RULES[(endpoint.client, endpoint.role)]),
                     },
                 )
