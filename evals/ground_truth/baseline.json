@@ -1500,8 +1500,8 @@
     "tables-miniflux-storage": {
       "expected": 29,
       "extra": 0,
-      "found": 25,
-      "missed": 4,
+      "found": 29,
+      "missed": 0,
       "wrong": 0
     },
     "tables-node-express-boilerplate": {
