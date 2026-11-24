@@ -1,0 +1,222 @@
+# file	line	name	target_file	target_line	kind
+# indexed	active_help.go
+# indexed	active_help_test.go
+# indexed	args.go
+# indexed	args_test.go
+# indexed	bash_completions.go
+# indexed	bash_completionsV2.go
+# indexed	bash_completionsV2_test.go
+# indexed	bash_completions_test.go
+# indexed	cobra.go
+# indexed	cobra_test.go
+# indexed	command.go
+# indexed	command_notwin.go
+# indexed	command_test.go
+# indexed	completions.go
+# indexed	completions_test.go
+# indexed	doc/cmd_test.go
+# indexed	doc/man_docs.go
+# indexed	doc/man_docs_test.go
+# indexed	doc/man_examples_test.go
+# indexed	doc/md_docs.go
+# indexed	doc/md_docs_test.go
+# indexed	doc/rest_docs.go
+# indexed	doc/rest_docs_test.go
+# indexed	doc/util.go
+# indexed	doc/yaml_docs.go
+# indexed	doc/yaml_docs_test.go
+# indexed	fish_completions.go
+# indexed	fish_completions_test.go
+# indexed	flag_groups.go
+# indexed	flag_groups_test.go
+# indexed	powershell_completions.go
+# indexed	powershell_completions_test.go
+# indexed	shell_completions.go
+# indexed	zsh_completions.go
+# indexed	zsh_completions_test.go
+active_help.go	18	import	-	0	external
+active_help.go	19	import	-	0	external
+active_help_test.go	18	import	-	0	external
+active_help_test.go	19	import	-	0	external
+active_help_test.go	20	import	-	0	external
+active_help_test.go	21	import	-	0	external
+args.go	18	import	-	0	external
+args.go	19	import	-	0	external
+args_test.go	18	import	-	0	external
+args_test.go	19	import	-	0	external
+args_test.go	20	import	-	0	external
+bash_completions.go	18	import	-	0	external
+bash_completions.go	19	import	-	0	external
+bash_completions.go	20	import	-	0	external
+bash_completions.go	21	import	-	0	external
+bash_completions.go	22	import	-	0	external
+bash_completions.go	23	import	-	0	external
+bash_completions.go	25	import	-	0	external
+bash_completionsV2.go	18	import	-	0	external
+bash_completionsV2.go	19	import	-	0	external
+bash_completionsV2.go	20	import	-	0	external
+bash_completionsV2.go	21	import	-	0	external
+bash_completionsV2_test.go	18	import	-	0	external
+bash_completionsV2_test.go	19	import	-	0	external
+bash_completionsV2_test.go	20	import	-	0	external
+bash_completions_test.go	18	import	-	0	external
+bash_completions_test.go	19	import	-	0	external
+bash_completions_test.go	20	import	-	0	external
+bash_completions_test.go	21	import	-	0	external
+bash_completions_test.go	22	import	-	0	external
+bash_completions_test.go	23	import	-	0	external
+bash_completions_test.go	24	import	-	0	external
+cobra.go	21	import	-	0	external
+cobra.go	22	import	-	0	external
+cobra.go	23	import	-	0	external
+cobra.go	24	import	-	0	external
+cobra.go	25	import	-	0	external
+cobra.go	26	import	-	0	external
+cobra.go	27	import	-	0	external
+cobra.go	28	import	-	0	external
+cobra.go	29	import	-	0	external
+cobra_test.go	18	import	-	0	external
+cobra_test.go	19	import	-	0	external
+cobra_test.go	20	import	-	0	external
+cobra_test.go	21	import	-	0	external
+cobra_test.go	22	import	-	0	external
+cobra_test.go	23	import	-	0	external
+cobra_test.go	24	import	-	0	external
+command.go	20	import	-	0	external
+command.go	21	import	-	0	external
+command.go	22	import	-	0	external
+command.go	23	import	-	0	external
+command.go	24	import	-	0	external
+command.go	25	import	-	0	external
+command.go	26	import	-	0	external
+command.go	27	import	-	0	external
+command.go	28	import	-	0	external
+command.go	30	import	-	0	external
+command_test.go	18	import	-	0	external
+command_test.go	19	import	-	0	external
+command_test.go	20	import	-	0	external
+command_test.go	21	import	-	0	external
+command_test.go	22	import	-	0	external
+command_test.go	23	import	-	0	external
+command_test.go	24	import	-	0	external
+command_test.go	25	import	-	0	external
+command_test.go	27	import	-	0	external
+completions.go	18	import	-	0	external
+completions.go	19	import	-	0	external
+completions.go	20	import	-	0	external
+completions.go	21	import	-	0	external
+completions.go	22	import	-	0	external
+completions.go	23	import	-	0	external
+completions.go	25	import	-	0	external
+completions_test.go	18	import	-	0	external
+completions_test.go	19	import	-	0	external
+completions_test.go	20	import	-	0	external
+completions_test.go	21	import	-	0	external
+completions_test.go	22	import	-	0	external
+completions_test.go	23	import	-	0	external
+completions_test.go	24	import	-	0	external
+doc/cmd_test.go	18	import	-	0	external
+doc/cmd_test.go	19	import	-	0	external
+doc/cmd_test.go	21	import	.	0	module
+doc/man_docs.go	18	import	-	0	external
+doc/man_docs.go	19	import	-	0	external
+doc/man_docs.go	20	import	-	0	external
+doc/man_docs.go	21	import	-	0	external
+doc/man_docs.go	22	import	-	0	external
+doc/man_docs.go	23	import	-	0	external
+doc/man_docs.go	24	import	-	0	external
+doc/man_docs.go	25	import	-	0	external
+doc/man_docs.go	26	import	-	0	external
+doc/man_docs.go	28	import	-	0	external
+doc/man_docs.go	29	import	.	0	module
+doc/man_docs.go	30	import	-	0	external
+doc/man_docs_test.go	18	import	-	0	external
+doc/man_docs_test.go	19	import	-	0	external
+doc/man_docs_test.go	20	import	-	0	external
+doc/man_docs_test.go	21	import	-	0	external
+doc/man_docs_test.go	22	import	-	0	external
+doc/man_docs_test.go	23	import	-	0	external
+doc/man_docs_test.go	24	import	-	0	external
+doc/man_docs_test.go	26	import	.	0	module
+doc/man_examples_test.go	18	import	-	0	external
+doc/man_examples_test.go	19	import	-	0	external
+doc/man_examples_test.go	21	import	.	0	module
+doc/man_examples_test.go	22	import	doc	0	module
+doc/md_docs.go	18	import	-	0	external
+doc/md_docs.go	19	import	-	0	external
+doc/md_docs.go	20	import	-	0	external
+doc/md_docs.go	21	import	-	0	external
+doc/md_docs.go	22	import	-	0	external
+doc/md_docs.go	23	import	-	0	external
+doc/md_docs.go	24	import	-	0	external
+doc/md_docs.go	25	import	-	0	external
+doc/md_docs.go	27	import	.	0	module
+doc/md_docs_test.go	18	import	-	0	external
+doc/md_docs_test.go	19	import	-	0	external
+doc/md_docs_test.go	20	import	-	0	external
+doc/md_docs_test.go	21	import	-	0	external
+doc/md_docs_test.go	23	import	.	0	module
+doc/rest_docs.go	18	import	-	0	external
+doc/rest_docs.go	19	import	-	0	external
+doc/rest_docs.go	20	import	-	0	external
+doc/rest_docs.go	21	import	-	0	external
+doc/rest_docs.go	22	import	-	0	external
+doc/rest_docs.go	23	import	-	0	external
+doc/rest_docs.go	24	import	-	0	external
+doc/rest_docs.go	25	import	-	0	external
+doc/rest_docs.go	27	import	.	0	module
+doc/rest_docs_test.go	18	import	-	0	external
+doc/rest_docs_test.go	19	import	-	0	external
+doc/rest_docs_test.go	20	import	-	0	external
+doc/rest_docs_test.go	21	import	-	0	external
+doc/rest_docs_test.go	23	import	.	0	module
+doc/util.go	18	import	-	0	external
+doc/util.go	20	import	.	0	module
+doc/yaml_docs.go	18	import	-	0	external
+doc/yaml_docs.go	19	import	-	0	external
+doc/yaml_docs.go	20	import	-	0	external
+doc/yaml_docs.go	21	import	-	0	external
+doc/yaml_docs.go	22	import	-	0	external
+doc/yaml_docs.go	23	import	-	0	external
+doc/yaml_docs.go	25	import	.	0	module
+doc/yaml_docs.go	26	import	-	0	external
+doc/yaml_docs.go	27	import	-	0	external
+doc/yaml_docs_test.go	18	import	-	0	external
+doc/yaml_docs_test.go	19	import	-	0	external
+doc/yaml_docs_test.go	20	import	-	0	external
+doc/yaml_docs_test.go	21	import	-	0	external
+doc/yaml_docs_test.go	22	import	-	0	external
+doc/yaml_docs_test.go	24	import	.	0	module
+fish_completions.go	18	import	-	0	external
+fish_completions.go	19	import	-	0	external
+fish_completions.go	20	import	-	0	external
+fish_completions.go	21	import	-	0	external
+fish_completions.go	22	import	-	0	external
+fish_completions_test.go	18	import	-	0	external
+fish_completions_test.go	19	import	-	0	external
+fish_completions_test.go	20	import	-	0	external
+fish_completions_test.go	21	import	-	0	external
+fish_completions_test.go	22	import	-	0	external
+fish_completions_test.go	23	import	-	0	external
+flag_groups.go	18	import	-	0	external
+flag_groups.go	19	import	-	0	external
+flag_groups.go	20	import	-	0	external
+flag_groups.go	22	import	-	0	external
+flag_groups_test.go	18	import	-	0	external
+flag_groups_test.go	19	import	-	0	external
+powershell_completions.go	21	import	-	0	external
+powershell_completions.go	22	import	-	0	external
+powershell_completions.go	23	import	-	0	external
+powershell_completions.go	24	import	-	0	external
+powershell_completions.go	25	import	-	0	external
+powershell_completions_test.go	18	import	-	0	external
+powershell_completions_test.go	19	import	-	0	external
+powershell_completions_test.go	20	import	-	0	external
+shell_completions.go	18	import	-	0	external
+zsh_completions.go	18	import	-	0	external
+zsh_completions.go	19	import	-	0	external
+zsh_completions.go	20	import	-	0	external
+zsh_completions.go	21	import	-	0	external
+zsh_completions_test.go	18	import	-	0	external
+zsh_completions_test.go	19	import	-	0	external
+zsh_completions_test.go	20	import	-	0	external

@@ -155,6 +155,31 @@ line 35, `processor(stream)` calls the loop variable of
 `for processor in processors`, and the engine links it to the module-level
 function `processor` defined on line 42.
 
+### Imports
+
+`derive-imports` reads an index's references to module and package symbols.
+On a line of an import statement, the rightmost module reference (the
+innermost module of a dotted path) names what the statement imports: the
+files that define it, their directories for Go packages, or `external` when
+the repository defines none. Indexer quirks are normalized: scip-python names
+a relative import's module without its package (rebuilt from the leading dots
+and the importing module) and gives some references the installed version
+instead of the commit (versions are ignored). An engine import is judged by
+the truth lines it spans: *confirmed* when it links an expected target,
+*contradicted* when it links elsewhere or links a module the oracle places
+outside the repository. Recall is over import lines with a repository target.
+
+| Corpus | Expected | Confirmed | Contradicted | Precision | Recall |
+|---|---|---|---|---|---|
+| click | 331 | 331 | 0 | 1.0 | 1.0 |
+| ky | 98 | 98 | 0 | 1.0 | 1.0 |
+| cobra | 12 | 12 | 0 | 1.0 | 1.0 |
+
+Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
+tests are outside its TypeScript project, so the index does not cover them.
+Rust is not covered: rust-analyzer references the item a `use` names, not a
+module, and the engine links items too, so it needs its own derivation.
+
 ### Inheritance
 
 `inherits/NAME.tsv` holds expected declared supertypes in the same format, keyed

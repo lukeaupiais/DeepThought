@@ -24,6 +24,8 @@ the others let a link at that position be judged right or wrong.
 
 Subcommands:
   derive WORKSPACE INDEX                   write expected calls (TSV) to stdout
+  derive-imports WORKSPACE INDEX --language L [--directory]
+                                           expected import targets (TSV)
   derive-java WORKSPACE                    the same from javac's attribution
                                            (tools/JavaCallTruth.java)
   score WORKSPACE TRUTH --language L       score the engine against a TSV
@@ -537,6 +539,20 @@ def check(names, cache, update=False, examples=10):
                     "inherits: " + p
                     for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
                 ]
+        if "imports" in corpus:
+            imported, import_samples = score_imports(
+                result,
+                read_truth(CORPUS / corpus["imports"]),
+                corpus.get("imports_granularity") == "directory",
+                examples,
+            )
+            report["imports"] = imported
+            samples["imports"] = import_samples
+            if not update and "imports" in baseline.get(corpus["name"], {}):
+                problems += [
+                    "imports: " + p
+                    for p in regressions(imported, baseline[corpus["name"]]["imports"])
+                ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
             "commit": corpus["commit"],
@@ -568,6 +584,182 @@ def check(names, cache, update=False, examples=10):
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
+
+
+# Lines that can hold an import's module: a module named elsewhere (a
+# Python `click.echo(...)`) is a use, not an import.
+_IMPORT_LINE = {
+    "python": re.compile(r"^\s*(?:from|import)\s"),
+    "typescript": re.compile(r"\b(?:from|import|require)\b"),
+    "javascript": re.compile(r"\b(?:from|import|require)\b"),
+    "go": re.compile(r"^\s*(?:import\s+)?(?:[\w.]+\s+)?\"[^\"]*\"\s*(?://.*)?$"),
+}
+_RELATIVE_IMPORT = re.compile(r"^\s*from\s+(\.+)([\w.]*)\s+import\b")
+
+
+def _without_version(symbol):
+    """A SCIP symbol without backticks or its package version: an indexer can
+    name one package with two versions (scip-python: the installed version
+    for some references, the commit for definitions)."""
+    parts = symbol.replace("`", "").split(" ", 4)
+    if len(parts) == 5:
+        del parts[3]
+    return " ".join(parts)
+
+
+def derive_imports(workspace, index, language, directory=False):
+    """Expected import targets from an index's module references.
+
+    On each line holding a reference to a module or package symbol, the
+    rightmost such reference (the innermost module of a dotted path) names
+    what the import statement imports: the files that define that symbol
+    (their directories when ``directory``, as for Go packages), or
+    ``external`` when the repository defines none. scip-python names a
+    relative import's module without its package, so for Python the module
+    is rebuilt from the leading dots and the importing module's own name.
+
+    Returns calls-format truth keyed by ``(file, line, "import")``.
+    """
+    from deepthought._scip import scip_pb2
+
+    workspace = Path(workspace)
+    index_data = scip_pb2.Index()
+    index_data.ParseFromString(Path(index).read_bytes())
+    defined, own = {}, {}
+    for document in index_data.documents:
+        for occurrence in document.occurrences:
+            if occurrence.symbol_roles & 1:
+                symbol = _without_version(occurrence.symbol)
+                defined.setdefault(symbol, set()).add(document.relative_path)
+                if symbol.endswith("/__init__:"):
+                    own.setdefault(document.relative_path, symbol)
+
+    def module(symbol):
+        return not symbol.startswith("local ") and symbol.endswith(("/", ":"))
+
+    def absolute(symbol, file, text):
+        match = _RELATIVE_IMPORT.match(text)
+        if not match or file not in own:
+            return symbol
+        head, tail = own[file].rsplit(" ", 1)
+        package = tail[: -len("/__init__:")].split(".")
+        if not file.endswith("__init__.py"):
+            package = package[:-1]
+        package = package[: len(package) - (len(match.group(1)) - 1)]
+        name = ".".join(package + ([match.group(2)] if match.group(2) else []))
+        return f"{head} {name}/__init__:"
+
+    statement = _IMPORT_LINE[language]
+    expected = {}
+    for document in index_data.documents:
+        file = document.relative_path
+        if file.startswith("../"):
+            continue  # Generated outside the repository (scip-go's build cache).
+        rightmost = {}
+        for occurrence in document.occurrences:
+            if occurrence.symbol_roles & 1 or not module(occurrence.symbol):
+                continue
+            line = occurrence.range[0] + 1
+            column = occurrence.range[1]
+            if line not in rightmost or column > rightmost[line][0]:
+                rightmost[line] = (column, occurrence.symbol)
+        if not rightmost:
+            continue
+        try:
+            text = (workspace / file).read_text("utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            text = []
+        for line, (_, symbol) in rightmost.items():
+            if line > len(text) or not statement.search(text[line - 1]):
+                continue  # A module named in code, not in an import.
+            symbol = _without_version(symbol)
+            if language == "python" and line <= len(text):
+                symbol = absolute(symbol, file, text[line - 1])
+            targets = defined.get(symbol, set())
+            if directory:
+                targets = {Path(t).parent.as_posix() for t in targets}
+            expected[(file, line, "import")] = (
+                {(t, 0, "module") for t in targets}
+                if targets
+                else {("-", 0, "external")}
+            )
+    indexed = {
+        document.relative_path
+        for document in index_data.documents
+        if not document.relative_path.startswith("../")
+    }
+    return expected, indexed
+
+
+def score_imports(result, truth, directory=False, examples=10):
+    """Import resolutions judged against module-reference truth.
+
+    An import statement is judged by the truth lines it spans. It is
+    *confirmed* when it links to an expected target, *contradicted* when it
+    links only elsewhere while the truth names a repository target,
+    *linked_external* when it links but the oracle says the module is
+    outside the repository. Recall is over truth lines with a repository
+    target: found when an import spanning the line links to one of them.
+    """
+    from deepthought.imports import resolve_imports
+
+    expected, indexed = truth
+    imports = {i.id: i for i in result.imports}
+    counts = Counter()
+    found = set()
+    samples = {"contradicted": [], "linked_external": [], "missed": []}
+    for resolution in resolve_imports(result):
+        item = imports[resolution.import_id]
+        if item.file not in indexed:
+            counts["not_indexed"] += 1
+            continue
+        keys = [
+            (item.file, n, "import")
+            for n in range(item.line, item.end_line + 1)
+            if (item.file, n, "import") in expected
+        ]
+        if not keys:
+            counts[f"{resolution.status}_unjudged"] += 1
+            continue
+        want = {t[0] for key in keys for t in expected[key] if t[2] == "module"}
+        got = {link.target_file for link in resolution.links}
+        if directory:
+            got = {Path(t).parent.as_posix() for t in got}
+        if resolution.status != "linked":
+            counts[f"{resolution.status}_{'expected' if want else 'external'}"] += 1
+        elif not want:
+            counts["linked_external"] += 1
+            samples["linked_external"].append([item.file, item.line, item.specifier])
+        elif got & want:
+            counts["confirmed"] += 1
+            found.update(k for k in keys if {t[0] for t in expected[k]} & got)
+        else:
+            counts["contradicted"] += 1
+            samples["contradicted"].append(
+                [item.file, item.line, item.specifier, sorted(got), sorted(want)]
+            )
+    repository = {
+        key
+        for key, targets in expected.items()
+        if any(t[2] == "module" for t in targets)
+    }
+    samples["missed"] = [list(k[:2]) for k in sorted(repository - found)]
+    for name in samples:
+        samples[name] = samples[name][:examples]
+    judged = counts["confirmed"] + counts["contradicted"] + counts["linked_external"]
+    report = {
+        "expected": len(repository),
+        "confirmed": counts["confirmed"],
+        "contradicted": counts["contradicted"] + counts["linked_external"],
+        **{
+            k: v
+            for k, v in sorted(counts.items())
+            if k not in {"confirmed", "contradicted"}
+        },
+        "precision": round(counts["confirmed"] / judged, 4) if judged else None,
+        "recall": round(len(found) / len(repository), 4) if repository else None,
+    }
+    return report, samples
 
 
 def score_inherits(result, truth, examples=10):
@@ -717,6 +909,11 @@ def main(argv=None):
     i = sub.add_parser("derive-inherits")
     i.add_argument("workspace", type=Path)
     i.add_argument("index", type=Path)
+    m = sub.add_parser("derive-imports")
+    m.add_argument("workspace", type=Path)
+    m.add_argument("index", type=Path)
+    m.add_argument("--language", required=True)
+    m.add_argument("--directory", action="store_true", help="targets are packages")
     j = sub.add_parser("derive-java")
     j.add_argument("workspace", type=Path)
     j.add_argument("--java", default="java")
@@ -738,6 +935,12 @@ def main(argv=None):
         return 0
     if args.command == "derive-inherits":
         write_truth(*derive_inherits(args.workspace, args.index), sys.stdout)
+        return 0
+    if args.command == "derive-imports":
+        write_truth(
+            *derive_imports(args.workspace, args.index, args.language, args.directory),
+            sys.stdout,
+        )
         return 0
     if args.command == "derive-java":
         write_truth(*derive_java(args.workspace, args.java, args.bases), sys.stdout)
