@@ -712,6 +712,241 @@ _PUBSUB_CLASSES = (
 _REDIS_PUBSUB = (("graphql-redis-subscriptions", "RedisPubSub"),)
 
 
+_KAFKAJS = (("kafkajs", "Kafka"),)
+_AMQPLIB = ("amqplib", "amqplib/callback_api")
+_CHANNEL_FACTORIES = ("createChannel", "createConfirmChannel")
+
+
+def _awaited(node):
+    """``node`` without ``await`` and parentheses."""
+    while node is not None and node.type in (
+        "await_expression",
+        "parenthesized_expression",
+    ):
+        children = node.named_children
+        node = children[-1] if children else None
+    return node
+
+
+def _member_call(node, content):
+    """(receiver text, method) of ``a.b(...)``, else None."""
+    node = _awaited(node)
+    if node is None or node.type != "call_expression":
+        return None
+    function = node.child_by_field_name("function")
+    if function is None or function.type != "member_expression":
+        return None
+    return (
+        text(function.child_by_field_name("object"), content),
+        text(function.child_by_field_name("property"), content),
+    )
+
+
+def _callback_parameters(node, content):
+    """Parameter names of a function or arrow function, in order."""
+    if node is None or node.type not in (
+        "function_expression",
+        "function",
+        "arrow_function",
+    ):
+        return []
+    single = node.child_by_field_name("parameter")
+    if single is not None:
+        return [text(single, content)]
+    parameters = node.child_by_field_name("parameters")
+    if parameters is None:
+        return []
+    names = []
+    for child in parameters.named_children:
+        pattern = child.child_by_field_name("pattern") or child
+        names.append(text(pattern, content) if pattern.type == "identifier" else None)
+    return names
+
+
+def _amqplib_channels(root, content):
+    """Names bound to an amqplib channel: assigned ``createChannel()`` (or
+    ``createConfirmChannel``) everywhere in the file, or the channel parameter
+    of its callback (callback API) or of its ``.then`` (promise API)."""
+
+    def classify(value):
+        found = _member_call(value, content)
+        return "channel" if found and found[1] in _CHANNEL_FACTORIES else None
+
+    names = set(_bound_kinds(root, content, classify))
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        found = _member_call(node, content)
+        if found is None:
+            continue
+        arguments = node.child_by_field_name("arguments")
+        callbacks = [c for c in arguments.named_children if c.type != "comment"]
+        if found[1] in _CHANNEL_FACTORIES and callbacks:
+            parameters = _callback_parameters(callbacks[-1], content)
+            index = 1  # (err, channel)
+        elif found[1] == "then" and callbacks:
+            receiver = node.child_by_field_name("function").child_by_field_name(
+                "object"
+            )
+            inner = _member_call(receiver, content)
+            if inner is None or inner[1] not in _CHANNEL_FACTORIES:
+                continue
+            parameters = _callback_parameters(callbacks[0], content)
+            index = 0
+        else:
+            continue
+        if len(parameters) > index and parameters[index]:
+            names.add(parameters[index])
+    return names
+
+
+def _required_members(root, content):
+    """{local name: "module.Export"} of ``const {Export} = require("module")``
+    (and ``{Export: local}``)."""
+    names = {}
+    for node in _walk(root):
+        if node.type != "variable_declarator":
+            continue
+        pattern, value = (
+            node.child_by_field_name("name"),
+            node.child_by_field_name("value"),
+        )
+        if pattern is None or pattern.type != "object_pattern" or value is None:
+            continue
+        if value.type != "call_expression" or (
+            text(value.child_by_field_name("function"), content) != "require"
+        ):
+            continue
+        arguments = value.child_by_field_name("arguments").named_children
+        if not arguments or arguments[0].type != "string":
+            continue
+        module = text(arguments[0], content)[1:-1]
+        for item in pattern.named_children:
+            if item.type == "shorthand_property_identifier_pattern":
+                export = local = text(item, content)
+            elif item.type == "pair_pattern":
+                export = text(item.child_by_field_name("key"), content)
+                target = item.child_by_field_name("value")
+                if target is None or target.type != "identifier":
+                    continue
+                local = text(target, content)
+            else:
+                continue
+            names[local] = f"{module}.{export}"
+    return names
+
+
+def extract_javascript_brokers(sites, language):
+    """kafkajs producers and consumers, and amqplib channels."""
+    content, root = sites.content, sites.root
+    modules = {**_required_members(root, content), **_js_modules(root, content)}
+    kafkajs = "kafkajs" in {m.split(".")[0] for m in modules.values() if m}
+    amqplib = any(m in _AMQPLIB for m in modules.values())
+    if not kafkajs and not amqplib:
+        return
+    folder = Folder(language, root, content)
+    clients = {}
+    if kafkajs:
+        kafkas = set(
+            _bound_kinds(
+                root,
+                content,
+                lambda v: (
+                    "kafka"
+                    if _constructed(_awaited(v), content, modules, _KAFKAJS)
+                    else None
+                ),
+            )
+        )
+
+        def classify(value):
+            value = _awaited(value)
+            found = _member_call(value, content)
+            if found is None or found[1] not in ("producer", "consumer"):
+                return None
+            receiver = value.child_by_field_name("function").child_by_field_name(
+                "object"
+            )
+            if found[0] in kafkas or _constructed(
+                _awaited(receiver), content, modules, _KAFKAJS
+            ):
+                return found[1]
+            return None
+
+        clients.update(_bound_kinds(root, content, classify))
+    channels = _amqplib_channels(root, content) if amqplib else set()
+    calls = []
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        found = _member_call(node, content)
+        if found is None:
+            continue
+        positional = [
+            c
+            for c in node.child_by_field_name("arguments").named_children
+            if c.type != "comment"
+        ]
+        calls.append((node, found[0], found[1], positional))
+    bindings = []
+    for node, owner, verb, positional in calls:
+        if owner in channels and verb == "bindQueue" and len(positional) >= 3:
+            queue, exchange, key = (folder.evaluate(a) for a in positional[:3])
+            bindings.append((queue, key, exchange))
+    for node, owner, verb, positional in calls:
+        kind = clients.get(owner)
+        if kind == "producer" and verb in ("send", "sendBatch") and positional:
+            options = _js_object(positional[0], content)
+            if verb == "send":
+                topics = [options.get("topic")]
+            else:
+                batch = options.get("topicMessages")
+                if batch is None or batch.type != "array":
+                    topics = [None]
+                else:
+                    topics = [
+                        _js_object(item, content).get("topic")
+                        for item in batch.named_children
+                        if item.type != "comment"
+                    ]
+            for topic in topics:
+                name = PLACEHOLDER if topic is None else folder.evaluate(topic)
+                sites.add(node, "publish", "kafka", name, "kafkajs")
+        elif kind == "consumer" and verb == "subscribe" and positional:
+            options = _js_object(positional[0], content)
+            if "topic" in options:
+                topics = [options["topic"]]
+            elif "topics" in options and options["topics"].type == "array":
+                topics = [
+                    c for c in options["topics"].named_children if c.type != "comment"
+                ]
+            else:
+                topics = [None]
+            for topic in topics:
+                if topic is not None and topic.type == "regex":
+                    sites.unread.append(
+                        MessageUnread(
+                            sites.file,
+                            node.start_point.row + 1,
+                            "consume",
+                            "topic_pattern",
+                        )
+                    )
+                    continue
+                name = PLACEHOLDER if topic is None else folder.evaluate(topic)
+                sites.add(node, "consume", "kafka", name, "kafkajs")
+        elif owner in channels:
+            if verb == "publish" and len(positional) >= 2:
+                exchange, key = (folder.evaluate(a) for a in positional[:2])
+                sites.add(node, "publish", "amqp", f"{exchange}/{key}", "amqplib")
+            elif verb == "sendToQueue" and positional:
+                queue = folder.evaluate(positional[0])
+                sites.add(node, "publish", "amqp", f"/{queue}", "amqplib")
+            elif verb == "consume" and positional:
+                queue = folder.evaluate(positional[0])
+                sites.consume_queue(node, queue, bindings, "amqplib")
+
+
 def extract_javascript(sites, language):
     content, root = sites.content, sites.root
     modules = _js_modules(root, content)
@@ -818,4 +1053,5 @@ def extract_messaging(
         extract_go(sites, _go_imports(sites.root, content))
     elif language in ("javascript", "typescript"):
         extract_javascript(sites, language)
+        extract_javascript_brokers(sites, language)
     return sites.endpoints, sites.unread
