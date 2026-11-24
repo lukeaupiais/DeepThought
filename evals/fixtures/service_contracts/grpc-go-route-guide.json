@@ -1,0 +1,153 @@
+{
+  "corpus": "grpc-go-route-guide",
+  "repo": "https://github.com/grpc/grpc-go",
+  "commit": "9ad6d94991448f5efccbdeab46dbaf70fef7c7ad",
+  "license": "Apache-2.0",
+  "languages": [
+    "Go"
+  ],
+  "sources": [
+    "manual reading of examples/route_guide at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "route-guide-client",
+      "root": "client"
+    },
+    {
+      "name": "route-guide-server",
+      "root": "server"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 4,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "route-guide-client",
+        "route-guide-server",
+        "grpc"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/GetFeature",
+      "client": {
+        "file": "client/client.go",
+        "line": 52
+      },
+      "server": {
+        "file": "server/server.go",
+        "line": 63
+      },
+      "evidence": ":= client.GetFeature(ctx -> routeguide.RouteGuide/GetFeature (rpc GetFeature(Point) returns (Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "unary",
+      "contract_def": {
+        "file": "routeguide/route_guide.proto",
+        "line": 33
+      },
+      "id": "grpc-go-route-guide#1"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/ListFeatures",
+      "client": {
+        "file": "client/client.go",
+        "line": 64
+      },
+      "server": {
+        "file": "server/server.go",
+        "line": 74
+      },
+      "evidence": ":= client.ListFeatures(ctx -> routeguide.RouteGuide/ListFeatures (rpc ListFeatures(Rectangle) returns (stream Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "server",
+      "contract_def": {
+        "file": "routeguide/route_guide.proto",
+        "line": 41
+      },
+      "id": "grpc-go-route-guide#2"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RecordRoute",
+      "client": {
+        "file": "client/client.go",
+        "line": 92
+      },
+      "server": {
+        "file": "server/server.go",
+        "line": 90
+      },
+      "evidence": ":= client.RecordRoute(ctx -> routeguide.RouteGuide/RecordRoute (rpc RecordRoute(stream Point) returns (RouteSummary) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "client",
+      "contract_def": {
+        "file": "routeguide/route_guide.proto",
+        "line": 47
+      },
+      "id": "grpc-go-route-guide#3"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RouteChat",
+      "client": {
+        "file": "client/client.go",
+        "line": 120
+      },
+      "server": {
+        "file": "server/server.go",
+        "line": 123
+      },
+      "evidence": ":= client.RouteChat(ctx -> routeguide.RouteGuide/RouteChat (rpc RouteChat(stream RouteNote) returns (stream RouteNote) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "bidi",
+      "contract_def": {
+        "file": "routeguide/route_guide.proto",
+        "line": 53
+      },
+      "id": "grpc-go-route-guide#4"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "routeguide",
+      "reason": "protoc output: stubs and descriptors, not callers"
+    }
+  ],
+  "notes": [
+    "Paths are relative to the corpus root, examples/route_guide. The server registers pb.RegisterRouteGuideServer(grpcServer, newServer()); newServer returns *routeGuideServer, whose methods serve the four rpcs.",
+    "client is the line of the stub call client.<Rpc>(ctx, ...) on pb.NewRouteGuideClient(conn); server is the line of func (s *routeGuideServer) <Rpc>.",
+    "routeguide/ holds protoc output (route_guide.pb.go, route_guide_grpc.pb.go): don't-care, it is the stub and the service descriptor, not a caller."
+  ],
+  "root": "examples/route_guide"
+}

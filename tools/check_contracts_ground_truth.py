@@ -35,6 +35,9 @@ def _service_of(path, roots):
     best = None
     for name, root in roots:
         prefix = root.rstrip("/") + "/" if root else ""
+        # A root may be one file, when services share a directory.
+        if path == root:
+            prefix = path
         if path.startswith(prefix) and (best is None or len(prefix) > len(best[1])):
             best = (name, prefix)
     return None if best is None else best[0]
@@ -224,6 +227,38 @@ def _grpc_servers(tool, labelled, tolerance):
     }
 
 
+def _grpc_streaming(tool, labelled):
+    """The streaming kind of each labelled contract against the GrpcMethod's.
+
+    A contract is right when every proto copy of the rpc the engine read
+    carries the labelled kind; ``unread`` when it carries none.
+    """
+    methods = tool.last_grpc.index.methods
+    labels = {
+        link["contract"]: link["streaming"]
+        for link in labelled
+        if link.get("streaming") and link.get("in_scope_static", True)
+    }
+    right, wrong, unread = 0, [], []
+    for contract, kind in sorted(labels.items()):
+        service, _, method = contract.partition("/")
+        found = {m.streaming for m in methods.get((service, method), ())}
+        if found == {kind}:
+            right += 1
+        elif not found - {None}:
+            unread.append(contract)
+        else:
+            wrong.append(
+                {"contract": contract, "label": kind, "read": sorted(found - {None})}
+            )
+    return {
+        "labelled": len(labels),
+        "true_positive": right,
+        "wrong": wrong,
+        "unread": unread,
+    }
+
+
 def _message_pairs(endpoints, roots):
     """Each publish site paired with each consume site of its destination."""
     consumers = {}
@@ -374,6 +409,7 @@ def _score_grpc(tool, output, corpus, roots, line_tolerance):
         "calls": metrics["grpc_calls"],
         "handlers": metrics["grpc_handlers"],
         "servers": _grpc_servers(tool, labelled, line_tolerance),
+        "streaming": _grpc_streaming(tool, labelled),
     }
     predicted = _grpc_predictions(tool, roots)
     _score_levels(report, predicted, labelled, corpus, line_tolerance)

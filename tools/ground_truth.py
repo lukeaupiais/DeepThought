@@ -541,6 +541,26 @@ def score_contracts(corpus, workspace):
             }
             for level in ("call_sites", "service_pairs")
         }
+        if kind == "grpc":
+            # Servers: labelled server locations with a HANDLES edge.
+            # Streaming: labelled rpcs whose GrpcMethod carries the kind;
+            # one read with another kind is wrong, one with none unread.
+            servers, streaming = scored["servers"], scored["streaming"]
+            report[kind]["servers"] = {
+                "true_positive": servers["true_positive"],
+                "predicted": servers["true_positive"],
+                "labelled_in_scope": servers["labelled_in_scope"],
+            }
+            report[kind]["streaming"] = {
+                "true_positive": streaming["true_positive"],
+                "predicted": streaming["labelled"] - len(streaming["unread"]),
+                "labelled_in_scope": streaming["labelled"],
+            }
+            samples[kind]["servers"] = {"false_negative": servers["false_negative"]}
+            samples[kind]["streaming"] = {
+                "wrong": streaming["wrong"],
+                "unread": streaming["unread"],
+            }
     return report, samples
 
 

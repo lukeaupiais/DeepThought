@@ -918,3 +918,49 @@ class JavaScriptTruthTests(unittest.TestCase):
         # scip-typescript names the constructor of a local class without
         # defining it; the construction binds the class itself.
         self.assertEqual(expected[("a.js", 5, "Local")], {("a.js", 2, "local")})
+
+
+class GrpcScorerTests(unittest.TestCase):
+    def test_a_service_root_may_be_one_file(self):
+        import check_contracts_ground_truth as contracts
+
+        roots = [("client", "pkg/Client.java"), ("server", "pkg/Server.java")]
+        self.assertEqual(contracts._service_of("pkg/Client.java", roots), "client")
+        self.assertEqual(contracts._service_of("pkg/Server.java", roots), "server")
+        self.assertIsNone(contracts._service_of("pkg/Client.javax", roots))
+
+    def test_streaming_kinds_against_the_labels(self):
+        from types import SimpleNamespace
+
+        import check_contracts_ground_truth as contracts
+
+        def method(kind):
+            return SimpleNamespace(streaming=kind)
+
+        tool = SimpleNamespace(
+            last_grpc=SimpleNamespace(
+                index=SimpleNamespace(
+                    methods={
+                        ("p.S", "A"): [method("server")],
+                        ("p.S", "B"): [method("unary")],
+                        ("p.S", "C"): [method(None)],
+                    }
+                )
+            )
+        )
+        labelled = [
+            {"contract": "p.S/A", "streaming": "server"},
+            {"contract": "p.S/A", "streaming": "server"},
+            {"contract": "p.S/B", "streaming": "bidi"},
+            {"contract": "p.S/C", "streaming": "client"},
+            {"contract": "p.S/D", "streaming": "unary", "in_scope_static": False},
+        ]
+        self.assertEqual(
+            contracts._grpc_streaming(tool, labelled),
+            {
+                "labelled": 3,
+                "true_positive": 1,
+                "wrong": [{"contract": "p.S/B", "label": "bidi", "read": ["unary"]}],
+                "unread": ["p.S/C"],
+            },
+        )
