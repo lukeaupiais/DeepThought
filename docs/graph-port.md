@@ -1061,8 +1061,9 @@ Rust sources (`.rs`) are analyzed when `rust` is selected (`--language rust`)
 and the `rust` extra is installed; like JavaScript, Go and Java, the language
 is opt-in. Declarations are functions, structs (`Struct`), enums, unions
 (`Union`), traits (`Trait`), type aliases and associated types (`TypeAlias`),
-modules (`Module`, both `mod name { ... }` and `mod name;`) and `macro_rules!`
-macros (`Macro`). A function in an `impl` or trait body is a `Method`; other
+modules (`Module`, both `mod name { ... }` and `mod name;`), `macro_rules!`
+macros (`Macro`) and enum variants (`EnumVariant`, named by their enum:
+`Shape.A`). A function in an `impl` or trait body is a `Method`; other
 functions, including foreign functions in an `extern` block and functions
 inside function bodies, are `Function`s. Names are lexical: items are
 qualified by the inline modules, traits and functions around them, and an
@@ -1380,7 +1381,14 @@ Calls of functions declared in impls read the impl facts (see "Rust impls"):
   kind (`T::new()?`, a struct expression) leave the call
   `receiver_type_unknown` or `method_call`.
 
-All six are `resolved`: Rust has no overloading, so a path names one
+- `tree-sitter.rust-call-enum-variant` when a path `E::V(...)` or
+  `Self::V(...)` names an enum (read as for `Type::f`; `Self` is the type of
+  the impl around the call) that declares the variant `V`: the call builds
+  that tuple variant. A variant is named ahead of an associated function of
+  the same name, as in Rust. A variant brought in by `use E::*` or `use E::V`
+  is not read.
+
+All seven are `resolved`: Rust has no overloading, so a path names one
 declaration in each configuration. A function declared once per `#[cfg]`, or
 by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
 alias are keyed by the alias, since the aliased type is not read: a call
@@ -1388,7 +1396,7 @@ through an alias is `type_alias`, and so is a call that would otherwise take
 a trait's function when an impl for some alias declares the same name. Other
 outcomes: `method_call` (a receiver other than `self` whose declaration
 writes no type: receiver types are not inferred), `associated_item` (a name inside a type that no impl declares, such
-as an enum variant or a derived method), `unbound_name` (a single
+as a derived method), `unbound_name` (a single
 name with no declaration or use in scope: the prelude, such as `Some`, or a
 local closure), `external_crate` (the first name is not in scope and names no
 workspace crate: a crate outside the repository, a standard type or a type

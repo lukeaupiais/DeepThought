@@ -1207,6 +1207,10 @@
         "not_indexed": 5,
         "unjudged": 2
       },
+      "tree-sitter.rust-call-enum-variant": {
+        "confirmed": 273,
+        "unjudged": 1
+      },
       "tree-sitter.rust-call-local-item": {
         "confirmed": 27
       },
@@ -1229,7 +1233,7 @@
         "unjudged": 1
       }
     },
-    "confirmed": 7191,
+    "confirmed": 7464,
     "contradicted": 0,
     "expected": 11415,
     "impact": {
@@ -1257,11 +1261,11 @@
       "seeds_undeclared": 84,
       "unjudged": 10
     },
-    "missed": 4270,
+    "missed": 3997,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_declarations": 17,
       "no_call_site": 2326,
-      "unresolved:associated_item": 275,
+      "unresolved:associated_item": 2,
       "unresolved:external_crate": 13,
       "unresolved:method_call": 1039,
       "unresolved:receiver_type_unknown": 564,
@@ -1270,10 +1274,10 @@
     },
     "not_indexed": 10,
     "precision": 1.0,
-    "recall": 0.6259,
-    "unjudged": 19,
-    "unresolved_expected": 1984,
-    "unresolved_unjudged": 7764
+    "recall": 0.6498,
+    "unjudged": 20,
+    "unresolved_expected": 1711,
+    "unresolved_unjudged": 7763
   },
   "routes": {
     "routes-howtographql-graphql-js": {
