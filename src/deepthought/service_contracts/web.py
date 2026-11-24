@@ -76,7 +76,8 @@ class _Context:
         self.language = language
         self.folder = Folder(language, self.root, content, externals)
         self.calls_of = None
-        # Python: {router name: full prefixes} of the file's mounted routers.
+        # Python and Express: {router name: full prefixes} of the file's
+        # mounted routers.
         self.mounts = {}
         file_definitions = [d for d in definitions if d.file == file]
         self.spans = {
@@ -935,6 +936,170 @@ def extract_angular(context, modules):
         )
 
 
+def _express_router_value(value, modules, content):
+    """Whether ``value`` makes an Express app or Router: ``express()``,
+    ``express.Router()`` or an imported ``Router()``."""
+    if value is None or value.type != "call_expression":
+        return False
+    callee = text(value.child_by_field_name("function"), content)
+    head, _, rest = callee.partition(".")
+    return modules.get(callee) in ("express", "express.Router") or (
+        modules.get(head) == "express" and rest == "Router"
+    )
+
+
+def express_routers(tree, content):
+    """Express apps and routers of one script file, what it exports and the
+    routers it mounts, for composing route prefixes across files
+    (``compose_express_prefixes``).
+
+    Returns (routers, exports, mounts, modules). ``routers`` is the set of
+    names bound exactly once to an Express app or Router; ``exports`` maps
+    "default" (``module.exports = x``, ``export default x``) and each named
+    export (``exports.n = x``, ``export const n = ...``) to the local name;
+    ``mounts`` lists (parent name, prefixes, children) for each
+    ``parent.use([path,] ...)``: the folded path (several for an array, ""
+    for none) and each argument that may be a router, as ("local", name) or
+    (module specifier, export name). ``modules`` is ``_js_modules``."""
+    root = tree.root_node
+    modules = _js_modules(root, content)
+    folder = Folder("javascript", root, content)
+    bound, exports, mounts = {}, {}, []
+
+    def child_of(node):
+        if node.type == "identifier":
+            name = text(node, content)
+            return ("local", name) if name not in modules else ("import", modules[name])
+        if (
+            node.type == "call_expression"
+            and text(node.child_by_field_name("function"), content) == "require"
+        ):
+            arguments = node.child_by_field_name("arguments").named_children
+            if arguments and arguments[0].type == "string":
+                return ("import", text(arguments[0], content)[1:-1])
+        return None
+
+    for node in _walk(root):
+        if node.type == "variable_declarator":
+            name = node.child_by_field_name("name")
+            if name is not None and name.type == "identifier":
+                bound.setdefault(text(name, content), []).append(
+                    node.child_by_field_name("value")
+                )
+                ancestor = node.parent.parent if node.parent is not None else None
+                if ancestor is not None and ancestor.type == "export_statement":
+                    exports[text(name, content)] = text(name, content)
+        elif node.type == "export_statement":
+            value = node.child_by_field_name("value")
+            if value is not None and value.type == "identifier":
+                exports["default"] = text(value, content)
+        elif node.type == "assignment_expression":
+            left = text(node.child_by_field_name("left"), content)
+            right = node.child_by_field_name("right")
+            if right is None or right.type != "identifier":
+                continue
+            if left == "module.exports":
+                exports["default"] = text(right, content)
+            elif left.startswith(("module.exports.", "exports.")):
+                exports[left.rpartition(".")[2]] = text(right, content)
+        elif node.type == "call_expression":
+            function = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            if (
+                function is None
+                or function.type != "member_expression"
+                or arguments is None
+                or text(function.child_by_field_name("property"), content) != "use"
+            ):
+                continue
+            parent = function.child_by_field_name("object")
+            if parent.type != "identifier":
+                continue
+            positional = [c for c in arguments.named_children if c.type != "comment"]
+            if not positional:
+                continue
+            first = positional[0]
+            if first.type in ("string", "template_string", "binary_expression") or (
+                first.type == "identifier"
+                and text(first, content) not in modules
+                and folder.evaluate(first).startswith("/")
+            ):
+                prefixes, rest = [folder.evaluate(first)], positional[1:]
+            elif first.type == "array":
+                prefixes = [
+                    folder.evaluate(c)
+                    for c in first.named_children
+                    if c.type != "comment"
+                ]
+                rest = positional[1:]
+            else:
+                prefixes, rest = [""], positional
+            children = [c for c in (child_of(n) for n in rest) if c is not None]
+            if children and prefixes:
+                mounts.append((text(parent, content), prefixes, children))
+    routers = {
+        name
+        for name, values in bound.items()
+        if len(values) == 1 and _express_router_value(values[0], modules, content)
+    }
+    return routers, exports, mounts, modules
+
+
+def compose_express_prefixes(found, resolve):
+    """Full prefixes of Express routers mounted with ``use``.
+
+    ``found`` maps each script file to its ``express_routers`` result and
+    ``resolve(file, specifier)`` gives the file a module specifier names, or
+    None. Returns {(file, router name): sorted full prefixes}: the parent's
+    prefixes joined with each mount path. A mount on a name that is not a
+    known router counts as mounted at the root; routers never mounted are
+    left out."""
+
+    def target(file, kind, value, depth=0):
+        if depth > 4:
+            return None
+        routers, exports, _, modules = found[file]
+        if kind == "local":
+            if value in routers:
+                return (file, value)
+            if value in exports:
+                return target(file, "local", exports[value], depth + 1)
+            if value in modules:
+                return target(file, "import", modules[value], depth + 1)
+            return None
+        module, export = value, "default"
+        if resolve(file, module) is None and "." in module.rpartition("/")[2]:
+            module, _, export = module.rpartition(".")
+        other = resolve(file, module)
+        if other is None or other not in found:
+            return None
+        name = found[other][1].get(export)
+        return target(other, "local", name, depth + 1) if name else None
+
+    parents = {}
+    for file, (routers, _, mounts, _) in found.items():
+        for parent, prefixes, children in mounts:
+            for kind, value in children:
+                child = target(file, kind, value)
+                if child is None:
+                    continue
+                key = (file, parent) if parent in routers else None
+                parents.setdefault(child, []).append((key, prefixes))
+
+    def full(key, active):
+        if key not in parents or key in active:
+            return {""}
+        found_prefixes = set()
+        for parent, prefixes in parents[key]:
+            outer = full(parent, active | {key}) if parent is not None else {""}
+            for o in outer:
+                for prefix in prefixes:
+                    found_prefixes.add((o + prefix).rstrip("/"))
+        return found_prefixes
+
+    return {key: sorted(full(key, frozenset())) for key in parents}
+
+
 def extract_javascript(context, nest=None):
     content, root = context.content, context.root
     modules = _js_modules(root, content)
@@ -1005,7 +1170,6 @@ def extract_javascript(context, nest=None):
                 and (verb in _VERBS or verb == "all")
                 and len(positional) >= 2
             ):
-                path = _express_path(context.folder.evaluate(positional[0]))
                 handler_node = positional[-1]
                 handler = (
                     context.named_function(text(handler_node, content))
@@ -1013,7 +1177,13 @@ def extract_javascript(context, nest=None):
                     else None
                 )
                 methods = [ANY_METHOD] if verb == "all" else [_VERBS[verb]]
-                context.route(node, methods, path, "express", handler)
+                declared = context.folder.evaluate(positional[0])
+                for prefix in context.mounts.get(owner, [""]):
+                    path, base_unknown = _express_path(prefix + declared), False
+                    if prefix.startswith(PLACEHOLDER):
+                        # Mounted at a path that is not literal.
+                        path, base_unknown = _unknown_base(path)
+                    context.route(node, methods, path, "express", handler, base_unknown)
                 continue
             if owner == "$http" and verb in _VERBS and positional:
                 context.request_folded(
@@ -1380,8 +1550,9 @@ def extract_web(
     imports or has defined (``script_constants``); ``calls_of(name)`` the
     calls of its module-level function ``name`` with their arguments, for
     JavaScript/TypeScript requests built from that function's parameters;
-    ``mounts`` the full prefixes of a Python file's mounted routers by name
-    (``compose_python_prefixes``)."""
+    ``mounts`` the full prefixes of a file's mounted Python or Express
+    routers by name (``compose_python_prefixes``,
+    ``compose_express_prefixes``)."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )

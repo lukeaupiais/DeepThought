@@ -1905,8 +1905,16 @@ Python, JavaScript/TypeScript and Go sources are read too
   is a name bound once in its file, found through the file's imports
   (relative to its package, else under the nearest enclosing directory that
   holds the module, following re-exports). A router mounted twice gets a
-  route per mount; one never mounted keeps its own prefix. Express `app.use`
-  prefixes are not read.
+  route per mount; one never mounted keeps its own prefix. Express mounts
+  compose the same way: `parent.use([path,] ...routers)` joins the parent's
+  prefixes with the path (each path of an array; a name bound to a string
+  counts as a path). A mounted router is a name bound once to `express()`,
+  `express.Router()` or an imported `Router()`, given directly, through
+  `require(...)` or an import of a module's default (`module.exports = r`,
+  `export default r`) or named (`exports.n = r`, `export const n = ...`)
+  export. A path that is not literal is matched as if it added no segments,
+  and the route records `base_unknown`. Routers taken from a destructured
+  `require` are not read.
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
   `request(method, url)`), the same calls on a client object (a
   `requests.Session`, `httpx.Client`/`AsyncClient` or `aiohttp.ClientSession`
