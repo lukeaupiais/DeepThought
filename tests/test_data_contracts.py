@@ -1343,6 +1343,41 @@ func Load(db *sql.DB, other dep.Conn) {
         )
 
 
+class GoToolchainTests(unittest.TestCase):
+    def test_wanted_toolchain(self):
+        from deepthought.go_facts import wanted_toolchain
+
+        for text, wanted in (
+            ("module m\n\ngo 1.26.0\n", "go1.26.0"),
+            ("module m\n\ngo 1.22\n", "go1.22.0"),
+            ("module m\n\ngo 1.20\n", "go1.20"),
+            ("module m\n\ngo 1.24\n\ntoolchain go1.26.10\n", "go1.26.10"),
+            ("module m\n", None),
+        ):
+            self.assertEqual(wanted_toolchain(text), wanted)
+
+    def test_module_cache_toolchain_only_when_newer_and_present(self):
+        from deepthought.go_facts import module_toolchain
+
+        with tempfile.TemporaryDirectory() as cache:
+            info = {
+                "GOVERSION": "go1.24.7",
+                "GOMODCACHE": cache,
+                "GOOS": "linux",
+                "GOARCH": "amd64",
+            }
+            newer = "module m\n\ngo 1.26.10\n"
+            self.assertEqual(module_toolchain("go", info, newer), "go")
+            path = (
+                Path(cache) / "golang.org/toolchain@v0.0.1-go1.26.10.linux-amd64/bin/go"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text("")
+            self.assertEqual(module_toolchain("go", info, newer), str(path))
+            older = "module m\n\ngo 1.22\n"
+            self.assertEqual(module_toolchain("go", info, older), "go")
+
+
 SHARED_COMPOSE_DATABASE = {
     "docker-compose.yml": """\
 services:

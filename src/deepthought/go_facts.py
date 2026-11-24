@@ -13,18 +13,23 @@ The program is built once per (source, toolchain) with the Go toolchain on
 the analyzed repository and runs none of its code; imports from outside a
 module come from the module cache, read with ``GOPROXY=off`` and
 ``-mod=readonly``, so a dependency not downloaded leaves its types unknown
-and the package is reported as partly checked. Files the facts do not cover
+and the package is reported as partly checked. A module asking for a newer
+Go than the one on hand is checked with that release when the module cache
+holds it (``golang.org/toolchain``, where ``go`` with GOTOOLCHAIN=auto
+puts it), since an older go/types does not know newer language features. Files the facts do not cover
 are listed with a reason, for the tree-sitter rules to read.
 """
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import cache
 from hashlib import sha256
 from importlib import resources
 import json
 import os
 from pathlib import Path
 import posixpath
+import re
 import shutil
 import subprocess
 import tempfile
@@ -67,6 +72,7 @@ class GoFacts:
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
     uncovered: dict[str, str] = field(default_factory=dict)  # file -> reason
     modules: dict[str, str] = field(default_factory=dict)  # directory -> status
+    toolchains: dict[str, str] = field(default_factory=dict)  # directory -> Go
     requires: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def module_of(self, file):
@@ -94,6 +100,56 @@ class GoFacts:
 def toolchain():
     """The Go command, or None."""
     return os.environ.get("DEEPTHOUGHT_GO") or shutil.which("go")
+
+
+def _version(name):
+    """(1, 26, 10) for "go1.26.10", None for a name that is not a release."""
+    match = re.fullmatch(r"go(\d+)\.(\d+)(?:\.(\d+))?", name or "")
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+
+def wanted_toolchain(text):
+    """The toolchain a go.mod asks for: its toolchain line, else the release
+    its go line names (go 1.26.0 is go1.26.0; from Go 1.21, go 1.22 is
+    go1.22.0), or None."""
+    found = {verb: tokens[0] for verb, tokens in _go_directives(text) if tokens}
+    if "toolchain" in found and _version(found["toolchain"]):
+        return found["toolchain"]
+    line = found.get("go", "")
+    if re.fullmatch(r"\d+\.\d+", line) and _version("go" + line) >= (1, 21, 0):
+        line += ".0"
+    return "go" + line if _version("go" + line) else None
+
+
+def module_toolchain(go, info, text):
+    """The Go command for a module: ``go`` itself, unless the module asks
+    for a newer release that the module cache already holds (as ``go``
+    with GOTOOLCHAIN=auto would download it). Nothing is downloaded."""
+    wanted = wanted_toolchain(text)
+    if wanted is None or _version(wanted) <= _version(info["GOVERSION"]):
+        return go
+    cached = (
+        Path(info["GOMODCACHE"])
+        / "golang.org"
+        / f"toolchain@v0.0.1-{wanted}.{info['GOOS']}-{info['GOARCH']}"
+        / "bin"
+        / "go"
+    )
+    return str(cached) if cached.is_file() else go
+
+
+@cache
+def _info(go):
+    names = ("GOVERSION", "GOOS", "GOARCH", "GOROOT", "GOMODCACHE")
+    values = subprocess.run(
+        [go, "env", *names],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+        env=_environment(go),
+    ).stdout.split("\n")
+    return dict(zip(names, values))
 
 
 def _environment(go, goroot=None):
@@ -127,14 +183,8 @@ def build(go, timeout=300):
     the cache directory when missing; the toolchain's GOROOT)."""
     source = resources.files(__package__).joinpath("gofacts/main.go").read_bytes()
     environment = _environment(go)
-    version = subprocess.run(
-        [go, "env", "GOVERSION", "GOOS", "GOARCH", "GOROOT"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-        env=environment,
-    ).stdout.split()
+    info = _info(go)
+    version = [info["GOVERSION"], info["GOOS"], info["GOARCH"], info["GOROOT"]]
     key = sha256(source + "\0".join(version[:3]).encode()).hexdigest()[:16]
     binary = _cache_directory() / f"gofacts-{key}"
     if binary.is_file():
@@ -177,11 +227,13 @@ def collect(root, files, module_directories, *, timeout=600):
         )
 
     root = Path(root)
+    texts = {}
     for directory in modules:
         try:
             text = (root / directory / "go.mod").read_text("utf-8", "replace")
         except OSError:
             text = ""
+        texts[directory] = text
         facts.requires[directory] = frozenset(
             tokens[0].strip('"')
             for verb, tokens in _go_directives(text)
@@ -198,15 +250,19 @@ def collect(root, files, module_directories, *, timeout=600):
             facts.modules[directory] = "go_not_installed"
             facts.uncovered.update(dict.fromkeys(members, "go_not_installed"))
         return facts
-    try:
-        binary, goroot = build(go)
-    except (OSError, subprocess.SubprocessError):
-        for directory, members in owned.items():
-            facts.modules[directory] = "gofacts_build_failed"
-            facts.uncovered.update(dict.fromkeys(members, "gofacts_build_failed"))
-        return facts
+    built = {}
     for directory in sorted(owned):
         members = owned[directory]
+        try:
+            command = module_toolchain(go, _info(go), texts[directory])
+            if command not in built:
+                built[command] = build(command)
+            binary, goroot = built[command]
+            facts.toolchains[directory] = _info(command)["GOVERSION"]
+        except (OSError, subprocess.SubprocessError):
+            facts.modules[directory] = "gofacts_build_failed"
+            facts.uncovered.update(dict.fromkeys(members, "gofacts_build_failed"))
+            continue
         try:
             run = subprocess.run(
                 [str(binary), str(root / directory)],
@@ -215,7 +271,7 @@ def collect(root, files, module_directories, *, timeout=600):
                 text=True,
                 timeout=timeout,
                 check=True,
-                env=_environment(go, goroot),
+                env=_environment(command, goroot),
             )
         except subprocess.TimeoutExpired:
             status = "gofacts_timeout"

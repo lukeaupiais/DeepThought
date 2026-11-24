@@ -2425,6 +2425,7 @@ class DataContractTool(AnalysisTool):
                     "entity_manager_resolution": entity_counts,
                     "go_type_facts": {
                         "modules": dict(Counter(facts.modules.values())),
+                        "toolchains": dict(Counter(facts.toolchains.values())),
                         "files_checked": len(facts.checked) - len(facts.partial),
                         "files_partly_checked": len(facts.partial),
                         "files_not_checked": dict(Counter(facts.uncovered.values())),

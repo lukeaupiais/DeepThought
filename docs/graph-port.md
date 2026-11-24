@@ -3922,7 +3922,11 @@ reads dependencies only from the module cache: `GOPROXY=off`,
 `-mod=readonly`, `GOTOOLCHAIN=local`, `GOWORK=off`. A dependency that is not
 in the cache (run `go mod download` first), or language features newer than
 the toolchain, leave some calls untyped, and the package is reported as
-partly checked.
+partly checked. A module whose `go.mod` asks for a newer Go (its
+`toolchain` line, else its `go` line) is checked with that release when the
+module cache already holds it under `golang.org/toolchain`, where `go`
+with `GOTOOLCHAIN=auto` (as `go mod download` runs) puts it; nothing is
+downloaded. The `toolchains` count of the metric says which ran.
 
 The tree-sitter rules (`go-sql`, `gorm-table-name`) read only what the type
 checker could not: files of no module, or with no Go toolchain, and calls
@@ -3953,9 +3957,11 @@ alone; no link was lost:
 | gothinkster/golang-gin-realworld-example-app | unchanged | unchanged | unchanged |
 
 Calls are read anywhere in a file, including the func literals of a
-package variable (miniflux's migrations). Under Go 1.24 miniflux and
-gin-vue-admin, which require Go 1.26, are mostly partly checked and keep
-the tree-sitter rule at their untyped calls. gin-vue-admin's new
+package variable (miniflux's migrations). With Go 1.24.7 on `PATH`,
+miniflux and gin-vue-admin, which require Go 1.26, give the same result:
+their `go mod download` left go1.26.0 and go1.26.10 in the module cache, and
+those check them. Without those releases most of their packages are partly
+checked and keep the tree-sitter rule at their untyped calls. gin-vue-admin's new
 `TableName` links let 247 GORM calls through the existing `gorm-call` rule;
 its other models get no default name, since it configures a
 `NamingStrategy`. jmoiron/sqlx is unchanged: its statements are all in test
