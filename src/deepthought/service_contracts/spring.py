@@ -671,7 +671,11 @@ _BUILD_FILES = ("pom.xml", "build.gradle", "build.gradle.kts")
 _CONFIG_STEMS = ("bootstrap", "application")
 _CONFIG_SUFFIXES = ("yml", "yaml", "properties")
 _CONTEXT_PATH_KEYS = ("server.servlet.context-path", "server.context-path")
-_SEARCH_LOCATIONS = "spring.cloud.config.server.native.search-locations"
+# Spring's relaxed binding accepts the camelCase form too.
+_SEARCH_LOCATIONS = (
+    "spring.cloud.config.server.native.search-locations",
+    "spring.cloud.config.server.native.searchLocations",
+)
 
 
 def _module_root(root_path, file):
@@ -761,7 +765,9 @@ class SpringConfig:
             for path in sorted(self.root.rglob("src/main/resources/application.*")):
                 if path.suffix.lstrip(".") not in _CONFIG_SUFFIXES:
                     continue
-                for value in _read_values(path, _SEARCH_LOCATIONS):
+                for value in (
+                    v for key in _SEARCH_LOCATIONS for v in _read_values(path, key)
+                ):
                     for location in value.split(","):
                         location = location.strip()
                         if location.startswith("classpath:"):
