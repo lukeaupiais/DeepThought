@@ -16,6 +16,8 @@ import posixpath
 from types import SimpleNamespace
 
 from .imports import (
+    _PHP_FOLD,
+    _PHP_TYPES,
     PYTHON_FROM_IMPORT_SUBMODULE,
     _java_index,
     _RustIndex,
@@ -58,6 +60,10 @@ RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
 RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
 RUST_CALL_RESULT_RECEIVER = "tree-sitter.rust-call-result-receiver"
 RUST_CALL_ENUM_VARIANT = "tree-sitter.rust-call-enum-variant"
+PHP_CALL_FUNCTION = "tree-sitter.php-call-function"
+PHP_CALL_NEW = "tree-sitter.php-call-new"
+PHP_CALL_STATIC_METHOD = "tree-sitter.php-call-static-method"
+PHP_CALL_THIS_METHOD = "tree-sitter.php-call-this-method"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1669,6 +1675,62 @@ class _RustPaths:
         return CallResolution(item_id, status, reason=reason)
 
 
+class _PhpCalls:
+    """PHP calls by the names PHP's name resolution gives them
+    (``CallSite.qualified_names``), compared ignoring ASCII case as PHP
+    compares function, class and method names."""
+
+    def __init__(self, result, languages):
+        self.functions, self.methods, self.types = (defaultdict(list) for _ in range(3))
+        for d in result.definitions:
+            if languages.get(d.file) != "php":
+                continue
+            name = d.symbol.translate(_PHP_FOLD)
+            if d.kind == "Function":
+                self.functions[name].append(d)
+            elif d.kind == "Method":
+                self.methods[name].append(d)
+            elif d.kind in _PHP_TYPES:
+                self.types[name].append(d)
+
+    def call(self, site):
+        names = [n.translate(_PHP_FOLD) for n in site.qualified_names or ()]
+        if not names:
+            # `self`, `static`, `parent` or `$this` with no named class.
+            return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
+        if site.kind == "new":
+            classes = [d for d in self.types.get(names[0], ()) if d.kind == "Class"]
+            if len(classes) == 1:
+                # What the construction runs: the class's own constructor.
+                constructor = self.methods.get(f"{names[0]}.__construct", ())
+                if len(constructor) == 1:
+                    classes = constructor
+            return _pick(site.id, classes, PHP_CALL_NEW, "not_defined")
+        if "::" in site.callee or "->" in site.callee:
+            late = site.callee.startswith("$this->") or site.callee.translate(
+                _PHP_FOLD
+            ).startswith("static::")
+            found = self.methods.get(names[0], ())
+            if not found and names[0].rsplit(".", 1)[0] in self.types:
+                # Inherited, from a trait, or magic: not followed.
+                return CallResolution(
+                    site.id, "unresolved", reason="not_declared_on_type"
+                )
+            return _pick(
+                site.id,
+                found,
+                PHP_CALL_THIS_METHOD if late else PHP_CALL_STATIC_METHOD,
+                "not_defined",
+            )
+        for name in names:
+            # The namespace's function, else the global one, as PHP tries them.
+            if name in self.functions:
+                return _pick(
+                    site.id, self.functions[name], PHP_CALL_FUNCTION, "not_defined"
+                )
+        return CallResolution(site.id, "unresolved", reason="not_defined")
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
@@ -1686,6 +1748,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     }
     languages = {item.file: item.language for item in result.coverage}
     java = _JavaScope(result, by_symbol)
+    php = _PhpCalls(result, languages)
     rust = (
         _RustPaths(result, by_symbol)
         if any(item.language == "rust" for item in result.coverage)
@@ -2121,6 +2184,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             continue
         if languages.get(site.file) == "rust":
             resolutions.append(rust.call(site))
+            continue
+        if languages.get(site.file) == "php":
+            resolutions.append(php.call(site))
             continue
         parts = site.callee.split(".")
         classes = (

@@ -1,16 +1,25 @@
 """PHP declarations (opt-in language)."""
 
+import dataclasses
 import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
 
 from deepthought import analyze_repository
+from deepthought.calls import (
+    PHP_CALL_FUNCTION,
+    PHP_CALL_NEW,
+    PHP_CALL_STATIC_METHOD,
+    PHP_CALL_THIS_METHOD,
+    resolve_calls,
+)
 from deepthought.imports import (
     PHP_USE_DECLARED,
     PHP_USE_NAMESPACE,
     resolve_imports,
 )
+from deepthought.models import AnalysisResult
 from deepthought.syntax import declaration_sources, make_parser
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -123,7 +132,10 @@ class PhpTests(unittest.TestCase):
             [(i.file, i.line, i.specifier) for i in result.imports],
             [("a.php", 4, "Other\\Thing")],
         )
-        self.assertEqual((result.call_sites, result.supertypes), ((), ()))
+        self.assertEqual(
+            [c.callee for c in result.call_sites], ["function_exists", "b"]
+        )
+        self.assertEqual(result.supertypes, ())
 
     def test_use_imports_link_to_declaring_files(self):
         files = {
@@ -314,6 +326,177 @@ class PhpTests(unittest.TestCase):
             [(r.status, r.reason) for r in resolve_imports(result)],
             [("unresolved", "not_in_repository")],
         )
+
+    def test_calls_follow_php_name_resolution(self):
+        result = analyze(
+            {
+                "a.php": r"""<?php
+namespace App;
+use Lib\Models\User;
+use Lib\Models as M;
+use function Lib\util as u;
+function local() {}
+class Base { function up() {} public function __construct() {} }
+class C extends Base {
+    function m() {
+        local(); global_only(); U(); M\User::find(); \Lib\util();
+        namespace\local(); strlen(''); LOCAL(); twice();
+        new User(); new M\Plain(); new self(); new parent(); new Missing();
+        self::m(); static::M(); parent::up(); parent::gone(); User::find(); SELF::up();
+        $this->m(); $this?->m(); $this->up(); $o->m(); $f(); $this->$n();
+        $g = function () { return $this->m(); }; $h = fn() => self::m();
+        function inner() { self::m(); } new I();
+    }
+    #[Tag(new Plain())] public $p;
+}
+interface I { function i(); }
+function top() { $this->m(); self::m(); }
+""",
+                "b.php": r"""<?php
+namespace Lib\Models;
+class User { function __construct() {} static function find() {} }
+class Plain {}
+namespace Lib;
+function util() {}
+function u() {}
+namespace Other;
+function twice() {}
+""",
+                "g.php": r"""<?php
+if (!function_exists('twice')) { function twice() {} } else { function twice() {} }
+function global_only() {}
+""",
+                "c.php": r"""<?php
+namespace One { use Lib\Models\User; function f() { User::find(); } }
+namespace Two { function g() { User::find(); } }
+""",
+            }
+        )
+        names = {d.id: (d.file, d.symbol) for d in result.definitions}
+        sites = {c.id: c for c in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].line, sites[r.call_id].column): (
+                sites[r.call_id].callee,
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        self.maxDiff = None
+        self.assertEqual(
+            found,
+            {
+                ("a.php", 10, 8): ("local", ("a.php", "App.local"), PHP_CALL_FUNCTION),
+                ("a.php", 10, 17): (
+                    "global_only",
+                    ("g.php", "global_only"),
+                    PHP_CALL_FUNCTION,
+                ),
+                ("a.php", 10, 32): ("U", ("b.php", "Lib.util"), PHP_CALL_FUNCTION),
+                ("a.php", 10, 37): (
+                    "M\\User::find",
+                    ("b.php", "Lib.Models.User.find"),
+                    PHP_CALL_STATIC_METHOD,
+                ),
+                ("a.php", 10, 53): (
+                    "\\Lib\\util",
+                    ("b.php", "Lib.util"),
+                    PHP_CALL_FUNCTION,
+                ),
+                ("a.php", 11, 8): (
+                    "namespace\\local",
+                    ("a.php", "App.local"),
+                    PHP_CALL_FUNCTION,
+                ),
+                ("a.php", 11, 27): ("strlen", None, "not_defined"),
+                ("a.php", 11, 39): ("LOCAL", ("a.php", "App.local"), PHP_CALL_FUNCTION),
+                ("a.php", 11, 48): ("twice", None, "multiple_declarations"),
+                ("a.php", 12, 8): (
+                    "User",
+                    ("b.php", "Lib.Models.User.__construct"),
+                    PHP_CALL_NEW,
+                ),
+                ("a.php", 12, 20): (
+                    "M\\Plain",
+                    ("b.php", "Lib.Models.Plain"),
+                    PHP_CALL_NEW,
+                ),
+                ("a.php", 12, 35): ("self", ("a.php", "App.C"), PHP_CALL_NEW),
+                ("a.php", 12, 47): (
+                    "parent",
+                    ("a.php", "App.Base.__construct"),
+                    PHP_CALL_NEW,
+                ),
+                ("a.php", 12, 61): ("Missing", None, "not_defined"),
+                ("a.php", 13, 8): (
+                    "self::m",
+                    ("a.php", "App.C.m"),
+                    PHP_CALL_STATIC_METHOD,
+                ),
+                ("a.php", 13, 19): (
+                    "static::M",
+                    ("a.php", "App.C.m"),
+                    PHP_CALL_THIS_METHOD,
+                ),
+                ("a.php", 13, 32): (
+                    "parent::up",
+                    ("a.php", "App.Base.up"),
+                    PHP_CALL_STATIC_METHOD,
+                ),
+                ("a.php", 13, 46): ("parent::gone", None, "not_declared_on_type"),
+                ("a.php", 13, 62): (
+                    "User::find",
+                    ("b.php", "Lib.Models.User.find"),
+                    PHP_CALL_STATIC_METHOD,
+                ),
+                ("a.php", 13, 76): ("SELF::up", None, "not_declared_on_type"),
+                ("a.php", 14, 8): (
+                    "$this->m",
+                    ("a.php", "App.C.m"),
+                    PHP_CALL_THIS_METHOD,
+                ),
+                ("a.php", 14, 20): (
+                    "$this->m",
+                    ("a.php", "App.C.m"),
+                    PHP_CALL_THIS_METHOD,
+                ),
+                ("a.php", 14, 33): ("$this->up", None, "not_declared_on_type"),
+                ("a.php", 15, 34): ("$this->m", None, "receiver_type_unknown"),
+                ("a.php", 15, 62): ("self::m", None, "receiver_type_unknown"),
+                ("a.php", 16, 27): ("self::m", None, "receiver_type_unknown"),
+                ("a.php", 16, 40): ("I", None, "not_defined"),
+                ("a.php", 18, 10): ("Plain", None, "not_defined"),
+                ("a.php", 21, 17): ("$this->m", None, "receiver_type_unknown"),
+                ("a.php", 21, 29): ("self::m", None, "receiver_type_unknown"),
+                ("c.php", 2, 52): (
+                    "User::find",
+                    ("b.php", "Lib.Models.User.find"),
+                    PHP_CALL_STATIC_METHOD,
+                ),
+                ("c.php", 3, 31): ("User::find", None, "not_defined"),
+                ("g.php", 2, 5): ("function_exists", None, "not_defined"),
+            },
+        )
+        callers = {
+            (c.file, c.line, c.column): names[c.caller_id]
+            for c in result.call_sites
+            if c.caller_id is not None
+        }
+        self.assertEqual(callers[("a.php", 10, 8)], ("a.php", "App.C.m"))
+        self.assertEqual(callers[("a.php", 15, 34)], ("a.php", "App.C.m"))
+        self.assertEqual(callers[("c.php", 2, 52)], ("c.php", "One.f"))
+        self.assertNotIn(("g.php", 2, 5), callers)
+        self.assertNotIn(("a.php", 18, 10), callers)
+        self.assertEqual(
+            sites[
+                next(i for i, c in sites.items() if c.callee == "global_only")
+            ].qualified_names,
+            ("App.global_only", "global_only"),
+        )
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        self.assertNotIn('"qualified_names": null', result.to_json())
+        with self.assertRaises(ValueError):
+            dataclasses.replace(result.call_sites[0], qualified_names=("",))
 
     def test_php_is_opt_in(self):
         default = analyze({"a.php": SOURCE, "a.py": "x = 1\n"}, languages=None)

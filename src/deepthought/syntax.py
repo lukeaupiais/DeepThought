@@ -1113,6 +1113,193 @@ def extract_php(
     return found
 
 
+_PHP_NAMES = {"name", "qualified_name", "relative_name"}
+_PHP_FOLD = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def extract_php_call_sites(
+    tree, content: bytes, repository_id: str, file: str, definitions
+) -> list[CallSite]:
+    """PHP calls whose target PHP's name resolution fixes from the text:
+    ``f()`` (a name, qualified or not), ``new C()``, ``C::m()``,
+    ``self::m()``, ``static::m()``, ``parent::m()`` and ``$this->m()``
+    (``?->`` too), each with the function or method definition around it.
+    ``qualified_names`` holds the names they may refer to, resolved against
+    the namespace and the ``use`` declarations before the call. Calls of a
+    variable, on another object or with a computed name are not call sites.
+    """
+    callables = sorted(
+        (
+            ((d.line, d.column), (d.end_line, d.end_column), d.id)
+            for d in definitions
+            if d.file == file and d.kind in {"Function", "Method"}
+        ),
+        reverse=True,
+    )
+    sites, ordinals = [], {}
+
+    def resolve(text, namespace, uses, function=False):
+        """The fully qualified names a written class or function name may
+        refer to, in the order PHP tries them."""
+        if text.startswith("\\"):
+            return (text[1:].replace("\\", "."),)
+        parts = text.split("\\")
+        if len(parts) > 1 and parts[0].translate(_PHP_FOLD) == "namespace":
+            return (".".join((*namespace, *parts[1:])),)
+        if len(parts) == 1 and function:
+            # An unqualified function: its `use function`, else the
+            # namespace's function, falling back to the global one.
+            imported = uses["function"].get(parts[0].translate(_PHP_FOLD))
+            if imported is not None:
+                return (imported,)
+            return (".".join((*namespace, parts[0])), parts[0])[0 if namespace else 1 :]
+        imported = uses["class"].get(parts[0].translate(_PHP_FOLD))
+        if imported is not None:
+            return (".".join((imported, *parts[1:])),)
+        return (".".join((*namespace, *parts)),)
+
+    def owner(node, namespace, uses, written):
+        """The class ``self``, ``static`` or ``parent`` (``written``) names
+        where ``node`` is: the named class-like declaration around it, or
+        its base class, unless a named function or an anonymous class is
+        nearer. A closure may be bound to another object and class
+        (``Closure::bind``, ``bindTo``, ``call``, Laravel's macros), so none
+        is read through one."""
+        current = node.parent
+        while current is not None:
+            if current.type in {
+                "function_definition",
+                "anonymous_class",
+                "anonymous_function",
+                "arrow_function",
+            }:
+                return ()
+            if current.type in _PHP_TYPES:
+                name = _text(current.child_by_field_name("name"), content)
+                if written != "parent":
+                    return (".".join((*namespace, name)),)
+                base = next(
+                    (c for c in current.named_children if c.type == "base_clause"),
+                    None,
+                )
+                base = (
+                    next((c for c in base.named_children if c.type in _PHP_NAMES), None)
+                    if base is not None
+                    else None
+                )
+                return resolve(_text(base, content), namespace, uses) if base else ()
+            current = current.parent
+        return ()
+
+    def scope(node, namespace, uses):
+        """The class a written class name or ``self``, ``static`` or
+        ``parent`` names."""
+        written = _text(node, content)
+        if written.translate(_PHP_FOLD) in {"self", "static", "parent"}:
+            return owner(node, namespace, uses, written.translate(_PHP_FOLD))
+        return resolve(written, namespace, uses)
+
+    def site(node, callee, kind, names):
+        start = (node.start_point.row + 1, node.start_point.column)
+        end = (node.end_point.row + 1, node.end_point.column)
+        ordinal = ordinals.get(callee, 0)
+        ordinals[callee] = ordinal + 1
+        sites.append(
+            CallSite(
+                id=identifier(repository_id, file, callee, "Call", ordinal),
+                file=file,
+                callee=callee,
+                kind=kind,
+                line=start[0],
+                column=start[1],
+                end_line=end[0],
+                end_column=end[1],
+                caller_id=next(
+                    (i for s, e, i in callables if s <= start and end <= e), None
+                ),
+                qualified_names=names,
+            )
+        )
+
+    def calls(root, namespace, uses):
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            stack.extend(reversed(node.named_children))
+            if node.type == "function_call_expression":
+                function = node.child_by_field_name("function")
+                if function.type in _PHP_NAMES:
+                    written = _text(function, content)
+                    site(node, written, "call", resolve(written, namespace, uses, True))
+            elif node.type == "object_creation_expression":
+                named = next(
+                    (c for c in node.named_children if c.type in _PHP_NAMES), None
+                )
+                if named is not None:
+                    site(
+                        node,
+                        _text(named, content),
+                        "new",
+                        scope(named, namespace, uses),
+                    )
+            elif node.type == "scoped_call_expression":
+                target = node.child_by_field_name("scope")
+                name = node.child_by_field_name("name")
+                if name.type == "name" and target.type in _PHP_NAMES | {
+                    "relative_scope"
+                }:
+                    owners = scope(target, namespace, uses)
+                    method = _text(name, content)
+                    site(
+                        node,
+                        f"{_text(target, content)}::{method}",
+                        "call",
+                        tuple(f"{c}.{method}" for c in owners),
+                    )
+            elif node.type in {
+                "member_call_expression",
+                "nullsafe_member_call_expression",
+            }:
+                target = node.child_by_field_name("object")
+                name = node.child_by_field_name("name")
+                if name.type == "name" and _text(target, content) == "$this":
+                    method = _text(name, content)
+                    site(
+                        node,
+                        f"$this->{method}",
+                        "call",
+                        tuple(
+                            f"{c}.{method}"
+                            for c in owner(node, namespace, uses, "self")
+                        ),
+                    )
+
+    def statements(node, namespace, uses):
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                names = tuple(_text(name, content).split("\\")) if name else ()
+                body = child.child_by_field_name("body")
+                fresh = {"class": {}, "function": {}}
+                if body is None:
+                    namespace, uses = names, fresh
+                else:
+                    statements(body, names, fresh)
+                continue
+            if child.type == "namespace_use_declaration":
+                for specifier, kind, _, (local,) in _php_imports(child, content):
+                    group = {"use": "class", "use_function": "function"}.get(kind)
+                    if group is not None:
+                        uses[group][local.translate(_PHP_FOLD)] = specifier.replace(
+                            "\\", "."
+                        )
+                continue
+            calls(child, namespace, uses)
+
+    statements(tree.root_node, (), {"class": {}, "function": {}})
+    return sites
+
+
 # `@overload`, `@typing.overload` and the usual module aliases.
 _PYTHON_OVERLOADS = {
     "overload",

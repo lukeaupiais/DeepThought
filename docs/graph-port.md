@@ -1697,7 +1697,7 @@ namespace when that code runs, so its symbol is namespace-qualified
 (`App.Http.helper`, not `App.Http.Controller.make.helper`). The methods of
 an anonymous class are named by the path to the class
 (`App.Http.Controller.make.handle` for one in `Controller::make`).
-Namespaces themselves, constants, properties, enum cases, calls and bases are
+Namespaces themselves, constants, properties, enum cases and bases are
 not recorded yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
@@ -1765,6 +1765,54 @@ fixtures declare again. A link from source to a test stub is still possible:
 guzzle's `src/Handler/StreamHandler.php` imports `Openssl\Session`, which the
 repository declares only in a test file (the real class comes from an
 extension), and it is linked there.
+
+### PHP calls
+
+A call is recorded when PHP's name resolution fixes its target from the
+text, with the function or method definition around it as its caller (none
+for code outside one, an attribute's arguments included):
+
+- `f()`, `A\f()`, `\A\f()` and `namespace\f()`, kind `call`;
+- `new C()`, kind `new`, with `self`, `static` or `parent` as the class too;
+- `C::m()`, `self::m()`, `static::m()` and `parent::m()`;
+- `$this->m()` and `$this?->m()`.
+
+Calls of a variable (`$f()`), on another object (`$o->m()`) or with a
+computed name (`$this->$m()`) are not recorded. `CallSite.qualified_names`
+holds the names, dot-joined and fully qualified, that the call may name, read
+against the namespace and the `use` declarations before it as PHP reads
+them: a name with a leading `\` as written; `namespace\` from the current
+namespace; a name whose first part a `use` aliases (ignoring ASCII case)
+from that import; any other class name, and any other qualified function
+name, from the current namespace. An unqualified function name that no
+`use function` aliases names the namespace's function and then the global
+one, the order PHP tries them in. `self` and `static` are the named
+class-like declaration around the call and `parent` the class its `extends`
+names. Through a named function, an anonymous class or a closure (a closure
+may be bound to another object and class, as Laravel's macros are) none of
+them is read, and the call is unresolved (`receiver_type_unknown`).
+
+Names are compared ignoring ASCII case, as PHP compares function, class and
+method names. Resolution, all `resolved`:
+
+- `tree-sitter.php-call-function`: the first of the names that the
+  repository declares as a function. The global fallback assumes the
+  namespace's function is not declared outside the repository (by a Composer
+  dependency).
+- `tree-sitter.php-call-new`: the class, or its own `__construct` when it
+  declares one. An inherited constructor is not followed.
+- `tree-sitter.php-call-static-method`: `C::m()`, `self::m()` and
+  `parent::m()` link to the method `m` the class declares.
+- `tree-sitter.php-call-this-method`: `$this->m()` and `static::m()` link to
+  the method `m` the class-like declaration around the call declares; a
+  subclass may override it at run time.
+
+Two declarations (functions declared in both branches of an
+`if (!function_exists(...))`) are `ambiguous`. A method the class does not
+declare itself (inherited, from a trait, or handled by `__call` or
+`__callStatic`, as Laravel's facades are) is `not_declared_on_type`, and a
+name the repository does not declare (a PHP function, a Composer dependency)
+is `not_defined`.
 
 ## C#
 

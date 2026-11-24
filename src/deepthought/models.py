@@ -423,8 +423,21 @@ class CallSite:
     # binds that declaration only if none of those types inherits a field
     # ``x``. None elsewhere.
     receiver_inherits: bool | None = None
+    # PHP calls: the names, dot-joined and fully qualified as PHP's name
+    # resolution gives them, that the call may name, in the order PHP tries
+    # them: ``N.f`` then ``f`` for an unqualified function ``f()`` in the
+    # namespace ``N``; the class for ``new C()``; ``N.C.m`` for ``C::m()``,
+    # ``self::m()``, ``static::m()``, ``parent::m()`` and ``$this->m()``.
+    # Empty when PHP's rules fix no name (``$this`` outside a named class).
+    # None elsewhere.
+    qualified_names: tuple[str, ...] | None = None
 
     def __post_init__(self):
+        if self.qualified_names is not None and (
+            type(self.qualified_names) is not tuple
+            or not all(isinstance(n, str) and n for n in self.qualified_names)
+        ):
+            raise ValueError("qualified_names must be nonempty strings")
         if self.binding is not None and (
             type(self.binding) is not tuple
             or len(self.binding) not in (0, 2)
@@ -891,6 +904,8 @@ class AnalysisResult:
                 del item["receiver_inherits"]
             if item["argument_fields"] is None:
                 del item["argument_fields"]
+            if item["qualified_names"] is None:
+                del item["qualified_names"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -1007,6 +1022,11 @@ class AnalysisResult:
                         **(
                             {"receiver_call": tuple(item["receiver_call"])}
                             if isinstance(item.get("receiver_call"), list)
+                            else {}
+                        ),
+                        **(
+                            {"qualified_names": tuple(item["qualified_names"])}
+                            if isinstance(item.get("qualified_names"), list)
                             else {}
                         ),
                         **(

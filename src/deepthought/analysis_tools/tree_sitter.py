@@ -486,6 +486,22 @@ CALL_RULES.update(
             "'Self::V(...)' where 'E' (read as a call's path is) or the type of "
             "the impl around the call is an enum that declares the variant "
             "'V' names that variant, ahead of any associated function.",
+            call_rules.PHP_CALL_FUNCTION: "A PHP call 'f()' names the function "
+            "PHP's name resolution gives: a 'use function' alias, else the "
+            "function of that name in the current namespace when the "
+            "repository declares one, else the global function; a qualified "
+            "name is read against the namespace and the 'use' declarations "
+            "before it.",
+            call_rules.PHP_CALL_NEW: "A PHP 'new C()' names the class 'C' "
+            "resolves to ('self', 'static' and 'parent' read from the named "
+            "class around the call), or that class's own '__construct'.",
+            call_rules.PHP_CALL_STATIC_METHOD: "A PHP 'C::m()', 'self::m()' or "
+            "'parent::m()' names the method 'm' declared on the class 'C' "
+            "resolves to, the named class around the call, or the class it "
+            "extends.",
+            call_rules.PHP_CALL_THIS_METHOD: "A PHP '$this->m()' or "
+            "'static::m()' in a named class-like declaration names the method "
+            "'m' that declaration declares; a subclass may override it.",
         }.items()
     }
 )

@@ -32,6 +32,7 @@ from .syntax import (
     extract_cpp,
     extract_csharp,
     extract_php,
+    extract_php_call_sites,
     extract_ruby,
     extract_call_sites,
     extract_cargo_manifest,
@@ -504,12 +505,16 @@ def analyze_repository(
                     )
                     continue
                 if language == "php":
-                    # PHP: declarations and imports so far.
-                    definitions.extend(
-                        extract_php(tree, content, repository_id, relative)
-                    )
+                    # PHP: declarations, imports and calls.
+                    declared = extract_php(tree, content, repository_id, relative)
+                    definitions.extend(declared)
                     imports.extend(
                         extract_imports(tree, content, repository_id, relative, "php")
+                    )
+                    call_sites.extend(
+                        extract_php_call_sites(
+                            tree, content, repository_id, relative, declared
+                        )
                     )
                     continue
                 expander = (
