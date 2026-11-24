@@ -1,0 +1,259 @@
+{
+  "corpus": "node-microservices-base-kafka",
+  "repo": "https://github.com/19EB/microservices-base-kafka",
+  "commit": "9facb7f3c6a588252aa6364fb119beeedafa7b56",
+  "license": "MIT",
+  "languages": [
+    "TypeScript (Node, Express, kafkajs)"
+  ],
+  "sources": [
+    "README.md (each service listens on its own topic; the others ping it through Kafka)",
+    "manual reading of services/*/src and api-gateway at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "api-gateway",
+      "root": "api-gateway"
+    },
+    {
+      "name": "user",
+      "root": "services/user"
+    },
+    {
+      "name": "client",
+      "root": "services/client"
+    },
+    {
+      "name": "product",
+      "root": "services/product"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 6,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "client",
+        "product",
+        "messaging"
+      ],
+      [
+        "client",
+        "user",
+        "messaging"
+      ],
+      [
+        "product",
+        "client",
+        "messaging"
+      ],
+      [
+        "product",
+        "user",
+        "messaging"
+      ],
+      [
+        "user",
+        "client",
+        "messaging"
+      ],
+      [
+        "user",
+        "product",
+        "messaging"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "messaging",
+      "from_service": "user",
+      "to_service": "client",
+      "contract": "kafka-topic:client-topic",
+      "client": {
+        "file": "services/user/src/util/broker.ts",
+        "line": 29
+      },
+      "server": {
+        "file": "services/client/src/util/broker.ts",
+        "line": 48
+      },
+      "evidence": "KafkaPublish(kafka, 'client-topic') -> producer.send({topic}); client broker.ts subscribe({topic: KAFKA_TOPIC = 'client-topic'})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "services/user/src/api/user-api.ts",
+        "line": 30
+      },
+      "topic_config": [
+        {
+          "file": "services/client/src/util/broker.ts",
+          "line": 6
+        }
+      ],
+      "id": "node-microservices-base-kafka#1"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "user",
+      "to_service": "product",
+      "contract": "kafka-topic:product-topic",
+      "client": {
+        "file": "services/user/src/util/broker.ts",
+        "line": 29
+      },
+      "server": {
+        "file": "services/product/src/util/broker.ts",
+        "line": 48
+      },
+      "evidence": "KafkaPublish(kafka, 'product-topic') -> producer.send({topic}); product broker.ts subscribe({topic: KAFKA_TOPIC = 'product-topic'})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "services/user/src/api/user-api.ts",
+        "line": 46
+      },
+      "topic_config": [
+        {
+          "file": "services/product/src/util/broker.ts",
+          "line": 6
+        }
+      ],
+      "id": "node-microservices-base-kafka#2"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "client",
+      "to_service": "user",
+      "contract": "kafka-topic:user-topic",
+      "client": {
+        "file": "services/client/src/util/broker.ts",
+        "line": 29
+      },
+      "server": {
+        "file": "services/user/src/util/broker.ts",
+        "line": 48
+      },
+      "evidence": "KafkaPublish(kafka, 'user-topic') -> producer.send({topic}); user broker.ts subscribe({topic: KAFKA_TOPIC = 'user-topic'})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "services/client/src/api/client-api.ts",
+        "line": 45
+      },
+      "topic_config": [
+        {
+          "file": "services/user/src/util/broker.ts",
+          "line": 6
+        }
+      ],
+      "id": "node-microservices-base-kafka#3"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "client",
+      "to_service": "product",
+      "contract": "kafka-topic:product-topic",
+      "client": {
+        "file": "services/client/src/util/broker.ts",
+        "line": 29
+      },
+      "server": {
+        "file": "services/product/src/util/broker.ts",
+        "line": 48
+      },
+      "evidence": "KafkaPublish(kafka, 'product-topic') -> producer.send({topic}); product broker.ts subscribe({topic: KAFKA_TOPIC = 'product-topic'})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "services/client/src/api/client-api.ts",
+        "line": 30
+      },
+      "topic_config": [
+        {
+          "file": "services/product/src/util/broker.ts",
+          "line": 6
+        }
+      ],
+      "id": "node-microservices-base-kafka#4"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "product",
+      "to_service": "user",
+      "contract": "kafka-topic:user-topic",
+      "client": {
+        "file": "services/product/src/util/broker.ts",
+        "line": 29
+      },
+      "server": {
+        "file": "services/user/src/util/broker.ts",
+        "line": 48
+      },
+      "evidence": "KafkaPublish(kafka, 'user-topic') -> producer.send({topic}); user broker.ts subscribe({topic: KAFKA_TOPIC = 'user-topic'})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "services/product/src/api/product-api.ts",
+        "line": 45
+      },
+      "topic_config": [
+        {
+          "file": "services/user/src/util/broker.ts",
+          "line": 6
+        }
+      ],
+      "id": "node-microservices-base-kafka#5"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "product",
+      "to_service": "client",
+      "contract": "kafka-topic:client-topic",
+      "client": {
+        "file": "services/product/src/util/broker.ts",
+        "line": 29
+      },
+      "server": {
+        "file": "services/client/src/util/broker.ts",
+        "line": 48
+      },
+      "evidence": "KafkaPublish(kafka, 'client-topic') -> producer.send({topic}); client broker.ts subscribe({topic: KAFKA_TOPIC = 'client-topic'})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "producer_invocation": {
+        "file": "services/product/src/api/product-api.ts",
+        "line": 30
+      },
+      "topic_config": [
+        {
+          "file": "services/client/src/util/broker.ts",
+          "line": 6
+        }
+      ],
+      "id": "node-microservices-base-kafka#6"
+    }
+  ],
+  "dont_care_call_sites": [],
+  "notes": [
+    "Each service has its own copy of src/util/broker.ts: KafkaPublish(kafka, topic, payload) calls producer.send({topic: topic}) on kafka.producer(), and KafkaSubscribe subscribes kafka.consumer() to the file's constant KAFKA_TOPIC ('<service>-topic'). The Kafka client is made by CreateKafkaClient (new Kafka(...)) and passed in as a parameter.",
+    "client is the producer.send({ line in the publishing service's broker.ts, which every topic that service publishes shares; producer_invocation is the KafkaPublish(kafka, '<topic>', ...) call in src/api that fixes the topic. server is the consumer.subscribe line in the consuming service's broker.ts.",
+    "api-gateway proxies /user, /client and /product to the services with express-http-proxy (URLs from .env.dev): prefix routes, not labelled here."
+  ]
+}

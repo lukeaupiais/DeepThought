@@ -155,7 +155,7 @@ Baseline (calls):
 | preact | javascript | 3,884 | 4,426 | 0 | 1.0 | 0.8671 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,050 | 9,212 | 0 | 1.0 | 0.8246 |
+| gson | java | 11,050 | 9,305 | 0 | 1.0 | 0.833 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -426,6 +426,19 @@ Main reads none of them, with no false positives. Every REST URL is
 angular.json sets to `''`. The connect is `webSocketFactory: () =>
 SockJS(this.buildUrl())`. Before #176 the whole contract analysis of this
 repository failed on a comment inside import braces.
+
+19EB/microservices-base-kafka (9facb7f) is a Node and kafkajs app with three
+services, each of which pings the other two. It is labelled by hand in
+`build_node_messaging.py`, from a repository the kafkajs reader's own
+validation (#168) did not use.
+
+Each service's `broker.ts` wraps `producer.send({topic})` in
+`KafkaPublish(kafka, topic, payload)` and subscribes to its own constant
+topic. The six labelled links run from that shared `send` line, with the
+`KafkaPublish(kafka, '<topic>')` call as the producer invocation, to the
+other service's `subscribe`. Main reads all three subscriptions but none of
+the sends, because the topic is a parameter fixed only at the wrapper's
+callers. So it links 0 of 6, with no false positives.
 
 ### Routes and GraphQL fields
 
@@ -751,7 +764,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 2872 | 5 | 0.569 | 0.998 |
+| gson | 164 | 5052 | 2877 | 5 | 0.570 | 0.998 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
