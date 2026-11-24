@@ -1799,6 +1799,55 @@ def _java_dotted(node, content):
     return None
 
 
+def _java_unparenthesized(node):
+    while (
+        node is not None
+        and node.type == "parenthesized_expression"
+        and node.named_children
+    ):
+        node = node.named_children[0]
+    return node
+
+
+def _java_chain(node, content):
+    """Callee text of a Java receiver that is a call chain: ``a.b().c()``,
+    ``new T().m()`` (arguments dropped); None for any other shape."""
+    node = _java_unparenthesized(node)
+    if node is None:
+        return None
+    if node.type == "method_invocation":
+        name = node.child_by_field_name("name")
+        receiver = node.child_by_field_name("object")
+        head = None if receiver is None else _java_chain(receiver, content)
+        if name is None or (receiver is not None and head is None):
+            return None
+        return (f"{head}." if head else "") + _text(name, content) + "()"
+    if node.type == "object_creation_expression":
+        written = node.child_by_field_name("type")
+        typed = None if written is None else _java_dotted(written, content)
+        return None if typed is None else f"new {typed}()"
+    return _java_dotted(node, content)
+
+
+def _java_receiver_call(node):
+    """``CallSite.receiver_call`` of a Java call whose receiver is itself a
+    method call or ``new``: that expression's span."""
+    if node.type != "method_invocation":
+        return None
+    receiver = _java_unparenthesized(node.child_by_field_name("object"))
+    if receiver is None or receiver.type not in {
+        "method_invocation",
+        "object_creation_expression",
+    }:
+        return None
+    return (
+        receiver.start_point.row + 1,
+        receiver.start_point.column,
+        receiver.end_point.row + 1,
+        receiver.end_point.column,
+    )
+
+
 def _java_arguments(node):
     """Arguments written in a Java call or ``new``; None for other languages."""
     if node.type not in {"method_invocation", "object_creation_expression"}:
@@ -4004,6 +4053,18 @@ def extract_call_sites(
             callee = None if target is None else _go_chain_callee(target, content)
             if callee is not None:
                 found, chained = (callee, found[1]), True
+        if java and found is not None and found[0] is None:
+            # `a.b().c()`, `new T().m()`: a method of the receiver call's
+            # result.
+            span = _java_receiver_call(node)
+            name = node.child_by_field_name("name")
+            head = (
+                None
+                if span is None or name is None
+                else _java_chain(node.child_by_field_name("object"), content)
+            )
+            if head is not None:
+                found = (f"{head}.{_text(name, content)}", found[1])
         if found is not None:
             callee, kind = found
             if callee is not None:
@@ -4029,6 +4090,7 @@ def extract_call_sites(
                         if java
                         else None,
                         argument_calls=_java_argument_calls(node) if java else None,
+                        receiver_call=_java_receiver_call(node) if java else None,
                         argument_fields=_java_argument_fields(node, content)
                         if java
                         else None,

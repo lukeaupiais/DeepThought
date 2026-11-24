@@ -19,6 +19,7 @@ from deepthought.calls import (
     JAVA_STATIC_IMPORT,
     JAVA_PLATFORM_ARGUMENT,
     JAVA_TYPE_MEMBER,
+    JAVA_CHAINED_RECEIVER,
     JAVA_TYPED_RECEIVER,
     JAVA_TYPE_NAME,
     _JavaScope,
@@ -726,6 +727,68 @@ class JavaTests(unittest.TestCase):
             found[("src/p/Sub.java", 7)], ("Base.open", JAVA_INHERITED_METHOD)
         )
         self.assertEqual(found[("src/p/Sub.java", 9)], (None, "unbound_name"))
+
+    def test_calls_on_the_result_of_a_call(self):
+        files = {
+            "src/p/Builder.java": (
+                "package p;\n"
+                "class Builder {\n"
+                "  Builder add(int x) { return this; }\n"
+                "  Built build() { return null; }\n"
+                "  static Builder start() { return new Builder(); }\n"
+                "  <T> T any() { return null; }\n"
+                "  int count() { return 0; }\n"
+                "}\n"
+                "class Built { void use() {} }\n"
+            ),
+            "src/p/Main.java": (
+                "package p;\n"
+                "class Main {\n"
+                "  Builder mine() { return null; }\n"
+                "  void m(Builder b) {\n"
+                "    new Builder().add(1).build().use();\n"  # 5
+                "    Builder.start()\n"
+                "        .add(2)\n"
+                "        .build();\n"  # 6-8: across lines
+                "    mine().build();\n"  # 9: a bare call
+                "    (b.add(3)).build();\n"  # 10: parenthesized
+                "    b.any().use();\n"  # 11: a type parameter
+                "    b.count().use();\n"  # 12: a primitive
+                "    b.build().missing();\n"  # 13: not declared
+                "  }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/p/Main.java"
+        }
+        chained = JAVA_CHAINED_RECEIVER
+        self.assertEqual(found[(5, "new Builder().add")], ("Builder.add", chained))
+        self.assertEqual(
+            found[(5, "new Builder().add().build")], ("Builder.build", chained)
+        )
+        self.assertEqual(
+            found[(5, "new Builder().add().build().use")], ("Built.use", chained)
+        )
+        self.assertEqual(found[(6, "Builder.start().add")], ("Builder.add", chained))
+        self.assertEqual(
+            found[(6, "Builder.start().add().build")], ("Builder.build", chained)
+        )
+        self.assertEqual(found[(9, "mine().build")], ("Builder.build", chained))
+        self.assertEqual(found[(10, "b.add().build")], ("Builder.build", chained))
+        self.assertEqual(found[(11, "b.any().use")], (None, "receiver_type_unknown"))
+        self.assertEqual(found[(12, "b.count().use")], (None, "receiver_type_unknown"))
+        self.assertEqual(
+            found[(13, "b.build().missing")], (None, "not_declared_in_type")
+        )
 
     def test_calls_on_variables_whose_declaration_writes_the_type(self):
         files = {

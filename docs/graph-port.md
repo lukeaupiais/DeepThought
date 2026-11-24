@@ -766,6 +766,7 @@ every link is `name_matched`:
 | `tree-sitter.java-type-name` | `new T()`: the constructor of the type `T` names, by the same lookup, that the arguments select (overloads chosen as for methods, below). When `T` declares no constructor, or the arguments leave none or more than one, the link is to the type |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
+| `tree-sitter.java-call-chained-receiver` | `e.m()` where `e` is itself a call (`a.b().m()`, `T.f().m()`, `f().m()`) whose link reaches a method declaring a class return type `T`, or `new T(...)`: `m` declared on `T` or inherited through its declared bases, overloads chosen as for other Java calls; a type-parameter or primitive return leaves it unresolved |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -972,6 +973,13 @@ by name and arity where javac picks another of the same arity by argument
 types. junit5 indents with tabs; the oracle counts a tab as one
 column, as the analysis does, rather than expanding it to the next tab stop
 as javac's `LineMap.getColumnNumber` would.
+
+Calls on a call's result (`new GsonBuilder().setPrettyPrinting().create()`)
+follow the linked method's declared return type
+(`tree-sitter.java-call-chained-receiver`). On the gson call corpus this
+raised confirmed links from 9,342 to 10,457 of 11,050 with none
+contradicted; 22 of its links land where javac bound no call, mostly in the
+proto tests, whose receivers involve classes built from `.proto` files.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that

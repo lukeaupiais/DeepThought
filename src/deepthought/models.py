@@ -365,6 +365,10 @@ class CallSite:
     # declared around the call names: (``X``, ``f``) for each such argument,
     # None for any other argument. None when there is no such argument.
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
+    # Java calls ``e.m()`` whose receiver ``e`` is itself a method call or a
+    # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
+    # line, end column) of ``e``. None elsewhere.
+    receiver_call: tuple[int, int, int, int] | None = None
 
     def __post_init__(self):
         if self.binding is not None and (
@@ -384,6 +388,12 @@ class CallSite:
             raise ValueError(
                 "receiver_binding must be (line, column) or () with a receiver_type"
             )
+        if self.receiver_call is not None and (
+            type(self.receiver_call) is not tuple
+            or len(self.receiver_call) != 4
+            or not all(type(v) is int and v >= 0 for v in self.receiver_call)
+        ):
+            raise ValueError("receiver_call must be a span of four integers")
         if self.argument_calls is not None and (
             type(self.argument_calls) is not tuple
             or len(self.argument_calls) != self.arguments
@@ -809,6 +819,8 @@ class AnalysisResult:
                 del item["receiver_binding"]
             if item["argument_calls"] is None:
                 del item["argument_calls"]
+            if item["receiver_call"] is None:
+                del item["receiver_call"]
             if item["argument_fields"] is None:
                 del item["argument_fields"]
         for item in data["imports"]:
@@ -911,6 +923,11 @@ class AnalysisResult:
                         **(
                             {"binding": tuple(item["binding"])}
                             if isinstance(item.get("binding"), list)
+                            else {}
+                        ),
+                        **(
+                            {"receiver_call": tuple(item["receiver_call"])}
+                            if isinstance(item.get("receiver_call"), list)
                             else {}
                         ),
                         **(

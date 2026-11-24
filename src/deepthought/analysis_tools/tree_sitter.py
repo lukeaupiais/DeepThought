@@ -381,6 +381,11 @@ _CALL_RULE_TEXT = {
     "writes a class type T (or 'var x = new T()'), T denotes a type by Java's "
     "lookup order, and T declares or inherits the method; argument types are "
     "not checked.",
+    call_rules.JAVA_CHAINED_RECEIVER: "In a Java call 'e.name' whose receiver e "
+    "is itself a method call, e's call links to a method whose declared return "
+    "type T (written where that method is declared) denotes a type by Java's "
+    "lookup order; for 'new T(...).name', T as written. T declares or inherits "
+    "the method, chosen among overloads as other Java calls are.",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
     call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "
