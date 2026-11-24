@@ -29,7 +29,7 @@ class RequestResolution:
     gateway: str | None = None  # "file:line" of the gateway route followed
 
 
-def resolve_requests(routes, requests, gateways=(), hosts=None):
+def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
     """One resolution per request, in request order.
 
     The target service is the request's explicit service name (a Feign
@@ -45,6 +45,11 @@ def resolve_requests(routes, requests, gateways=(), hosts=None):
     longest prefix wins, its replacement takes its place, and the route's
     target narrows the candidates as a host would (rule ``http-gateway``).
     Prefixes tied in length with different forwards are ambiguous.
+
+    A request whose URL starts with unknown text (a base URL variable) is
+    sent to a host configured elsewhere, so under ``http-path`` the routes
+    of its own project (``project``: file -> project directory) are not
+    candidates.
     """
     templates = [
         (
@@ -57,6 +62,7 @@ def resolve_requests(routes, requests, gateways=(), hosts=None):
         for r in routes
     ]
     services = {r.service for r in routes if r.service}
+    route_files = {r.id: r.file for r in routes}
     resolutions = []
     for request in requests:
         target = request_target(request.url)
@@ -89,6 +95,15 @@ def resolve_requests(routes, requests, gateways=(), hosts=None):
             rule, none_reason = HTTP_SERVICE_PATH, "no_route_in_service"
         else:
             candidates = [t[:3] + t[4:] for t in templates]
+            if (
+                project is not None
+                and not forwarded
+                and request.url.startswith(PLACEHOLDER)
+            ):
+                own = project(request.file)
+                candidates = [
+                    c for c in candidates if project(route_files[c[0]]) != own
+                ]
             rule, none_reason = HTTP_PATH, "no_route"
             service = None
         if forwarded:

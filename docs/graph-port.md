@@ -2116,7 +2116,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
 | `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name` or deployment name, or to a host name only that service's deployments answer to (see "Services named by their deployments"); only that service's routes are candidates |
 | `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
-| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
+| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`) |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
 
 The URL's path is compared segment by segment with each candidate's
@@ -2263,11 +2263,17 @@ PHP files are read for routes and requests (`service_contracts.php`):
   constructor parameter typed `Client` or `ClientInterface`. A literal
   `base_uri` is resolved as Guzzle does (RFC 3986: a rooted path replaces
   the base path, a relative one joins the base's directory); an absolute
-  URL, or a base that is not literal, leaves the URL as written. Laravel:
+  URL is kept. A base that is not literal is taken to start with its
+  origin and to add no path of its own: a rooted path follows the unknown
+  origin (`{?}/books`), a relative one the base's literal directory
+  (`'%env(URL)%/api/'` and `books` give `{?}/api/books`), and a relative
+  one against a base with no literal directory stays glued to the unknown
+  text, so it is not matched. Laravel:
   `Http::get(...)`, ... and `Http::send($method, $url)`, also at the end of
   a chain (`Http::withToken(...)->get(...)`), on the facade imported from
   `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
-  a literal `baseUrl(...)` in the chain is prepended. A method that is not
+  a literal `baseUrl(...)` in the chain is prepended (one that is not
+  literal gives unknown text, as for Guzzle). A method that is not
   a literal is unknown; a dynamic method name (`->$method(...)`) is read
   when it folds to one of the verbs, else the call is not read.
 - **Symfony HttpClient requests** (client `symfony-http`).
@@ -2282,7 +2288,7 @@ PHP files are read for routes and requests (`service_contracts.php`):
   as Symfony parses it (`orders.client` is `$ordersClient`, and so is
   `$orders_client`), so an injected parameter or promoted property with that
   name takes the client's `base_uri` when it is literal; a parameter or
-  `%env(...)%` base leaves the URL as written. A parameter attribute
+  `%env(...)%` in the base is unknown text, resolved as for Guzzle. A parameter attribute
   `#[Autowire(service: 'id')]`, `#[Autowire('@id')]` or `#[Target('id')]`
   names the client instead (any other `#[Autowire]` gives no base);
   `services.yaml` bindings are not read. For Guzzle and Symfony clients

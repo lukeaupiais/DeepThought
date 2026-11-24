@@ -301,9 +301,33 @@ _CLIENT_VERBS = {
 _SCHEME = re.compile(r"(?i)^[a-z][a-z0-9+.-]*://")
 
 
+def _unknown_base(base, url, appended=False):
+    """``url`` after a base that starts with unknown text, taken to be the
+    origin and to add no path segments of its own (``"{?}/api/"``); None
+    when the base is literal or empty, or ``url`` is absolute. Appended
+    (Laravel), the path follows the base. Resolved (RFC 3986), a rooted
+    path follows the unknown origin and a relative one the base's literal
+    directory; with no literal directory after the unknown text, the
+    relative path stays glued to it (not separated, so not matched)."""
+    if PLACEHOLDER not in base or _SCHEME.match(url) or _SCHEME.match(base):
+        return None
+    if appended:
+        return base.rstrip("/") + "/" + url.lstrip("/")
+    if url.startswith("/"):
+        return PLACEHOLDER + url
+    head, slash, _ = base.rpartition("/")
+    if slash and PLACEHOLDER not in base[len(head) :]:
+        return head + "/" + url
+    return PLACEHOLDER + url
+
+
 def _resolve_reference(base, url):
     """``url`` resolved against a literal absolute ``base`` (RFC 3986, as
-    Guzzle does); ``url`` as written when ``base`` is not one."""
+    Guzzle does); after unknown text when ``base`` is not literal; ``url``
+    as written when there is no base or it is relative."""
+    unknown = _unknown_base(base, url)
+    if unknown is not None:
+        return unknown
     match = _SCHEME.match(base)
     if match is None or _SCHEME.match(url):
         return url
@@ -318,7 +342,11 @@ def _resolve_reference(base, url):
 
 def _appended(base, url):
     """Laravel's ``baseUrl``: the URL appended to the base unless absolute;
-    as written when the base is not a literal absolute URL."""
+    as written when the base is not an absolute URL, after unknown text
+    when it is not literal."""
+    unknown = _unknown_base(base, url, appended=True)
+    if unknown is not None:
+        return unknown
     if _SCHEME.match(base) is None or _SCHEME.match(url):
         return url
     return base.rstrip("/") + "/" + url.lstrip("/")
