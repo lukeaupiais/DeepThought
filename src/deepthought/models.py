@@ -454,8 +454,20 @@ class CallSite:
     # binds that declaration only if none of those types inherits a field
     # ``x``. None elsewhere.
     receiver_inherits: bool | None = None
+    # Python, JavaScript, TypeScript and Go calls: (line, column) where the
+    # last name of the callee starts (``f`` in ``a.b.f()``), where an
+    # indexer's occurrence of the called symbol is. None when the callee
+    # does not end in a name, and elsewhere.
+    callee_at: tuple[int, int] | None = None
 
     def __post_init__(self):
+        if self.callee_at is not None and (
+            type(self.callee_at) is not tuple
+            or len(self.callee_at) != 2
+            or not all(type(v) is int and v >= 0 for v in self.callee_at)
+            or self.callee_at[0] < 1
+        ):
+            raise ValueError("callee_at must be (line, column) or None")
         if self.binding is not None and (
             type(self.binding) is not tuple
             or len(self.binding) not in (0, 2)
@@ -922,6 +934,8 @@ class AnalysisResult:
                 del item["argument_calls"]
             if item["receiver_call"] is None:
                 del item["receiver_call"]
+            if item["callee_at"] is None:
+                del item["callee_at"]
             if item["type_qualified"] is None:
                 del item["type_qualified"]
             if item["receiver_inherits"] is None:
@@ -1044,6 +1058,11 @@ class AnalysisResult:
                         **(
                             {"receiver_call": tuple(item["receiver_call"])}
                             if isinstance(item.get("receiver_call"), list)
+                            else {}
+                        ),
+                        **(
+                            {"callee_at": tuple(item["callee_at"])}
+                            if isinstance(item.get("callee_at"), list)
                             else {}
                         ),
                         **(

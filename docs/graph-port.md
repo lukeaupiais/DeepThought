@@ -150,9 +150,9 @@ Tree-sitter extraction records each call whose callee is a plain or dotted name
 enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
-inheritance and dynamic dispatch are not checked. No CALLS edge comes from SCIP
-yet: the `scip` tool records references, file dependencies and implementations,
-and the original's SCIP tool did not write CALLS either. The original builder's `confidence` floats and its `resolved_method` label
+inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
+covers take their targets from the index instead (below); the original's SCIP
+tool did not write CALLS. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 
@@ -170,6 +170,48 @@ returns those counts and the call sites, each linked one with its target and
 rule. Snapshots written before this change have no such nodes and answer
 `unsupported_or_unobserved`. Calls made through another name (an alias, a
 callback, dynamic dispatch) are not counted.
+
+Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
+covers are bound from the index (`deepthought.scip_calls.bind_calls`;
+`TreeSitterTool.analyze(..., scip_indexes=[(ingested index, receipt digest)])`).
+Each call site records where the last name of its callee starts
+(`callee_at`); the SCIP reference there names a symbol, and the symbol's SCIP
+definition is read back to the innermost parsed declaration whose span holds it
+and whose own name is the one written at it. Columns are converted between the
+index's encoding and UTF-8 bytes; documents that leave the encoding unspecified
+are read as scip-python and scip-typescript write them (UTF-16 code units) and
+otherwise as bytes (scip-go). These edges carry `resolved` evidence, the
+indexer as `producer` (`name@version`) and the index's `receipt` digest.
+Several indexes of one indexer (a second pass, one index per Go module) share
+their global symbols, so a call in one links to a declaration another defines:
+
+| Rule | Links |
+|---|---|
+| `scip.call-occurrence` | the call to the declaration of the symbol the index records at its name |
+| `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
+| `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
+| `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
+
+A covered call the index does not link stays unlinked, with `resolver: scip`,
+the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
+the name), `scip_external` (a symbol defined outside the index),
+`scip_target_not_declaration` (a definition no parsed declaration names, such
+as a variable) or `multiple_declarations` (more than one target, with the
+candidates). The parser's rules are not used for it. Two scip-python 0.6.8
+faults are guarded: in a Python file, a target whose name is not the name
+written at the call, unless an import binds that name to it (the index may
+follow a star re-export to the wrong function), and an external target for
+`self.x()` when the enclosing class or a repository base declares `x` (the
+index may name a builtin). Both are `scip_suspect_target`: the parser's link
+stands if it has one, otherwise the call stays unlinked. Files no index covers
+keep the parser's rules, which also run in shadow over covered files;
+`tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
+the covered call sites where the two targets differ (file, line, callee, SCIP
+target file and line, parser target file and line, reason, rule). The
+tool's `call_resolution_by_resolver` metric counts call outcomes separately for
+`scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
+(the parser's link kept over a suspect index target) and `tree-sitter` (files
+no index covers).
 
 | Rule | Links |
 |---|---|
@@ -320,8 +362,24 @@ the chat model. The port answers from stored edges only:
   later.
 - `get_file_impact(path)` (`deepthought-graph file-impact --file`, MCP
   getFileImpact): dependent files backwards over IMPORTS and DEPENDS_ON.
+- `get_contract_impact(qualified_name)` (`deepthought-graph contract-impact
+  --contract`, MCP getContractImpact) starts from a contract instead: an HTTP
+  route, gRPC method, GraphQL field, message destination or database table.
+  The change set is the contract and its providers, the declarations or files
+  that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
+  lists under `providers` (at most 10, `providers_truncated` when more).
+  Dependents are then found as for `get_impact`: the code that REQUESTS,
+  CONSUMES or READS the contract (direct), and the callers of that code, also
+  through other contracts it handles (transitive). Providers and dependents
+  share the byte budget, which must be at least 2048 here. Contract nodes are
+  not declarations, so `search_contracts(query)` (`deepthought-graph
+  contracts --query [--kind]`, MCP searchContracts) finds them: contracts
+  whose name (`GET /api/x`), display name, path or qualified name contains
+  the query, case-insensitively, optionally of one kind (`HttpRoute`,
+  `GrpcMethod`, `GraphqlField`, `MessageDestination`, `DbTable`), each with
+  its provider and client counts.
 
-Both take `--max-depth` (1 to 5, default 3) and an optional evidence filter
+All three take `--max-depth` (1 to 5, default 3) and an optional evidence filter
 that limits which edges may be crossed. Each dependent is listed once, with
 the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
@@ -2284,8 +2342,10 @@ which only client requests are read:
   bound once in their function, else at module level, before the use (Python
   assignments, `const`/`let`/`var`, Go `var`/`const`/`:=`). A name bound more
   than once, assigned in another function, or declared `global` and assigned
-  there is unknown text. JavaScript and TypeScript also read `this.NAME` and
-  constants shared between modules (below).
+  there is unknown text. A conditional (`c ? a : b`, `a if c else b`) whose
+  two branches fold to the same text has that text, whatever the condition;
+  otherwise it is unknown text. JavaScript and TypeScript also read
+  `this.NAME` and constants shared between modules (below).
 
 #### Angular HttpClient
 
@@ -3124,9 +3184,9 @@ path pairs under `/api`, and they are exactly the 36 routes.
 The same tool reads gRPC contracts from `.proto` files and from Go, Python,
 Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
 
-- **Methods.** Every `rpc` of a top-level `service` block in a `.proto` file
-  (comments removed, strings kept; directories `node_modules`, `vendor` and
-  hidden ones skipped) is a `GrpcMethod` node with labels
+- **Methods.** Every `rpc` of a `service` in a `.proto` file (directories
+  `node_modules`, `vendor` and hidden ones skipped) is a `GrpcMethod` node
+  with labels
   `["GrpcMethod", "Contract"]` and qualified name
   `{repo}::grpc::{package}.{Service}/{Method}`. The identity is the fully
   qualified protobuf name, which is what goes on the wire, so the copies of
@@ -3136,6 +3196,28 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   the `proto_files` metric. `streaming` is `unary`, `client`, `server` or
   `bidi`, from `stream` on the request or response of the `rpc`. It is left
   out when the copies of the proto disagree.
+- **Reading .proto files.** protoc reads them, from `grpcio-tools` (the
+  `grpc` extra, also in `languages`;
+  `deepthought.service_contracts.protoc`): each file compiles to a
+  `FileDescriptorSet` with source info, and the services, rpcs, streaming
+  kinds and the lines of the rpc names come from the descriptor. protoc
+  needs the files a proto imports, under include roots the repository does
+  not name: an import `a/b.proto` is matched against the repository's
+  `.proto` paths, and what is left in front of it is a root. A file that
+  another file imports takes that importer's root as its own, else its
+  directory; the well-known types come from `grpcio-tools`. Files under the
+  same root compile in one run, split in halves when it fails, so a broken
+  file costs only itself. A file protoc does not compile (an import the
+  repository does not hold, such as an unvendored
+  `google/api/annotations.proto`, or a syntax error), and every file when
+  `grpcio-tools` is not installed, is read by the fallback reader: `rpc`
+  statements of top-level `service` blocks, comments removed and strings
+  kept. It gets no new features. The `proto_readers` metric counts the files
+  each reader read. On 639 `.proto` files across the validation
+  repositories, protoc compiled 615 and gave the same rpcs, lines and
+  streaming kinds as the fallback reader on every one; the rest import
+  protos the repositories do not vendor or are deliberately broken test
+  inputs.
 - **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
 
   | Rule | Server |
