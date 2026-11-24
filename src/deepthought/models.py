@@ -50,8 +50,12 @@ class Definition:
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
+    # Python: True for a ``typing.overload`` signature. None elsewhere.
+    overload: bool | None = None
 
     def __post_init__(self):
+        if self.overload is not None and self.overload is not True:
+            raise ValueError("overload must be True or None")
         if self.macro_export is not None and type(self.macro_export) is not bool:
             raise ValueError("macro_export must be a boolean or None")
         if self.parameters is not None and (
@@ -516,6 +520,8 @@ class AnalysisResult:
                 del item["parameters"], item["variadic"]
             if item["macro_export"] is None:
                 del item["macro_export"]
+            if item["overload"] is None:
+                del item["overload"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]

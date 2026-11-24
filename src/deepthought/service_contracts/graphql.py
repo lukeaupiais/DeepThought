@@ -211,6 +211,13 @@ RESOLVER_MAP_SERVERS = frozenset(
         "mercurius",
     }
 )
+# Node packages that serve GraphQL: a package depending on one is a server.
+SERVERS = RESOLVER_MAP_SERVERS | {
+    "@nestjs/graphql",
+    "apollo-server-micro",
+    "express-graphql",
+    "graphql-http",
+}
 _FUNCTIONS = ("arrow_function", "function_expression", "function")
 
 
@@ -585,3 +592,195 @@ def template_schemas(tree, content, file):
         ]
         unread += [Unread(file, p.line + offset, p.kind, p.reason) for p in problems]
     return declared, unread
+
+
+# Node packages whose code sends GraphQL operations.
+CLIENTS = frozenset(
+    {
+        "@apollo/client",
+        "@apollo/react-hooks",
+        "@urql/core",
+        "apollo-boost",
+        "apollo-client",
+        "graphql-request",
+        "react-apollo",
+        "react-relay",
+        "relay-runtime",
+        "urql",
+    }
+)
+
+
+@dataclass(frozen=True)
+class GraphqlOperation:
+    """One root field that a client operation selects."""
+
+    file: str
+    line: int
+    column: int
+    caller_id: str | None
+    operation: str  # Query | Mutation | Subscription
+    field: str
+    name: str | None  # the operation's name
+
+
+_TOKEN = re.compile(r"\.\.\.|[{}()\[\]:=$!@,]|[_A-Za-z]\w*|-?\d[\w.+-]*")
+
+
+def operation_fields(source, file, line_offset=0, column_offset=0, caller_id=None):
+    """Root fields selected by the operations of an executable GraphQL
+    document, and unread facts. Fragments are skipped; a fragment spread or
+    inline fragment among an operation's root fields is unread."""
+    stripped = re.sub(r'"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*', _blank, source)
+    tokens = list(_TOKEN.finditer(stripped))
+    found, unread = [], []
+    index, previous = 0, None
+
+    def position(token):
+        start = token.start()
+        line = stripped.count("\n", 0, start)
+        column = start - (stripped.rfind("\n", 0, start) + 1)
+        return line + 1 + line_offset, column + (column_offset if line == 0 else 0)
+
+    def skip_group(i, opening, closing):
+        level = 0
+        while i < len(tokens):
+            value = tokens[i].group(0)
+            if value == opening:
+                level += 1
+            elif value == closing:
+                level -= 1
+                if level == 0:
+                    return i + 1
+            i += 1
+        return i
+
+    while index < len(tokens):
+        value = tokens[index].group(0)
+        # A definition starts the document or follows another's closing brace.
+        starts = previous in (None, "}")
+        if starts and value in ("query", "mutation", "subscription", "{"):
+            if value == "{":
+                operation, name = "Query", None
+            else:
+                operation, name = value.capitalize(), None
+                index += 1
+                if index < len(tokens) and re.fullmatch(
+                    r"[_A-Za-z]\w*", tokens[index].group(0)
+                ):
+                    name = tokens[index].group(0)
+                    index += 1
+                # Variables and directives, up to the selection set.
+                while index < len(tokens) and tokens[index].group(0) != "{":
+                    if tokens[index].group(0) == "(":
+                        index = skip_group(index, "(", ")")
+                    else:
+                        index += 1
+            # The selection set: names at its first level are root fields.
+            index += 1
+            level = 1
+            while index < len(tokens) and level > 0:
+                token = tokens[index]
+                value = token.group(0)
+                if value == "{":
+                    level += 1
+                elif value == "}":
+                    level -= 1
+                elif value == "(":
+                    index = skip_group(index, "(", ")")
+                    continue
+                elif value == "@" and index + 1 < len(tokens):
+                    index += 2  # a directive's name; its arguments are skipped
+                    continue
+                elif level == 1 and value == "...":
+                    line, _ = position(token)
+                    unread.append(Unread(file, line, "graphql", "client_fragment_root"))
+                    # Skip the spread's name, or the inline fragment.
+                    index += 1
+                    if index < len(tokens) and tokens[index].group(0) == "on":
+                        index += 2
+                    if index < len(tokens) and tokens[index].group(0) == "{":
+                        index = skip_group(index, "{", "}")
+                    elif index < len(tokens) and tokens[index].group(0) != "@":
+                        index += 1
+                    continue
+                elif level == 1 and re.fullmatch(r"[_A-Za-z]\w*", value):
+                    if index + 1 < len(tokens) and tokens[index + 1].group(0) == ":":
+                        # An alias: the field is the name after the colon.
+                        index += 2
+                        if index >= len(tokens):
+                            break
+                        token = tokens[index]
+                        value = token.group(0)
+                    # Apollo Client resolves a field marked @client locally.
+                    ahead = index + 1
+                    if ahead < len(tokens) and tokens[ahead].group(0) == "(":
+                        ahead = skip_group(ahead, "(", ")")
+                    local = False
+                    while ahead + 1 < len(tokens) and tokens[ahead].group(0) == "@":
+                        local = local or tokens[ahead + 1].group(0) == "client"
+                        ahead += 2
+                        if ahead < len(tokens) and tokens[ahead].group(0) == "(":
+                            ahead = skip_group(ahead, "(", ")")
+                    if not value.startswith("__") and not local:
+                        line, column = position(token)
+                        found.append(
+                            GraphqlOperation(
+                                file, line, column, caller_id, operation, value, name
+                            )
+                        )
+                index += 1
+            previous = "}"
+            continue
+        if value == "{":
+            # Any other braces (a fragment's selection, a type definition).
+            index = skip_group(index, "{", "}")
+            previous = "}"
+            continue
+        previous = value
+        index += 1
+    return found, unread
+
+
+def _graphql_templates(tree, content):
+    """(template node, source) of the GraphQL templates of a script."""
+    for argument in _walk(tree.root_node):
+        if argument.type != "template_string":
+            continue
+        source = text(argument, content)[1:-1]
+        parent = argument.parent
+        function = None
+        if parent is not None and parent.type == "call_expression":
+            function = parent.child_by_field_name("function")
+        before = argument.prev_sibling
+        if (
+            (
+                function is not None
+                and function.type == "identifier"
+                and text(function, content) in ("gql", "graphql")
+            )
+            or (
+                before is not None
+                and before.type == "comment"
+                and re.fullmatch(r"/\*\s*graphql\s*\*/", text(before, content), re.I)
+            )
+            or re.match(r"\s*#graphql\b", source)
+        ):
+            yield argument, source
+
+
+def client_operations(tree, content, repository_id, file, definitions, language):
+    """Root fields the GraphQL templates of one client script select."""
+    context = _Context(tree, content, repository_id, file, definitions, language)
+    found, unread = [], []
+    for node, source in _graphql_templates(tree, content):
+        operations, problems = operation_fields(
+            source,
+            file,
+            line_offset=node.start_point.row,
+            column_offset=node.start_point.column + 1,
+            caller_id=context.caller(node),
+        )
+        found += operations
+        unread += problems
+    return found, unread
