@@ -342,7 +342,8 @@ def score(result, truth, examples=10):
     near = {}
     for resolution in resolve_calls(result):
         site = sites[resolution.call_id]
-        name = re.split(r"::|\.", site.callee)[-1]
+        # TypeScript private names: the index names `#m` as `m`.
+        name = re.split(r"::|\.", site.callee)[-1].lstrip("#")
         keys = [
             (site.file, line, name)
             for line in range(site.line, site.end_line + 1)

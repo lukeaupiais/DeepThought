@@ -79,6 +79,19 @@ class GroundTruthTest(unittest.TestCase):
             [["main.py", 11, "Widget"], ["main.py", 15, "helper"]],
         )
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_typescript"), "TypeScript grammar"
+    )
+    def test_a_private_name_matches_the_index_name_without_its_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "a.ts").write_text(
+                "class K {\n  #run() {}\n  go() { this.#run(); }\n}\n"
+            )
+            result = ground_truth.analyze(Path(directory), ("typescript",))
+        truth = ({("a.ts", 3, "run"): {("a.ts", 2, "callable")}}, {"a.ts"})
+        report, _ = ground_truth.score(result, truth)
+        self.assertEqual((report["confirmed"], report["missed"]), (1, 0))
+
     def test_regressions_against_the_baseline(self):
         baseline = {"expected": 10, "confirmed": 8, "contradicted": 0}
         self.assertEqual(ground_truth.regressions(dict(baseline), baseline), [])

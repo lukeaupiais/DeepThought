@@ -23,6 +23,7 @@ CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
 CALL_IMPORTED_NAME = "tree-sitter.call-imported-name"
 CALL_MODULE_ATTRIBUTE = "tree-sitter.call-module-attribute"
 CALL_SELF_METHOD = "tree-sitter.call-self-method"
+CALL_PRIVATE_NAME = "tree-sitter.js-call-private-name"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 
@@ -990,7 +991,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 )
             continue
         head, name = ".".join(parts[:-1]), parts[-1]
-        if head in {"self", "this"}:
+        if head in {"self", "this"} or name.startswith("#"):
             owner = next(
                 (
                     ".".join(scope[:depth])
@@ -1015,7 +1016,12 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                             for d in by_symbol.get((site.file, f"{owner}.{name}"), ())
                             if d.kind in _METHOD
                         ],
-                        CALL_SELF_METHOD,
+                        # A private name (`obj.#m`) can only name a member of
+                        # a class around it, whatever `obj` is; the innermost
+                        # class is the one, unless it declares no `#m`.
+                        CALL_SELF_METHOD
+                        if head in {"self", "this"}
+                        else CALL_PRIVATE_NAME,
                         "not_declared_in_class",
                     )
                 )
