@@ -1178,6 +1178,67 @@ class RailsTests(unittest.TestCase):
         )
         self.assertEqual(mapped, ["legacy_orders"])
 
+    def test_class_prefixes_vendored_code_and_call_shorthand(self):
+        files = {
+            "app/models/application_record.rb": (
+                "class ApplicationRecord < ActiveRecord::Base\n"
+                "  self.abstract_class = true\nend\n"
+            ),
+            "app/models/gdpr_delete_request.rb": (
+                "class GDPRDeleteRequest < ApplicationRecord\n"
+                '  def self.table_name_prefix\n    "users_"\n  end\nend\n'
+            ),
+            "app/models/users/setting.rb": (
+                "module Users\n  class Setting < ApplicationRecord\n"
+                '    self.table_name_prefix = "users_"\n  end\nend\n'
+            ),
+            "app/models/users/notification_setting.rb": (
+                "module Users\n  class NotificationSetting < Users::Setting\n"
+                "  end\nend\n"
+            ),
+            "app/models/users/base.rb": (
+                "module Users\n  class Base < ApplicationRecord\n"
+                "    self.abstract_class = true\n"
+                '    self.table_name_prefix = "users_"\n  end\nend\n'
+            ),
+            "app/models/users/profile.rb": (
+                "module Users\n  class Profile < Base\n  end\nend\n"
+            ),
+            "app/models/follow.rb": "class Follow < ApplicationRecord\nend\n",
+            "vendor/cache/acts_as_follower/templates/model.rb": (
+                "class Follow < ActiveRecord::Base\nend\n"
+            ),
+            "app/services/list.rb": (
+                "class List\n  def call\n    step.(1)\n    Follow.where(a: 1)\n"
+                "  end\nend\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        mapped = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.type == "MAPS_TO"
+        )
+        self.assertEqual(
+            mapped,
+            [
+                ("Follow", "follows"),
+                ("GDPRDeleteRequest", "users_gdpr_delete_requests"),
+                ("Users.NotificationSetting", "users_settings"),
+                ("Users.Profile", "users_profiles"),
+                ("Users.Setting", "users_settings"),
+            ],
+        )
+        reads = [r for r in output.relationships if r.type == "READS"]
+        self.assertEqual(len(reads), 1)
+
 
 GORM = {
     "go.mod": "module example.com/shop\n\ngo 1.22\n",
