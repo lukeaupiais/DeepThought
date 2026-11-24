@@ -10,6 +10,7 @@ from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.service_contracts.grpc import (
     GO_REGISTER,
+    GO_REGISTER_CONSTRUCTOR,
     JAVA_IMPL_BASE,
     NODE_ADD_SERVICE,
     PYTHON_SERVICER,
@@ -429,6 +430,136 @@ class GrpcContractTests(unittest.TestCase):
             )
 
         self.assertEqual(run(), run())
+
+
+STREAM_PROTO = """\
+package route;
+service Guide {
+  rpc Get(Point) returns (Feature) {}
+  rpc List(Rect) returns (stream Feature) {}
+  rpc Record(stream Point) returns (Summary) {}
+  rpc Chat ( stream Note ) returns ( stream .route.Note ) {}
+}
+"""
+
+# A copy that disagrees about Get: the kind is left out.
+STREAM_COPY = STREAM_PROTO.replace("returns (Feature)", "returns (stream Feature)")
+
+GO_ROUTE_MAIN = """\
+package main
+
+func main() {
+\tpb.RegisterGuideServer(s, newServer())
+}
+"""
+
+GO_ROUTE_SERVER = """\
+package main
+
+type guideServer struct{}
+
+func newServer() *guideServer { return &guideServer{} }
+
+func (g *guideServer) Get(ctx context.Context, p *pb.Point) (*pb.Feature, error) {
+\treturn nil, nil
+}
+func (g *guideServer) List(r *pb.Rect, stream pb.Guide_ListServer) error { return nil }
+func (g *guideServer) Record(stream pb.Guide_RecordServer) error { return nil }
+func (g *guideServer) Chat(stream pb.Guide_ChatServer) error { return nil }
+"""
+
+# The constructor returns an interface of the package: not read.
+GO_INTERFACE = """\
+package iface
+
+type guide interface {
+\tGet(ctx context.Context, p *pb.Point) (*pb.Feature, error)
+}
+
+func newGuide() guide { return nil }
+
+func main() {
+\tpb.RegisterGuideServer(s, newGuide())
+}
+"""
+
+# Two files of one package declare newServer (build tags): not read.
+GO_TAGGED = """\
+package tagged
+
+type guideServer struct{}
+
+func newServer() *guideServer { return &guideServer{} }
+
+func (g *guideServer) Get(ctx context.Context, p *pb.Point) (*pb.Feature, error) {
+\treturn nil, nil
+}
+"""
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class GrpcStreamingTests(unittest.TestCase):
+    def test_streaming_kinds(self):
+        self.assertEqual(
+            [(m.method, m.streaming) for m in read_proto(STREAM_PROTO, "r.proto")[1]],
+            [
+                ("Get", "unary"),
+                ("List", "server"),
+                ("Record", "client"),
+                ("Chat", "bidi"),
+            ],
+        )
+
+    def test_go_constructors_and_streaming_nodes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(
+                root,
+                {
+                    "route.proto": STREAM_PROTO,
+                    "copy/route.proto": STREAM_COPY,
+                    "route/main.go": GO_ROUTE_MAIN,
+                    "route/server.go": GO_ROUTE_SERVER,
+                    "iface/main.go": GO_INTERFACE,
+                    "tagged/a.go": GO_TAGGED,
+                    "tagged/b.go": GO_TAGGED.replace("type guideServer struct{}", "")
+                    .replace("func (g", "func (h")
+                    .replace("Get(", "Other("),
+                    "tagged/main.go": GO_ROUTE_MAIN.replace("main", "tagged", 1),
+                },
+            )
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        streaming = {
+            n.properties["method"]: n.properties.get("streaming")
+            for n in output.nodes
+            if "GrpcMethod" in n.labels
+        }
+        self.assertEqual(
+            streaming,
+            {"Get": None, "List": "server", "Record": "client", "Chat": "bidi"},
+        )
+        handles = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[2],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type == "HANDLES"
+        )
+        self.assertEqual(
+            handles,
+            [
+                (f"guideServer.{m}", GO_REGISTER_CONSTRUCTOR)
+                for m in ("Chat", "Get", "List", "Record")
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["unread"],
+            {"grpc_server:implementation_not_read": 2},
+        )
+        self.assertEqual(
+            get_rule(GO_REGISTER_CONSTRUCTOR).evidence_type, "pattern_matched"
+        )
 
 
 if __name__ == "__main__":

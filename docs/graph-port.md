@@ -2247,12 +2247,15 @@ parsed, so C# servers and clients are out of scope.
   one proto that each service vendors give one node; `declared_in` lists
   every `file:line`, and `file_path`/`line` name the first. Proto files are
   not part of the analysis coverage; their SHA-256 digests are recorded in
-  the `proto_files` metric.
+  the `proto_files` metric. `streaming` is `unary`, `client`, `server` or
+  `bidi`, from `stream` on the request or response of the `rpc`. It is left
+  out when the copies of the proto disagree.
 - **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
 
   | Rule | Server |
   |---|---|
   | `service-contracts.grpc-go-register` | `pb.RegisterXServer(s, impl)` where `impl` is `&T{}`, `new(T)` or a name bound once to one of those; the methods of `T` named as X's rpcs, declared in the same package directory |
+  | `service-contracts.grpc-go-register-constructor` | `pb.RegisterXServer(s, f(...))` (or a name bound once to that call), where `f` is declared in one file of the same package directory and its only result is `T` or `*T` for a struct type `T` of that package; the methods of `T` as above |
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
@@ -2295,6 +2298,18 @@ written in C#. The one wrong call site is adservice's own developer client
 line 60, outside the 3-line tolerance. Four more
 calls at don't-care sites (test clients inside currencyservice,
 recommendationservice and emailservice) are linked and count for neither side.
+
+Streaming rpcs link like unary ones in every language, since servers and
+stubs name them the same way. On the route_guide examples of grpc-go
+`9ad6d94`, grpc-java `6336333`, grpc (Python) `b7bc645` and grpc-node
+`ca7f83f` (dynamic codegen), each of the 4 rpcs (one of each kind) is linked
+to its server and its client call. Before the constructor rule, the Go server
+was unread because it is registered as `newServer()`. Across all grpc-go
+examples, the rule adds 6 correct `HANDLES` edges, from 2 registrations. The
+3 registrations still unread are a library health server from another
+package (2) and a loop variable (1). grpc-node's static codegen
+(`services.RouteGuideService`, `new services.RouteGuideClient`) is not read
+yet.
 
 ### Message destinations
 
