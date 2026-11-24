@@ -3,7 +3,8 @@
 Servers: Flask and FastAPI route decorators, Express routes, and Go
 ``net/http``/gorilla ``HandleFunc``/``Handle``. Clients: Python ``requests``
 and ``httpx``, Locust ``client``, JavaScript ``fetch``, ``axios``,
-``request`` and AngularJS ``$http``, WebSocket and SockJS handshakes, and
+``request``, AngularJS ``$http``, Angular ``HttpClient`` and
+``httpResource``, WebSocket and SockJS handshakes, and
 Go ``net/http``. A framework or client object is recognised
 only through the file's own imports and bindings; URLs are folded by
 ``folding.Folder``.
@@ -51,13 +52,15 @@ def _keyword_arguments(arguments, content):
 
 
 class _Context:
-    def __init__(self, tree, content, repository_id, file, definitions, language):
+    def __init__(
+        self, tree, content, repository_id, file, definitions, language, externals=None
+    ):
         self.root = tree.root_node
         self.content = content
         self.repository_id = repository_id
         self.file = file
         self.language = language
-        self.folder = Folder(language, self.root, content)
+        self.folder = Folder(language, self.root, content, externals)
         file_definitions = [d for d in definitions if d.file == file]
         self.spans = {
             (d.line, d.column, d.end_line, d.end_column): d for d in file_definitions
@@ -415,9 +418,154 @@ def _websocket_client(node, modules, content):
     return _WEBSOCKET_CLIENTS.get(written, (None,))[0]
 
 
+_ANGULAR_HTTP = "@angular/common/http"
+_ANGULAR_VERBS = ("get", "post", "put", "delete", "patch", "head", "options")
+_ANGULAR_RESOURCES = ("", "text", "blob", "arrayBuffer")
+
+
+def _angular_client(context, receiver, modules):
+    """``receiver`` is an Angular ``HttpClient``: ``this.NAME`` for a field
+    set to ``inject(HttpClient)`` or typed ``HttpClient``, or a constructor
+    parameter property typed ``HttpClient``; or a name bound once to
+    ``inject(HttpClient)``. ``HttpClient`` and ``inject`` are imported from
+    their Angular modules."""
+    content, folder = context.content, context.folder
+    types = {n for n, m in modules.items() if m == _ANGULAR_HTTP + ".HttpClient"}
+    injects = {n for n, m in modules.items() if m == "@angular/core.inject"}
+
+    def injected(value):
+        if value is None or value.type != "call_expression":
+            return False
+        function = value.child_by_field_name("function")
+        arguments = value.child_by_field_name("arguments")
+        found = [c for c in arguments.named_children if c.type != "comment"]
+        return (
+            function.type == "identifier"
+            and text(function, content) in injects
+            and len(found) == 1
+            and found[0].type == "identifier"
+            and text(found[0], content) in types
+        )
+
+    def typed(node):
+        annotation = next(
+            (c for c in node.named_children if c.type == "type_annotation"), None
+        )
+        return annotation is not None and any(
+            c.type == "type_identifier" and text(c, content) in types
+            for c in annotation.named_children
+        )
+
+    if not types:
+        return False
+    if receiver.type == "identifier":
+        found = folder.binding(receiver)
+        return found is not None and injected(found[1])
+    if (
+        receiver.type != "member_expression"
+        or receiver.child_by_field_name("object").type != "this"
+    ):
+        return False
+    member = folder.instance_member(receiver)
+    if member is None:
+        return False
+    value = member.child_by_field_name("value")
+    return injected(value) or (value is None and typed(member))
+
+
+def _returned(function):
+    """Expressions a function returns: an arrow's expression body, or the
+    values of its own ``return`` statements."""
+    body = function.child_by_field_name("body")
+    if body is None:
+        return []
+    if body.type != "statement_block":
+        return [body]
+    found, stack = [], list(body.named_children)
+    while stack:
+        node = stack.pop()
+        if node.type in (
+            "arrow_function",
+            "function_expression",
+            "function_declaration",
+            "class_declaration",
+            "class",
+        ):
+            continue
+        if node.type == "return_statement":
+            found.extend(c for c in node.named_children if c.type != "comment")
+            continue
+        stack.extend(node.named_children)
+    return found
+
+
+def extract_angular(context, modules):
+    """Requests of Angular's ``HttpClient`` (``get``/``post``/... and
+    ``request(method, url)``) and ``httpResource`` (and its ``text``,
+    ``blob`` and ``arrayBuffer`` forms): the URL is the first argument, or
+    what the reactive function returns (a URL, or a request object's
+    ``url`` and ``method``, by default GET)."""
+    content = context.content
+    resources = {n for n, m in modules.items() if m == _ANGULAR_HTTP + ".httpResource"}
+    for node in _walk(context.root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if arguments is None or arguments.type != "arguments":
+            continue
+        positional = [c for c in arguments.named_children if c.type != "comment"]
+        if not positional:
+            continue
+        written = text(function, content)
+        owner, _, kind = written.partition(".")
+        if owner in resources and kind in _ANGULAR_RESOURCES:
+            if positional[0].type not in ("arrow_function", "function_expression"):
+                continue
+            for value in _returned(positional[0]):
+                if (
+                    value.type in ("undefined", "null")
+                    or text(value, content) == "undefined"
+                ):
+                    continue
+                method = "GET"
+                if value.type == "object":
+                    options = _js_object(value, content)
+                    if "url" not in options:
+                        continue
+                    if "method" in options:
+                        method = context.folder.evaluate(options["method"]).upper()
+                        method = method if method in HTTP_METHODS else None
+                    value = options["url"]
+                url = _browser_url(context.folder.evaluate(value))
+                context.request(node, method, url, "angular-http")
+            continue
+        if function.type != "member_expression":
+            continue
+        verb = text(function.child_by_field_name("property"), content)
+        if verb not in _ANGULAR_VERBS and verb != "request":
+            continue
+        if not _angular_client(
+            context, function.child_by_field_name("object"), modules
+        ):
+            continue
+        if verb == "request":
+            if len(positional) < 2:
+                continue  # request(HttpRequest)
+            method = context.folder.evaluate(positional[0]).upper()
+            method = method if method in HTTP_METHODS else None
+            url_node = positional[1]
+        else:
+            method, url_node = _VERBS[verb], positional[0]
+        url = _browser_url(context.folder.evaluate(url_node))
+        context.request(node, method, url, "angular-http")
+
+
 def extract_javascript(context, nest=None):
     content, root = context.content, context.root
     modules = _js_modules(root, content)
+    if any(m.startswith(_ANGULAR_HTTP + ".") for m in modules.values()):
+        extract_angular(context, modules)
     if context.language == "typescript" and any(
         m.startswith(_NEST + ".") for m in modules.values()
     ):
@@ -824,12 +972,16 @@ def extract_web(
     *,
     package=None,
     nest=None,
+    externals=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
     ``nest`` is the (global prefix, unread reason) of the NestJS application
-    a TypeScript file belongs to."""
-    context = _Context(tree, content, repository_id, file, definitions, language)
+    a TypeScript file belongs to; ``externals`` the values of names the file
+    imports or has defined (``script_constants``)."""
+    context = _Context(
+        tree, content, repository_id, file, definitions, language, externals
+    )
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
