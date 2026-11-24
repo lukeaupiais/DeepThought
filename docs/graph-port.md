@@ -3322,9 +3322,11 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   protoc does not compile (an import the repository and the include
   directories do not hold, or a syntax error) declares nothing and is
   counted as `grpc_proto:not_compiled`. The `proto_readers` metric counts
-  compiled and rejected files. On 639 `.proto` files across the validation
-  repositories, protoc compiled 615; the rest import protos the
-  repositories do not vendor or are deliberately broken test inputs.
+  compiled and rejected files. On the 441 `.proto` files of the 26 gRPC
+  validation repositories, protoc compiles 437: three are proto-loader and
+  reflection test inputs, and Prisma's gRPC example names an rpc and a
+  message `Post`, which protoc rejects (protobuf.js loads it at run time),
+  so that example's 14 server links are no longer drawn.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
