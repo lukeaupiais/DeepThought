@@ -181,7 +181,9 @@ and whose own name is the one written at it. Columns are converted between the
 index's encoding and UTF-8 bytes; documents that leave the encoding unspecified
 are read as scip-python and scip-typescript write them (UTF-16 code units) and
 otherwise as bytes (scip-go). These edges carry `resolved` evidence, the
-indexer as `producer` (`name@version`) and the index's `receipt` digest:
+indexer as `producer` (`name@version`) and the index's `receipt` digest.
+Several indexes of one indexer (a second pass, one index per Go module) share
+their global symbols, so a call in one links to a declaration another defines:
 
 | Rule | Links |
 |---|---|

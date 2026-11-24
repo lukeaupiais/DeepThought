@@ -288,6 +288,47 @@ class ScipCallTests(unittest.TestCase):
             ],
         )
 
+    def test_indexes_of_one_indexer_share_global_symbols(self):
+        (self.root / "a.ts").write_text("export function helper() {}\n")
+        (self.root / "c.ts").write_text(
+            'import { helper } from "./a";\nhelper();\nfunction k() {}\nk();\n'
+        )
+        p = "scip-typescript npm demo 1 a.ts/"
+        first = self.index(
+            "first",
+            "scip-typescript",
+            [("a.ts", [(0, "helper", p + "helper().", True, 0)])],
+            2,
+        )
+        # A second pass over files outside the first's project; its local
+        # symbol does not reach the first index's documents.
+        second = self.index(
+            "second",
+            "scip-typescript",
+            [
+                (
+                    "c.ts",
+                    [
+                        (1, "helper", p + "helper().", False, 0),
+                        (2, "k", "local 0", True, 0),
+                        (3, "k", "local 0", False, 0),
+                    ],
+                )
+            ],
+            2,
+        )
+        result = analyze_repository(
+            self.root, repository_id="r", languages=("typescript",)
+        )
+        binding = scip_calls.bind_calls(result, [first, second], self.root)
+        self.assertEqual(
+            [row[1:5] for row in self.targets(result, binding)],
+            [
+                ("helper", "linked", ("helper", 1), scip_calls.SCIP_CALL_OCCURRENCE),
+                ("k", "linked", ("k", 3), scip_calls.SCIP_CALL_LOCAL_SYMBOL),
+            ],
+        )
+
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)
         result = analyze_repository(
