@@ -306,8 +306,19 @@ the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
 which is its weakest edge. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
-the answer is the same on every run. Results are ordered by depth, evidence
-and name; a response that exceeds its byte budget or its limit drops whole
+the answer is the same on every run.
+
+Each dependent also says what the change asks of it. `impact` is `direct`
+when any one-hop path reaches it (it names the changed declaration or file
+itself, so a signature change may need an edit there, even when its
+strongest path is longer) and `transitive` otherwise (its behaviour may
+change, so it needs re-testing). `source_roles` lists `test` and `example`
+by path (`deepthought.source_roles`: directories such as `tests/`,
+`__tests__/`, `spec/`, `testdata/`, `examples/`, `samples/`, Maven's
+`src/test/`, and test file names such as `*_test.go`, `test_*.py`,
+`*.spec.ts`); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+dependents out in the query itself, before paging. Direct dependents come
+first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page
 starts (`--offset`, MCP `offset`; a snapshot does not change, so pages do not
 overlap or skip). Component impact pages the same way. The answer is a lower bound: dynamic dispatch, reflection,

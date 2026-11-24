@@ -144,6 +144,7 @@ def create_server():
         )
 
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
+    Roles = list[Literal["test", "example"]] | None
 
     @server.tool()
     async def getFunctionCallers(
@@ -191,6 +192,7 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
         offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
+        exclude_roles: Roles = None,
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
@@ -199,6 +201,11 @@ def create_server():
         other services count; each dependent has its depth, its path's edges
         and the path's weakest evidence. A truncated list continues with
         ``offset`` set to its ``next_offset``.
+
+        Each dependent's ``impact`` is ``direct`` (depth 1: it uses the
+        declaration itself, so a signature change may need an edit there) or
+        ``transitive`` (re-test it); ``source_roles`` marks tests and
+        examples, and ``exclude_roles`` leaves those roles out before paging.
         """
         return await ctx.request_context.lifespan_context.get_impact(
             qualified_name,
@@ -208,6 +215,7 @@ def create_server():
             evidence_types=evidence_types,
             limit=max_elements,
             offset=offset,
+            exclude_roles=exclude_roles,
         )
 
     @server.tool()
@@ -220,10 +228,13 @@ def create_server():
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
         offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
+        exclude_roles: Roles = None,
     ) -> dict:
         """Get files that depend on a file, transitively, over IMPORTS and DEPENDS_ON.
 
         A truncated list continues with ``offset`` set to its ``next_offset``.
+        Each file's ``impact`` is ``direct`` at depth 1, else ``transitive``;
+        ``exclude_roles`` leaves out tests or examples (``source_roles``).
         """
         return await ctx.request_context.lifespan_context.get_file_impact(
             file_path,
@@ -233,6 +244,7 @@ def create_server():
             evidence_types=evidence_types,
             limit=max_elements,
             offset=offset,
+            exclude_roles=exclude_roles,
         )
 
     @server.tool()

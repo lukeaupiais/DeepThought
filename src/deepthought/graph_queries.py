@@ -13,6 +13,7 @@ import time
 from hashlib import sha256
 
 from .components import PACKAGE_KINDS
+from .source_roles import ROLE_PATTERNS, exclusion_pattern
 
 # A query that is one identifier also finds members named by it.
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
@@ -767,6 +768,7 @@ class GraphQueryService:
         max_output_bytes=16000,
         timeout=5,
         offset=0,
+        exclude_roles=None,
     ):
         """Declarations and files that depend on a declaration, transitively.
 
@@ -779,6 +781,12 @@ class GraphQueryService:
         readers of that table) depend on the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
+
+        Each dependent is ``direct`` (depth 1: it uses the change itself, so
+        it may need an edit) or ``transitive`` (deeper: its behaviour may
+        change, so it needs re-testing), and lists its ``source_roles``
+        (``test``, ``example``; see ``source_roles``). ``exclude_roles``
+        leaves dependents with any of those roles out.
         """
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
@@ -796,6 +804,7 @@ class GraphQueryService:
             timeout,
             offset=offset,
             reverse="HANDLES|PUBLISHES|WRITES",
+            exclude_roles=exclude_roles,
         )
 
     async def get_file_impact(
@@ -810,8 +819,11 @@ class GraphQueryService:
         max_output_bytes=16000,
         timeout=5,
         offset=0,
+        exclude_roles=None,
     ):
-        """Files that depend on a file, transitively, over IMPORTS and DEPENDS_ON."""
+        """Files that depend on a file, transitively, over IMPORTS and
+        DEPENDS_ON; ``direct`` and ``transitive`` dependents and
+        ``exclude_roles`` as for ``get_impact``."""
         return await self._impact(
             "MATCH (root:File {repo_url:$repo_url,snapshot_id:$snapshot_id,path:$subject}) "
             "WITH root, [] AS parts ",
@@ -825,6 +837,7 @@ class GraphQueryService:
             max_output_bytes,
             timeout,
             offset=offset,
+            exclude_roles=exclude_roles,
         )
 
     async def get_component_impact(
@@ -880,8 +893,10 @@ class GraphQueryService:
         *,
         offset=0,
         reverse=None,
+        exclude_roles=None,
     ):
         _text(subject, "subject")
+        exclude = exclusion_pattern(exclude_roles)
         if type(offset) is not int or not 0 <= offset <= 100_000:
             raise ValueError("offset must be an integer from 0 to 100000")
         if type(max_depth) is not int or not 1 <= max_depth <= 5:
@@ -903,6 +918,8 @@ class GraphQueryService:
                 "UNWIND changed AS target "
                 "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
+                "AND ($exclude IS NULL OR NOT "
+                "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
                 "WITH dependent, target, path, "
@@ -912,16 +929,23 @@ class GraphQueryService:
                 "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
-                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best "
+                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
+                "min(length(path)) AS nearest "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
                 ".file_path,.start_line,"
                 "labels:labels(dependent)} AS element, "
                 "length(best.path) AS depth, "
+                # Any one-hop path means the dependent names the change
+                # itself, even when its strongest path is longer.
+                "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
+                "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
+                "=~ role.pattern | role.name] AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
                 "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
-                "ORDER BY depth, best.weakness, dependent.qualified_name "
+                "ORDER BY CASE nearest WHEN 1 THEN 0 ELSE 1 END, depth, best.weakness, "
+                "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
             )
             .replace("REVERSE", reverse or "")
@@ -934,6 +958,11 @@ class GraphQueryService:
                 "subject": subject,
                 "offset": offset,
                 "evidence": evidence,
+                "exclude": exclude,
+                "roles": [
+                    {"name": name, "pattern": ROLE_PATTERNS[name]}
+                    for name in sorted(ROLE_PATTERNS)
+                ],
                 "reverse": (reverse or "").split("|") if reverse else [],
             },
             repo_url,
@@ -944,6 +973,8 @@ class GraphQueryService:
         )
         if not response["items"]:
             response["status"] = "unsupported_or_unobserved"
+        if exclude_roles is not None:
+            response["exclude_roles"] = sorted(set(exclude_roles))
         response["max_depth"] = max_depth
         response["evidence_types"] = evidence
         response["relations"] = relations.split("|")
@@ -957,7 +988,8 @@ class GraphQueryService:
                 if reverse
                 else ""
             )
-            + " edges; each path's evidence is its weakest edge. Absence does "
+            + " edges; each path's evidence is its weakest edge. Direct (one "
+            "hop): may need edits; transitive: re-test. Absence does "
             "not prove that nothing else is affected: dynamic dispatch, "
             "reflection, unanalyzed files and unrecorded relations are not seen."
         )

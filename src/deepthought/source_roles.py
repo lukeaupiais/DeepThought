@@ -1,0 +1,69 @@
+"""Which repository paths hold tests or examples, by layout and naming.
+
+An impact answer marks each dependent with these roles, and a caller may
+leave the roles it does not want out. The roles come from where a file is
+and what it is called, not from what it contains:
+
+- ``test``: under a directory named ``test``, ``tests``, ``__tests__``,
+  ``spec`` or ``testdata`` (which covers Maven and Gradle ``src/test/``), or
+  named as a test by its language's convention: ``*_test.go``,
+  ``test_*.py``, ``*_test.py``, ``*.test.*`` and ``*.spec.*`` JavaScript and
+  TypeScript files.
+- ``example``: under a directory named ``example``, ``examples``,
+  ``sample`` or ``samples``.
+
+``ROLE_PATTERNS`` writes each rule as a regular expression that a whole path
+matches (Neo4j's ``=~``), so a query can filter what ``source_roles``
+classifies.
+"""
+
+import re
+
+_TEST_DIRECTORIES = ("test", "tests", "__tests__", "spec", "testdata")
+_EXAMPLE_DIRECTORIES = ("example", "examples", "sample", "samples")
+
+
+def _directories(names):
+    return "(?:.*/)?(?:" + "|".join(re.escape(n) for n in names) + ")/.*"
+
+
+ROLE_PATTERNS = {
+    "test": "|".join(
+        (
+            _directories(_TEST_DIRECTORIES),
+            r".*_test\.go",
+            r"(?:.*/)?test_[^/]*\.py",
+            r".*_test\.py",
+            r"(?:.*/)?[^/]*\.(?:test|spec)\.[cm]?[jt]sx?",
+        )
+    ),
+    "example": _directories(_EXAMPLE_DIRECTORIES),
+}
+ROLES = frozenset(ROLE_PATTERNS)
+
+
+def source_roles(path):
+    """The roles of a repository path, sorted; empty for other code."""
+    if not path:
+        return []
+    return [
+        role
+        for role, pattern in sorted(ROLE_PATTERNS.items())
+        if re.fullmatch(pattern, path)
+    ]
+
+
+def exclusion_pattern(roles):
+    """One pattern a whole path matches when it has any of ``roles``; None
+    when ``roles`` is None. Raises ValueError for anything else than a
+    nonempty subset of ``ROLES``."""
+    if roles is None:
+        return None
+    if isinstance(roles, str) or not isinstance(roles, (list, tuple, set, frozenset)):
+        raise ValueError("exclude_roles must be a list of roles or None")
+    selected = sorted(set(roles))
+    if not selected or not set(selected) <= ROLES:
+        raise ValueError(
+            "exclude_roles must be a nonempty subset of " + ", ".join(sorted(ROLES))
+        )
+    return "|".join(f"(?:{ROLE_PATTERNS[role]})" for role in selected)

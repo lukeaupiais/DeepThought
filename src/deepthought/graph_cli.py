@@ -208,6 +208,13 @@ def parser():
                 default=0,
                 help="Skip this many dependents: a truncated answer's next_offset",
             )
+        if name in {"impact", "file-impact"}:
+            q.add_argument(
+                "--exclude-role",
+                action="append",
+                choices=("test", "example"),
+                help="Repeat to leave out dependents in tests or examples",
+            )
         if name in {
             "callers",
             "callees",
@@ -433,6 +440,7 @@ async def execute(args):
                 max_depth=args.max_depth,
                 evidence_types=args.evidence,
                 offset=args.offset,
+                exclude_roles=args.exclude_role,
                 **kwargs,
             )
         if args.command in {"members", "owner"}:
