@@ -203,7 +203,12 @@ func main() {
 					if !ok || tn.IsAlias() {
 						continue
 					}
-					if !strings.HasSuffix(fset.Position(tn.Pos()).Filename, "_test.go") && !strings.HasSuffix(name, "_test") {
+					inTest := strings.HasSuffix(fset.Position(tn.Pos()).Filename, "_test.go") || strings.HasSuffix(name, "_test")
+					// The package's own interfaces are checked again with its
+					// tests: a test-file type mentions this copy's types, not
+					// the importer view's, so only this copy can match it.
+					// Pairs found in both copies share positions and dedupe.
+					if !inTest && !types.IsInterface(tn.Type()) {
 						continue
 					}
 					if types.IsInterface(tn.Type()) {

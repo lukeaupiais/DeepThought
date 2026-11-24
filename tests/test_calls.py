@@ -2089,6 +2089,122 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
         # Name matches never claim completeness: unresolved calls may exist.
         self.assertNotIn("calls", callees["capabilities"])
 
+    async def test_call_sites_of_a_snapshot_without_unlinked_calls_are_unknown(self):
+        from deepthought.analysis_tools import TreeSitterTool
+        from deepthought.graph_queries import GraphQueryService
+
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "main.py").write_text("def f(): pass\nf()\n")
+            output = await TreeSitterTool(Path(directory)).analyze(self.repo)
+        # As written before unlinked calls were stored.
+        del output.metadata.custom_metrics["unresolved_call_sites"]
+        result = await self.coordinator.write_tool_output(
+            "tree-sitter", output, self.repo
+        )
+        self.assertTrue(result.success, result.errors)
+        sites = await GraphQueryService(self.driver, self.database).get_call_sites(
+            "f", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(sites["status"], "unsupported_or_unobserved")
+        self.assertEqual(sites["counts"]["linked"], 1)
+
+    async def test_call_sites_count_linked_and_unlinked_calls_of_a_name(self):
+        from deepthought.analysis_tools import TreeSitterTool
+        from deepthought.graph_queries import GraphQueryService
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "main.py").write_text(
+                "def run(): pass\n"
+                "class A:\n    def run(self): pass\n"
+                "class B:\n    def run(self): pass\n"
+                "def go(x):\n    run()\n    x.run()\n    missing()\n"
+                "x.run()\n"
+            )
+            (root / "other.py").write_text("def f(y):\n    y.run()\n")
+            (root / "dup.py").write_text(
+                "if x:\n    def dup(): pass\nelse:\n    def dup(): pass\ndup()\n"
+            )
+            output = await TreeSitterTool(root).analyze(self.repo)
+        result = await self.coordinator.write_tool_output(
+            "tree-sitter", output, self.repo
+        )
+        self.assertTrue(result.success, result.errors)
+        service = GraphQueryService(self.driver, self.database)
+        sites = await service.get_call_sites(
+            "run", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(sites["status"], "succeeded")
+        self.assertEqual(
+            sites["counts"], {"linked": 1, "ambiguous": 0, "unresolved": 3}
+        )
+        self.assertEqual(
+            [
+                (i["file_path"], i["line"], i["callee"], i["status"], i["reason"])
+                for i in sites["items"]
+            ],
+            [
+                ("main.py", 7, "run", "linked", None),
+                ("main.py", 8, "x.run", "unresolved", "local_binding"),
+                ("main.py", 10, "x.run", "unresolved", "attribute_call"),
+                ("other.py", 2, "y.run", "unresolved", "local_binding"),
+            ],
+        )
+        self.assertTrue(
+            sites["items"][0]["target"].endswith(
+                "::run::"
+                + next(
+                    n.properties["definition_id"]
+                    for n in output.nodes
+                    if n.properties.get("name") == "run"
+                )
+            )
+        )
+        scoped = await service.get_call_sites(
+            "run",
+            self.repo,
+            snapshot_id=result.snapshot_id,
+            file_path="other.py",
+            limit=5,
+        )
+        self.assertEqual(
+            scoped["counts"], {"linked": 0, "ambiguous": 0, "unresolved": 1}
+        )
+        missing = await service.get_call_sites(
+            "missing", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(
+            [
+                (i["line"], i["status"], i["reason"], i["resolver"])
+                for i in missing["items"]
+            ],
+            [(9, "unresolved", "unbound_name", "tree-sitter")],
+        )
+        dup = await service.get_call_sites(
+            "dup", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(dup["counts"], {"linked": 0, "ambiguous": 1, "unresolved": 0})
+        self.assertEqual(len(dup["items"][0]["candidates"]), 2)
+        # The caller holds each unlinked call by a structural edge.
+        async with self.driver.session(database=self.database) as session:
+            record = await (
+                await session.run(
+                    "MATCH (c {repo_url:$repo,snapshot_id:$snapshot})"
+                    "-[r:HAS_UNRESOLVED_CALL]->(u:UnresolvedCall {name:'missing'}) "
+                    "RETURN c.name AS caller,r.rule_id AS rule,r.evidence_type AS evidence",
+                    repo=self.repo,
+                    snapshot=result.snapshot_id,
+                )
+            ).single()
+        self.assertEqual(
+            dict(record),
+            {
+                "caller": "go",
+                "rule": "tree-sitter.call-site-unlinked",
+                "evidence": "resolved",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

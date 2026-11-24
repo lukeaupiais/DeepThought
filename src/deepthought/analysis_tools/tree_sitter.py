@@ -16,6 +16,7 @@ from copy import deepcopy
 from .._version import __version__
 from .. import calls as call_rules
 from .. import imports as import_rules
+from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from ..syntax import (
@@ -24,7 +25,7 @@ from ..syntax import (
     RustExpander,
     declaration_sources,
     make_parser,
-    prepare_source,
+    parse_source,
 )
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -56,6 +57,16 @@ NESTS_RULE = register_rule(
         "resolved",
         "The parse tree places the inner declaration within the outer one; the "
         "outer is the innermost declaration whose span encloses it.",
+    )
+)
+
+UNLINKED_CALL_RULE = register_rule(
+    EvidenceRule(
+        "tree-sitter.call-site-unlinked",
+        "resolved",
+        "The parse tree places this call inside the declaration (or at the top "
+        "level of the file); no call rule links it to exactly one declaration, "
+        "for the reason the call site records.",
     )
 )
 
@@ -310,7 +321,7 @@ def _declaration_sources(root, result):
             parsers[key] = make_parser(item.language, suffix)
         sources.update(
             declaration_sources(
-                parsers[key].parse(prepare_source(item.language, content)),
+                parse_source(parsers[key], item.language, suffix, content),
                 content,
                 result.repository_id,
                 item.file,
@@ -560,6 +571,20 @@ BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
         "is (after the items and uses of the function bodies around it).",
     )
 )
+GO_INTERFACE_RULE = register_rule(
+    EvidenceRule(
+        go_interfaces.GO_INTERFACE_METHOD_SET,
+        "name_matched",
+        "A Go type (or a pointer to it) declared in the analyzed files "
+        "declares, for each method of an interface of the same module (its "
+        "own, and those of the interfaces it embeds: of the same module, "
+        "'error', or exported standard library interfaces), exactly one "
+        "method of that name whose parameter and result types are written "
+        "alike once each named type is tied to its package; an unexported "
+        "method only in the interface's package. The type IMPLEMENTS the "
+        "interface, and each interface method DISPATCHES_TO the type's method.",
+    )
+)
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_IMPL_TRAIT,
@@ -570,6 +595,12 @@ BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
         "uses of the function bodies around the impl).",
     )
 )
+
+
+def _call_name(callee):
+    """The name a call site calls: the last name of its callee
+    (``c.req.param`` calls ``param``)."""
+    return callee.rsplit(".", 1)[-1]
 
 
 def _evidence(rule):
@@ -833,8 +864,6 @@ class TreeSitterTool(AnalysisTool):
                 ":" + resolution.reason if resolution.reason else ""
             )
             call_counts[key] = call_counts.get(key, 0) + 1
-            if resolution.status != "linked":
-                continue
             site = sites[resolution.call_id]
             if site.caller_id is None:
                 source = (["File"], files[site.file])
@@ -843,6 +872,57 @@ class TreeSitterTool(AnalysisTool):
                     [kinds[site.caller_id], "Symbol"],
                     qualified[site.caller_id],
                 )
+            if resolution.status != "linked":
+                # The call is a fact of the code even when no rule names its
+                # target: kept so that linked and unlinked calls of a name
+                # can be counted together.
+                call_name = f"{repo_url}::{site.file}::call::{site.id}"
+                nodes.append(
+                    NodeData(
+                        ["UnresolvedCall"],
+                        {
+                            "qualified_name": call_name,
+                            "repo_url": repo_url,
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "file_path": site.file,
+                            "line": site.line,
+                            "column": site.column,
+                            "end_line": site.end_line,
+                            "end_column": site.end_column,
+                            "status": resolution.status,
+                            # Which resolver left it unlinked, and why.
+                            "resolver": "tree-sitter",
+                            **(
+                                {"reason": resolution.reason}
+                                if resolution.reason
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "candidates": [
+                                        qualified[c] for c in resolution.candidates
+                                    ]
+                                }
+                                if resolution.candidates
+                                else {}
+                            ),
+                        },
+                    )
+                )
+                relationships.append(
+                    RelationshipData(
+                        "HAS_UNRESOLVED_CALL",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        ["UnresolvedCall"],
+                        {"qualified_name": call_name, "repo_url": repo_url},
+                        {"line": site.line, **_evidence(UNLINKED_CALL_RULE)},
+                    )
+                )
+                continue
             relationships.append(
                 RelationshipData(
                     "CALLS",
@@ -856,6 +936,7 @@ class TreeSitterTool(AnalysisTool):
                     {
                         "call_id": site.id,
                         "callee": site.callee,
+                        "name": _call_name(site.callee),
                         "call_kind": site.kind,
                         "line": site.line,
                         "column": site.column,
@@ -929,6 +1010,38 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        implementations = go_interfaces.resolve_go_implementations(result)
+        for item in implementations:
+            relationships.append(
+                RelationshipData(
+                    "IMPLEMENTS",
+                    [kinds[item.type_id], "Symbol"],
+                    {"qualified_name": qualified[item.type_id], "repo_url": repo_url},
+                    [kinds[item.interface_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[item.interface_id],
+                        "repo_url": repo_url,
+                    },
+                    _evidence(GO_INTERFACE_RULE),
+                )
+            )
+        # A call of an interface method can run the method each implementing
+        # type declares: the interface method dispatches to it.
+        dispatches = sorted({pair for item in implementations for pair in item.methods})
+        for interface_method, method in dispatches:
+            relationships.append(
+                RelationshipData(
+                    "DISPATCHES_TO",
+                    [kinds[interface_method], "Symbol"],
+                    {
+                        "qualified_name": qualified[interface_method],
+                        "repo_url": repo_url,
+                    },
+                    [kinds[method], "Symbol"],
+                    {"qualified_name": qualified[method], "repo_url": repo_url},
+                    _evidence(GO_INTERFACE_RULE),
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -955,10 +1068,13 @@ class TreeSitterTool(AnalysisTool):
                 "diagnostics": diagnostics,
                 "analyzer_versions": artifact["analyzer_versions"],
                 "capabilities": artifact["capabilities"],
+                # Unlinked calls are stored as UnresolvedCall nodes.
+                "unresolved_call_sites": True,
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "go_implementations": len(implementations),
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,

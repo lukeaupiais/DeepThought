@@ -337,7 +337,12 @@ def extract(
                     "method_declaration",
                     "method_elem",
                 }:
-                    arity = {"result_type": _go_result_type(node, content)}
+                    arity = {
+                        "result_type": _go_result_type(node, content),
+                        "signature": _go_signature(node, content),
+                    }
+                elif kind == "Interface":
+                    arity = {"embeds": _go_embeds(node, content)}
                 elif kind == "Struct":
                     arity = {"fields": _go_fields(node, content)}
                 elif kind == "Type":
@@ -719,6 +724,48 @@ def prepare_source(language: str, content: bytes) -> bytes:
         return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
 
     return _CPP_CLASS_MACRO.sub(blank, content)
+
+
+def parse_source(parser, language: str, suffix: str, content: bytes):
+    """The tree of ``content``, parsed from ``prepare_source``. In a
+    TypeScript file (not TSX) the grammar reads a type member that starts
+    a line with ``<`` (a generic call signature, ``<T>(x: T): T``) after a
+    member without a separator as part of that member's type, and fails.
+    So the blank before each such ``<`` on a line an innermost error spans
+    (or ends the line before) is read as ``;``, which keeps every offset,
+    and that tree is used when it has fewer errors."""
+    source = prepare_source(language, content)
+    tree = parser.parse(source)
+    if language != "typescript" or suffix == ".tsx" or not tree.root_node.has_error:
+        return tree
+    errors = _error_rows(tree)
+    repaired, offset = bytearray(source), 0
+    for row, line in enumerate(source.split(b"\n")):
+        indent = len(line) - len(line.lstrip(b" \t"))
+        if indent and line[indent : indent + 1] == b"<" and row in errors[1]:
+            repaired[offset + indent - 1] = ord(";")
+        offset += len(line) + 1
+    if repaired == source:
+        return tree
+    candidate = parser.parse(bytes(repaired))
+    return candidate if _error_rows(candidate)[0] < errors[0] else tree
+
+
+def _error_rows(tree):
+    """``(count, rows)``: the number of error and missing nodes in ``tree``,
+    and the rows each innermost one spans, with the row after it."""
+    count, rows, stack = 0, set(), [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if not node.has_error:
+            continue
+        inner = [c for c in node.children if c.has_error]
+        if node.type == "ERROR" or node.is_missing:
+            count += 1
+            if not inner:
+                rows.update(range(node.start_point.row, node.end_point.row + 2))
+        stack.extend(inner)
+    return count, rows
 
 
 # C++: declarators that wrap the declared name, beyond C's.
@@ -4387,6 +4434,120 @@ def _go_type_parameters(node, content):
         else:
             stack.extend(current.named_children)
     return frozenset(names)
+
+
+def _go_type_text(node, content):
+    """A Go type written without spaces or names (``[]*pkg.T``,
+    ``map[string]func(int)error``, ``<-chan T``); None for a type parameter
+    instantiation, a struct type or a non-empty interface type, and for an
+    array whose length is not an integer literal."""
+    if node is None:
+        return None
+    kind = node.type
+    if kind == "type_identifier":
+        return _text(node, content)
+    if kind == "qualified_type":
+        package = node.child_by_field_name("package")
+        name = node.child_by_field_name("name")
+        if package is None or name is None:
+            return None
+        return f"{_text(package, content)}.{_text(name, content)}"
+    if kind == "parenthesized_type":
+        return _go_type_text(node.named_children[0], content)
+    if kind == "pointer_type":
+        inner = _go_type_text(node.named_children[0], content)
+        return None if inner is None else "*" + inner
+    if kind == "slice_type":
+        inner = _go_type_text(node.child_by_field_name("element"), content)
+        return None if inner is None else "[]" + inner
+    if kind == "array_type":
+        length = node.child_by_field_name("length")
+        inner = _go_type_text(node.child_by_field_name("element"), content)
+        if length is None or length.type != "int_literal" or inner is None:
+            return None
+        return f"[{_text(length, content)}]{inner}"
+    if kind == "map_type":
+        key = _go_type_text(node.child_by_field_name("key"), content)
+        value = _go_type_text(node.child_by_field_name("value"), content)
+        return None if key is None or value is None else f"map[{key}]{value}"
+    if kind == "channel_type":
+        value = _go_type_text(node.child_by_field_name("value"), content)
+        if value is None:
+            return None
+        arrows = [c.type for c in node.children if not c.is_named]
+        prefix = {
+            ("chan",): "chan ",
+            ("chan", "<-"): "chan<- ",
+            ("<-", "chan"): "<-chan ",
+        }.get(tuple(arrows))
+        return None if prefix is None else prefix + value
+    if kind == "function_type":
+        written = _go_signature_of(node, content)
+        return None if written is None else "func" + written
+    if kind == "interface_type" and not node.named_children:
+        return "interface{}"
+    return None
+
+
+def _go_parameter_types(node, content):
+    """The types of a Go parameter or result list, one per parameter; None
+    when one is not written by ``_go_type_text``."""
+    found = []
+    for item in node.named_children:
+        if item.type not in {
+            "parameter_declaration",
+            "variadic_parameter_declaration",
+        }:
+            continue
+        written = _go_type_text(item.child_by_field_name("type"), content)
+        if written is None:
+            return None
+        if item.type == "variadic_parameter_declaration":
+            written = "..." + written
+        found.extend([written] * max(1, len(item.children_by_field_name("name"))))
+    return found
+
+
+def _go_signature_of(node, content):
+    """``(params)(results)`` of a Go function, method, interface method or
+    function type, as ``Definition.signature`` writes it."""
+    parameters = node.child_by_field_name("parameters")
+    written = (
+        _go_parameter_types(parameters, content) if parameters is not None else None
+    )
+    result = node.child_by_field_name("result")
+    if result is None:
+        results = []
+    elif result.type == "parameter_list":
+        results = _go_parameter_types(result, content)
+    else:
+        single = _go_type_text(result, content)
+        results = None if single is None else [single]
+    if written is None or results is None:
+        return None
+    return "(" + ",".join(written) + ")(" + ",".join(results) + ")"
+
+
+def _go_signature(node, content):
+    """``Definition.signature`` of a Go function, method or interface method:
+    None when it names a type parameter (its own, its receiver's or its
+    interface's)."""
+    written = _go_signature_of(node, content)
+    generic = _go_type_parameters(node, content)
+    if written is None or generic & set(re.findall(r"(?<![.\w])\w+", written)):
+        return None
+    return written
+
+
+def _go_embeds(node, content):
+    """``Definition.embeds`` of a Go interface type spec."""
+    interface = node.child_by_field_name("type")
+    found = [
+        "".join(_text(item, content).split())
+        for item in interface.named_children
+        if item.type == "type_elem"
+    ]
+    return tuple(found) or None
 
 
 def _go_result_type(node, content):

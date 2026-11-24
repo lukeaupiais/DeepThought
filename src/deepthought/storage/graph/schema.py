@@ -27,6 +27,14 @@ SCHEMA_QUERIES = (
         "CREATE INDEX deepthought_symbol_name IF NOT EXISTS "
         "FOR (n:Symbol) ON (n.repo_url,n.snapshot_id,n.name)"
     ),
+    (
+        "CREATE INDEX deepthought_unresolved_call_name IF NOT EXISTS "
+        "FOR (n:UnresolvedCall) ON (n.repo_url,n.snapshot_id,n.name)"
+    ),
+    (
+        "CREATE INDEX deepthought_call_name IF NOT EXISTS "
+        "FOR ()-[r:CALLS]-() ON (r.name)"
+    ),
 )
 
 
