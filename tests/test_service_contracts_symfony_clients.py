@@ -153,8 +153,8 @@ class SymfonyScopedClientTests(unittest.TestCase):
                 # A property assigned from the snake_case parameter: Symfony
                 # parses $orders_client to the same alias.
                 (27, "POST", "http://orders/api/orders", "linked", "POST /api/orders"),
-                # An %env(...)% base is not literal: the URL as written.
-                (32, "GET", "/invoices", "unresolved", None),
+                # An %env(...)% base is not literal: unknown text, then the path.
+                (32, "GET", "{?}/invoices", "unresolved", None),
                 # The default client has no base.
                 (37, "POST", "/api/orders", "linked", "POST /api/orders"),
                 # An attribute names the service instead of the argument name.

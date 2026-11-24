@@ -291,6 +291,29 @@ kind mismatches). Its extras include member initializers read as functions
 name. cJSON's extras are three functions in a preprocessor branch clang did
 not take.
 
+cJSON also has call truth for when the engine reads C calls.
+`tools/c_call_truth.py` runs clang on every C translation unit and records
+each call whose callee clang binds to a function by name, at the line where
+the name is written. Where the call lands depends on the function:
+
+- A `static` function lands on its definition in the same translation unit.
+- Any other function lands on the one definition the repository has.
+- A function that only a header outside the repository declares, such as one
+  from the C library, gets the target `<external>`. Linking such a call to a
+  repository declaration counts as contradicted.
+
+Some calls are left out, so they are unjudged:
+
+- calls through a function pointer or any other expression;
+- calls whose callee name a macro writes;
+- calls to a function the repository defines more than once (the Unity
+  examples' per-example copies), or never defines;
+- calls to an undeclared function.
+
+A call written in a macro's argument, such as `TEST_ASSERT_TRUE(cJSON_IsNull(item))`,
+is recorded where it is written. Translation units that clang reports errors
+for are not indexed.
+
 ### Ruby and PHP declarations
 
 The same scorer covers Ruby and PHP, with each language's own parser as the

@@ -318,6 +318,19 @@ def extract(
                 fields = _js_fields(node, content, types)
                 if fields:
                     arity = {**arity, "fields": fields}
+            if node.type == "function_definition" and file.endswith(".py"):
+                returned = node.child_by_field_name("return_type")
+                written = (
+                    _python_annotation(returned, content)
+                    if returned is not None
+                    else None
+                )
+                if written is not None:
+                    arity = {**arity, "result_type": written}
+            if node.type == "class_definition" and file.endswith(".py"):
+                fields = _python_fields(node, content)
+                if fields:
+                    arity = {**arity, "fields": fields}
             if file.endswith(".go"):
                 if node.type in {
                     "function_declaration",
@@ -420,6 +433,115 @@ def _c_declared_name(declarator, kinds):
     return node, holder
 
 
+def _c_static(node, content):
+    """Whether a C function declaration or definition is declared
+    ``static``."""
+    return any(
+        c.type == "storage_class_specifier" and _text(c, content) == "static"
+        for c in node.children
+    )
+
+
+def _c_locals(function, content):
+    """The names a C function definition's parameters and the declarations
+    in its body declare, whatever their kind."""
+    found = set()
+    declarator = function.child_by_field_name("declarator")
+    stack = [declarator, function.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        if node is None:
+            continue
+        if node.type in {"parameter_declaration", "declaration"}:
+            for d in node.children_by_field_name("declarator"):
+                declared = d
+                while declared is not None and declared.type != "identifier":
+                    declared = (
+                        declared.child_by_field_name("declarator")
+                        if declared.type != "parenthesized_declarator"
+                        else next(iter(declared.named_children), None)
+                    )
+                if declared is not None:
+                    found.add(_text(declared, content))
+        stack.extend(node.named_children)
+    return found
+
+
+def extract_c_call_sites(
+    tree, content: bytes, repository_id: str, file: str, definitions
+) -> list[CallSite]:
+    """C calls ``f(...)`` of a plain name, in every preprocessor branch,
+    each with the function definition around it. ``shadowed`` is True when
+    a parameter or declaration of that function declares the name (a
+    pointer to a function, or a prototype written in the body), or a
+    declaration at file scope declares it as a variable."""
+    functions = sorted(
+        (
+            ((d.line, d.column), (d.end_line, d.end_column), d.id)
+            for d in definitions
+            if d.file == file
+        ),
+        reverse=True,
+    )
+    sites, ordinals, scopes = [], {}, {}
+    # File-scope variables, pointers to functions among them.
+    variables = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "function_definition":
+            continue
+        if node.type == "declaration":
+            for declarator in node.children_by_field_name("declarator"):
+                if declarator.type == "init_declarator":
+                    declarator = declarator.child_by_field_name("declarator")
+                declared = _c_declared_name(declarator, {"identifier"})
+                if declared is not None and getattr(declared[1], "type", None) != (
+                    "function_declarator"
+                ):
+                    variables.add(_text(declared[0], content))
+            continue
+        stack.extend(node.named_children)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type == "function_definition":
+            scopes[node.id] = _c_locals(node, content)
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "identifier":
+            continue
+        callee = _text(function, content)
+        start = (node.start_point.row + 1, node.start_point.column)
+        end = (node.end_point.row + 1, node.end_point.column)
+        caller = next((i for s, e, i in functions if s <= start and end <= e), None)
+        outer = node.parent
+        while outer is not None and outer.type != "function_definition":
+            outer = outer.parent
+        ordinal = ordinals.get(callee, 0)
+        ordinals[callee] = ordinal + 1
+        sites.append(
+            CallSite(
+                id=identifier(repository_id, file, callee, "Call", ordinal),
+                file=file,
+                callee=callee,
+                kind="call",
+                line=start[0],
+                column=start[1],
+                end_line=end[0],
+                end_column=end[1],
+                caller_id=caller,
+                shadowed=True
+                if callee in variables
+                or (outer is not None and callee in scopes.get(outer.id, ()))
+                else None,
+            )
+        )
+    return sites
+
+
 def extract_c(
     tree, content: bytes, repository_id: str, file: str, *, nodes=None
 ) -> list[Definition]:
@@ -435,6 +557,12 @@ def extract_c(
         name = _text(name_node, content)
         ordinal = ordinals.get((name, kind), 0)
         ordinals[(name, kind)] = ordinal + 1
+        flags = {}
+        if kind == "Function":
+            if _c_static(node, content):
+                flags["static"] = True
+            if node.type != "function_definition":
+                flags["prototype"] = True
         definition = Definition(
             id=identifier(repository_id, file, name, kind, ordinal),
             file=file,
@@ -444,6 +572,7 @@ def extract_c(
             column=node.start_point.column,
             end_line=node.end_point.row + 1,
             end_column=node.end_point.column,
+            **flags,
         )
         found.append(definition)
         if nodes is not None:
@@ -1698,6 +1827,22 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
+def _c_imports(node, content):
+    """A C ``#include "path"`` in any preprocessor branch: the path as
+    written, kind ``include``. ``#include <path>`` and computed includes are
+    not read."""
+    # Only an include has a path.
+    path = node.child_by_field_name("path")
+    if path is None:
+        return
+    # `<path>` and a macro hold no string content.
+    text = "".join(
+        _text(c, content) for c in path.named_children if c.type == "string_content"
+    )
+    if text:
+        yield text, "include", (), ()
+
+
 def _php_imports(node, content):
     """Yield one import per clause of a PHP ``use`` declaration.
 
@@ -2074,6 +2219,7 @@ def extract_imports(
         "go": _go_imports,
         "java": _java_imports,
         "php": _php_imports,
+        "c": _c_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     exports = (
@@ -2571,7 +2717,8 @@ def _python_dotted(node, content):
 
 def _python_annotation(node, content):
     """The class a Python annotation names (``T``, ``m.T``, ``"T"``,
-    ``Optional[T]``, ``T | None``) as written; None for any other shape."""
+    ``Optional[T]``, ``T | None``, ``T[...]``) as written; None for any
+    other shape."""
     if node is not None and node.type == "type":
         node = node.named_children[0] if node.named_children else None
     if node is None:
@@ -2610,7 +2757,10 @@ def _python_annotation(node, content):
             and len(arguments) == 1
         ):
             return _python_annotation(arguments[0], content)
-        return None
+        # A generic class with type arguments (`C[int]`) is that class; a
+        # typing construct (`Union[...]`, `list[T]`) names no repository
+        # class, which the lookup of the name tells.
+        return name
     return _python_dotted(node, content)
 
 
@@ -3270,7 +3420,40 @@ def _python_body_imports(scope):
     return False
 
 
-def _python_receiver_type(node, content, callee, cache):
+def _python_receiver(node, content, callee, cache):
+    """``receiver_type`` of a Python call, and ``receiver_call``: the span
+    of the call a local's one assignment makes (``x = f(...)``). For
+    ``x.a.m()`` and ``self.a.b.m()``: ``x``'s class as for ``x.m()``, or
+    ``"self"`` for a method's instance, and the attributes as
+    ``receiver_steps``."""
+    parts = callee.split(".")
+    if len(parts) > 2:
+        if not all(re.fullmatch(r"[A-Za-z_]\w*", part) for part in parts):
+            return {"receiver_type": None}
+        head, steps = parts[0], tuple(parts[1:-1])
+        if _python_self(node, content, head, cache):
+            return {"receiver_type": "self", "receiver_steps": steps}
+        written = _python_receiver_type(node, content, f"{head}.{parts[-1]}", cache)
+        if written is None:
+            return {"receiver_type": None}
+        return {"receiver_type": written, "receiver_steps": steps}
+    calls = []
+    written = _python_receiver_type(node, content, callee, cache, calls)
+    if not calls:
+        return {"receiver_type": written}
+    (right,) = calls
+    return {
+        "receiver_type": written,
+        "receiver_call": (
+            right.start_point.row + 1,
+            right.start_point.column,
+            right.end_point.row + 1,
+            right.end_point.column,
+        ),
+    }
+
+
+def _python_receiver_type(node, content, callee, cache, calls=None):
     """For a Python call ``x.m()``, the class that the annotation of the
     parameter ``x`` names (``x: T``, ``x: m.T``, ``x: "T"``,
     ``x: Optional[T]``, ``x: T | None``), when that parameter is the
@@ -3336,28 +3519,315 @@ def _python_receiver_type(node, content, callee, cache):
         return None  # an unannotated parameter, whatever it is rebound to
     bound = cache[(scope.start_byte, scope.end_byte, scope.type)][0]
     binders = _python_binders(scope, head, content)
-    if len(binders) != 1 or binders[0].type != "assignment":
+    if not binders or any(b.type != "assignment" for b in binders):
         return None
-    (assignment,) = binders
-    left, right = (
-        assignment.child_by_field_name("left"),
-        assignment.child_by_field_name("right"),
-    )
-    if left is None or left.type != "identifier":
+    # Each assignment names the class: `x: T = ...` or `x = T(...)`; an
+    # assignment of None (`x: T | None = None`, `x = None`) adds none. With
+    # several, they must all name the same one.
+    names = set()
+    for assignment in binders:
+        left, right = (
+            assignment.child_by_field_name("left"),
+            assignment.child_by_field_name("right"),
+        )
+        if left is None or left.type != "identifier":
+            return None
+        written = assignment.child_by_field_name("type")
+        if written is not None:
+            names.add(_python_annotation(written, content))
+        elif right is not None and right.type == "call":
+            # `x = T(...)`: a class called is an instance of it; `x =
+            # f(...)`: what the function returns, when its return
+            # annotation names it.
+            function = right.child_by_field_name("function")
+            names.add(
+                _python_dotted(function, content) if function is not None else None
+            )
+            if calls is not None and len(binders) == 1:
+                calls.append(right)
+        elif right is None or right.type != "none":
+            return None
+    if len(names) != 1:
         return None
-    written = assignment.child_by_field_name("type")
-    if written is not None:
-        name = _python_annotation(written, content)
-    elif right is not None and right.type == "call":
-        # `x = T(...)`: a class called is an instance of it.
-        function = right.child_by_field_name("function")
-        name = _python_dotted(function, content) if function is not None else None
-    else:
-        return None
+    (name,) = names
     # The type is named in the function: it must not be a local there.
     if name is None or name.split(".")[0] in bound:
         return None
     return name
+
+
+def _python_self(node, content, head, cache):
+    """Whether ``head`` at a Python call is the instance an instance method
+    receives: the first parameter of a ``def`` directly in a class body,
+    not a ``staticmethod`` or ``classmethod``, which binds nothing else
+    under that name, and the binding the call sees."""
+    child, scope = node, node.parent
+    while scope is not None:
+        if scope.type == "class_definition":
+            return False
+        if scope.type in {"function_definition", "lambda"} or (
+            scope.type in _PYTHON_COMPREHENSIONS
+        ):
+            if scope.type in _PYTHON_COMPREHENSIONS:
+                first = next(
+                    (c for c in scope.named_children if c.type == "for_in_clause"),
+                    None,
+                )
+                inside = first is None or child != first
+            else:
+                inside = child == scope.child_by_field_name("body")
+            if inside:
+                key = (scope.start_byte, scope.end_byte, scope.type)
+                if key not in cache:
+                    cache[key] = _python_bindings(scope, content)
+                bound, declared = cache[key]
+                if head in declared:
+                    return False
+                if head in bound:
+                    break
+        child, scope = scope, scope.parent
+    else:
+        return False
+    if scope.type != "function_definition":
+        return False
+    parameters = scope.child_by_field_name("parameters")
+    if parameters is None or not parameters.named_children:
+        return False
+    first = parameters.named_children[0]
+    if first.type == "typed_parameter":
+        first = first.named_children[0]
+    if first.type != "identifier" or _text(first, content) != head:
+        return False
+    key = ("body", scope.start_byte, scope.end_byte)
+    if key not in cache:
+        cache[key] = (
+            _python_bindings(scope, content, parameters=False)[0],
+            _python_body_imports(scope),
+        )
+    if head in cache[key][0]:
+        return False
+    return _python_instance_method(scope, content)
+
+
+def _python_instance_method(function, content):
+    """Whether a Python ``def`` sits directly in a class body without a
+    ``staticmethod`` or ``classmethod`` decorator."""
+    holder = function.parent
+    decorators = []
+    if holder is not None and holder.type == "decorated_definition":
+        decorators = [
+            _text(c, content).lstrip("@").strip()
+            for c in holder.children
+            if c.type == "decorator"
+        ]
+        holder = holder.parent
+    return (
+        holder is not None
+        and holder.type == "block"
+        and holder.parent is not None
+        and holder.parent.type == "class_definition"
+        and not any(
+            d.rpartition(".")[2] in {"staticmethod", "classmethod"} for d in decorators
+        )
+    )
+
+
+def _python_fields(node, content):
+    """``fields`` of a Python class: (name, class as written) for each
+    instance attribute whose declared type names one class.
+
+    An annotation in the class body (``a: T``, ``a: T = v``) or on an
+    assignment in a method (``self.a: T = v``) declares the attribute's
+    type; those must agree. Without one, the type is inferred from the
+    assignments its instance methods make (``self.a = p`` from a parameter
+    ``p: T`` of that method that it does not rebind, or ``self.a = T(...)``),
+    ignoring ``None``, as a type checker infers a member variable from the
+    class's own assignments: they must all name the same class. Any other
+    assignment to the attribute in the class, or an unannotated class-body
+    assignment of that name, leaves it out."""
+    body = node.child_by_field_name("body")
+    if body is None:
+        return None
+    declared, inferred, unknown = {}, {}, set()
+
+    def note(table, name, written):
+        # An annotation that names no single class still declares the
+        # attribute: it is kept as None and leaves the attribute out.
+        if written is None and table is inferred:
+            unknown.add(name)
+        else:
+            table.setdefault(name, set()).add(written)
+
+    functions = []
+    for statement in body.named_children:
+        target = statement
+        if target.type == "decorated_definition":
+            target = target.child_by_field_name("definition")
+        if target is not None and target.type == "function_definition":
+            functions.append(target)
+            continue
+        if statement.type != "expression_statement":
+            continue
+        for assignment in statement.named_children:
+            if assignment.type != "assignment":
+                continue
+            left = assignment.child_by_field_name("left")
+            if left is None or left.type != "identifier":
+                continue
+            name = _text(left, content)
+            written = assignment.child_by_field_name("type")
+            if written is not None:
+                note(declared, name, _python_annotation(written, content))
+            else:
+                unknown.add(name)
+    for function in functions:
+        if not _python_instance_method(function, content):
+            continue
+        parameters = function.child_by_field_name("parameters")
+        items = parameters.named_children if parameters is not None else []
+        if not items:
+            continue
+        first = items[0]
+        if first.type == "typed_parameter":
+            first = first.named_children[0]
+        if first.type != "identifier":
+            continue
+        instance = _text(first, content)
+        rebound = _python_bindings(function, content, parameters=False)[0]
+        if instance in rebound:
+            # The name may hold another object there: its attribute
+            # assignments say nothing certain, so they count as unknown.
+            unknown.update(
+                _python_nested_attribute_targets(function, instance, content)
+            )
+            continue
+        typed = {}
+        for item in items[1:]:
+            if item.type == "typed_parameter":
+                name = item.named_children[0]
+            elif item.type == "typed_default_parameter":
+                name = item.child_by_field_name("name")
+            else:
+                continue
+            if name is not None and name.type == "identifier":
+                written = _python_annotation(item.child_by_field_name("type"), content)
+                if written is not None:
+                    typed[_text(name, content)] = written
+        stack = [function.child_by_field_name("body")]
+        while stack:
+            current = stack.pop()
+            if current is None:
+                continue
+            nested = current.type in _PYTHON_SCOPES
+            if current.type in {
+                "assignment",
+                "augmented_assignment",
+                "for_statement",
+                "delete_statement",
+                "named_expression",
+                "as_pattern",
+            }:
+                for target in _python_attribute_targets(current, instance, content):
+                    left = current.child_by_field_name("left")
+                    right = current.child_by_field_name("right")
+                    written = current.child_by_field_name("type")
+                    if (
+                        current.type != "assignment"
+                        or left is None
+                        or left.type != "attribute"
+                    ):
+                        unknown.add(target)
+                    elif written is not None:
+                        note(declared, target, _python_annotation(written, content))
+                    elif right is None:
+                        unknown.add(target)
+                    elif right.type == "none":
+                        pass
+                    elif right.type == "identifier" and _text(right, content) in typed:
+                        name = _text(right, content)
+                        note(
+                            inferred,
+                            target,
+                            None if name in rebound else typed[name],
+                        )
+                    elif right.type == "call":
+                        function_node = right.child_by_field_name("function")
+                        note(
+                            inferred,
+                            target,
+                            _python_dotted(function_node, content)
+                            if function_node is not None
+                            else None,
+                        )
+                    else:
+                        unknown.add(target)
+            if not nested:
+                stack.extend(current.named_children)
+            else:
+                # A nested scope may assign through the instance too; its
+                # own parameters say nothing about the method's.
+                for inner in _python_nested_attribute_targets(
+                    current, instance, content
+                ):
+                    unknown.add(inner)
+    fields = []
+    for name in sorted(set(declared) | set(inferred)):
+        # A declaration decides the type whatever is assigned; without one,
+        # every assignment must name the same class.
+        written = declared.get(name)
+        if written is None:
+            if name in unknown:
+                continue
+            written = inferred[name]
+        if len(written) == 1 and None not in written:
+            fields.append((name, next(iter(written))))
+    return tuple(fields) or None
+
+
+def _python_attribute_targets(statement, instance, content):
+    """The attribute names a binding statement assigns on ``instance``
+    (``instance.a = ...``, ``instance.a, b = ...``, ``del instance.a``)."""
+    if statement.type == "delete_statement":
+        roots = statement.named_children
+    elif statement.type == "named_expression":
+        roots = [statement.child_by_field_name("name")]
+    elif statement.type == "as_pattern":
+        roots = [statement.child_by_field_name("alias")]
+    else:
+        roots = [statement.child_by_field_name("left")]
+    found, stack = [], [r for r in roots if r is not None]
+    while stack:
+        node = stack.pop()
+        if node.type == "attribute":
+            target = node.child_by_field_name("object")
+            attribute = node.child_by_field_name("attribute")
+            if (
+                target is not None
+                and target.type == "identifier"
+                and _text(target, content) == instance
+                and attribute is not None
+            ):
+                found.append(_text(attribute, content))
+        elif node.type in _PYTHON_PATTERNS or node.type == "expression_list":
+            stack.extend(node.named_children)
+    return found
+
+
+def _python_nested_attribute_targets(scope, instance, content):
+    found, stack = [], list(scope.named_children)
+    while stack:
+        node = stack.pop()
+        if node.type in {
+            "assignment",
+            "augmented_assignment",
+            "for_statement",
+            "delete_statement",
+            "named_expression",
+            "as_pattern",
+        }:
+            found += _python_attribute_targets(node, instance, content)
+        stack.extend(node.named_children)
+    return found
 
 
 def _python_binders(scope, name, content):
@@ -4823,11 +5293,7 @@ def extract_call_sites(
                                 ),
                             }
                             if java
-                            else {
-                                "receiver_type": _python_receiver_type(
-                                    node, content, callee, bindings
-                                )
-                            }
+                            else _python_receiver(node, content, callee, bindings)
                             if python
                             else _go_chain_receiver(node, content, receivers)
                             if chained

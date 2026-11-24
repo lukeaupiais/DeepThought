@@ -1238,6 +1238,54 @@ def _script_constants(root, sources):
     return ScriptConstants(scripts, resolve, defines)
 
 
+# Build manifests: the nearest directory above a file with one of them is
+# the project the file belongs to.
+_MANIFESTS = (
+    "package.json",
+    "composer.json",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "go.mod",
+    "pyproject.toml",
+    "setup.py",
+    "requirements.txt",
+    "Cargo.toml",
+    "Gemfile",
+)
+
+
+def _projects(root):
+    """file -> the nearest directory above it with a build manifest (or a
+    .csproj), "." when there is none."""
+    cache = {}
+
+    def project(file):
+        path = PurePosixPath(file).parent
+        seen = []
+        while True:
+            key = path.as_posix()
+            if key in cache:
+                found = cache[key]
+                break
+            seen.append(key)
+            directory = root / path
+            if any((directory / m).is_file() for m in _MANIFESTS) or any(
+                directory.glob("*.csproj")
+            ):
+                found = key
+                break
+            if path == path.parent:
+                found = "."
+                break
+            path = path.parent
+        for key in seen:
+            cache[key] = found
+        return found
+
+    return project
+
+
 def _node_package(root, file):
     """The nearest directory above ``file`` with a package.json, or None."""
     path = PurePosixPath(file).parent
@@ -1384,9 +1432,14 @@ def _symfony_scoped_clients(root, project, cache):
         scoped = client.get("scoped_clients") if isinstance(client, dict) else None
         for name, options in scoped.items() if isinstance(scoped, dict) else ():
             base = options.get("base_uri") if isinstance(options, dict) else None
-            # A parameter or %env(...)% is not a literal base.
-            literal = isinstance(base, str) and "%" not in base
-            found[symfony_argument_name(str(name))] = base if literal else ""
+            # A parameter or %env(...)% in the base is unknown text.
+            found[symfony_argument_name(str(name))] = (
+                re.sub(r"%[^%\s]+%", PLACEHOLDER, base)
+                if isinstance(base, str)
+                else PLACEHOLDER
+                if base is not None
+                else ""
+            )
     return found
 
 
@@ -1977,7 +2030,7 @@ class ServiceContractTool(AnalysisTool):
         deployments = Deployments(deployed_units(root))
         routes, requests = _deployed(root, deployments, routes, requests)
         resolutions = contract_rules.resolve_requests(
-            routes, requests, gateways, deployments.hosts()
+            routes, requests, gateways, deployments.hosts(), _projects(root)
         )
         self.last_facts = (result, routes, requests, unread, resolutions)
         grpc = grpc_contracts.collect(

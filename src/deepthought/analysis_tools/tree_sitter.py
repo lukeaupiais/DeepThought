@@ -240,6 +240,16 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.C_INCLUDE_RELATIVE,
+                "resolved",
+                "A C '#include \"path\"' names the analyzed file at that path "
+                "relative to the directory of the including file, which the "
+                "compiler searches first. Include paths given to the compiler "
+                "are not read.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.PHP_USE_NAMESPACE,
                 "resolved",
                 "A PHP 'use' names no declared class-like type but a namespace "
@@ -396,6 +406,23 @@ _CALL_RULE_TEXT = {
     "type T (written where that method is declared) denotes a type by Java's "
     "lookup order; for 'new T(...).name', T as written. T declares or inherits "
     "the method, chosen among overloads as other Java calls are.",
+    call_rules.PYTHON_CALL_ATTRIBUTE_RECEIVER: "In a Python call "
+    "'x.a.name' (any number of attributes), x is the first parameter of an "
+    "instance method directly in a class body, not rebound (the class around "
+    "it), or has a class as for 'x.name' with a typed receiver; each "
+    "attribute's class is the one the first class declaring that name in the "
+    "method resolution order gives it: its annotation in the class body or "
+    "on 'self.a: T = ...', or else, when every assignment its instance "
+    "methods make is 'self.a = p' from a parameter 'p: T', 'self.a = T(...)' "
+    "or None, and the class assigns it nothing else, that one T; the last "
+    "class declares or inherits the method through its declared bases.",
+    call_rules.PYTHON_CALL_RESULT_RECEIVER: "In a Python call 'x.name' where "
+    "the one binding of the local x in its function is 'x = f(...)' (x is no "
+    "parameter and the function imports nothing), the call f(...) links to a "
+    "function or method whose return annotation names one repository class "
+    "(T, m.T, Optional[T], T | None), looked up where that function is "
+    "defined; that class declares or inherits the method through its "
+    "declared bases.",
     call_rules.JAVA_STATIC_FIELD_RECEIVER: "In a Java call 'T.F.name' where no "
     "variable or field named by the first name of T can be in scope (none "
     "declared around the call, and no type around it may inherit one), T "
@@ -509,6 +536,16 @@ CALL_RULES.update(
             call_rules.PHP_CALL_THIS_METHOD: "A PHP '$this->m()' or "
             "'static::m()' in a named class-like declaration names the method "
             "'m' that declaration declares; a subclass may override it.",
+            call_rules.C_CALL_STATIC: "A C call 'f(...)' in a file whose "
+            "translation unit (the file and the files its quoted includes "
+            "reach) declares a function 'f' 'static' names the unit's "
+            "definition of 'f', unless a parameter, local or file-scope variable, or a macro "
+            "anywhere in the repository's C files, is named 'f'.",
+            call_rules.C_CALL_EXTERNAL: "A C call 'f(...)' in a file whose "
+            "translation unit declares no function 'f' 'static' names the one definition of 'f' "
+            "without 'static' in the repository's C files, unless a parameter, "
+            "local or file-scope variable, or a macro anywhere in those files, "
+            "is named 'f'.",
         }.items()
     }
 )
