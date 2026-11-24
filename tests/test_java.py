@@ -1,6 +1,7 @@
 """Java declarations (opt-in language)."""
 
 import asyncio
+from dataclasses import replace
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -359,13 +360,15 @@ class JavaTests(unittest.TestCase):
                 ("this.helper", 9): ("Main.helper", CALL_SELF_METHOD),
                 ("trim", 10): ("util:Strings.trim", JAVA_STATIC_IMPORT),
                 ("Strings.trim", 11): ("util:Strings.trim", JAVA_TYPE_MEMBER),
-                # Overloads are told apart by argument count only.
+                # Overloads are told apart by argument count, then by the
+                # argument types written (see the overload test).
                 ("Strings.pad", 12): ("util:Strings.pad", JAVA_TYPE_MEMBER),
                 ("Strings.pad", 13): (None, "no_matching_arity"),
-                ("Strings.join", 14): (None, "multiple_declarations"),
+                # `s` is a String: only join(String, Object...) applies.
+                ("Strings.join", 14): ("util:Strings.join", JAVA_TYPE_MEMBER),
                 ("Strings.join", 15): ("util:Strings.join", JAVA_TYPE_MEMBER),
-                # A comment is not an argument; types are not compared.
-                ("Strings.join", 16): (None, "multiple_declarations"),
+                # A comment is not an argument; `1` selects join(int).
+                ("Strings.join", 16): ("util:Strings.join", JAVA_TYPE_MEMBER),
                 ("Strings.join", 17): (None, "no_matching_arity"),
                 # A receiver parameter is not counted.
                 ("recv", 18): ("Main.recv", JAVA_ENCLOSING_METHOD),
@@ -854,6 +857,214 @@ class JavaTests(unittest.TestCase):
         self.assertEqual(methods["Box.put"].parameter_types, ("?", "*"))
         self.assertIn("Model.find", methods)
 
+    def test_overloads_are_chosen_by_the_argument_types_written(self):
+        lines = [
+            "package p;",
+            "import java.io.Reader;",
+            "import java.lang.reflect.Type;",
+            "import java.util.AbstractList;",
+            "class Base {}",
+            "class Foo extends Base {}",
+            "class Other {}",
+            "abstract class Items extends AbstractList<String> {}",
+            "enum Color { RED }",
+            "class Api {",
+            "  void s(String x) {}",  # 11
+            "  void s(Object x) {}",  # 12
+            "  void c(Class<?> x) {}",  # 13
+            "  void c(Type x) {}",  # 14
+            "  void t(Type x) {}",  # 15
+            "  void t(Reader x) {}",  # 16
+            "  void n(int x) {}",  # 17
+            "  void n(long x) {}",  # 18
+            "  void w(long x) {}",  # 19
+            "  void w(Integer x) {}",  # 20
+            "  void b(Integer x) {}",  # 21
+            "  void b(Object x) {}",  # 22
+            "  void l(int x) {}",  # 23
+            "  void l(Object x) {}",  # 24
+            "  void z(String x) {}",  # 25
+            "  void z(Integer x) {}",  # 26
+            "  void k(Base x) {}",  # 27
+            "  void k(Other x) {}",  # 28
+            "  void j(java.util.Collection<?> x) {}",  # 29
+            "  void j(String x) {}",  # 30
+            "  void v(String a, String b) {}",  # 31
+            "  void v(String... a) {}",  # 32
+            "  <T> void g(T x) {}",  # 33
+            "  void g(String x) {}",  # 34
+            "  private void h(String x) {}",  # 35
+            "  void h(Object x) {}",  # 36
+            "  void e(Color x) {}",  # 37
+            "  void e(String x) {}",  # 38
+            "  void d(double x) {}",  # 39
+            "  void d(Object x) {}",  # 40
+            '  void inside() { h("x"); }',  # 41
+            "  void p(int x) {}",  # 42
+            "  void p(String x) {}",  # 43
+            "  void k2(Plain x) {}",  # 44
+            "  void k2(String x) {}",  # 45
+            "  void q(String x) {}",  # 46
+            "  void q(String x, Object... rest) {}",  # 47
+            "  void s3(String x, String y) {}",  # 48
+            "  void s3(Object x, Object y) {}",  # 49
+            "  void xg(String... x) {}",  # 50
+            "  <T> void xg(T... x) {}",  # 51
+            "  void g2(int x, String y) {}",  # 52
+            "  void g2(Integer x, Object y) {}",  # 53
+            "  void fl(float x) {}",  # 54
+            "  void fl(double x) {}",  # 55
+            "  void arr(Object x) {}",  # 56
+            "  void arr(String[] x) {}",  # 57
+            "  void dup(Dup x) {}",  # 58
+            "  void dup(String x) {}",  # 59
+            "}",
+            "class Plain extends Object {}",
+            "class T extends Base {}",
+            "class Main {",
+            "  void m(Api a, Foo foo, Items items, Object o, Color red, String str) {",
+            '    a.s("x");',  # 65: String over Object
+            "    a.c(Foo.class);",  # 66: Class over Type
+            "    a.t(Foo.class);",  # 67: a Class is a Type, not a Reader
+            "    a.n(1);",  # 68: int, without widening
+            "    a.w(1);",  # 69: widening before boxing
+            "    a.b(1);",  # 70: boxing, then the most specific
+            "    a.l(1L);",  # 71: long is no int: boxed to Long, an Object
+            "    a.s(null);",  # 72: null: the most specific
+            "    a.z(null);",  # 73: null: neither is more specific
+            "    a.k(new Foo());",  # 74: a repository subtype
+            "    a.k((Base) o);",  # 75: a cast
+            "    a.k(foo);",  # 76: a declared variable
+            "    a.j(items);",  # 77: supertypes outside the repository
+            '    a.v("x", "y");',  # 78: fixed arity first
+            '    a.v("x", "y", "z");',  # 79: variable arity
+            '    a.g("x");',  # 80: a type parameter's bound is not known
+            '    a.h("x");',  # 81: a private method is not accessible
+            "    a.s(o.toString());",  # 82: an argument type not written
+            "    a.e(red);",  # 83: an enum
+            "    a.d(1);",  # 84: int widens to double
+            "    a.s(str);",  # 85
+            "    a.p(null);",  # 86: null is no int
+            "    a.k2(new Plain());",  # 87: `extends Object` is all it has
+            '    a.q("x");',  # 88: fixed arity, one parameter
+            '    a.s3("x", o.hashCode());',  # 89: the second type is not written
+            '    a.xg("x", "y");',  # 90: variable arity, a type parameter
+            "    a.g2(1, o.toString());",  # 91: phase 1 or phase 2
+            "    a.fl(1.5f);",  # 92
+            "    a.n((long) 1);",  # 93: a primitive cast
+            '    a.s(("x"));',  # 94: parentheses
+            "    a.s((x.y.Integer) o);",  # 95: not java.lang.Integer
+            "    a.arr(null);",  # 96: an array is an Object
+            "    a.dup(new Dup());",  # 97: two classes named Dup
+            "  }",
+            "  <T> void gen(Api a, Object o) {",
+            "    a.k((T) o);",  # 100: the type parameter, not class T
+            "  }",
+            "}",
+        ]
+        result = analyze(
+            {
+                "src/p/Api.java": "\n".join(lines) + "\n",
+                "src/p/Dup.java": "package p;\nclass Dup {}\n",
+                "src/p/Dup2.java": "package p;\nclass Dup {}\n",
+            }
+        )
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+        }
+        for line, callee, target in (
+            (65, "a.s", 11),
+            (66, "a.c", 13),
+            (67, "a.t", 15),
+            (68, "a.n", 17),
+            (69, "a.w", 19),
+            (70, "a.b", 21),
+            (71, "a.l", 24),
+            (72, "a.s", 11),
+            (73, "a.z", [25, 26]),
+            (74, "a.k", 27),
+            (75, "a.k", 27),
+            (76, "a.k", 27),
+            (77, "a.j", [29, 30]),
+            (78, "a.v", 31),
+            (79, "a.v", 32),
+            (80, "a.g", [33, 34]),
+            (81, "a.h", 36),
+            (41, "h", 35),
+            (82, "a.s", [11, 12]),
+            (83, "a.e", [37, 38]),
+            (84, "a.d", 39),
+            (85, "a.s", 11),
+            (86, "a.p", 43),
+            (87, "a.k2", 44),
+            (88, "a.q", 46),
+            (89, "a.s3", [48, 49]),
+            (90, "a.xg", [50, 51]),
+            (91, "a.g2", [52, 53]),
+            (92, "a.fl", 54),
+            (93, "a.n", 18),
+            (94, "a.s", 11),
+            (95, "a.s", [11, 12]),
+            (100, "a.k", [27, 28]),
+            (96, "a.arr", 57),
+            (97, "a.dup", [58, 59]),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], target)
+        types = {(s.line, s.callee): s.argument_types for s in sites.values()}
+        self.assertEqual(types[(75, "a.k")], ("Base",))
+        self.assertEqual(types[(71, "a.l")], ("long",))
+        self.assertIsNone(types[(82, "a.s")])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        site = sites[next(iter(sites))]
+        for bad in ((None,), ("",), ["int"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                replace(site, arguments=len(bad), argument_types=bad)
+        with self.assertRaises(ValueError):
+            replace(site, arguments=2, argument_types=("int",))
+
+    def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
+        lines = [
+            "package p;",
+            "class Foo {}",
+            "record R() {}",
+            "class Api {",
+            "  void cl(Cloneable x) {}",  # 5
+            "  void cl(int[] x) {}",  # 6
+            "  void one(Foo x) {}",  # 7
+            "  void one(int[] x) {}",  # 8
+            "  void rec(Record x) {}",  # 9
+            "  void rec(Object x) {}",  # 10
+            "}",
+            "class Main {",
+            "  void m(Api a) {",
+            "    a.cl(null);",  # 14: an array is Cloneable
+            "    a.one(new Ext());",  # 15: an unknown class is no array
+            "    a.rec(new R());",  # 16: a record extends Record
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].line: (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee.startswith("a.")
+        }
+        self.assertEqual(found, {14: 6, 15: 7, 16: [9, 10]})
+
     def test_an_override_needs_parameter_types_that_may_be_the_same(self):
         files = {
             "src/p/Range.java": (
@@ -923,8 +1134,9 @@ class JavaTests(unittest.TestCase):
         def near(symbol):
             return (symbol, [], JAVA_TYPED_RECEIVER)
 
-        # A type parameter is not the same type as written: both stay.
-        self.assertEqual(found["r.fit"], both("fit"))
+        # A type parameter is not the same type as written: both stay, and
+        # `1L` selects fit(long), which applies without boxing.
+        self.assertEqual(found["r.fit"], near("LongRange.fit"))
         # Type arguments are not compared, as for erasure.
         self.assertEqual(found["r.up"], near("LongRange.up"))
         # Two different types as written: overloads.

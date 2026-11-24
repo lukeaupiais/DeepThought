@@ -20,6 +20,8 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.LineMap;
 import com.sun.source.tree.MethodInvocationTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.JavacTask;
@@ -38,6 +40,11 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.PackageElement;
+import javax.lang.model.type.ArrayType;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.WildcardType;
 import javax.lang.model.element.TypeElement;
 import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
@@ -47,6 +54,22 @@ import javax.tools.ToolProvider;
 public class JavaCallOracle {
     static Path repository;
     static Trees trees;
+
+    /** Whether a type is, or is built from, one javac could not resolve. */
+    static boolean erroneous(TypeMirror type) {
+        if (type == null) return false;
+        if (type.getKind() == TypeKind.ERROR) return true;
+        if (type instanceof ArrayType array) return erroneous(array.getComponentType());
+        if (type instanceof WildcardType wildcard) {
+            return erroneous(wildcard.getExtendsBound()) || erroneous(wildcard.getSuperBound());
+        }
+        if (type instanceof DeclaredType declared) {
+            for (TypeMirror argument : declared.getTypeArguments()) {
+                if (erroneous(argument)) return true;
+            }
+        }
+        return false;
+    }
 
     static String quote(String text) {
         StringBuilder out = new StringBuilder("\"");
@@ -147,7 +170,60 @@ public class JavaCallOracle {
 
                 @Override
                 public Void visitMethodInvocation(MethodInvocationTree node, Void unused) {
-                    emit(node, trees.getElement(getCurrentPath()));
+                    Element method = trees.getElement(getCurrentPath());
+                    boolean uncertain = false;
+                    if (method instanceof ExecutableElement chosen
+                            && chosen.getEnclosingElement() instanceof TypeElement owner) {
+                        // Among overloads, a type javac could not resolve (no
+                        // class path is given) leaves its choice to error
+                        // recovery: such a call is reported as uncertain.
+                        // Declared and inherited, read from the source where
+                        // there is one: javac drops a method whose erroneous
+                        // signature clashes with another's.
+                        int overloads = 0;
+                        List<TypeMirror> parameters = new ArrayList<>();
+                        List<TypeElement> types = new ArrayList<>(List.of(owner));
+                        for (int i = 0; i < types.size(); i++) {
+                            TypeElement type = types.get(i);
+                            TreePath declared = trees.getPath(type);
+                            if (declared != null && declared.getLeaf() instanceof ClassTree body) {
+                                for (Tree member : body.getMembers()) {
+                                    if (member instanceof MethodTree other
+                                            && other.getName().equals(chosen.getSimpleName())) {
+                                        overloads++;
+                                        for (VariableTree parameter : other.getParameters()) {
+                                            parameters.add(trees.getTypeMirror(
+                                                new TreePath(new TreePath(new TreePath(declared, other), parameter),
+                                                    parameter.getType())));
+                                        }
+                                    }
+                                }
+                            } else {
+                                for (Element member : type.getEnclosedElements()) {
+                                    if (member instanceof ExecutableElement other
+                                            && other.getSimpleName().equals(chosen.getSimpleName())) {
+                                        overloads++;
+                                        other.getParameters().forEach(p -> parameters.add(p.asType()));
+                                    }
+                                }
+                            }
+                            for (TypeMirror base : task.getTypes().directSupertypes(type.asType())) {
+                                if (task.getTypes().asElement(base) instanceof TypeElement next
+                                        && !types.contains(next)) {
+                                    types.add(next);
+                                }
+                            }
+                        }
+                        if (overloads > 1) {
+                            for (Tree argument : node.getArguments()) {
+                                uncertain |= erroneous(trees.getTypeMirror(new TreePath(getCurrentPath(), argument)));
+                            }
+                            for (TypeMirror parameter : parameters) {
+                                uncertain |= erroneous(parameter);
+                            }
+                        }
+                    }
+                    emit(node, method, uncertain ? ",\"uncertain\":true" : "");
                     return super.visitMethodInvocation(node, null);
                 }
 
