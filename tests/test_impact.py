@@ -28,6 +28,7 @@ READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
 )
 JAVA_READY = importlib.util.find_spec("tree_sitter_java")
+GO_READY = importlib.util.find_spec("tree_sitter_go")
 SCIP_READY = importlib.util.find_spec("google") and importlib.util.find_spec(
     "google.protobuf"
 )
@@ -399,6 +400,47 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
 
     @unittest.skipUnless(SCIP_READY, "Provision the scip extra")
+    @unittest.skipUnless(GO_READY, "Provision the go grammar")
+    async def test_go_implementations_reach_interface_callers(self):
+        files = {
+            "store.go": "package app\n\n"
+            "type Store interface{ Get(k string) string }\n\n"
+            "type Mem struct{}\n\n"
+            "func (Mem) Get(k string) string { return k }\n\n"
+            "type Disk struct{}\n\n"
+            "func (Disk) Get(k string) string { return k }\n\n"
+            'func Load(s Store) string { return s.Get("k") }\n',
+        }
+
+        class GoTool(TreeSitterTool):
+            async def analyze(self, repo_url, **options):
+                return await super().analyze(repo_url, languages=("go",))
+
+        repo, snapshot, names = await self.write(GoTool, files, "tree-sitter")
+        impact = await self.service.get_impact(
+            names["Mem.Get"], repo, snapshot_id=snapshot
+        )
+        # The interface method dispatches to Mem.Get, so the interface's
+        # callers are reached; the other implementation is not.
+        self.assertEqual(
+            [(row[0], row[1], row[3]) for row in self.rows(impact)],
+            [
+                ("Store.Get", 1, ["DISPATCHES_TO"]),
+                ("Load", 2, ["CALLS", "DISPATCHES_TO"]),
+            ],
+        )
+        interface = await self.service.get_impact(
+            names["Store"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            sorted((row[0], row[3]) for row in self.rows(interface)),
+            [
+                ("Disk", ["IMPLEMENTS"]),
+                ("Load", ["CALLS"]),
+                ("Mem", ["IMPLEMENTS"]),
+            ],
+        )
+
     async def test_implementations_are_resolved_dependents(self):
         fixture = Path(__file__).parent / "fixtures/scip_implementations"
         repo = "impact-" + uuid4().hex

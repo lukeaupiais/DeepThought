@@ -202,7 +202,8 @@ def create_server():
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
-        Follows CALLS, INHERITS_FROM, IMPLEMENTS and REQUESTS backwards and
+        Follows CALLS, INHERITS_FROM, IMPLEMENTS, DISPATCHES_TO (Go interface
+        methods to implementations) and REQUESTS backwards and
         HANDLES forwards, so callers of a changed HTTP handler's route in
         other services count; each dependent has its depth, its path's edges
         and the path's weakest evidence. A truncated list continues with
