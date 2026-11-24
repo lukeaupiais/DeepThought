@@ -2359,6 +2359,50 @@ destination with unknown text is not read, so it never meets them.
 No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
 change.
 
+### GraphQL subscription pubsub
+
+GraphQL subscriptions are usually fed through a pubsub object: a mutation
+publishes to a topic, and the subscription resolver returns an iterator over
+that topic. These are read as messaging:
+
+- **In-memory `PubSub`.** The class comes from `graphql-subscriptions`, or the
+  copy that `apollo-server`, `apollo-server-express`, `graphql-yoga` or
+  `@nestjs/graphql` re-exports. `publish(topic, ...)` publishes (rule
+  `service-contracts.graphql-pubsub-publish`). `asyncIterator(topic)`,
+  `asyncIterableIterator(topic)` and `subscribe(topic, ...)` consume, and an
+  array of topics names each one (rule `graphql-pubsub-subscribe`). The
+  broker is `graphql-pubsub`. An in-memory PubSub delivers only to listeners
+  on the same instance, so the destination is `<file>#<name>/<topic>`, and two
+  PubSub objects never meet even when their topics match.
+- **`RedisPubSub`** from `graphql-redis-subscriptions` uses the same calls.
+  Its destination is the Redis channel, with broker `redis`, so publishers and
+  subscribers in different services meet (rules `graphql-redis-pubsub-publish`
+  and `graphql-redis-pubsub-subscribe`).
+
+The call must be on a name (`x` or a class field `this.x`) that every
+assignment in the file binds to a `new` of one of these imported classes. A
+topic with unknown text is `publish:destination_not_literal` or
+`consume:destination_not_literal`. These are not read:
+
+- a PubSub that is created in one file and imported or passed in elsewhere,
+  such as `export default new PubSub()` or `context.pubsub`;
+- a PubSub injected by Nest's dependency injection;
+- other pubsub APIs, such as mercurius's `publish({topic, payload})`.
+
+| Repository | Literal pubsub sites | Outcome |
+|---|---|---|
+| notiz-dev/nestjs-prisma-starter `225e5a9` (corpus) | 1 publish, 1 subscribe | Linked |
+| nestjs/nest `fed38a7` samples 12, 22 and 23 | 3 publishes, 3 subscribes | All 3 pairs linked |
+| nestjs/nest sample 33 (mercurius) | 1 publish | Not read: a different API |
+| the-road-to-graphql/fullstack-apollo-express-postgresql-boilerplate `77875c6` | 1 publish, 1 subscribe | Not read: the PubSub is a default export from another file |
+| howtographql/graphql-js (corpus) `e0a3a21` | 2 publishes, 2 subscribes | Not read: they go through `context.pubsub` |
+| davidyaha/graphql-redis-subscriptions `537c79d` | none (the library itself) | Nothing read, which is correct |
+
+No edge is wrong. Of the 15 literal sites, 8 are read and all 8 are linked
+correctly. Of the others, 6 use a PubSub passed in from another file and 1 is
+mercurius. Across all corpora, nestjs-prisma-starter's 2 edges are the only
+change.
+
 ### Spring Cloud Stream
 
 Spring Cloud Stream code names a binding and each service's configuration
