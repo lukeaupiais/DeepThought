@@ -11,7 +11,10 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from hashlib import sha256
 from pathlib import PurePosixPath
+import json
+import posixpath
 import importlib.util
+import itertools
 import re
 import time
 
@@ -21,7 +24,21 @@ from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
+from ..service_contracts.graphql import (
+    CLIENTS as GRAPHQL_CLIENTS,
+    SERVERS as GRAPHQL_SERVERS,
+    GraphqlDeclaration,
+    RESOLVER_MAP_SERVERS,
+    client_operations,
+    extract_nest_resolvers,
+    extract_resolver_maps,
+    follow_reference,
+    operation_fields,
+    schema_fields,
+    template_schemas,
+)
 from ..service_contracts.http import PLACEHOLDER
+from ..service_contracts.model import Unread
 from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
@@ -204,6 +221,26 @@ MESSAGE_RULES = {
         "destination by spring.cloud.stream.bindings.<name>.destination, or by "
         "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
     ),
+    ("spring-cloud-function", "publish"): _message_rule(
+        "service-contracts.spring-cloud-function-output",
+        "A Supplier or Function @Bean (java.util.function) in a service that runs "
+        "it is bound by Spring Cloud Stream: the service's "
+        "spring.cloud.function.definition lists it, or it is the service's only "
+        "functional bean. Its <bean>-out-0 binding (or the name "
+        "spring.cloud.stream.function.bindings gives it) is bound to this "
+        "destination by spring.cloud.stream.bindings.<name>.destination, or by "
+        "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
+    ),
+    ("spring-cloud-function", "consume"): _message_rule(
+        "service-contracts.spring-cloud-function-input",
+        "A Consumer or Function @Bean (java.util.function) in a service that runs "
+        "it is bound by Spring Cloud Stream: the service's "
+        "spring.cloud.function.definition lists it, or it is the service's only "
+        "functional bean. Its <bean>-in-0 binding (or the name "
+        "spring.cloud.stream.function.bindings gives it) is bound to this "
+        "destination by spring.cloud.stream.bindings.<name>.destination, or by "
+        "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
+    ),
 }
 
 REQUEST_RULES = {
@@ -269,6 +306,48 @@ GRPC_SERVER_RULES = {
         ),
     )
 }
+GRAPHQL_RESOLVER_RULES = {
+    "nestjs-graphql": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-graphql-resolver",
+            "pattern_matched",
+            "A method of a class decorated @Resolver carries @Query, @Mutation or "
+            "@Subscription imported from @nestjs/graphql; the root field is the "
+            "decorator's literal name, the name of its options, or the method's "
+            "name, in the GraphQL server of the file's Node package.",
+        )
+    ),
+    "resolver-map": register_rule(
+        EvidenceRule(
+            "service-contracts.graphql-resolver-map",
+            "pattern_matched",
+            "In a Node package that depends on a GraphQL server taking resolver "
+            "maps (Apollo Server, graphql-tools, GraphQL Yoga, Mercurius), a "
+            "member with a literal name of an object literal under a Query, "
+            "Mutation or Subscription key resolves that root field.",
+        )
+    ),
+}
+
+GRAPHQL_DOCUMENT_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.repository-contains-graphql",
+        "resolved",
+        "The repository has this GraphQL document (*.graphql, *.gql) at this path.",
+    )
+)
+GRAPHQL_CLIENT_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.graphql-client-operation",
+        "pattern_matched",
+        "An operation in a GraphQL template or .graphql file of a Node package "
+        "that depends on a GraphQL client (Apollo Client, urql, graphql-request, "
+        "Relay) selects a root field that exactly one GraphQL server of the "
+        "repository resolves, or, when none resolves it, that exactly one "
+        "declares.",
+    )
+)
+
 GRPC_CALL_RULE = register_rule(
     EvidenceRule(
         grpc_contracts.STUB_CALL,
@@ -290,10 +369,14 @@ def _stream_endpoints(root, config, sites, repo_url):
         return [], []
     maven = MavenModules(root)
     endpoints, unread = [], []
+    placed = []
     for site in sites:
         module = _module_root(root, site.file)
         if module is None:
-            unread.append(MessageUnread(site.file, site.line, site.role, "no_module"))
+            if site.function is None:
+                unread.append(
+                    MessageUnread(site.file, site.line, site.role, "no_module")
+                )
             continue
         module = module.as_posix()
         if config.service(site.file)[0] is not None:
@@ -304,22 +387,67 @@ def _stream_endpoints(root, config, sites, repo_url):
                 for m in maven.dependents(module)
                 if config.service(f"{m}/pom.xml")[0] is not None
             ]
-        if not deploying:
+        if not deploying and site.function is None:
             unread.append(MessageUnread(site.file, site.line, site.role, "no_service"))
+        placed.append((site, module, deploying))
+    # The functional beans each service runs, for its function definition.
+    functions = {}
+    for site, _, deploying in placed:
+        if site.function is not None:
+            for current in deploying:
+                functions.setdefault(current, set()).add(site.function)
+    for site, module, deploying in placed:
         for current in deploying:
             marker = f"{current}/pom.xml"
             service = config.service(marker)[0]
             binder = maven.binder(current)
             if binder is None:
-                unread.append(
-                    MessageUnread(site.file, site.line, site.role, "binder_unknown")
-                )
+                # A functional bean outside a stream application is no binding.
+                if site.function is None or maven.binders(current):
+                    unread.append(
+                        MessageUnread(site.file, site.line, site.role, "binder_unknown")
+                    )
                 continue
+            binding = site.binding
+            if site.function is not None:
+                # spring.cloud.stream.function.definition is its older name.
+                definition = sorted(
+                    set(config.values(marker, "spring.cloud.function.definition"))
+                    | set(
+                        config.values(marker, "spring.cloud.stream.function.definition")
+                    )
+                )
+                reason = None
+                if len(definition) > 1 or any("${" in d for d in definition):
+                    reason = "function_definition_not_literal"
+                elif definition:
+                    names = [n.strip() for n in re.split(r"[;,]", definition[0])]
+                    if any("|" in n and site.function in n.split("|") for n in names):
+                        reason = "function_composed"
+                    elif site.function not in names:
+                        reason = "function_not_bound"
+                elif functions.get(current) != {site.function}:
+                    # Without a definition, only a service's single
+                    # functional bean is bound.
+                    reason = "function_not_bound"
+                renamed = config.values(
+                    marker, f"spring.cloud.stream.function.bindings.{binding}"
+                )
+                if reason is None and renamed:
+                    if len(renamed) == 1 and "${" not in renamed[0]:
+                        binding = renamed[0]
+                    else:
+                        reason = "binding_not_literal"
+                if reason is not None:
+                    unread.append(
+                        MessageUnread(site.file, site.line, site.role, reason)
+                    )
+                    continue
             configured = config.values(
-                marker, f"spring.cloud.stream.bindings.{site.binding}.destination"
+                marker, f"spring.cloud.stream.bindings.{binding}.destination"
             )
             if not configured:
-                destination = site.binding
+                destination = binding
             elif len(configured) == 1 and "${" not in configured[0]:
                 destination = configured[0]
             else:
@@ -347,7 +475,11 @@ def _stream_endpoints(root, config, sites, repo_url):
                     role=site.role,
                     broker=binder,
                     destination=destination,
-                    client="spring-cloud-stream",
+                    client=(
+                        "spring-cloud-stream"
+                        if site.function is None
+                        else "spring-cloud-function"
+                    ),
                     module=None if current == module else current,
                     service=None if current == module else service,
                 )
@@ -422,6 +554,72 @@ def _node_package(root, file):
         if path == path.parent:
             return None
         path = path.parent
+
+
+def _package_dependencies(root, package):
+    """Names of the dependencies a package.json lists, of every kind."""
+    try:
+        manifest = json.loads(
+            (root / (package or ".") / "package.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return frozenset()
+    if not isinstance(manifest, dict):
+        return frozenset()
+    names = set()
+    for kind in ("dependencies", "devDependencies", "peerDependencies"):
+        found = manifest.get(kind)
+        if isinstance(found, dict):
+            names.update(found)
+    return frozenset(names)
+
+
+_MODULE_SUFFIXES = ("", ".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx")
+
+
+def _follow_resolver_maps(root, sources, references, repo_url, definitions):
+    """Root fields of the modules that resolver map keys name (``{Query}``
+    bound to ``require('./query')`` or an import of it). Only relative
+    modules found in the repository are followed; any other is unread."""
+    by_file = {
+        coverage.file: (coverage, content, tree) for coverage, content, tree in sources
+    }
+    resolvers, unread = [], []
+    for reference in references:
+        target = None
+        if reference.module.startswith("."):
+            base = PurePosixPath(reference.file).parent / reference.module
+            candidates = [f"{base}{suffix}" for suffix in _MODULE_SUFFIXES] + [
+                f"{base}/index{suffix}" for suffix in _MODULE_SUFFIXES[1:]
+            ]
+            for candidate in candidates:
+                normalized = posixpath.normpath(candidate)
+                if normalized in by_file:
+                    target = by_file[normalized]
+                    break
+        if target is None:
+            unread.append(
+                Unread(
+                    reference.file,
+                    reference.line,
+                    "graphql",
+                    "resolver_map_not_literal",
+                )
+            )
+            continue
+        coverage, content, tree = target
+        found = follow_reference(
+            reference,
+            tree,
+            content,
+            repo_url,
+            coverage.file,
+            definitions,
+            coverage.language,
+        )
+        resolvers.extend(found[0])
+        unread.extend(found[1])
+    return resolvers, unread
 
 
 def _nest_applications(root, sources):
@@ -519,6 +717,15 @@ class ServiceContractTool(AnalysisTool):
         root = self.repo_path.resolve()
         routes, requests, unread = [], [], []
         endpoints, messaging_unread, stream_sites = [], [], []
+        graphql_resolvers = []
+        graphql_declared = []
+        resolver_map_packages = {}
+        resolver_references = []
+        partial_scripts = []
+        graphql_requests = []
+        graphql_documents = {}
+        client_packages = {}
+        server_packages = {}
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -528,6 +735,12 @@ class ServiceContractTool(AnalysisTool):
         sources = []
         for coverage in result.coverage:
             if coverage.status != "analyzed":
+                if (
+                    coverage.status == "partial"
+                    and coverage.language in ("javascript", "typescript")
+                    and not _is_test_source(coverage.file)
+                ):
+                    partial_scripts.append(coverage.file)
                 continue
             if _is_test_source(coverage.file):
                 test_files += 1
@@ -630,12 +843,113 @@ class ServiceContractTool(AnalysisTool):
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])
-            if coverage.language == "java" and b"cloud.stream" in content:
+            if coverage.language == "typescript" and b"@nestjs/graphql" in content:
+                found = extract_nest_resolvers(
+                    tree,
+                    content,
+                    repo_url,
+                    coverage.file,
+                    result.definitions,
+                    coverage.language,
+                )
+                graphql_resolvers.extend(found[0])
+                unread.extend(found[1])
+            if coverage.language in ("javascript", "typescript") and any(
+                needle in content for needle in (b"Query", b"Mutation", b"Subscription")
+            ):
+                package = _node_package(root, coverage.file)
+                if package not in resolver_map_packages:
+                    resolver_map_packages[package] = bool(
+                        _package_dependencies(root, package) & RESOLVER_MAP_SERVERS
+                    )
+                if resolver_map_packages[package]:
+                    found = extract_resolver_maps(
+                        tree,
+                        content,
+                        repo_url,
+                        coverage.file,
+                        result.definitions,
+                        coverage.language,
+                    )
+                    graphql_resolvers.extend(found[0])
+                    unread.extend(found[1])
+                    resolver_references.extend(found[2])
+                    found = template_schemas(tree, content, coverage.file)
+                    graphql_declared.extend(found[0])
+                    unread.extend(found[1])
+            if coverage.language in ("javascript", "typescript") and any(
+                needle in content for needle in (b"gql", b"graphql", b"GraphQL")
+            ):
+                package = _node_package(root, coverage.file)
+                if package not in client_packages:
+                    client_packages[package] = bool(
+                        _package_dependencies(root, package) & GRAPHQL_CLIENTS
+                    )
+                if client_packages[package]:
+                    found = client_operations(
+                        tree,
+                        content,
+                        repo_url,
+                        coverage.file,
+                        result.definitions,
+                        coverage.language,
+                    )
+                    graphql_requests.extend(found[0])
+                    unread.extend(found[1])
+            if coverage.language == "java" and (
+                b"cloud.stream" in content
+                or (b"java.util.function" in content and b"@Bean" in content)
+            ):
                 found = extract_stream(
                     tree, content, coverage.file, result.definitions, constants
                 )
                 stream_sites.extend(found[0])
                 messaging_unread.extend(found[1])
+        for path in sorted(
+            p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)
+        ):
+            relative = path.relative_to(root)
+            if any(
+                part.startswith(".") or part in ("node_modules", "vendor")
+                for part in relative.parts
+            ):
+                continue
+            raw = path.read_bytes()
+            source = raw.decode("utf-8", errors="replace")
+            graphql_documents[relative.as_posix()] = sha256(raw).hexdigest()
+            found = schema_fields(source, relative.as_posix())
+            graphql_declared.extend(found[0])
+            unread.extend(found[1])
+            package = _node_package(root, relative.as_posix())
+            if package not in client_packages:
+                client_packages[package] = bool(
+                    _package_dependencies(root, package) & GRAPHQL_CLIENTS
+                )
+            if client_packages[package]:
+                found = operation_fields(source, relative.as_posix())
+                graphql_requests.extend(found[0])
+                unread.extend(found[1])
+        # A script the grammar could not fully parse is not read; in a package
+        # with resolver maps it may hold some, so its fields are unknown.
+        for file in partial_scripts:
+            package = _node_package(root, file)
+            if package not in resolver_map_packages:
+                resolver_map_packages[package] = bool(
+                    _package_dependencies(root, package) & RESOLVER_MAP_SERVERS
+                )
+            try:
+                content = (root / file).read_bytes()
+            except OSError:
+                continue
+            if resolver_map_packages[package] and any(
+                key in content for key in (b"Query", b"Mutation", b"Subscription")
+            ):
+                unread.append(Unread(file, 1, "graphql", "source_not_parsed"))
+        found = _follow_resolver_maps(
+            root, sources, resolver_references, repo_url, result.definitions
+        )
+        graphql_resolvers.extend(found[0])
+        unread.extend(found[1])
         found = _stream_endpoints(root, config, stream_sites, repo_url)
         endpoints.extend(found[0])
         messaging_unread.extend(found[1])
@@ -665,6 +979,35 @@ class ServiceContractTool(AnalysisTool):
         files, symbols, nodes, relationships = {}, {}, [], []
 
         def file_node(path):
+            if path not in files and path in graphql_documents:
+                # A GraphQL document no language tool reads: the repository
+                # contains it.
+                qualified = f"{repo_url}::{path}::file"
+                files[path] = NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": qualified,
+                        "repo_url": repo_url,
+                        "path": path,
+                        "file_path": path,
+                        "name": path,
+                        "language": "graphql",
+                        "file_sha256": graphql_documents[path],
+                    },
+                )
+                relationships.append(
+                    RelationshipData(
+                        "CONTAINS",
+                        ["Repository"],
+                        {
+                            "qualified_name": f"{repo_url}::repository",
+                            "repo_url": repo_url,
+                        },
+                        ["File"],
+                        {"qualified_name": qualified, "repo_url": repo_url},
+                        _evidence(GRAPHQL_DOCUMENT_RULE),
+                    )
+                )
             if path not in files:
                 coverage = languages_by_file[path]
                 files[path] = NodeData(
@@ -811,6 +1154,167 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        graphql_fields = {}
+        for item in graphql_declared + graphql_resolvers:
+            scope = _node_package(root, item.file) or "."
+            graphql_fields.setdefault((scope, item.operation, item.field), [[], []])
+            index = 0 if isinstance(item, GraphqlDeclaration) else 1
+            graphql_fields[(scope, item.operation, item.field)][index].append(item)
+        declaring_scopes = {
+            scope
+            for scope, _, _ in graphql_fields
+            if any(graphql_fields[k][0] for k in graphql_fields if k[0] == scope)
+        }
+        # A package with a resolver map the tool cannot list may resolve any
+        # field: its declared fields without a read resolver are unknown.
+        opaque_scopes = {
+            _node_package(root, u.file) or "."
+            for u in unread
+            if u.kind == "graphql"
+            and u.reason
+            in ("resolver_map_not_literal", "resolver_spread", "source_not_parsed")
+        }
+        graphql_unread = {}
+        for (scope, operation, field), (declared, resolving) in sorted(
+            graphql_fields.items()
+        ):
+            full = f"{operation}.{field}"
+            name = f"{repo_url}::graphql::{scope}::{full}"
+            first = (declared or resolving)[0]
+            if not resolving:
+                reason = (
+                    "resolution_unknown"
+                    if scope in opaque_scopes
+                    else "declared_not_resolved"
+                )
+                graphql_unread[reason] = graphql_unread.get(reason, 0) + 1
+            elif not declared and scope in declaring_scopes:
+                graphql_unread["resolved_not_declared"] = (
+                    graphql_unread.get("resolved_not_declared", 0) + 1
+                )
+            nodes.append(
+                NodeData(
+                    ["GraphqlField", "Contract"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "protocol": "graphql",
+                        "name": full,
+                        "display_name": full,
+                        "operation": operation,
+                        "field": field,
+                        "scope": scope,
+                        "file_path": first.file,
+                        "line": first.line,
+                        **(
+                            {"declared_in": [f"{d.file}:{d.line}" for d in declared]}
+                            if declared
+                            else {}
+                        ),
+                    },
+                )
+            )
+            for resolver in resolving:
+                if resolver.handler_id is None:
+                    labels, source = file_node(resolver.file)
+                else:
+                    labels, source = symbol_node(resolver.handler_id)
+                relationships.append(
+                    RelationshipData(
+                        "HANDLES",
+                        labels,
+                        {"qualified_name": source, "repo_url": repo_url},
+                        ["GraphqlField", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {
+                            "line": resolver.line,
+                            "column": resolver.column,
+                            **_evidence(GRAPHQL_RESOLVER_RULES[resolver.framework]),
+                        },
+                    )
+                )
+        # Each root field a client selects, to a server of the group nearest
+        # the client: the server packages whose common directory with the
+        # client's package is deepest. In that group, the one server that
+        # resolves the field, or else the one that declares it.
+        server_scopes = {
+            scope
+            for (scope, _, _), (_, resolving) in graphql_fields.items()
+            if resolving
+        } | opaque_scopes
+        for coverage, _, _ in sources:
+            if coverage.language not in ("javascript", "typescript"):
+                continue
+            package = _node_package(root, coverage.file)
+            if package not in server_packages:
+                server_packages[package] = bool(
+                    _package_dependencies(root, package) & GRAPHQL_SERVERS
+                )
+            if server_packages[package]:
+                server_scopes.add(package or ".")
+        resolving_scopes, declaring_scopes_by_field = {}, {}
+        for (scope, operation, field), (declared, resolving) in graphql_fields.items():
+            if resolving:
+                resolving_scopes.setdefault((operation, field), set()).add(scope)
+            elif declared:
+                declaring_scopes_by_field.setdefault((operation, field), set()).add(
+                    scope
+                )
+
+        def nearest(package):
+            parts = PurePosixPath(package or ".").parts
+            depth = {
+                scope: len(
+                    list(
+                        itertools.takewhile(
+                            lambda pair: pair[0] == pair[1],
+                            zip(parts, PurePosixPath(scope).parts),
+                        )
+                    )
+                )
+                for scope in server_scopes
+            }
+            deepest = max(depth.values(), default=0)
+            return {scope for scope, d in depth.items() if d == deepest}
+
+        groups = {}
+        for request in graphql_requests:
+            package = _node_package(root, request.file)
+            if package not in groups:
+                groups[package] = nearest(package)
+            group = groups[package]
+            key = (request.operation, request.field)
+            scopes = sorted(resolving_scopes.get(key, set()) & group) or sorted(
+                declaring_scopes_by_field.get(key, set()) & group
+            )
+            if len(scopes) != 1:
+                reason = "client_field_ambiguous" if scopes else "client_field_unknown"
+                graphql_unread[reason] = graphql_unread.get(reason, 0) + 1
+                continue
+            full = f"{request.operation}.{request.field}"
+            if request.caller_id is None:
+                labels, source = file_node(request.file)
+            else:
+                labels, source = symbol_node(request.caller_id)
+            relationships.append(
+                RelationshipData(
+                    "REQUESTS",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GraphqlField", "Contract"],
+                    {
+                        "qualified_name": f"{repo_url}::graphql::{scopes[0]}::{full}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "request": full,
+                        **({"operation_name": request.name} if request.name else {}),
+                        "line": request.line,
+                        "column": request.column,
+                        **_evidence(GRAPHQL_CLIENT_RULE),
+                    },
+                )
+            )
         grpc_names = {}
         for (service, method), declared in sorted(grpc.index.methods.items()):
             full = f"{service}/{method}"
@@ -953,6 +1457,8 @@ class ServiceContractTool(AnalysisTool):
                     # No controller in the repository overrides it.
                     key = "openapi:operation_not_handled"
                     unread_counts[key] = unread_counts.get(key, 0) + 1
+        for reason, count in graphql_unread.items():
+            unread_counts[f"graphql:{reason}"] = count
         for item in openapi_unread:
             key = f"openapi:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
@@ -999,6 +1505,8 @@ class ServiceContractTool(AnalysisTool):
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 "test_source_files_skipped": test_files,
+                "graphql_fields": len(graphql_fields),
+                "graphql_requests": len(graphql_requests),
                 "grpc_methods": len(grpc.index.methods),
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),

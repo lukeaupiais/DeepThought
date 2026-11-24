@@ -235,6 +235,8 @@ def extract(
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
                 arity = {"macro_export": _rust_macro_export(node)}
+            elif node.type == "function_definition" and _python_overload(node, content):
+                arity = {"overload": True}
             definition = Definition(
                 id=identifier(repository_id, file, symbol, kind, ordinal),
                 file=file,
@@ -457,22 +459,34 @@ def extract_c(
 _CPP_CLASS_MACRO = re.compile(
     rb"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'"
     rb"|\b(?:class|struct|union)\s+(?P<macro>[A-Za-z_]\w*)"
-    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])",
+    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])"
+    # A line holding only an upper-case name with an underscore
+    # (`FMT_BEGIN_EXPORT`, `FMT_CONSTEXPR` before a declaration on the next
+    # line): a macro, which the grammar would read as a type.
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<line>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[ \t]*(?=\r?\n|\Z)"
+    # The same name before a constructor or destructor on its line
+    # (`FMT_CONSTEXPR explicit checker(...) : a(1) {`): read as a return
+    # type, it makes the member initializers a parse error that ends the
+    # class early.
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<ctor>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"
+    rb"(?=[ \t]+(?:(?:explicit|constexpr|inline)[ \t]+)*~?[A-Za-z_]\w*[ \t]*\()",
     re.DOTALL,
 )
 
 
 def prepare_source(language: str, content: bytes) -> bytes:
     """The text the grammar parses. For C++, a macro between a class key
-    and the class's name (``class API Name {``) is replaced with spaces, so
-    offsets, lines and every other byte are kept; other languages are
-    parsed as written."""
+    and the class's name (``class API Name {``) and a line holding only an
+    upper-case macro name are replaced with spaces, so offsets, lines and
+    every other byte are kept; other languages are parsed as written."""
     if language != "cpp":
         return content
 
     def blank(match):
-        # A comment or literal has no macro: its span is empty.
-        start, end = match.span("macro")
+        group = next((g for g in ("macro", "line", "ctor") if match.group(g)), None)
+        if group is None:  # a comment or literal
+            return match.group(0)
+        start, end = match.span(group)
         whole = match.group(0)
         offset = start - match.start()
         return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
@@ -586,8 +600,26 @@ def _cpp_declarators(node):
     declarator: when an error node holds one declarator, that is the one
     declared. ``API T f();`` puts the type ``T`` in the error node and keeps
     ``f``, so ``int x GUARDED_BY(m);``, which has the same shape, reads as a
-    function ``GUARDED_BY``."""
+    function ``GUARDED_BY``.
+
+    Two shapes declare no function. A class defined in the declaration
+    (``class C {...} f();``) cannot be a function's return type in C++, so
+    its declarators are text after a body the grammar closed early. A
+    declarator after a bit-field width (``F() : size_(n), cap_(n) {}``, a
+    constructor's member initializers after a macro the grammar does not
+    know) is not a function either.
+    """
+    written = node.child_by_field_name("type")
+    if (
+        written is not None
+        and written.type in _CPP_CLASSES
+        and written.child_by_field_name("body") is not None
+    ):
+        return []
     declarators = node.children_by_field_name("declarator")
+    width = next((c for c in node.children if c.type == "bitfield_clause"), None)
+    if width is not None:
+        declarators = [d for d in declarators if d.start_byte < width.start_byte]
     errors = [c for c in node.children if c.type == "ERROR"]
     if (
         len(declarators) == 1
@@ -596,6 +628,13 @@ def _cpp_declarators(node):
     ):
         return [errors[0].named_children[0]]
     return declarators
+
+
+def _cpp_names_class(declarator, scope, content) -> bool:
+    """Whether a function declarator declares a constructor of the class
+    whose symbol ends ``scope`` (empty in an unnamed class)."""
+    name = declarator.child_by_field_name("declarator")
+    return name is not None and bool(scope) and _text(name, content) == scope[-1]
 
 
 def extract_cpp(
@@ -727,7 +766,12 @@ def extract_cpp(
             if body is None:
                 continue
             name = node.child_by_field_name("name")
-            parts = _cpp_name(name, content) if name is not None else None
+            # `enum : unsigned {` parses with a missing name.
+            parts = (
+                _cpp_name(name, content)
+                if name is not None and not name.is_missing
+                else None
+            )
             inner = scope
             if parts is not None:
                 written, text, name_node = parts
@@ -747,6 +791,13 @@ def extract_cpp(
             in {"function_declarator", "pointer_declarator", "reference_declarator"}
             and node.parent is not None
             and node.parent.type == "ERROR"
+            # With nothing before it, `M(a, b);` is a macro's invocation,
+            # unless it names the class it is in: a constructor
+            # (`C(int n) : #if ...`).
+            and (
+                node.prev_named_sibling is not None
+                or (in_class and _cpp_names_class(node, scope, content))
+            )
         ):
             # A function's declarator standing alone in text the grammar
             # could not parse (see extract_c).
@@ -825,11 +876,14 @@ def extract_ruby(
         if nodes is not None:
             nodes[definition.id] = (node, name_node)
 
-    # (node, scope, inside a class or module body)
-    stack = [(tree.root_node, (), False)]
+    # (node, scope, inside a class or module body, inside a method body)
+    stack = [(tree.root_node, (), False, False)]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, in_def = stack.pop()
         kind = _RUBY_SCOPES.get(node.type)
+        if kind is not None and in_def:
+            # Ruby does not allow a class or module in a method body.
+            continue
         if kind is not None:
             name = node.child_by_field_name("name")
             path = _ruby_constant_path(name, content) if name is not None else None
@@ -839,17 +893,30 @@ def extract_ruby(
             inner = (*(() if absolute else scope), *names)
             last = name.child_by_field_name("name") if name.type != "constant" else name
             add(node, last, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend((c, inner, True, False) for c in reversed(node.named_children))
             continue
         if node.type in {"method", "singleton_method"}:
             name = node.child_by_field_name("name")
             if name is not None:
                 text = _text(name, content)
                 symbol = ".".join((*scope, text))
-                add(node, name, symbol, "Method" if in_type else "Function")
-            # A def in a method body is defined when the method runs.
+                # A receiver (`def obj.m`) makes it a method of that object.
+                method = in_type or node.type == "singleton_method"
+                add(node, name, symbol, "Method" if method else "Function")
+            # A def in a method body defines its method when that method
+            # runs, under the same scope.
+            stack.extend(
+                (c, scope, in_type, True) for c in reversed(node.named_children)
+            )
             continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        if node.type == "singleton_class":
+            # `class << obj` opens the object's singleton class: its defs are
+            # methods.
+            stack.extend(
+                (c, scope, True, in_def) for c in reversed(node.named_children)
+            )
+            continue
+        stack.extend((c, scope, in_type, in_def) for c in reversed(node.named_children))
     return found
 
 
@@ -859,10 +926,6 @@ _PHP_TYPES = {
     "trait_declaration": "Trait",
     "enum_declaration": "Enum",
 }
-# Bodies run later, so what they declare is declared when they run. (An
-# arrow function's body is an expression, which declares nothing outside
-# these.)
-_PHP_BODIES = {"anonymous_function", "anonymous_class"}
 
 
 def extract_php(
@@ -875,9 +938,11 @@ def extract_php(
     namespace statement, or a braced ``namespace A\\B { }``) and the
     enclosing class-like declaration with ``.``. Declarations in a
     conditional block (``if (!function_exists('f')) { function f() {} }``)
-    are recorded; those in a function or method body, a closure or an
-    anonymous class are not, since PHP declares them only when that code
-    runs. ``nodes`` receives id -> (node, name).
+    are recorded, and so are those in a function or method body or a
+    closure: PHP declares them in the current namespace when that code runs,
+    so their symbols are namespace-qualified. An anonymous class's methods
+    are named by the path to the class (``N.C.make.handle`` for one in
+    ``C::make``). ``nodes`` receives id -> (node, name).
     """
     found, ordinals = [], {}
 
@@ -914,26 +979,60 @@ def extract_php(
             items.append((child, scope, False))
         return items
 
-    # (node, scope, inside a class-like body)
-    stack = list(reversed(children(tree.root_node, ())))
+    # (node, scope, inside a class-like body, namespace, lexical path): a
+    # function or class declared in a body goes to the namespace, and an
+    # anonymous class's methods are named by the path to where it is.
+    stack = [(n, s, t, s, s) for n, s, t in reversed(children(tree.root_node, ()))]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, namespace, path = stack.pop()
         kind = _PHP_TYPES.get(node.type)
         if kind is not None:
             name = node.child_by_field_name("name")
             inner = (*scope, _text(name, content))
             add(node, name, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend(
+                (c, inner, True, namespace, inner)
+                for c in reversed(node.named_children)
+            )
+            continue
+        if node.type == "anonymous_class":
+            stack.extend(
+                (c, path, True, namespace, path) for c in reversed(node.named_children)
+            )
             continue
         if node.type in {"function_definition", "method_declaration"}:
             name = node.child_by_field_name("name")
-            symbol = ".".join((*scope, _text(name, content)))
-            add(node, name, symbol, "Method" if in_type else "Function")
+            symbol = (*scope, _text(name, content))
+            add(node, name, ".".join(symbol), "Method" if in_type else "Function")
+            stack.extend(
+                (c, namespace, False, namespace, symbol)
+                for c in reversed(node.named_children)
+            )
             continue
-        if node.type in _PHP_BODIES:
-            continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        stack.extend(
+            (c, scope, in_type, namespace, path) for c in reversed(node.named_children)
+        )
     return found
+
+
+# `@overload`, `@typing.overload` and the usual module aliases.
+_PYTHON_OVERLOADS = {
+    "overload",
+    "typing.overload",
+    "t.overload",
+    "typing_extensions.overload",
+}
+
+
+def _python_overload(node, content) -> bool:
+    """Whether a Python function is a ``typing.overload`` signature, which
+    declares a call form and is not the function that runs."""
+    parent = node.parent
+    return parent is not None and any(
+        child.type == "decorator"
+        and _text(child, content).lstrip("@").strip() in _PYTHON_OVERLOADS
+        for child in parent.children
+    )
 
 
 def _rust_macro_export(node):
@@ -1746,6 +1845,193 @@ def _java_anonymous(node, content, spans, symbols):
     return tuple(found) or None
 
 
+_GO_FUNCTIONS = {"function_declaration", "method_declaration", "func_literal"}
+# Nodes that bound the scope of what is declared directly in them.
+_GO_SCOPES = _GO_FUNCTIONS | {
+    "block",
+    "if_statement",
+    "for_statement",
+    "expression_switch_statement",
+    "type_switch_statement",
+    "expression_case",
+    "type_case",
+    "default_case",
+    "communication_case",
+}
+
+
+def _go_type_name(node, content):
+    """``T`` or ``pkg.T`` for a Go named type, through a pointer and type
+    arguments; None for any other type."""
+    while node is not None and node.type in {"pointer_type", "generic_type"}:
+        node = (
+            next((c for c in node.named_children if c.type != "type_arguments"), None)
+            if node.type == "pointer_type"
+            else node.child_by_field_name("type")
+        )
+    if node is None:
+        return None
+    if node.type == "type_identifier":
+        return _text(node, content)
+    if node.type == "qualified_type":
+        package = node.child_by_field_name("package")
+        name = node.child_by_field_name("name")
+        if package is not None and name is not None:
+            return f"{_text(package, content)}.{_text(name, content)}"
+    return None
+
+
+def _go_value_type(node, content):
+    """The type of a Go value whose type is written in it: ``T{...}``,
+    ``&T{...}``, ``new(T)`` and ``make(T)``; None for any other value."""
+    if node is None:
+        return None
+    if node.type == "unary_expression" and _text(node, content).startswith("&"):
+        node = node.child_by_field_name("operand")
+        if node is None or node.type != "composite_literal":
+            return None
+    if node.type == "composite_literal":
+        return _go_type_name(node.child_by_field_name("type"), content)
+    if node.type == "call_expression":
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if (
+            function is not None
+            and _text(function, content) in {"new", "make"}
+            and arguments is not None
+            and len(arguments.named_children) == 1
+        ):
+            return _go_type_name(arguments.named_children[0], content)
+    return None
+
+
+def _go_declarations(function, name, content):
+    """Each declaration of ``name`` in a Go function and the functions
+    nested in it, as (scope node, visible from, type or None): parameters,
+    receivers and named results are visible in the whole function; any
+    other declaration is visible after it, in the innermost scope around
+    it. The type is the one the declaration writes."""
+    found = []
+    stack = [function]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        names, kind, values = [], None, []
+        if node.type in {"parameter_declaration", "variadic_parameter_declaration"}:
+            # A function type's parameters (`func(c T)`) enclose no call.
+            owner = node.parent.parent if node.parent is not None else None
+            if owner is None:
+                continue
+            names = node.children_by_field_name("name")
+            written = node.child_by_field_name("type")
+            kind = (
+                _go_type_name(written, content)
+                if node.type == "parameter_declaration"
+                else None
+            )
+            for declared in names:
+                if _text(declared, content) == name:
+                    found.append((owner, (0, 0), kind))
+            continue
+        if node.type in {"var_spec", "const_spec"}:
+            names = node.children_by_field_name("name")
+            written = node.child_by_field_name("type")
+            value = node.child_by_field_name("value")
+            values = value.named_children if value is not None else []
+            kind = _go_type_name(written, content) if written is not None else None
+        elif node.type in {
+            "short_var_declaration",
+            "range_clause",
+            "receive_statement",
+        }:
+            left = node.child_by_field_name("left")
+            names = left.named_children if left is not None else []
+            right = node.child_by_field_name("right")
+            if node.type == "short_var_declaration" and right is not None:
+                values = right.named_children
+        elif node.type == "type_switch_statement":
+            alias = node.child_by_field_name("alias")
+            names = alias.named_children if alias is not None else []
+        else:
+            continue
+        for index, declared in enumerate(names):
+            if _text(declared, content) != name:
+                continue
+            typed = kind
+            if typed is None and len(values) == len(names):
+                typed = _go_value_type(values[index], content)
+            scope = node.parent
+            while scope is not None and scope.type not in _GO_SCOPES:
+                scope = scope.parent
+            if node.type == "type_switch_statement":
+                scope = node
+            visible = (
+                (node.start_point.row, node.start_point.column)
+                if node.type in {"range_clause", "type_switch_statement"}
+                else (node.end_point.row, node.end_point.column)
+            )
+            found.append((scope, visible, typed))
+    return found
+
+
+def _go_local_types(function, content):
+    """Names of the types declared in a Go function."""
+    names, stack = set(), [function]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type == "type_spec":
+            name = node.child_by_field_name("name")
+            if name is not None:
+                names.add(_text(name, content))
+    return names
+
+
+def _go_receiver_type(node, content, callee, cache):
+    """For a Go call ``x.M()`` where ``x`` is declared in the outermost
+    function around it (a function literal at package level too), the type
+    that declaration writes (``T`` or ``pkg.T``); None when ``x`` is not
+    declared there or its declaration writes no named type."""
+    parts = callee.split(".")
+    if len(parts) != 2:
+        return None
+    outer, ancestor = None, node.parent
+    while ancestor is not None:
+        if ancestor.type in _GO_FUNCTIONS:
+            outer = ancestor
+        ancestor = ancestor.parent
+    if outer is None:
+        return None
+    key = (outer.id, parts[0])
+    if key not in cache:
+        cache[key] = _go_declarations(outer, parts[0], content)
+    at = (node.start_point.row, node.start_point.column)
+    best, depth = None, -1
+    for scope, visible, kind in cache[key]:
+        if not (
+            scope.start_byte <= node.start_byte and node.end_byte <= scope.end_byte
+        ):
+            continue
+        if visible > at:
+            continue
+        level, up = 0, scope
+        while up is not None:
+            level, up = level + 1, up.parent
+        # In one scope, a later `x, err :=` reuses the first x.
+        if level > depth:
+            best, depth = (visible, kind), level
+    if best is None or best[1] is None:
+        return None
+    kind = best[1]
+    if "." not in kind:
+        types = ("types", outer.id)
+        if types not in cache:
+            cache[types] = _go_local_types(outer, content)
+        if kind in cache[types]:
+            return None
+    return kind
+
+
 def extract_call_sites(
     tree,
     content: bytes,
@@ -1774,7 +2060,10 @@ def extract_call_sites(
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
     python = tree.root_node.type == "module"
-    sites, ordinals, bindings = [], {}, {}
+    go = not rust and any(
+        c.type == "package_clause" for c in tree.root_node.named_children
+    )
+    sites, ordinals, bindings, receivers = [], {}, {}, {}
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
@@ -1803,6 +2092,11 @@ def extract_call_sites(
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python
+                        else None,
+                        receiver_type=_go_receiver_type(
+                            node, content, callee, receivers
+                        )
+                        if go
                         else None,
                     )
                 )

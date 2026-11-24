@@ -1,0 +1,254 @@
+{
+ "corpus": "apollo-fullstack-tutorial",
+ "repo": "https://github.com/apollographql/fullstack-tutorial",
+ "commit": "fca98dec747244a6cd08e3611f826db01617e208",
+ "license": "MIT",
+ "languages": [
+  "TypeScript (React, Apollo Client)",
+  "JavaScript (Apollo Server)"
+ ],
+ "sources": [
+  "graphql-core parse of every gql/graphql template literal and .graphql/.gql file under the client roots, and of the server schemas; tools/graphql_client_oracle.py with the spec in evals/fixtures/service_contracts/graphql-specs.json",
+  "manual reading of final/client/src/index.tsx (ApolloClient uri http://localhost:4000/graphql), final/server/src/index.js and the start/ packages at the pinned commit"
+ ],
+ "services": [
+  {
+   "name": "server",
+   "root": "final/server"
+  },
+  {
+   "name": "start-server",
+   "root": "start/server"
+  },
+  {
+   "name": "client",
+   "root": "final/client"
+  },
+  {
+   "name": "start-client",
+   "root": "start/client"
+  }
+ ],
+ "summary": {
+  "graphql": {
+   "in_scope": 7,
+   "out_of_scope": 0
+  },
+  "service_pairs_in_scope": [
+   [
+    "client",
+    "server",
+    "graphql"
+   ]
+  ]
+ },
+ "links": [
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Mutation.cancelTrip",
+   "client": {
+    "file": "final/client/src/containers/action-button.tsx",
+    "line": 18
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 24
+   },
+   "evidence": "operation cancel",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#1"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Mutation.bookTrips",
+   "client": {
+    "file": "final/client/src/containers/book-trips.tsx",
+    "line": 11
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 21
+   },
+   "evidence": "operation BookTrips",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#2"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Query.launch",
+   "client": {
+    "file": "final/client/src/containers/cart-item.tsx",
+    "line": 10
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 15
+   },
+   "evidence": "operation GetLaunch",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#3"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Query.launch",
+   "client": {
+    "file": "final/client/src/pages/launch.tsx",
+    "line": 12
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 15
+   },
+   "evidence": "operation LaunchDetails",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#4"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Query.launches",
+   "client": {
+    "file": "final/client/src/pages/launches.tsx",
+    "line": 25
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 5
+   },
+   "evidence": "operation GetLaunchList",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#5"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Mutation.login",
+   "client": {
+    "file": "final/client/src/pages/login.tsx",
+    "line": 10
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 26
+   },
+   "evidence": "operation Login",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#6"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "server",
+   "contract": "Query.me",
+   "client": {
+    "file": "final/client/src/pages/profile.tsx",
+    "line": 10
+   },
+   "server": {
+    "file": "final/server/src/schema.js",
+    "line": 16
+   },
+   "evidence": "operation GetMyTrips",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "apollo-fullstack-tutorial#7"
+  }
+ ],
+ "dont_care_call_sites": [
+  {
+   "file": "final/server/src/__tests__/e2e.js",
+   "line": 9,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "final/server/src/__tests__/e2e.js",
+   "line": 23,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "final/server/src/__tests__/integration.js",
+   "line": 13,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "final/server/src/__tests__/integration.js",
+   "line": 33,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "final/server/src/__tests__/integration.js",
+   "line": 48,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "final/server/src/__tests__/integration.js",
+   "line": 56,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "start/server/src/__tests__/e2e.js",
+   "line": 9,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "start/server/src/__tests__/e2e.js",
+   "line": 23,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "start/server/src/__tests__/integration.js",
+   "line": 13,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "start/server/src/__tests__/integration.js",
+   "line": 33,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "start/server/src/__tests__/integration.js",
+   "line": 48,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  },
+  {
+   "file": "start/server/src/__tests__/integration.js",
+   "line": 56,
+   "reason": "server's own tests run the operation against an in-process ApolloServer"
+  }
+ ],
+ "notes": [
+  "final/ and start/ are separate apps. start/ is the tutorial's starting point: start/server/src/schema.js is empty, so the one operation in start/client (cart-item.tsx, Query.launch) has no server that declares the field. It is listed under unmatched_clients: linking it to final/server would join two apps that are never deployed together.",
+  "Fields marked @client (isLoggedIn, cartItems) are Apollo local state and are not call sites."
+ ],
+ "unmatched_clients": [
+  {
+   "file": "start/client/src/containers/cart-item.tsx",
+   "line": 10,
+   "contract": "Query.launch"
+  }
+ ],
+ "ambiguous_clients": []
+}

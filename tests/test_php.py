@@ -86,9 +86,12 @@ class PhpTests(unittest.TestCase):
                 # the class.
                 ("a.php", 6, "App.Http.Controller", "Class"),
                 ("a.php", 10, "App.Http.Controller.handle", "Method"),
-                # A closure, an anonymous class and a method body declare
-                # what is in them only when they run.
                 ("a.php", 11, "App.Http.Controller.make", "Method"),
+                # What a body or closure declares goes to the namespace when
+                # it runs.
+                ("a.php", 12, "App.Http.in_closure", "Function"),
+                # An anonymous class's methods are named by where it is.
+                ("a.php", 14, "App.Http.Controller.make.anonymous", "Method"),
                 # A keyword can name a method.
                 ("a.php", 16, "App.Http.Controller.list", "Method"),
                 ("a.php", 18, "App.Http.Contract", "Interface"),
@@ -97,10 +100,15 @@ class PhpTests(unittest.TestCase):
                 ("a.php", 19, "App.Http.Helpers.help", "Method"),
                 ("a.php", 20, "App.Http.Suit", "Enum"),
                 ("a.php", 22, "App.Http.Suit.label", "Method"),
+                ("a.php", 22, "App.Http.nested", "Function"),
+                ("a.php", 22, "App.Http.InBody", "Class"),
                 # Both branches of a conditional declaration.
                 ("a.php", 25, "App.Http.helper", "Function"),
                 ("a.php", 27, "App.Http.helper", "Function"),
                 ("a.php", 29, "App.Http.top", "Function"),
+                ("a.php", 30, "App.Http.in_closure", "Function"),
+                ("a.php", 31, "App.Http.in_arrow", "Method"),
+                ("a.php", 32, "App.Http.in_anonymous_class", "Method"),
                 # A namespace statement scopes what follows, up to the next.
                 ("b.php", 3, "First.a", "Function"),
                 ("b.php", 5, "Second.b", "Function"),
@@ -130,7 +138,7 @@ class PhpTests(unittest.TestCase):
             # Two files declaring one type.
             "a/Twice.php": "<?php\nnamespace App;\ntrait Twice {}\n",
             "b/Twice.php": "<?php\nnamespace App;\ntrait Twice {}\n",
-            # A class in a function body is declared only when it runs.
+            # A class in a function body.
             "src/Late.php": "<?php\nnamespace App;\n"
             "function make() { class Late {} }\n",
             "src/main.php": "<?php\n"
@@ -247,7 +255,14 @@ class PhpTests(unittest.TestCase):
                     None,
                     (),
                 ),
-                ("App\\Late", "unresolved", [], "not_in_repository", ()),
+                # A class declared in a function body is declared there.
+                (
+                    "App\\Late",
+                    "linked",
+                    [("src/Late.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
                 (
                     "App\\make",
                     "linked",

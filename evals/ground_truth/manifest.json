@@ -13,7 +13,11 @@
       "oracle": "scip-python 0.6.8",
       "oracle_command": "python -m venv env && env/bin/pip install -e . && PATH=$PWD/env/bin:$PATH scip-python index --project-name click --output index.scip .",
       "inherits": "inherits/click.tsv",
-      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip"
+      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
+      "imports": "imports/click.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language python",
+      "impact": "impact/click.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/click.tsv HISTORY --language python --revision 08b803cf32ceb2ae6a772c62d5da42757a897d44"
     },
     {
       "name": "ky",
@@ -27,7 +31,11 @@
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "npm install --ignore-scripts && scip-typescript index",
       "inherits": "inherits/ky.tsv",
-      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip"
+      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
+      "imports": "imports/ky.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "impact": "impact/ky.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ky.tsv HISTORY --language typescript --revision 3541888878c4d303a8bc2ad61815f4e048f55a5d"
     },
     {
       "name": "cobra",
@@ -39,7 +47,12 @@
       ],
       "truth": "calls/cobra.tsv",
       "oracle": "scip-go 0.1.26, go 1.24.7",
-      "oracle_command": "scip-go"
+      "oracle_command": "scip-go",
+      "imports": "imports/cobra.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
+      "imports_granularity": "directory",
+      "impact": "impact/cobra.tsv",
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv"
     },
     {
       "name": "anyhow",
@@ -51,7 +64,9 @@
       ],
       "truth": "calls/anyhow.tsv",
       "oracle": "rust-analyzer 1.100.0 (0ef1bc3 2026-11-09)",
-      "oracle_command": "rust-analyzer scip ."
+      "oracle_command": "rust-analyzer scip .",
+      "impact": "impact/anyhow.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/anyhow.tsv HISTORY --language rust --revision c89c9b82b155f701a20eb4a9d3609ad09df5a62f"
     },
     {
       "name": "ripgrep",
@@ -63,7 +78,9 @@
       ],
       "truth": "calls/ripgrep.tsv",
       "oracle": "rust-analyzer 1.100.0 (0ef1bc3 2026-11-09)",
-      "oracle_command": "rust-analyzer scip ."
+      "oracle_command": "rust-analyzer scip .",
+      "impact": "impact/ripgrep.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ripgrep.tsv HISTORY --language rust --revision 4a51093f78bfbef86d89275f4916fd6b6039fe9e"
     },
     {
       "name": "gson",
@@ -77,7 +94,9 @@
       "oracle": "javac (OpenJDK 21.0.13) through tools/JavaCallTruth.java",
       "oracle_command": "python tools/ground_truth.py derive-java .",
       "inherits": "inherits/gson.tsv",
-      "inherits_command": "python tools/ground_truth.py derive-java . --bases"
+      "inherits_command": "python tools/ground_truth.py derive-java . --bases",
+      "impact": "impact/gson.tsv",
+      "impact_command": "java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED tools/JavaMethodSpans.java . > spans.tsv && python tools/ground_truth.py derive-java . --chains > chains.tsv && python tools/impact_truth.py derive - evals/ground_truth/calls/gson.tsv HISTORY --language java --revision d9b5079eaa4567219771bba6d04289cf45c7589b --spans spans.tsv --extra-calls chains.tsv"
     }
   ],
   "contracts_description": "Hand-labelled cross-service links (evals/fixtures/service_contracts, see its README), scored with tools/check_contracts_ground_truth.py. The corpus file's own repo and commit must match the entry here.",
@@ -140,6 +159,24 @@
         "http",
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-graphql-apollo-fullstack-tutorial",
+      "url": "https://github.com/apollographql/fullstack-tutorial",
+      "commit": "fca98dec747244a6cd08e3611f826db01617e208",
+      "labels": "../fixtures/service_contracts/graphql-apollo-fullstack-tutorial.json",
+      "kinds": [
+        "graphql"
+      ]
+    },
+    {
+      "name": "contracts-graphql-apollo-spotify-showcase",
+      "url": "https://github.com/apollographql/spotify-showcase",
+      "commit": "5a9afc5c96ef5a60f07d438dab5088bf0f6d661e",
+      "labels": "../fixtures/service_contracts/graphql-apollo-spotify-showcase.json",
+      "kinds": [
+        "graphql"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
@@ -167,6 +204,53 @@
       "truth": "declarations/fmt.tsv",
       "oracle": "clang 18.1.3 with libstdc++ 13",
       "oracle_command": "python tools/c_declaration_truth.py . src/format.cc src/os.cc --flag=-Iinclude"
+    },
+    {
+      "name": "rack",
+      "url": "https://github.com/rack/rack",
+      "commit": "b432304e8ddc23cc98564d2a8365827b59a835bd",
+      "license": "MIT",
+      "languages": [
+        "ruby"
+      ],
+      "truth": "declarations/rack.tsv",
+      "oracle": "Ruby 3.3.6 Ripper",
+      "oracle_command": "ruby tools/ruby_declaration_truth.rb ."
+    },
+    {
+      "name": "slim",
+      "url": "https://github.com/slimphp/Slim",
+      "commit": "e257f61f94a480ad54db0c3633f9badc03fb2949",
+      "license": "MIT",
+      "languages": [
+        "php"
+      ],
+      "truth": "declarations/slim.tsv",
+      "oracle": "PHP 8.3.6 token_get_all",
+      "oracle_command": "php tools/php_declaration_truth.php ."
+    }
+  ],
+  "routes": [
+    {
+      "name": "routes-realworld-nestjs",
+      "url": "https://github.com/lujakob/nestjs-realworld-example-app",
+      "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
+      "license": "ISC (package.json)",
+      "labels": "routes/realworld-nestjs.json"
+    },
+    {
+      "name": "routes-nestjs-prisma-starter",
+      "url": "https://github.com/notiz-dev/nestjs-prisma-starter",
+      "commit": "225e5a906865df237a681c1ad228a3ecf2909326",
+      "license": "MIT",
+      "labels": "routes/nestjs-prisma-starter.json"
+    },
+    {
+      "name": "routes-howtographql-graphql-js",
+      "url": "https://github.com/howtographql/graphql-js",
+      "commit": "e0a3a21dbf8e594226250b04fdc0a5776493e64d",
+      "license": "MIT (package.json)",
+      "labels": "routes/howtographql-graphql-js.json"
     }
   ]
 }
