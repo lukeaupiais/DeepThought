@@ -107,6 +107,22 @@ class JavaTests(unittest.TestCase):
             [("Base", "extends"), ("Runnable", "implements")],
         )
 
+    def test_comments_among_type_parameters_are_skipped(self):
+        java = analyze(
+            {
+                "src/p/J.java": "package p;\nclass J<\n  /* note */ T> { void m(int x) {} }\n"
+            }
+        )
+        (method,) = [d for d in java.definitions if d.symbol == "J.m"]
+        self.assertEqual((method.parameters, method.parameter_types), (1, ("int",)))
+        typescript = analyze(
+            {"c.ts": "export class C<\n  // note\n  T = any,\n> { m(x: T) {} }\n"},
+            languages=("typescript",),
+        )
+        (method,) = [d for d in typescript.definitions if d.symbol == "C.m"]
+        # Parameter counts and types are recorded for Java only.
+        self.assertEqual((method.parameters, method.parameter_types), (None, None))
+
     def test_annotations_belong_to_the_text_and_javadoc_does_not(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "Outer.java").write_text(SOURCE)

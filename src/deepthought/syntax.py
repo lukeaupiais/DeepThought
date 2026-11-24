@@ -219,7 +219,11 @@ def extract(
             ordinals[(symbol, kind)] = ordinal + 1
             parameters = node.child_by_field_name("parameters")
             arity = {}
-            if parameters is not None and parameters.type == "formal_parameters":
+            if (
+                parameters is not None
+                and parameters.type == "formal_parameters"
+                and file.endswith(".java")
+            ):
                 # Java; a receiver parameter (``Outer this``) is not counted.
                 declared = [
                     c
@@ -2096,7 +2100,9 @@ def _java_type_variables(node, content, depth=None):
         depth = None if depth is None else depth - 1
         parameters = node.child_by_field_name("type_parameters")
         for child in parameters.named_children if parameters else ():
-            names.add(_text(child.named_children[0], content))
+            # Comments are named children too.
+            if child.type == "type_parameter" and child.named_children:
+                names.add(_text(child.named_children[0], content))
         node = node.parent
     return names
 
