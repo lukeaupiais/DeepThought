@@ -7,6 +7,7 @@ baseline. The pinned real-repository corpus runs with
 ``python tools/ground_truth.py check`` (it needs network to fetch).
 """
 
+from contextlib import redirect_stderr
 import importlib.util
 import io
 import json
@@ -270,6 +271,44 @@ class CorpusFilesTest(unittest.TestCase):
                 )
                 counts = baseline[entry["name"]][kind]["call_sites"]
                 self.assertEqual(counts["labelled_in_scope"], in_scope)
+
+
+class RequirementTests(unittest.TestCase):
+    MANIFEST = {
+        "corpora": [{"name": "a", "languages": ["python"]}],
+        "contracts": [{"name": "contracts-b"}],
+    }
+
+    def test_missing_grammar_or_yaml_is_reported(self):
+        from unittest import mock
+
+        real = importlib.util.find_spec
+        absent = {"yaml", "tree_sitter_python"}
+        with mock.patch(
+            "importlib.util.find_spec",
+            side_effect=lambda name, *a: None if name in absent else real(name, *a),
+        ):
+            self.assertEqual(
+                ground_truth.missing_requirements(self.MANIFEST),
+                ["tree_sitter_python", "yaml"],
+            )
+            # Only what the selected corpora need.
+            self.assertEqual(
+                ground_truth.missing_requirements(self.MANIFEST, {"a"}),
+                ["tree_sitter_python"],
+            )
+
+    def test_check_refuses_to_score_without_them(self):
+        from unittest import mock
+
+        with (
+            mock.patch.object(
+                ground_truth, "missing_requirements", return_value=["yaml"]
+            ),
+            redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertEqual(ground_truth.main(["check", "--corpus", "x"]), 2)
+        self.assertIn("not installed: yaml", stderr.getvalue())
 
 
 class DeclarationRegressionTests(unittest.TestCase):
