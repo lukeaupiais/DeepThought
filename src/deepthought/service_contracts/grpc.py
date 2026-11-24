@@ -39,6 +39,8 @@ class ProtoMethod:
     method: str
     file: str
     line: int
+    # unary | client | server | bidi, or None when the signature is not read.
+    streaming: str | None = None
 
     @property
     def full_name(self):
@@ -70,6 +72,16 @@ class GrpcCall:
     method: str  # method name as written
 
 
+_SIGNATURE = re.compile(
+    r"\brpc\s+\w+\s*\(\s*(stream\s+)?\.?[\w.]+\s*\)"
+    r"\s*returns\s*\(\s*(stream\s+)?\.?[\w.]+\s*\)"
+)
+_STREAMING = {
+    (False, False): "unary",
+    (True, False): "client",
+    (False, True): "server",
+    (True, True): "bidi",
+}
 _COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 _STRINGS = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 
@@ -79,7 +91,8 @@ def read_proto(text, file):
 
     Comments are removed (keeping line numbers); ``service`` blocks are read
     at the top level only; ``rpc Name (...) returns (...)`` statements inside
-    them give methods. Options, messages and imports are not needed.
+    them give methods, with ``stream`` on either side read as the streaming
+    kind. Options, messages and imports are not needed.
     """
 
     def blank(match):
@@ -110,7 +123,13 @@ def read_proto(text, file):
         name = f"{package}.{service.group(1)}" if package else service.group(1)
         for rpc in re.finditer(r"\brpc\s+(\w+)\s*\(", body):
             line = text.count("\n", 0, body_start + rpc.start(1)) + 1
-            methods.append(ProtoMethod(name, rpc.group(1), file, line))
+            signature = _SIGNATURE.match(body, rpc.start())
+            streaming = (
+                _STREAMING[bool(signature.group(1)), bool(signature.group(2))]
+                if signature
+                else None
+            )
+            methods.append(ProtoMethod(name, rpc.group(1), file, line, streaming))
     return package, methods
 
 
@@ -400,14 +419,53 @@ def extract_calls(
 
 
 GO_REGISTER = "service-contracts.grpc-go-register"
+GO_REGISTER_CONSTRUCTOR = "service-contracts.grpc-go-register-constructor"
 PYTHON_SERVICER = "service-contracts.grpc-python-servicer"
 JAVA_IMPL_BASE = "service-contracts.grpc-java-impl-base"
 NODE_ADD_SERVICE = "service-contracts.grpc-node-add-service"
 STUB_CALL = "service-contracts.grpc-stub-call"
 
 
-def go_registrations(tree, content):
-    """(service, implementation type, line) of ``pb.RegisterXServer(s, impl)``."""
+def go_constructors(tree, content):
+    """{function: T} of the top-level functions of a Go file whose only
+    result is ``T`` or ``*T`` for a type ``T`` of the package."""
+    found = {}
+    for node in tree.root_node.named_children:
+        if node.type != "function_declaration":
+            continue
+        result = node.child_by_field_name("result")
+        if result is not None and result.type == "pointer_type":
+            result = result.named_children[-1] if result.named_children else None
+        if result is not None and result.type == "type_identifier":
+            found[_text(node.child_by_field_name("name"), content)] = _text(
+                result, content
+            )
+    return found
+
+
+def go_struct_types(tree, content):
+    """Names of the struct types a Go file declares at the top level."""
+    names = set()
+    for node in tree.root_node.named_children:
+        if node.type != "type_declaration":
+            continue
+        for spec in node.named_children:
+            value = spec.child_by_field_name("type")
+            if spec.type == "type_spec" and value is not None:
+                if value.type == "struct_type":
+                    names.add(_text(spec.child_by_field_name("name"), content))
+    return names
+
+
+def go_registrations(tree, content, constructors=None):
+    """(service, implementation type, rule, line) of
+    ``pb.RegisterXServer(s, impl)``.
+
+    ``constructors`` maps the functions of the package to the type they
+    return (None when several files declare the name), so that
+    ``RegisterXServer(s, newServer())`` names ``newServer``'s type.
+    """
+    constructors = constructors or {}
     root = tree.root_node
     values = {}
     for name, value in _bindings(root, "go", content):
@@ -428,17 +486,18 @@ def go_registrations(tree, content):
         if implementation.type == "identifier":
             assigned = values.get(_text(implementation, content), [])
             implementation = assigned[0] if len(assigned) == 1 else None
-        type_name = None
+        type_name, rule = None, GO_REGISTER
         if implementation is not None and implementation.type == "composite_literal":
             type_name = _text(implementation.child_by_field_name("type"), content)
-        elif (
-            implementation is not None
-            and implementation.type == "call_expression"
-            and _text(implementation.child_by_field_name("function"), content) == "new"
-        ):
-            args = implementation.child_by_field_name("arguments").named_children
-            type_name = _text(args[0], content) if len(args) == 1 else None
-        found.append((match.group(1), type_name, node.start_point.row + 1))
+        elif implementation is not None and implementation.type == "call_expression":
+            function = implementation.child_by_field_name("function")
+            called = _text(function, content)
+            if called == "new":
+                args = implementation.child_by_field_name("arguments").named_children
+                type_name = _text(args[0], content) if len(args) == 1 else None
+            elif function.type == "identifier" and called in constructors:
+                type_name, rule = constructors[called], GO_REGISTER_CONSTRUCTOR
+        found.append((match.group(1), type_name, rule, node.start_point.row + 1))
     return found
 
 
@@ -559,11 +618,14 @@ def _servicer_families(classes, pattern):
     return families
 
 
-def server_handlers(tree, content, file, language, definitions, index):
+def server_handlers(
+    tree, content, file, language, definitions, index, constructors=None
+):
     """(handlers, unread) of one file.
 
     Handlers name the fully qualified service and the rpc; unread are
     (line, reason) of servers seen but not tied to a proto method.
+    ``constructors`` are Go's, by package directory (see go_constructors).
     """
     handlers, unread = [], []
 
@@ -583,7 +645,8 @@ def server_handlers(tree, content, file, language, definitions, index):
             and d.file.rpartition("/")[0] == directory
             and not is_test(d.file)
         ]
-        for simple, type_name, line in go_registrations(tree, content):
+        package = (constructors or {}).get(directory, {})
+        for simple, type_name, rule, line in go_registrations(tree, content, package):
             if type_name is None:
                 unread.append((line, "implementation_not_read"))
                 continue
@@ -598,7 +661,7 @@ def server_handlers(tree, content, file, language, definitions, index):
                             found[0].id,
                             service,
                             rpc,
-                            GO_REGISTER,
+                            rule,
                         )
                     )
     elif language in ("python", "java"):
@@ -737,15 +800,33 @@ def collect(root, sources, definitions, repository_id, protos):
         methods.extend(read_proto(data.decode("utf-8", "replace"), path)[1])
     index = ProtoIndex(methods)
     handlers, calls, unread, parsers = set(), [], [], {}
+    parsed = []
     for path, language, content in sources:
         if language not in _SUFFIXES or is_generated(path) or is_test(path):
             continue
         suffix = ".tsx" if path.endswith(".tsx") else _SUFFIXES[language]
         if suffix not in parsers:
             parsers[suffix] = make_parser(language, suffix)
-        tree = parsers[suffix].parse(content)
+        parsed.append((path, language, content, parsers[suffix].parse(content)))
+    # Go constructors by package directory; a name that several files
+    # declare (as build-tagged variants do) names no type.
+    constructors, structs = {}, {}
+    for path, language, content, tree in parsed:
+        if language != "go":
+            continue
+        directory = path.rpartition("/")[0]
+        structs.setdefault(directory, set()).update(go_struct_types(tree, content))
+        package = constructors.setdefault(directory, {})
+        for name, type_name in go_constructors(tree, content).items():
+            package[name] = type_name if name not in package else None
+    # Only a struct of the package serves; an interface's methods do not.
+    for directory, package in constructors.items():
+        for name, type_name in package.items():
+            if type_name not in structs[directory]:
+                package[name] = None
+    for path, language, content, tree in parsed:
         found, skipped = server_handlers(
-            tree, content, path, language, definitions, index
+            tree, content, path, language, definitions, index, constructors
         )
         handlers.update(found)
         unread.extend((path, line, "server", reason) for line, reason in skipped)

@@ -446,6 +446,14 @@ GRPC_SERVER_RULES = {
             "as this rpc.",
         ),
         (
+            grpc_contracts.GO_REGISTER_CONSTRUCTOR,
+            "pb.RegisterXServer(server, f(...)) registers the value of f, a "
+            "function of the same Go package directory (declared in one file "
+            "only) whose only result is T or *T for a struct type T of that "
+            "package, for service X; T declares, in that directory, a method "
+            "named as this rpc.",
+        ),
+        (
             grpc_contracts.PYTHON_SERVICER,
             "A class inheriting XServicer (or a class of the same file "
             "inheriting such a class) defines a method named as this rpc of "
@@ -1655,6 +1663,13 @@ class ServiceContractTool(AnalysisTool):
                         "file_path": declared[0].file,
                         "line": declared[0].line,
                         "declared_in": [f"{m.file}:{m.line}" for m in declared],
+                        # Only when every copy of the proto agrees.
+                        **(
+                            {"streaming": declared[0].streaming}
+                            if len({m.streaming for m in declared}) == 1
+                            and declared[0].streaming
+                            else {}
+                        ),
                     },
                 )
             )
