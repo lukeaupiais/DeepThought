@@ -865,8 +865,8 @@
     }
   },
   "gson": {
-    "ambiguous_includes": 176,
-    "ambiguous_unjudged": 52,
+    "ambiguous_includes": 171,
+    "ambiguous_unjudged": 47,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
@@ -890,6 +890,10 @@
         "confirmed": 80,
         "unjudged": 1
       },
+      "tree-sitter.java-overload-getclass-argument": {
+        "confirmed": 5,
+        "unjudged": 5
+      },
       "tree-sitter.java-overload-jdk-supertypes": {
         "confirmed": 331,
         "unjudged": 1
@@ -911,33 +915,33 @@
         "unjudged": 380
       }
     },
-    "confirmed": 10936,
+    "confirmed": 10941,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 786,
+          "confirmed": 787,
           "expected": 790
         },
         "2": {
-          "confirmed": 1675,
+          "confirmed": 2007,
           "expected": 2096
         },
         "3": {
-          "confirmed": 1960,
+          "confirmed": 1969,
           "expected": 2184
         }
       },
-      "confirmed": 4421,
+      "confirmed": 4763,
       "expected": 5070,
       "extra": 0,
-      "missed": 649,
+      "missed": 307,
       "precision": 1.0,
-      "recall": 0.872,
+      "recall": 0.9394,
       "seeds": 164,
       "seeds_undeclared": 0,
-      "unjudged": 20
+      "unjudged": 21
     },
     "inherits": {
       "confirmed": 210,
@@ -948,9 +952,9 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 229,
+    "missed": 224,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 175,
+      "ambiguous:multiple_declarations": 170,
       "no_call_site": 15,
       "unresolved:attribute_call": 14,
       "unresolved:receiver_may_be_inherited_field": 4,
@@ -958,8 +962,8 @@
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.9793,
-    "unjudged": 443,
+    "recall": 0.9797,
+    "unjudged": 448,
     "unresolved_expected": 43,
     "unresolved_unjudged": 12419
   },

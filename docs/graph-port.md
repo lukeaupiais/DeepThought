@@ -893,6 +893,17 @@ inherits, as javac does, and only a call inside that body reaches it. On gson
 this removed the 6 ambiguous calls whose candidates were constant-body
 methods and left out javac's, and confirmed 32 more links (10,936).
 
+An argument `e.getClass()` or `getClass()` (no arguments) is a
+`java.lang.Class`: `Object` declares `getClass()` final (JLS 4.3.2), so no
+type can declare another without parameters, whatever `e` is. With the JDK
+supertypes of `Class` (`Type`, `GenericDeclaration`, `AnnotatedElement`,
+`Serializable` and others), that tells apart overloads such as gson's
+`toJson(Object, Type)` and `toJson(JsonElement, Appendable)`. A link only this
+decides carries `tree-sitter.java-overload-getclass-argument`: on gson it
+confirmed 5 more links (10,941), none contradicted, and impact rose from
+4,421 to 4,763 of 5,070, since `Gson.toJson(Object)` reaches most of the
+library's callers.
+
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
 writes as the call's `receiver_type` (`Foo`, `Map.Entry`; type arguments

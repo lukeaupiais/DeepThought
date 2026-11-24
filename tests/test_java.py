@@ -16,6 +16,7 @@ from deepthought.calls import (
     JAVA_ENCLOSING_METHOD,
     JAVA_FIELD_ARGUMENT,
     JAVA_INHERITED_METHOD,
+    JAVA_GETCLASS_ARGUMENT,
     JAVA_JDK_SUPERTYPES,
     JAVA_STATIC_IMPORT,
     JAVA_PLATFORM_ARGUMENT,
@@ -1457,6 +1458,49 @@ class JavaTests(unittest.TestCase):
                 ("src/p/Api.java", 17): (10, JAVA_PLATFORM_ARGUMENT),
                 ("src/p/Api.java", 18): (11, JAVA_JDK_SUPERTYPES),
                 ("src/q/Api.java", 10): [5, 6],
+            },
+        )
+
+    def test_get_class_arguments_are_classes(self):
+        lines = [
+            "package p;",  # 1
+            "import java.lang.reflect.Type;",
+            "import java.io.Writer;",
+            "class Elem {}",
+            "class Api {",  # 5
+            "  void j(Object x, Type t) {}",  # 6
+            "  void j(Object x, Writer w) {}",  # 7
+            "  void k(Object x, Type t) {}",  # 8
+            "  void k(Object x, Object t) {}",  # 9
+            "}",
+            "class Main {",
+            "  void m(Api a, Object o) {",
+            "    a.j(o, o.getClass());",  # 13: a Class is a Type, no Writer
+            "    a.j(o, getClass());",  # 14: the caller's own
+            "    a.k(o, o.getClass());",  # 15: both apply; Type is nearer
+            "    a.j(o, o.getClass(1));",  # 16: another method
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].line: (
+                (definitions[r.target_id].line, r.rule_id)
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee.startswith("a.")
+        }
+        self.assertEqual(
+            found,
+            {
+                13: (6, JAVA_GETCLASS_ARGUMENT),
+                14: (6, JAVA_GETCLASS_ARGUMENT),
+                15: (8, JAVA_GETCLASS_ARGUMENT),
+                16: [6, 7],
             },
         )
 
