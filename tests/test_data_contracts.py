@@ -15,6 +15,7 @@ from deepthought.analysis_tools import (
 )
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.data_contracts import (
+    UNKNOWN,
     default_table_name,
     extract_ddl,
     mongoose_majors,
@@ -2228,6 +2229,238 @@ class MongooseTests(unittest.TestCase):
             metrics["mongoose_access_resolution"],
             {"linked": 8, "not_a_model": 1, "unresolved_model": 0},
         )
+
+
+DOCTRINE = {
+    "composer.lock": '{"packages": [{"name": "doctrine/orm", "version": "2.20.1"}]}',
+    "config/packages/doctrine.yaml": """\
+doctrine:
+    orm:
+        naming_strategy: doctrine.orm.naming_strategy.underscore
+""",
+    "config/doctrine/Invoice.orm.xml": """\
+<doctrine-mapping xmlns="http://doctrine-project.org/schemas/orm/doctrine-mapping">
+  <entity name="App\\Entity\\Invoice" table="invoices"/>
+</doctrine-mapping>
+""",
+    "src/Entity/Invoice.php": """\
+<?php
+namespace App\\Entity;
+class Invoice {}
+""",
+    "src/Entity/BlogPost.php": """\
+<?php
+namespace App\\Entity;
+use App\\Repository\\BlogPostRepository;
+use Doctrine\\ORM\\Mapping as ORM;
+#[ORM\\Entity(repositoryClass: BlogPostRepository::class)]
+class BlogPost
+{
+    #[ORM\\ManyToMany(targetEntity: Tag::class)]
+    #[ORM\\JoinTable(name: 'blog_post_tags')]
+    private $tags;
+}
+""",
+    "src/Entity/Oauth2Client.php": """\
+<?php
+namespace App\\Entity;
+use Doctrine\\ORM\\Mapping\\Entity;
+#[Entity]
+class Oauth2Client {}
+""",
+    "src/Entity/Person.php": """\
+<?php
+namespace App\\Entity;
+use Doctrine\\ORM\\Mapping as ORM;
+/**
+ * @ORM\\Entity
+ * @ORM\\Table(name="people", indexes={@ORM\\Index(name="idx", columns={"a"})})
+ * @ORM\\InheritanceType("SINGLE_TABLE")
+ */
+class Person {}
+""",
+    "src/Entity/Employee.php": """\
+<?php
+namespace App\\Entity;
+use Doctrine\\ORM\\Mapping as ORM;
+/** @ORM\\Entity */
+class Employee extends Person {}
+""",
+    "src/Entity/Base.php": """\
+<?php
+namespace App\\Entity;
+use Doctrine\\ORM\\Mapping as ORM;
+#[ORM\\MappedSuperclass]
+abstract class Base {}
+#[ORM\\Entity]
+#[ORM\\Table(name: 'comments')]
+class Comment extends Base {}
+""",
+    "src/Repository/BlogPostRepository.php": """\
+<?php
+namespace App\\Repository;
+use App\\Entity\\BlogPost;
+use Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository;
+class BlogPostRepository extends ServiceEntityRepository
+{
+    public function __construct($registry)
+    {
+        parent::__construct($registry, BlogPost::class);
+    }
+    public function findLatest()
+    {
+        return $this->createQueryBuilder('p')->getQuery()->getResult();
+    }
+    public function findByTag($tag)
+    {
+        return $this->findBy(['tag' => $tag]);
+    }
+}
+""",
+    "src/Controller/PostController.php": """\
+<?php
+namespace App\\Controller;
+use App\\Entity\\Comment;
+use App\\Entity\\Employee;
+use App\\Entity\\Invoice;
+use App\\Entity\\Oauth2Client;
+use App\\Entity\\Person;
+use App\\Repository\\BlogPostRepository;
+use App\\Settings\\SystemConfig;
+class PostController
+{
+    public function __construct(private BlogPostRepository $posts, private $em) {}
+    public function index(SystemConfig $config)
+    {
+        $this->posts->findAll();
+        $this->posts->findByTag('x');
+        $this->em->getRepository(Person::class)->findOneBy([]);
+        $this->em->find(Invoice::class, 1);
+        $config->find('key');
+    }
+    public function save(Comment $comment, $qb)
+    {
+        $this->em->persist($comment);
+        $employee = new Employee();
+        $this->em->remove($employee);
+        $qb->update(Oauth2Client::class, 'o')->getQuery()->execute();
+    }
+}
+""",
+    "tests/PostTest.php": """\
+<?php
+$this->em->find(App\\Entity\\Invoice::class, 1);
+""",
+}
+
+
+class DoctrineTests(unittest.TestCase):
+    def test_default_names_follow_the_naming_strategy(self):
+        from deepthought.data_contracts import doctrine_strategies, doctrine_table_name
+
+        self.assertEqual(
+            doctrine_table_name("App\\Entity\\BlogPost", "default"), "BlogPost"
+        )
+        self.assertEqual(
+            doctrine_table_name("App\\BlogPost", "underscore"), "blog_post"
+        )
+        self.assertEqual(
+            doctrine_table_name("Oauth2Client", "underscore", number_aware=False),
+            "oauth2client",
+        )
+        self.assertEqual(
+            doctrine_table_name("Oauth2Client", "underscore"), "oauth2_client"
+        )
+        underscore = ["doctrine.orm.naming_strategy.underscore"]
+        self.assertEqual(
+            doctrine_strategies(underscore, [], {3}), {("underscore", True)}
+        )
+        self.assertEqual(
+            doctrine_strategies(underscore, [], set()),
+            {("underscore", False), ("underscore", True)},
+        )
+        self.assertEqual(doctrine_strategies([], [], set()), {("default", True)})
+        self.assertEqual(
+            doctrine_strategies(
+                [],
+                [
+                    "$c->setNamingStrategy(new UnderscoreNamingStrategy(CASE_LOWER, true));"
+                ],
+                {2},
+            ),
+            {("underscore", True)},
+        )
+        self.assertIs(doctrine_strategies(["app.naming"], [], {3}), UNKNOWN)
+
+    def test_entities_repositories_and_entity_manager_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DOCTRINE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["php"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties["entity"].rpartition("\\")[2],
+                r.source_match["qualified_name"].split("::")[1],
+                r.properties.get("line"),
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        post = "src/Controller/PostController.php"
+        repository = "src/Repository/BlogPostRepository.php"
+        self.assertEqual(
+            rows,
+            [
+                ("MAPS_TO", "blog_post", "doctrine-default-table", "BlogPost", "src/Entity/BlogPost.php", 6),
+                ("MAPS_TO", "blog_post_tags", "doctrine-table", "BlogPost", "src/Entity/BlogPost.php", 8),
+                ("MAPS_TO", "comments", "doctrine-table", "Comment", "src/Entity/Base.php", 8),
+                ("MAPS_TO", "invoices", "doctrine-table", "Invoice", "src/Entity/Invoice.php", 3),
+                ("MAPS_TO", "oauth2client", "doctrine-default-table", "Oauth2Client", "src/Entity/Oauth2Client.php", 5),
+                ("MAPS_TO", "people", "doctrine-table", "Employee", "src/Entity/Employee.php", 5),
+                ("MAPS_TO", "people", "doctrine-table", "Person", "src/Entity/Person.php", 9),
+                ("READS", "blog_post", "doctrine-call", "BlogPost", post, 15),
+                ("READS", "blog_post", "doctrine-call", "BlogPost", repository, 13),
+                ("READS", "blog_post", "doctrine-call", "BlogPost", repository, 17),
+                ("READS", "invoices", "doctrine-call", "Invoice", post, 18),
+                ("READS", "people", "doctrine-call", "Person", post, 17),
+                ("WRITES", "comments", "doctrine-call", "Comment", post, 23),
+                ("WRITES", "oauth2client", "doctrine-call", "Oauth2Client", post, 26),
+                ("WRITES", "people", "doctrine-call", "Employee", post, 25),
+            ],
+        )  # fmt: skip
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["doctrine_entities"], 6)
+        self.assertEqual(metrics["doctrine_unresolved"], {})
+        self.assertEqual(
+            metrics["doctrine_access_resolution"],
+            {"linked": 8, "not_an_entity": 0, "unresolved_entity": 0},
+        )
+
+    def test_metadata_listener_leaves_tables_unresolved(self):
+        files = dict(DOCTRINE)
+        files["src/EventSubscriber/Prefix.php"] = """\
+<?php
+class Prefix
+{
+    public function loadClassMetadata($args)
+    {
+        $args->getClassMetadata()->setPrimaryTable(['name' => 'app_' . $name]);
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["php"])
+            )
+        self.assertFalse([r for r in output.relationships if r.type != "CONTAINS"])
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["doctrine_unresolved"], {"metadata_listener": 6})
+        self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 8)
 
 
 if __name__ == "__main__":

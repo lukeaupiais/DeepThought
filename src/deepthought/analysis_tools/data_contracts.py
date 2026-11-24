@@ -48,6 +48,10 @@ from ..data_contracts import (
     extract_typeorm,
     extract_sequelize,
     extract_mongoose,
+    extract_php_doctrine,
+    doctrine_xml,
+    doctrine_strategies,
+    resolve_doctrine,
     mongoose_majors,
     resolve_mongoose,
     resolve_sequelize,
@@ -554,6 +558,41 @@ SEQUELIZE_CALL_RULE = register_rule(
     )
 )
 
+DOCTRINE_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-table",
+        "pattern_matched",
+        "A Doctrine entity (#[ORM\\Entity], an @ORM\\Entity docblock "
+        "annotation or an <entity> of a .orm.xml mapping) names this table "
+        "with a literal Table name; a single-table subclass takes its root "
+        "entity's table. Also a literal JoinTable name.",
+    )
+)
+DOCTRINE_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-default-table",
+        "name_matched",
+        "A Doctrine entity without a Table name: its short class name under "
+        "the configured naming strategy (DefaultNamingStrategy keeps it, "
+        "UnderscoreNamingStrategy snake-cases it, number aware from ORM 3 or "
+        "with underscore_number_aware). Left out when the strategy is custom "
+        "or a metadata listener renames tables.",
+    )
+)
+DOCTRINE_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-call",
+        "pattern_matched",
+        "The code reads an entity's table through its repository (the "
+        "repository's own createQueryBuilder and finders, finders on a "
+        "property or parameter typed with the repository class, "
+        "getRepository(X::class) finders, EntityManager find(X::class)) or a "
+        "query builder from(X::class), or writes it with update/delete"
+        "(X::class) or persist/remove of a variable typed with the entity "
+        "class (a parameter, property or new X()). Receivers other than "
+        "these types are not type-checked.",
+    )
+)
 MONGOOSE_COLLECTION_RULE = register_rule(
     EvidenceRule(
         "data-contracts.mongoose-collection",
@@ -738,6 +777,13 @@ class DataContractTool(AnalysisTool):
             if found is not None:
                 digests[path] = sha256(content).hexdigest()
                 mapper_statements.extend(found)
+        doctrine_mapped = []  # entities of .orm.xml mapping files
+        for path in _sql_files(root, include, exclude, ".orm.xml"):
+            content = (root / path).read_bytes()
+            found = doctrine_xml(path, content)
+            if found:
+                digests[path] = sha256(content).hexdigest()
+                doctrine_mapped.extend(found)
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -885,6 +931,7 @@ class DataContractTool(AnalysisTool):
             {d.file for d in ddl}
             | {m.file for m in prisma}
             | {m.file for m in mapper_statements}
+            | {c.file for c in doctrine_mapped}
         ):
             file_name = f"{repo_url}::{path}::file"
             files.append(
@@ -1548,6 +1595,123 @@ class DataContractTool(AnalysisTool):
                                 "column": use.column,
                             },
                         )
+        # Doctrine ORM: entities, repositories and EntityManager calls.
+        doctrine_classes, doctrine_uses, doctrine_renames = [], [], False
+        php_texts = []
+        for file, content, tree in php_trees:
+            found = extract_php_doctrine(tree, content, file, result.definitions)
+            doctrine_classes.extend(found[0])
+            doctrine_uses.extend(found[1])
+            doctrine_renames = doctrine_renames or found[2]
+            if b"NamingStrategy" in content:
+                php_texts.append(content.decode("utf-8", "replace"))
+        doctrine_classes.extend(doctrine_mapped)
+
+        def doctrine_source(c):
+            if c.class_id is None and c.file.endswith(".xml"):
+                return ["File"], f"{repo_url}::{c.file}::file"
+            return code(c.file, c.class_id)
+
+        configured, doctrine_majors = set(), set()
+        if doctrine_classes:
+            for suffix in (".yaml", ".yml"):
+                for path in _sql_files(root, include, exclude, suffix):
+                    if "doctrine" not in path.rpartition("/")[2]:
+                        continue
+                    content = (root / path).read_bytes()
+                    services = re.findall(
+                        rb"naming_strategy\s*:\s*['\"]?([\w.\\]+)", content
+                    )
+                    if services:
+                        digests[path] = sha256(content).hexdigest()
+                        configured.update(s.decode() for s in services)
+            for path in _sql_files(root, include, exclude, "composer.lock"):
+                content = (root / path).read_bytes()
+                try:
+                    locked = json.loads(content).get("packages") or []
+                except (ValueError, AttributeError):
+                    continue
+                for package in locked:
+                    if (
+                        isinstance(package, dict)
+                        and package.get("name") == "doctrine/orm"
+                    ):
+                        major = re.match(r"v?(\d+)", str(package.get("version", "")))
+                        if major:
+                            digests[path] = sha256(content).hexdigest()
+                            doctrine_majors.add(int(major.group(1)))
+            if not doctrine_majors:
+                for path in _sql_files(root, include, exclude, "composer.json"):
+                    content = (root / path).read_bytes()
+                    try:
+                        manifest = json.loads(content)
+                    except ValueError:
+                        continue
+                    spec = (
+                        (manifest.get("require") or {}).get("doctrine/orm")
+                        if isinstance(manifest, dict)
+                        else None
+                    )
+                    if isinstance(spec, str):
+                        digests[path] = sha256(content).hexdigest()
+                        numbers = re.findall(r"(?:^|[\s|^~>=<v])(\d+)", spec)
+                        doctrine_majors.update(int(n) for n in numbers)
+        doctrine_tables, doctrine_unresolved, doctrine_repositories = resolve_doctrine(
+            doctrine_classes,
+            doctrine_strategies(configured, php_texts, doctrine_majors),
+            doctrine_renames,
+        )
+        for path, (mapped, name, how) in sorted(doctrine_tables.items()):
+            link(
+                "MAPS_TO",
+                doctrine_source(mapped),
+                table(mapped.file, name),
+                DOCTRINE_TABLE_RULE if how == "explicit" else DOCTRINE_DEFAULT_RULE,
+                {"entity": path, "line": mapped.line, "column": mapped.column},
+            )
+        if not doctrine_renames:
+            for c in doctrine_classes:
+                for name, line in c.join_tables:
+                    link(
+                        "MAPS_TO",
+                        doctrine_source(c),
+                        table(c.file, table_key(name)),
+                        DOCTRINE_TABLE_RULE,
+                        {"entity": c.path, "join_table": True, "line": line},
+                    )
+        declared_methods = {c.path: set(c.methods) for c in doctrine_classes}
+        doctrine_counts = {"linked": 0, "not_an_entity": 0, "unresolved_entity": 0}
+        for use in doctrine_uses:
+            if (
+                use.repository is not None
+                and use.repository not in doctrine_repositories
+                and not use.repository.endswith("Repository")
+            ):
+                continue  # a finder-named method of another class
+            if use.finder in declared_methods.get(use.repository, ()):
+                continue  # the repository's own method, read where it is defined
+            entity = use.entity or doctrine_repositories.get(use.repository)
+            mapped = doctrine_tables.get(entity)
+            if mapped is None:
+                reason = (
+                    "unresolved_entity"
+                    if entity in doctrine_unresolved
+                    else "not_an_entity"
+                )
+                doctrine_counts[reason] += 1
+                continue
+            doctrine_counts["linked"] += 1
+            source = code(use.file, use.caller_id)
+            target = table(mapped[0].file, mapped[1])
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        target,
+                        DOCTRINE_CALL_RULE,
+                        {"entity": entity, "line": use.line, "column": use.column},
+                    )
         # Laravel: migrations, Eloquent models and their calls.
         php_classes, php_accesses = [], []
         for file, found in php_found:
@@ -1835,6 +1999,11 @@ class DataContractTool(AnalysisTool):
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
+                    "doctrine_entities": len(doctrine_tables),
+                    "doctrine_unresolved": dict(
+                        sorted(Counter(doctrine_unresolved.values()).items())
+                    ),
+                    "doctrine_access_resolution": doctrine_counts,
                     "mongoose_models": len(mongoose_tables),
                     "mongoose_unresolved": dict(
                         sorted(Counter(mongoose_unresolved.values()).items())
@@ -1851,7 +2020,7 @@ class DataContractTool(AnalysisTool):
                     "scope": "tables from CREATE TABLE, Prisma schemas, "
                     "Rails schema files, Laravel and Sequelize migrations and "
                     "JPA, Django, SQLAlchemy, GORM, TypeORM, Sequelize, "
-                    "Eloquent, ActiveRecord and Mongoose mappings, read and "
+                    "Eloquent, Doctrine, ActiveRecord and Mongoose mappings, read and "
                     "written by "
                     "repositories, ORM calls and the SQL text code runs; per "
                     "datasource URL or nearest package",
