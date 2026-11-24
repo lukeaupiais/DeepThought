@@ -364,6 +364,7 @@ def derive(
     extra_calls=(),
     possible_calls=(),
     initializers=None,
+    dispatch=None,
 ):
     from ground_truth import read_truth
 
@@ -392,9 +393,16 @@ def derive(
     for path in possible_calls:
         for site, targets in read_truth(path)[0].items():
             possible.setdefault(site, set()).update(targets)
+    # A call of an interface method can run any implementation in the corpus
+    # (tools/go_interface_dispatch.go): the oracle binds it to the interface,
+    # so which one runs is not ruled on either.
+    for site, targets in positions.items():
+        for target_file, target_line, _ in targets:
+            for impl in (dispatch or {}).get((target_file, target_line), ()):
+                possible.setdefault(site, set()).add((*impl, "callable"))
     widened = (
         call_graph(nodes, possible, aliases, language != "python", regions)
-        if possible_calls
+        if possible_calls or dispatch
         else incoming
     )
     rows, unjudged = [], []
@@ -438,6 +446,18 @@ def read_aliases(path):
             _, file, line, canonical = text.split("\t")
             aliases[(file, int(line))] = int(canonical)
     return aliases
+
+
+def read_dispatch(path):
+    """{(interface file, line): {(file, line)}} from go_interface_dispatch.go."""
+    dispatch = {}
+    for row in Path(path).read_text("utf-8").splitlines():
+        if row:
+            file, line, impl_file, impl_line = row.split("\t")
+            dispatch.setdefault((file, int(line)), set()).add(
+                (impl_file, int(impl_line))
+            )
+    return dispatch
 
 
 def read_unjudged(path):
@@ -685,6 +705,13 @@ def main(argv=None):
         help="code outside callables that runs as part of a class "
         "(JavaMethodSpans.java --initializers): its calls belong to the class",
     )
+    derive_cmd.add_argument(
+        "--dispatch",
+        type=Path,
+        help="interface methods and their implementations "
+        "(go_interface_dispatch.go): dependents reached only through a call "
+        "of an interface method are listed as unjudged",
+    )
     args = parser.parse_args(argv)
     rows, aliases, nodes, unjudged = derive(
         None if args.index == "-" else Path(args.index),
@@ -698,6 +725,7 @@ def main(argv=None):
         args.extra_calls,
         args.possible_calls,
         read_initializers(args.initializers) if args.initializers else None,
+        read_dispatch(args.dispatch) if args.dispatch else None,
     )
     # scip-typescript gives a function inside another a local symbol, so
     # the truth lists every node to tell those apart from unlisted ones.

@@ -13,6 +13,7 @@ from importlib import resources
 import json
 from dataclasses import dataclass, field, replace
 import posixpath
+from types import SimpleNamespace
 
 from .imports import (
     PYTHON_FROM_IMPORT_SUBMODULE,
@@ -56,6 +57,7 @@ RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
 RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
 RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
 RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
+RUST_CALL_RESULT_RECEIVER = "tree-sitter.rust-call-result-receiver"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1206,6 +1208,10 @@ class _RustPaths:
         self._types, self._members, self._aliased = {}, None, set()
         self._definitions = {d.id: d for d in result.definitions}
         self._kinds = {d.id: d.kind for d in result.definitions}
+        self._sites = {
+            (c.file, c.line, c.column, c.end_line, c.end_column): c
+            for c in result.call_sites
+        }
 
     def impl_type(self, item):
         """The declaration an impl is written for."""
@@ -1465,6 +1471,8 @@ class _RustPaths:
                 )
             if site.receiver_type is not None:
                 return self._typed_method(site, name)
+            if site.receiver_call is not None:
+                return self._result_method(site, name)
             item = self._innermost_impl(site) if receiver == "self" else None
             kind = self.impl_type(item) if item is not None else None
             if kind is None or kind.status != "linked":
@@ -1522,6 +1530,44 @@ class _RustPaths:
         if owner is None or owner.status != "linked":
             return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
         return self._associated(site, [owner.target_id], name, RUST_CALL_TYPED_RECEIVER)
+
+    def _result_method(self, site, name):
+        """``x.m()`` where ``x`` is the result of a call that links to a
+        function whose return type names a type: ``m`` as ``Type::m``
+        names it, the type read where the function is declared; ``Self`` is
+        the type of the impl around the function."""
+        inner = self._sites.get((site.file, *site.receiver_call))
+        if inner is None:
+            return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
+        function = self._definitions.get(self.call(inner).target_id)
+        if function is None or function.result_type is None:
+            return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
+        if function.result_type == "Self":
+            item = self._innermost_impl(function)
+            owner = self.impl_type(item) if item is not None else None
+        else:
+            # Read outside the function's own body: its items and uses do
+            # not scope over its signature.
+            outside = SimpleNamespace(
+                file=function.file,
+                line=function.line,
+                column=function.column,
+                end_line=function.end_line,
+                end_column=function.end_column + 1,
+            )
+            owner = self.resolve(
+                site.id,
+                outside,
+                function.result_type.split("::"),
+                _RUST_TYPES,
+                RUST_IMPL_TYPE,
+                RUST_IMPL_TYPE,
+            )
+        if owner is None or owner.status != "linked":
+            return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
+        return self._associated(
+            site, [owner.target_id], name, RUST_CALL_RESULT_RECEIVER
+        )
 
     def resolve(self, item_id, site, segments, kinds, local_rule, path_rule):
         """The declaration of ``kinds`` a path written at ``site`` (a fact with

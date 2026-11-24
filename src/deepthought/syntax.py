@@ -290,6 +290,10 @@ def extract(
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
                 arity = {"macro_export": _rust_macro_export(node)}
+            elif node.type == "function_item":
+                returned = _rust_result_type(node, content)
+                if returned is not None:
+                    arity = {"result_type": returned}
             elif node.type == "function_definition" and _python_overload(node, content):
                 arity = {"overload": True}
             elif script and _ts_overload(node, name, content):
@@ -2070,13 +2074,12 @@ def _rust_mentions(node, name, content):
     return any(_rust_mentions(c, name, content) for c in node.named_children)
 
 
-def _rust_declared_type(node, name, content, parent=_tree_parent):
-    """The type node of the innermost declaration of the local ``name`` that
-    scopes over ``node``: a parameter or ``let`` that binds it alone and
-    writes a type. None when that declaration writes none, binds it in a
-    pattern, or is of any other kind (a match arm, ``if let``, ``for``, an
-    untyped closure parameter). ``parent`` steps out of a node, and out of
-    a macro argument to its invocation."""
+def _rust_declaration(node, name, content, parent=_tree_parent):
+    """The innermost declaration of the local ``name`` that scopes over
+    ``node`` when it is a parameter or ``let`` that binds it alone; None
+    when it binds it in a pattern, or is of any other kind (a match arm,
+    ``if let``, ``for``). ``parent`` steps out of a node, and out of a macro
+    argument to its invocation."""
     child, scope = node, node.parent
     while scope is not None:
         if scope.type == "block":
@@ -2087,11 +2090,7 @@ def _rust_declared_type(node, name, content, parent=_tree_parent):
                 pattern = statement.child_by_field_name("pattern")
                 if not _rust_mentions(pattern, name, content):
                     continue
-                return (
-                    statement.child_by_field_name("type")
-                    if pattern.type == "identifier"
-                    else None
-                )
+                return statement if pattern.type == "identifier" else None
         elif scope.type in {"function_item", "closure_expression"}:
             parameters = scope.child_by_field_name("parameters")
             for parameter in parameters.named_children if parameters else ():
@@ -2102,11 +2101,7 @@ def _rust_declared_type(node, name, content, parent=_tree_parent):
                 )
                 if not _rust_mentions(pattern, name, content):
                     continue
-                return (
-                    parameter.child_by_field_name("type")
-                    if pattern.type == "identifier"
-                    else None
-                )
+                return parameter if pattern.type == "identifier" else None
             if scope.type == "function_item":
                 # A function item sees no local of an enclosing body.
                 return None
@@ -2147,25 +2142,63 @@ def _rust_type_parameters(node, content, parent=_tree_parent):
     return found
 
 
-def _rust_receiver_type(node, content, callee, parent=_tree_parent):
-    """``receiver_type`` of a Rust call ``x.m()``: the type path, joined by
-    ``::``, that the innermost declaration of the local ``x`` writes
-    (``x: A``, ``x: &m::A<T>``, ``let x: A``), or ``Self``."""
-    receiver, _, name = callee.rpartition(".")
-    if not receiver:
-        # A path call has no receiver.
-        return {}
-    written = _rust_declared_type(node, receiver, content, parent)
+def _rust_written_type(written, node, content, parent=_tree_parent):
+    """The type path, joined by ``::``, a type node writes through
+    references and type arguments (``A``, ``&m::A<T>``), or ``Self``; None
+    for any other type, or a type parameter of the items around ``node``."""
     inner = written
     while inner is not None and inner.type in {"reference_type", "generic_type"}:
         inner = inner.child_by_field_name("type")
     if inner is None or inner.type not in {"type_identifier", "scoped_type_identifier"}:
         # A raw pointer is not dereferenced for a method call.
-        return {}
+        return None
     path = _rust_type_path(written, content)
     if path is None or path in _rust_type_parameters(node, content, parent):
+        return None
+    return path
+
+
+def _rust_result_type(node, content):
+    """``result_type`` of a Rust function item."""
+    returned = node.child_by_field_name("return_type")
+    return _rust_written_type(returned, returned, content)
+
+
+def _rust_receiver_type(node, content, callee, parent=_tree_parent):
+    """``receiver_type`` of a Rust call ``x.m()``: the type path, joined by
+    ``::``, that the innermost declaration of the local ``x`` writes
+    (``x: A``, ``x: &m::A<T>``, ``let x: A``), or ``Self``; else its
+    ``receiver_call``: the receiver call (``T::new().m()``) or the call an
+    untyped ``let x = T::new();`` binds."""
+    receiver, _, name = callee.rpartition(".")
+    if not receiver:
+        # A path call has no receiver.
         return {}
-    return {"receiver_type": path}
+    if receiver.endswith("()"):
+        function = node.child_by_field_name("function")
+        if function.type == "generic_function":
+            function = function.child_by_field_name("function")
+        return {"receiver_call": _span(function.child_by_field_name("value"))}
+    declaration = _rust_declaration(node, receiver, content, parent)
+    if declaration is None:
+        return {}
+    written = declaration.child_by_field_name("type")
+    if written is None:
+        value = declaration.child_by_field_name("value")
+        if value is None or value.type != "call_expression":
+            return {}
+        return {"receiver_call": _span(value)}
+    path = _rust_written_type(written, node, content, parent)
+    return {} if path is None else {"receiver_type": path}
+
+
+def _span(node):
+    return (
+        node.start_point.row + 1,
+        node.start_point.column,
+        node.end_point.row + 1,
+        node.end_point.column,
+    )
 
 
 def _rust_callee(node, content):
@@ -2179,7 +2212,12 @@ def _rust_callee(node, content):
     if function.type == "field_expression":
         value = function.child_by_field_name("value")
         field = function.child_by_field_name("field")
-        head = None if value is None else _rust_receiver(value, content)
+        if value is not None and value.type == "call_expression":
+            # A method of a call's result: `T::new().m()`, `x.a().m()`.
+            inner = _rust_callee(value, content)
+            head = None if inner is None else inner + "()"
+        else:
+            head = None if value is None else _rust_receiver(value, content)
         if head is None or field is None or field.type != "field_identifier":
             return None
         return head + "." + _text(field, content).removeprefix("r#")
@@ -4548,10 +4586,10 @@ def extract_call_sites(
                         **(
                             {
                                 **_java_receiver(node, content, callee, receivers),
+                                "receiver_call": _java_receiver_call(node),
                                 "type_qualified": _java_names_no_variable(
                                     node, content, callee
                                 ),
-                                "receiver_call": _java_receiver_call(node),
                             }
                             if java
                             else _python_receiver(node, content, callee, bindings)

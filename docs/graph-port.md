@@ -307,8 +307,21 @@ the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
 which is its weakest edge. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
-the answer is the same on every run. Results are ordered by depth, evidence
-and name; a response that exceeds its byte budget or its limit drops whole
+the answer is the same on every run.
+
+Each dependent also says what the change asks of it. `impact` is `direct`
+when any one-hop path reaches it (it names the changed declaration or file
+itself, so a signature change may need an edit there, even when its
+strongest path is longer) and `transitive` otherwise (its behaviour may
+change, so it needs re-testing). `source_roles` lists `test` and `example`
+by path (`deepthought.source_roles`: directories such as `tests/`,
+`__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
+`examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
+test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
+`FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
+unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+dependents out in the query itself, before paging. Direct dependents come
+first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page
 starts (`--offset`, MCP `offset`; a snapshot does not change, so pages do not
 overlap or skip). Component impact pages the same way. The answer is a lower bound: dynamic dispatch, reflection,
@@ -1300,9 +1313,11 @@ Each Rust call expression whose callee is a path is a call site, its callee
 the path joined by `::` (`a::b::f`, `Type::new`, `::krate::f`; generic
 arguments such as `f::<T>` and `Vec::<u8>::new` are dropped). A method call on
 a receiver that is `self`, a name or a field of one is recorded as
-`receiver.name` (`self.write`, `x.y.len`); other callees (`(f)()`,
-`a().b()`, `<T as Trait>::f`) and macro invocations are not call sites. Calls
-inside item macro bodies are read as other calls are.
+`receiver.name` (`self.write`, `x.y.len`), and a method call on a call that
+is itself a call site as that call's callee, `()` and the name
+(`T::new().build`, `x.a().b`); other callees (`(f)()`, `x?.m()`,
+`<T as Trait>::f`) and macro invocations are not call sites. Calls inside
+item macro bodies are read as other calls are.
 
 The arguments of a standard macro whose arguments are expressions (`assert!`,
 `assert_eq!`, `assert_ne!`, their `debug_` forms, `dbg!`, `format!`,
@@ -1351,8 +1366,22 @@ Calls of functions declared in impls read the impl facts (see "Rust impls"):
   no impl declaring `m` (a derived, `Deref` or blanket-impl method) is
   `associated_item`, and one that names no workspace type is
   `receiver_type_unknown`.
+- `tree-sitter.rust-call-result-receiver` when `x.m()` is called on the
+  result of a call, written as the receiver (`T::new().m()`, `x.a().m()`) or
+  bound by a `let` that is the innermost declaration of `x`, binds it alone
+  and writes no type (`let x = T::new();`). `CallSite.receiver_call` holds
+  that call's span. The call must link, by any rule (this one too, so builder
+  chains are followed call by call), to a function with a body whose return
+  type writes a type as for `rust-call-typed-receiver` (`Definition.result_type`):
+  `Self` is the type of the impl around the function, and any other path is
+  read where the function is declared, outside its own body. `m` is then
+  looked up as for `Type::m`. A call that does not link, a return type that
+  is a type parameter, a tuple, `impl Trait`, a trait's `Self` or a type of
+  no workspace impl (`Option<T>`, `Result<T, E>`), and a value of any other
+  kind (`T::new()?`, a struct expression) leave the call
+  `receiver_type_unknown` or `method_call`.
 
-All five are `resolved`: Rust has no overloading, so a path names one
+All six are `resolved`: Rust has no overloading, so a path names one
 declaration in each configuration. A function declared once per `#[cfg]`, or
 by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
 alias are keyed by the alias, since the aliased type is not read: a call
@@ -2239,9 +2268,18 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `Symfony\Contracts\HttpClient\HttpClientInterface`, or a local variable
   or `$this->x` property assigned once to `HttpClient::create([...])` or
   `HttpClient::createForBaseUri($base)`. A literal base (`base_uri`, or the
-  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). Scoped
-  clients configured in `framework.yaml` are not read: they reach code as an
-  injected interface, so their URLs stay as written.
+  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). A
+  scoped client declared under `framework.http_client.scoped_clients` in the
+  composer project's `config/packages/*.yaml` is autowired by argument name,
+  as Symfony parses it (`orders.client` is `$ordersClient`, and so is
+  `$orders_client`), so an injected parameter or promoted property with that
+  name takes the client's `base_uri` when it is literal; a parameter or
+  `%env(...)%` base leaves the URL as written. A parameter attribute
+  `#[Autowire(service: 'id')]`, `#[Autowire('@id')]` or `#[Target('id')]`
+  names the client instead (any other `#[Autowire]` gives no base);
+  `services.yaml` bindings are not read. For Guzzle and Symfony clients
+  alike, a `$this->x` property assigned once from a typed parameter is that
+  parameter's client.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
