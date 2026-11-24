@@ -152,7 +152,7 @@ Baseline (calls):
 | cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,050 | 4,331 | 0 | 1.0 | 0.3854 |
+| gson | java | 11,050 | 9,146 | 0 | 1.0 | 0.8277 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -580,7 +580,7 @@ declaration already spans: a function `run` is not merged with a method
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
-| gson | 164 | 5052 | 152 | 0 | 0.030 | 1.0 |
+| gson | 164 | 5052 | 2866 | 5 | 0.567 | 0.998 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -604,5 +604,10 @@ index). The call truth leaves out `this(...)` and `super(...)`, which name
 no declaration, but a constructor that delegates depends on the one it
 calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
 `derive-java --chains` lists them and they join the impact graph as
-`--extra-calls`. Most of gson's misses are calls on a `Gson` instance, such
-as `gson.toJson(...)` in the tests.
+`--extra-calls`. gson's 5 extras are real calls that the truth has no edge
+for. One is a field initializer, `miniGson.getAdapter(...)` at
+`StreamingTypeAdaptersTest.java:46`, which is in no method or constructor
+span, so the class is not a dependent in the truth. The other 4 reach
+`Gson.toJson(Object, Type)` from `LegacyProtoTypeAdapterFactoryTest.java:342`
+and `:418` through calls that the call truth leaves out because javac chose
+them by error recovery (the generated proto classes are missing).
