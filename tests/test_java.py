@@ -1068,12 +1068,12 @@ class JavaTests(unittest.TestCase):
             "    a.n(count);",  # 23: a field
             '    a.add("n=" + i);',  # 24: concatenation is a String
             "    a.add(s + o);",  # 25: so with a String variable
-            "    a.add(i + 1);",  # 26: arithmetic is not written
+            "    a.add(i + 1);",  # 26: arithmetic on ints is an int
             "    a.add(xs);",  # 27: an array has no type here
             "    a.add(v);",  # 28: var without new
             "    for (int k = 0; k < 2; k++) { a.n(k); }",  # 29
             "    for (long e : new long[] {1}) { a.n(e); }",  # 30
-            "    a.add(s == null);",  # 31: a comparison is not written
+            "    a.add(s == null);",  # 31: a comparison is a boolean
             "    i.hashCode();",  # 32: a primitive is no receiver type
             "  }",
             "}",
@@ -1097,19 +1097,19 @@ class JavaTests(unittest.TestCase):
             (23, "a.n", 7),
             (24, "a.add", 6),
             (25, "a.add", 6),
-            (26, "a.add", [3, 4, 5, 6]),
+            (26, "a.add", 5),
             (27, "a.add", [3, 4, 5, 6]),
             (28, "a.add", [3, 4, 5, 6]),
             (29, "a.n", 7),
             (30, "a.n", 8),
-            (31, "a.add", [3, 4, 5, 6]),
+            (31, "a.add", 3),
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(found[(line, callee)], target)
         types = {(s.line, s.callee): s.argument_types for s in sites.values()}
         self.assertEqual(types[(20, "a.add")], ("int",))
         self.assertEqual(types[(24, "a.add")], ("String",))
-        self.assertIsNone(types[(26, "a.add")])
+        self.assertEqual(types[(26, "a.add")], ("int",))
         receiver = next(s for s in sites.values() if s.line == 32)
         self.assertIsNone(receiver.receiver_type)
 
@@ -1264,6 +1264,91 @@ class JavaTests(unittest.TestCase):
                 replace(site, arguments=len(bad), argument_calls=bad)
         with self.assertRaises(ValueError):
             replace(site, arguments=2, argument_calls=((1, 0, 1, 2),))
+
+    def test_operator_expressions_have_their_result_types(self):
+        lines = [
+            "package p;",
+            "class Api {",
+            "  void n(int x) {}",  # 3
+            "  void n(long x) {}",  # 4
+            "  void n(double x) {}",  # 5
+            "  void n(boolean x) {}",  # 6
+            "  void n(String x) {}",  # 7
+            "  void n(float x) {}",  # 8
+            "  void n(short x) {}",  # 9
+            "}",
+            "class Main {",
+            "  void m(Api a, byte b, long l, float f, char c, boolean z, String s, Object o) {",
+            "    a.n(-1);",  # 13: int
+            "    a.n(-b);",  # 14: byte promoted to int
+            "    a.n(b + c);",  # 15: int
+            "    a.n(b * l);",  # 16: long
+            "    a.n(f / 2);",  # 17: float
+            "    a.n(f * 2.0);",  # 18: double
+            "    a.n(l << 1);",  # 19: the left operand's type
+            "    a.n(b >> l);",  # 20: int
+            "    a.n(b < l);",  # 21: boolean
+            "    a.n(z && z);",  # 22: boolean
+            "    a.n(!z);",  # 23
+            "    a.n(z & z);",  # 24: boolean
+            "    a.n(b & 1);",  # 25: int
+            "    a.n(o instanceof String);",  # 26
+            "    a.n(z ? s : s);",  # 27: String
+            "    a.n(z ? 1 : 2);",  # 28: int
+            "    a.n(z ? s : null);",  # 29: not typed
+            "    a.n(z ? null : null);",  # 30: not typed
+            "    a.n(z ? 1 : l);",  # 31: not typed
+            "    a.n(~l);",  # 32: long
+            "    a.n(~f);",  # 33: not integral
+            "    a.n(f & 1);",  # 34: not integral
+            "    a.n(o + 1);",  # 35: not typed
+            "    a.n(-o);",  # 36: not typed
+            "    a.n(z | o);",  # 37: not typed
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].line: (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+        }
+        every = list(range(3, 10))
+        self.assertEqual(
+            found,
+            {
+                13: 3,
+                14: 3,
+                15: 3,
+                16: 4,
+                17: 8,
+                18: 5,
+                19: 4,
+                20: 3,
+                21: 6,
+                22: 6,
+                23: 6,
+                24: 6,
+                25: 3,
+                26: 6,
+                27: 7,
+                28: 3,
+                29: every,
+                30: every,
+                31: every,
+                32: 4,
+                33: every,
+                34: every,
+                35: every,
+                36: every,
+                37: every,
+            },
+        )
 
     def test_static_field_arguments_have_their_declared_types(self):
         lines = [
