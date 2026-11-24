@@ -888,12 +888,12 @@
     "ambiguous_unjudged": 5,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 3430,
+        "confirmed": 3437,
         "not_indexed": 186,
         "unjudged": 20
       },
       "tree-sitter.call-lexical-name": {
-        "confirmed": 1632,
+        "confirmed": 1633,
         "not_indexed": 107,
         "unjudged": 2
       },
@@ -912,30 +912,30 @@
         "not_indexed": 22
       }
     },
-    "confirmed": 5767,
+    "confirmed": 5775,
     "contradicted": 0,
     "expected": 3009,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 33,
+          "confirmed": 34,
           "expected": 35
         },
         "2": {
-          "confirmed": 41,
+          "confirmed": 42,
           "expected": 44
         },
         "3": {
-          "confirmed": 22,
+          "confirmed": 24,
           "expected": 29
         }
       },
-      "confirmed": 96,
+      "confirmed": 100,
       "expected": 108,
       "extra": 0,
-      "missed": 12,
+      "missed": 8,
       "precision": 1.0,
-      "recall": 0.8889,
+      "recall": 0.9259,
       "seeds": 40,
       "seeds_undeclared": 0,
       "unjudged": 46
@@ -944,7 +944,7 @@
       "confirmed": 1003,
       "contradicted": 0,
       "expected": 1007,
-      "not_indexed": 289,
+      "not_indexed": 321,
       "precision": 1.0,
       "recall": 0.996,
       "unresolved_expected": 1,
@@ -964,14 +964,14 @@
     "recall": 0.5274,
     "unjudged": 22,
     "unresolved_expected": 1351,
-    "unresolved_unjudged": 28590
+    "unresolved_unjudged": 28582
   },
   "ky": {
     "ambiguous_unjudged": 481,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 105,
-        "not_indexed": 139
+        "confirmed": 110,
+        "not_indexed": 148
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 120,
@@ -986,32 +986,36 @@
       },
       "tree-sitter.js-call-reexport": {
         "not_indexed": 184
+      },
+      "tree-sitter.js-call-static-method": {
+        "confirmed": 4,
+        "not_indexed": 2
       }
     },
-    "confirmed": 322,
+    "confirmed": 331,
     "contradicted": 0,
     "expected": 143,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 62,
+          "confirmed": 63,
           "expected": 65
         },
         "2": {
-          "confirmed": 45,
+          "confirmed": 52,
           "expected": 58
         },
         "3": {
-          "confirmed": 32,
+          "confirmed": 44,
           "expected": 52
         }
       },
-      "confirmed": 139,
+      "confirmed": 159,
       "expected": 175,
       "extra": 0,
-      "missed": 36,
+      "missed": 16,
       "precision": 1.0,
-      "recall": 0.7943,
+      "recall": 0.9086,
       "seeds": 38,
       "seeds_undeclared": 0,
       "unjudged": 0
@@ -1020,7 +1024,7 @@
       "confirmed": 98,
       "contradicted": 0,
       "expected": 98,
-      "not_indexed": 208,
+      "not_indexed": 211,
       "precision": 1.0,
       "recall": 1.0,
       "unresolved_external": 1
@@ -1034,27 +1038,23 @@
       "recall": 1.0,
       "unresolved": 8
     },
-    "missed": 9,
-    "missed_by_engine_outcome": {
-      "unresolved:attribute_call": 4,
-      "unresolved:unsupported_binding": 5
-    },
-    "not_indexed": 848,
+    "missed": 0,
+    "missed_by_engine_outcome": {},
+    "not_indexed": 859,
     "precision": 1.0,
-    "recall": 0.9371,
+    "recall": 1.0,
     "unjudged": 1,
-    "unresolved_expected": 9,
-    "unresolved_unjudged": 11403
+    "unresolved_unjudged": 11392
   },
   "preact": {
     "ambiguous_no_candidates": 38,
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 1969,
-        "not_indexed": 12
+        "not_indexed": 13
       },
       "tree-sitter.call-lexical-name": {
-        "confirmed": 778,
+        "confirmed": 779,
         "not_indexed": 46,
         "unjudged": 1
       },
@@ -1067,7 +1067,7 @@
         "not_indexed": 5
       }
     },
-    "confirmed": 4426,
+    "confirmed": 4427,
     "contradicted": 0,
     "expected": 3884,
     "impact": {
@@ -1113,12 +1113,12 @@
       "unresolved:imported_name_not_declared": 467,
       "unresolved:unbound_name": 4
     },
-    "not_indexed": 71,
+    "not_indexed": 72,
     "precision": 1.0,
     "recall": 0.8671,
     "unjudged": 1,
     "unresolved_expected": 474,
-    "unresolved_unjudged": 10943
+    "unresolved_unjudged": 10941
   },
   "ripgrep": {
     "ambiguous_includes": 18,
