@@ -992,7 +992,24 @@ with every method declared in the corpus that implements it; with
 `--dispatch`, such a call is a possible call of each of them, and a
 dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
 for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
-none. gson's call truth comes from javac, not an
+none.
+
+Go call truth comes from scip-go, so a separate oracle checks it with the
+compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
+module, renames a seeded sample of declarations one at a time, and runs
+`go build` and `go test -c` (with `-gcflags=all=-e`, binaries written to a
+scratch directory and never run). Every place that referred to the old
+name fails to compile, and the tool renames each reported use in turn so
+that importing packages compile and report theirs. A conversion that needed
+the method to satisfy an interface is an `implements` row; a package left
+failing for that reason cannot be compiled by its importers, whose files
+are `blocked`. A package whose own build fails never has its test variant
+compiled under `./...`, so its tests are compiled one package at a time.
+`go_compile_truth.py compare compile.tsv calls.tsv` then checks that every
+SCIP call row whose target was sampled is one of the compiler's references.
+On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
+fall in blocked packages, and 2 references are not calls (a middleware
+passed to `r.Use`). gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
