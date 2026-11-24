@@ -430,6 +430,11 @@ _CALL_RULE_TEXT = {
     "enum constant F, whose declaration writes a class type U (an enum "
     "constant: its enum); U declares or inherits the method, chosen among "
     "overloads as other Java calls are.",
+    call_rules.JAVA_GETCLASS_ARGUMENT: "A Java call among overloads that only "
+    "an argument 'e.getClass()' or 'getClass()' tells apart, with the "
+    "supertypes of JDK types as for the JDK-supertypes rule: Object declares "
+    "getClass() final (JLS 4.3.2), so that argument is a java.lang.Class, "
+    "and exactly one overload is the one javac chooses (JLS 15.12.2).",
     call_rules.JAVA_JDK_SUPERTYPES: "A Java call among overloads that only the "
     "supertypes of JDK types tell apart: for a type that a single-type import, "
     "a canonical java. name, or java.lang and the file's on-demand imports "

@@ -54,6 +54,7 @@ JAVA_STATIC_FIELD_RECEIVER = "tree-sitter.java-call-static-field-receiver"
 JAVA_PLATFORM_ARGUMENT = "tree-sitter.java-overload-platform-argument"
 JAVA_JDK_SUPERTYPES = "tree-sitter.java-overload-jdk-supertypes"
 JAVA_FIELD_ARGUMENT = "tree-sitter.java-overload-static-field-argument"
+JAVA_GETCLASS_ARGUMENT = "tree-sitter.java-overload-getclass-argument"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
 RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
@@ -466,6 +467,9 @@ class _JavaScope:
         # Whether subtype checks may use the supertypes of JDK types listed
         # in ``java_platform.json`` (see ``methods``).
         self._jdk = False
+        # Whether an argument ``e.getClass()`` has the type java.lang.Class
+        # (see ``call_result``).
+        self._getclass = False
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
         self.static = defaultdict(list)  # (file, member) -> type FQNs
@@ -616,6 +620,26 @@ class _JavaScope:
             if len(narrowed) == 1:
                 return CallResolution(
                     site.id, "linked", narrowed[0].definition.id, JAVA_JDK_SUPERTYPES
+                )
+        if len(chosen) > 1 and any(
+            span is not None
+            and (inner := self.spans.get((site.file, *span))) is not None
+            and inner.arguments == 0
+            and inner.callee.rpartition(".")[2] == "getClass"
+            for span in site.argument_calls or ()
+        ):
+            # Only that `e.getClass()` returns a java.lang.Class, with the
+            # JDK's supertypes of Class, may tell the overloads apart; a
+            # link they decide carries their rule.
+            flags = self._platform, self._jdk, self._getclass
+            self._platform = self._jdk = self._getclass = True
+            try:
+                narrowed = self.overloads(site, scope, fitting)
+            finally:
+                self._platform, self._jdk, self._getclass = flags
+            if len(narrowed) == 1:
+                return CallResolution(
+                    site.id, "linked", narrowed[0].definition.id, JAVA_GETCLASS_ARGUMENT
                 )
         if len(chosen) > 1 and site.argument_fields:
             # Only the types of static fields named as arguments may tell
@@ -855,6 +879,14 @@ class _JavaScope:
         site = self.spans.get((file, *span))
         if site is None:
             return None
+        if (
+            self._getclass
+            and site.arguments == 0
+            and site.callee.rpartition(".")[2] == "getClass"
+        ):
+            # Object declares getClass() final (JLS 4.3.2), so no type can
+            # declare another without parameters: the call returns a Class.
+            return ("java.lang.Class", (file, ()))
         if site.id not in self._results:
             caller = self.definitions.get(site.caller_id)
             scope = caller.symbol.split(".") if caller is not None else []
