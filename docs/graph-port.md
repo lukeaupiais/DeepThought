@@ -1820,7 +1820,14 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
   resolvers. A member that is a function declared in the file
   (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
-  function, anything else to the file.
+  function, anything else to the file. A field's options object is read the
+  same way whether its `subscribe` (preferred) or `resolve` option is a
+  pair, a method (`subscribe() {...}`) or a shorthand (`{me}`), and
+  `withFilter(fn, ...)` anchors to its first argument when that is a
+  function or a name of one. A shorthand member bound to an options object
+  of the same file (`const tick = {subscribe: fn}`) is followed once. A
+  function expression passed as an argument has no definition of its own,
+  so its edge stays on the file.
 - A root key bound to a name is followed: to an object literal of the same
   file (`const Query = {...}`), or to a relative module of the repository
   bound by `require` (whole, destructured or `.Name`) or `import` (default,
