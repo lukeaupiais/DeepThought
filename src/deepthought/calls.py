@@ -19,6 +19,7 @@ from .imports import (
     PYTHON_FROM_IMPORT_SUBMODULE,
     _java_index,
     _RustIndex,
+    c_include_target,
     resolve_imports,
 )
 from .models import AnalysisResult, Definition
@@ -61,6 +62,8 @@ RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
 RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
 RUST_CALL_RESULT_RECEIVER = "tree-sitter.rust-call-result-receiver"
 RUST_CALL_ENUM_VARIANT = "tree-sitter.rust-call-enum-variant"
+C_CALL_STATIC = "tree-sitter.c-call-static"
+C_CALL_EXTERNAL = "tree-sitter.c-call-external"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1705,6 +1708,74 @@ class _RustPaths:
         return CallResolution(item_id, status, reason=reason)
 
 
+class _CCalls:
+    """C calls of a plain name, read as the linker binds them: a function
+    with internal linkage in the calling file, else the one definition with
+    external linkage among the repository's C files."""
+
+    def __init__(self, result, languages):
+        files = {f for f, language in languages.items() if language == "c"}
+        # Files each C file includes by a path relative to its directory.
+        self.includes = defaultdict(set)
+        for item in result.imports:
+            if item.kind == "include":
+                target = c_include_target(item, files)
+                if target is not None:
+                    self.includes[item.file].add(target)
+        self.units = {}
+        self.macros = set()
+        self.internal = defaultdict(list)
+        self.static_names = defaultdict(set)
+        self.external = defaultdict(list)
+        for d in result.definitions:
+            if languages.get(d.file) != "c":
+                continue
+            if d.kind == "Macro":
+                self.macros.add(d.symbol)
+            elif d.kind == "Function":
+                if d.static:
+                    self.static_names[d.file].add(d.symbol)
+                if not d.prototype:
+                    self.internal[(d.file, d.symbol)].append(d)
+        for (file, name), found in self.internal.items():
+            if name not in self.static_names[file]:
+                self.external[name].extend(found)
+
+    def unit(self, file):
+        """The file and every file it includes, through includes."""
+        if file not in self.units:
+            seen, stack = set(), [file]
+            while stack:
+                current = stack.pop()
+                if current not in seen:
+                    seen.add(current)
+                    stack.extend(sorted(self.includes[current]))
+            self.units[file] = seen
+        return self.units[file]
+
+    def call(self, site):
+        name = site.callee
+        if site.shadowed:
+            # A parameter, local or file-scope variable of that name.
+            return CallResolution(site.id, "unresolved", reason="local_binding")
+        if name in self.macros:
+            # A macro of that name may expand the call away.
+            return CallResolution(site.id, "unresolved", reason="macro")
+        unit = sorted(self.unit(site.file))
+        if any(name in self.static_names[file] for file in unit):
+            # Internal linkage in the translation unit the file starts: a
+            # later definition without `static` has it too.
+            return _pick(
+                site.id,
+                [d for file in unit for d in self.internal.get((file, name), ())],
+                C_CALL_STATIC,
+                "not_defined",
+            )
+        return _pick(
+            site.id, self.external.get(name, ()), C_CALL_EXTERNAL, "not_defined"
+        )
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
@@ -1727,6 +1798,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         if any(item.language == "rust" for item in result.coverage)
         else None
     )
+    c_calls = _CCalls(result, languages)
 
     defaults = defaultdict(list)
     for d in result.definitions:
@@ -2191,6 +2263,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             continue
         if languages.get(site.file) == "rust":
             resolutions.append(rust.call(site))
+            continue
+        if languages.get(site.file) == "c":
+            resolutions.append(c_calls.call(site))
             continue
         parts = site.callee.split(".")
         if site.receiver_steps and languages.get(site.file) == "python":

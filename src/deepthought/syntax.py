@@ -433,6 +433,115 @@ def _c_declared_name(declarator, kinds):
     return node, holder
 
 
+def _c_static(node, content):
+    """Whether a C function declaration or definition is declared
+    ``static``."""
+    return any(
+        c.type == "storage_class_specifier" and _text(c, content) == "static"
+        for c in node.children
+    )
+
+
+def _c_locals(function, content):
+    """The names a C function definition's parameters and the declarations
+    in its body declare, whatever their kind."""
+    found = set()
+    declarator = function.child_by_field_name("declarator")
+    stack = [declarator, function.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        if node is None:
+            continue
+        if node.type in {"parameter_declaration", "declaration"}:
+            for d in node.children_by_field_name("declarator"):
+                declared = d
+                while declared is not None and declared.type != "identifier":
+                    declared = (
+                        declared.child_by_field_name("declarator")
+                        if declared.type != "parenthesized_declarator"
+                        else next(iter(declared.named_children), None)
+                    )
+                if declared is not None:
+                    found.add(_text(declared, content))
+        stack.extend(node.named_children)
+    return found
+
+
+def extract_c_call_sites(
+    tree, content: bytes, repository_id: str, file: str, definitions
+) -> list[CallSite]:
+    """C calls ``f(...)`` of a plain name, in every preprocessor branch,
+    each with the function definition around it. ``shadowed`` is True when
+    a parameter or declaration of that function declares the name (a
+    pointer to a function, or a prototype written in the body), or a
+    declaration at file scope declares it as a variable."""
+    functions = sorted(
+        (
+            ((d.line, d.column), (d.end_line, d.end_column), d.id)
+            for d in definitions
+            if d.file == file
+        ),
+        reverse=True,
+    )
+    sites, ordinals, scopes = [], {}, {}
+    # File-scope variables, pointers to functions among them.
+    variables = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "function_definition":
+            continue
+        if node.type == "declaration":
+            for declarator in node.children_by_field_name("declarator"):
+                if declarator.type == "init_declarator":
+                    declarator = declarator.child_by_field_name("declarator")
+                declared = _c_declared_name(declarator, {"identifier"})
+                if declared is not None and getattr(declared[1], "type", None) != (
+                    "function_declarator"
+                ):
+                    variables.add(_text(declared[0], content))
+            continue
+        stack.extend(node.named_children)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type == "function_definition":
+            scopes[node.id] = _c_locals(node, content)
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "identifier":
+            continue
+        callee = _text(function, content)
+        start = (node.start_point.row + 1, node.start_point.column)
+        end = (node.end_point.row + 1, node.end_point.column)
+        caller = next((i for s, e, i in functions if s <= start and end <= e), None)
+        outer = node.parent
+        while outer is not None and outer.type != "function_definition":
+            outer = outer.parent
+        ordinal = ordinals.get(callee, 0)
+        ordinals[callee] = ordinal + 1
+        sites.append(
+            CallSite(
+                id=identifier(repository_id, file, callee, "Call", ordinal),
+                file=file,
+                callee=callee,
+                kind="call",
+                line=start[0],
+                column=start[1],
+                end_line=end[0],
+                end_column=end[1],
+                caller_id=caller,
+                shadowed=True
+                if callee in variables
+                or (outer is not None and callee in scopes.get(outer.id, ()))
+                else None,
+            )
+        )
+    return sites
+
+
 def extract_c(
     tree, content: bytes, repository_id: str, file: str, *, nodes=None
 ) -> list[Definition]:
@@ -448,6 +557,12 @@ def extract_c(
         name = _text(name_node, content)
         ordinal = ordinals.get((name, kind), 0)
         ordinals[(name, kind)] = ordinal + 1
+        flags = {}
+        if kind == "Function":
+            if _c_static(node, content):
+                flags["static"] = True
+            if node.type != "function_definition":
+                flags["prototype"] = True
         definition = Definition(
             id=identifier(repository_id, file, name, kind, ordinal),
             file=file,
@@ -457,6 +572,7 @@ def extract_c(
             column=node.start_point.column,
             end_line=node.end_point.row + 1,
             end_column=node.end_point.column,
+            **flags,
         )
         found.append(definition)
         if nodes is not None:
@@ -1440,6 +1556,22 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
+def _c_imports(node, content):
+    """A C ``#include "path"`` in any preprocessor branch: the path as
+    written, kind ``include``. ``#include <path>`` and computed includes are
+    not read."""
+    # Only an include has a path.
+    path = node.child_by_field_name("path")
+    if path is None:
+        return
+    # `<path>` and a macro hold no string content.
+    text = "".join(
+        _text(c, content) for c in path.named_children if c.type == "string_content"
+    )
+    if text:
+        yield text, "include", (), ()
+
+
 def _php_imports(node, content):
     """Yield one import per clause of a PHP ``use`` declaration.
 
@@ -1816,6 +1948,7 @@ def extract_imports(
         "go": _go_imports,
         "java": _java_imports,
         "php": _php_imports,
+        "c": _c_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     exports = (

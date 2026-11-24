@@ -235,6 +235,30 @@ ROUTE_RULES = {
             "variable before the path is assumed to add no segments.",
         )
     ),
+    "gin": register_rule(
+        EvidenceRule(
+            "service-contracts.gin-route",
+            "pattern_matched",
+            "A GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS, Any, Handle or Match "
+            "call on a Gin router (from gin.Default or gin.New, a parameter or "
+            "struct field typed *gin.Engine, or a Group of one) in a file "
+            "importing github.com/gin-gonic/gin declares this path; Group "
+            "prefixes are joined, and a group passed in adds an unknown base "
+            "assumed to add no segments.",
+        )
+    ),
+    "echo": register_rule(
+        EvidenceRule(
+            "service-contracts.echo-route",
+            "pattern_matched",
+            "A GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS, Any, Add or Match call "
+            "on an Echo router (from echo.New, a parameter or struct field "
+            "typed *echo.Echo, or a Group of one) in a file importing "
+            "github.com/labstack/echo declares this path; Group prefixes are "
+            "joined, and a group passed in adds an unknown base assumed to "
+            "add no segments.",
+        )
+    ),
     "spring-websocket": register_rule(
         EvidenceRule(
             "service-contracts.spring-websocket-endpoint",

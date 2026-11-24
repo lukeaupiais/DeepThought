@@ -34,6 +34,7 @@ RUST_EXTERN_CRATE = "tree-sitter.rust-extern-crate"
 RUST_USE_REEXPORT = "tree-sitter.rust-use-reexport"
 RUST_USE_EXPORTED_MACRO = "tree-sitter.rust-use-exported-macro"
 PHP_USE_DECLARED = "tree-sitter.php-use-declared"
+C_INCLUDE_RELATIVE = "tree-sitter.c-include-relative"
 PHP_USE_NAMESPACE = "tree-sitter.php-use-namespace"
 _RUST_MODULE_KINDS = frozenset({"module", "module_path"})
 _RUST_CRATE_KINDS = frozenset({"crate_library", "crate_target"})
@@ -563,6 +564,17 @@ def _php_index(result: AnalysisResult):
     return types, functions, namespaces
 
 
+def c_include_target(item: Import, files):
+    """The analyzed file a C ``#include "path"`` names relative to the
+    directory of the file that writes it, which a compiler searches first;
+    None when there is none. Include paths given to the compiler (``-I``)
+    are not known."""
+    path = posixpath.normpath(
+        posixpath.join(posixpath.dirname(item.file), item.specifier)
+    )
+    return path if path in files else None
+
+
 def _php(item: Import, types, functions, namespaces):
     """Link a PHP ``use`` to the files declaring the class-like type,
     function or namespace it names.
@@ -1044,6 +1056,15 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
             resolutions.append(rust.resolve(item))
         elif language == "php":
             resolutions.append(_php(item, *php))
+        elif language == "c":
+            target = c_include_target(item, files)
+            resolutions.append(
+                ImportResolution(
+                    item.id, "linked", (ImportLink(target, C_INCLUDE_RELATIVE),)
+                )
+                if target is not None
+                else ImportResolution(item.id, "unresolved", reason="not_in_repository")
+            )
         else:
             resolutions.append(_typescript(item, files, scripts))
     return tuple(resolutions)
