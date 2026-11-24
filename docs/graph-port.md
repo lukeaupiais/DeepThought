@@ -412,6 +412,25 @@ api-gateway to customers-service and genai-service to vets-service, and both
 match the calling code (`CustomersServiceClient` and
 `VectorStoreController`).
 
+Code in no package (a Python service with only `requirements.txt`, a C# or
+Gradle service) counts in the Compose services and Kubernetes workloads
+whose build context, the Compose `build` or Skaffold artifact context, is
+deepest above it (`components.contract-consumer-build-context`). Copies of
+one build context deployed by several manifests are one service and never
+use each other. On GoogleCloudPlatform/microservices-demo `c7cb6d5` this
+adds 5 component pairs to the 8 between its Go and Node packages:
+loadgenerator to frontend (Locust HTTP), recommendationservice to
+productcatalogservice, checkoutservice to emailservice, and frontend to
+adservice and recommendationservice. Each one matches a gRPC stub or HTTP
+call in the consuming service. `get_component_impact` from
+productcatalogservice now lists the recommendationservice workload, and
+from the emailservice workload it lists checkoutservice. Every edge on
+those paths carries a rule ID. `get_impact` already crossed the same
+contracts at declaration level: from currencyservice's Node `convert`
+handler it reaches the `CurrencyService/Convert` method, then the Go
+`convertCurrency` callers in checkoutservice and frontend and their own
+callers.
+
 The same comparison tool checks REQUIRES against `cargo metadata
 --all-features` resolve graphs, `go mod edit -json` replacements and a Yarn
 Berry `yarn.lock`: every resolved link must be one the build tool made, and
@@ -767,7 +786,12 @@ none is `no_matching_arity`. When several are left, the argument types the
 call writes choose among them as javac does (JLS 15.12.2). An argument's type
 is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
 `long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
-`(T) e`, a `+` with a `String` operand (concatenation, JLS 15.18.1), or a
+`(T) e`, a `+` with a `String` operand (concatenation, JLS 15.18.1), an
+operator expression (a comparison, `!`, `&&`, `||` and `instanceof`
+give `boolean`; arithmetic, bitwise and shift operators on primitive numbers
+give the type numeric promotion gives, JLS 5.6; `&`, `|` and `^` on two
+`boolean`s give `boolean`), a conditional `c ? x : y` whose operands have
+one type (not `null`), or a
 variable whose declaration writes its type (as for `receiver_type` below,
 primitives such as `int i` and `boolean flag` included); `var`, arrays and
 other expressions are not typed; `CallSite.argument_types` records them. An
@@ -2526,8 +2550,13 @@ instead, each value a call of that function passes:
   it by name (`import { publishEvent as send } from './broker'`) or as a
   namespace (`ns.publishEvent(...)`), resolved as for constants across
   modules. A local name that shadows the function is not a call of it. A
-  function reached any other way (a class method, a default-exported
-  object's member, a value passed around) is not followed.
+  class method (not static, not an accessor) takes the calls
+  `this.method(...)` in its own class body, where `this` is the instance:
+  directly in a method or in an arrow function, not in a plain `function`
+  or a nested class (`private getProducts(url)` of an Angular service). A
+  function reached any other way (a subclass or another object calling the
+  method, a default-exported object's member, a value passed around) is not
+  followed.
 - **Values.** Each argument is folded in the calling module, with its own
   constants; arguments after a spread are unknown. An argument the call
   leaves out takes the parameter's default (`method = 'GET'`). An object
@@ -2550,6 +2579,7 @@ instead, each value a call of that function passes:
 | Rabin18Glan/gantabya `f90b2bc` | 2 `produceEvent('trip-events', ...)` in a controller | The send takes `trip-events` and meets the consumer |
 | Yash-op7/Distributed-Payments-Processing-System `8e4a6f5` | the only call is commented out | Unread, as before |
 | Dario213987/TPE-TicketYa `cdf3173` (front end) | 36 `api<T>(path, { method, body })` calls of one fetch helper | 32 requests linked to the right Spring route and method, all checked by hand (none before). The other 4 append a query string built at run time and stay unresolved |
+| darbyluv2code/fullstack `e8832ee` (45 copies of an Angular `ProductService`) | `this.getProducts(searchUrl)` twice per copy | Each copy's `GET {?}` becomes the two Spring Data REST search URLs (`/api/products/search/findByCategoryId?id={?}`, `.../findByNameContaining?name={?}`), 90 in all, every one the URL the caller builds. They stay unresolved because Spring Data REST repository endpoints are not read yet |
 
 The Go Kafka clients are read in files that import them. A producer or
 consumer is placed where the literal or call is written, which is not always
@@ -3012,6 +3042,7 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.script-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `query`, `execute`, `raw`, `prepare`, `exec`, `run`, `all`, `get`, `each` or a pg-promise query method, in a JavaScript or TypeScript file importing a Node SQL driver (`pg`, `mysql`, `mysql2`, `mariadb`, `sqlite3`, `better-sqlite3`, `mssql`, `oracledb`, `@libsql/client`, ...) or `knex`: a literal, a template string or `+` concatenation (unfixed parts dropped), or pg's `{ text }` config. Tagged templates (`sql\`...\``) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
@@ -3262,6 +3293,19 @@ through `PartKeeprPartBundle:Part`-style aliases. Entities whose type is not
 declared where they are persisted, PHP and YAML mapping drivers and custom
 repository base classes are not read yet. Symfony's `Tests/` directories
 are skipped with the other PHP test trees.
+
+Node SQL text is read where a file imports a driver. On
+dockersamples/example-voting-app the result service's
+`SELECT ... FROM votes` is read. On mx-space `06e732e` it reads 22
+statements in migrations, upgrade checks and scripts outside tests (22 more
+than before), and links them to the same tables as the Drizzle schema
+(`accounts`, `options`, `api_keys`). The 3 it leaves unfixed name their table
+through a `${...}` substitution (`${table}`, `${MIGRATIONS_TABLE}`). Every
+literal `query('SELECT|INSERT|UPDATE|DELETE ...')` line that a `grep` finds
+in its pg-importing files outside tests is read, and those with no table
+(`SELECT pg_advisory_lock($1)`) link nothing. vendure (2 load-test reads) and
+openstatus (1 probe script) gain those edges only, and librechat, nest,
+prisma-examples, awesome-compose, OneStopShop and mastodon are unchanged.
 
 The MongoDB driver reader finds the collections that scripts and migrations
 open by name, bypassing the models. On habitica it links 44 of the 80

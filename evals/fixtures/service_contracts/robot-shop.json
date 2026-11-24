@@ -268,17 +268,21 @@
       "contract": "GET /product/{sku}",
       "client": {
         "file": "ratings/html/src/Service/CatalogueService.php",
-        "line": 27
+        "line": 32
       },
       "server": {
         "file": "catalogue/server.js",
         "line": 82
       },
-      "evidence": "PHP curl; catalogueUrl = getenv('CATALOGUE_URL') ?: 'http://catalogue:8080' (Kernel.php)",
+      "evidence": "PHP curl; $url = sprintf('%s/product/%s', catalogueUrl, sku); catalogueUrl = getenv('CATALOGUE_URL') ?: 'http://catalogue:8080' (Kernel.php)",
       "in_scope_static": true,
       "hop": "direct",
       "label_confidence": "high",
-      "id": "robot-shop#6"
+      "id": "robot-shop#6",
+      "client_url_def": {
+        "file": "ratings/html/src/Service/CatalogueService.php",
+        "line": 27
+      }
     },
     {
       "kind": "messaging",

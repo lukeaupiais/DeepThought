@@ -273,6 +273,17 @@ CONTRACT_RULE = register_rule(
         "match names and path templates, not traced values.",
     )
 )
+CONTRACT_UNIT_RULE = register_rule(
+    EvidenceRule(
+        "components.contract-consumer-build-context",
+        "pattern_matched",
+        "As components.contract-consumer, where code on one side is in no "
+        "package: it counts in the Compose services and Kubernetes "
+        "workloads whose build context (Compose build, Skaffold artifact "
+        "context) is deepest above it. Copies of one build context are one "
+        "service and never use each other.",
+    )
+)
 # Contract edges by role: (provider relation, consumer relation).
 CONTRACT_ROLES = (
     ("HANDLES", "REQUESTS"),
@@ -296,23 +307,51 @@ def _nearest_packages(path, packages, cache):
 def bind_contract_users(nodes, relationships, repo_url):
     """USES_CONTRACT_OF edges between package components.
 
-    For each contract node (an HTTP route or message destination), every
-    package holding a consumer (REQUESTS, CONSUMES) USES_CONTRACT_OF every
-    other package holding its provider (HANDLES, PUBLISHES), once per
-    contract. Run when tool outputs are combined, since the contracts and
+    For each contract node (an HTTP route, gRPC method or message
+    destination), every package holding a consumer (REQUESTS, CONSUMES)
+    USES_CONTRACT_OF every other package holding its provider (HANDLES,
+    PUBLISHES), once per contract. Code in no package belongs to the
+    Compose services and Kubernetes workloads whose build context is
+    nearest above it. Run when tool outputs are combined, since the contracts and
     components come from different tools. Returns (relationships, counts).
     """
     nodes = list(nodes)
-    packages, files = {}, {}
+    packages, units, files = {}, {}, {}
     for node in nodes:
         p = node.properties
         if "Component" in node.labels and p.get("kind") in PACKAGE_KINDS:
             packages[Component(p["kind"], p["manifest"], p.get("name"))] = node
+        elif (
+            "Component" in node.labels
+            and p.get("kind") in ("compose_service", "k8s_workload")
+            and p.get("root") is not None
+        ):
+            # A deployment unit that builds a directory with no package
+            # manifest (a Python, C# or Gradle service) stands for its code.
+            units[
+                Component(p["kind"], p["manifest"], p.get("name"), context=p["root"])
+            ] = node
         path = p.get("path") if "File" in node.labels else p.get("file_path")
         if path:
             files[p["qualified_name"]] = path
-    if not packages:
+    if not packages and not units:
         return [], {"contract_links": 0}
+    owners_cache, units_cache = {}, {}
+
+    def owners(path):
+        """The packages nearest above a file, else the deployment units
+        whose build context is nearest above it."""
+        found = _nearest_packages(path, packages, owners_cache)
+        if found:
+            return [packages[c] for c in found]
+        if path not in units_cache:
+            enclosing = [
+                c for c in units if c.root == "" or path.startswith(c.root + "/")
+            ]
+            deepest = max(map(_depth, enclosing), default=None)
+            units_cache[path] = [units[c] for c in enclosing if _depth(c) == deepest]
+        return units_cache[path]
+
     roles = {}
     for provides, uses in CONTRACT_ROLES:
         roles[provides], roles[uses] = 0, 1
@@ -324,21 +363,21 @@ def bind_contract_users(nodes, relationships, repo_url):
                 sides.setdefault(rel.target_match["qualified_name"], ([], []))[
                     roles[rel.type]
                 ].append(path)
-    found, cache = set(), {}
+    package_names = {node.properties["qualified_name"] for node in packages.values()}
+    found = set()
     for contract, (providers, consumers) in sides.items():
         provided = {
-            c for path in providers for c in _nearest_packages(path, packages, cache)
+            node.properties["qualified_name"]
+            for path in providers
+            for node in owners(path)
         }
         for path in consumers:
-            for consumer in _nearest_packages(path, packages, cache):
-                for provider in provided - {consumer}:
-                    found.add(
-                        (
-                            packages[consumer].properties["qualified_name"],
-                            packages[provider].properties["qualified_name"],
-                            contract,
-                        )
-                    )
+            # Copies of one unit (the same build context deployed by several
+            # manifests) are one service, never each other's users.
+            own = {node.properties["qualified_name"] for node in owners(path)}
+            for consumer in own:
+                for provider in provided - own:
+                    found.add((consumer, provider, contract))
     edges = [
         RelationshipData(
             "USES_CONTRACT_OF",
@@ -346,7 +385,14 @@ def bind_contract_users(nodes, relationships, repo_url):
             {"qualified_name": consumer, "repo_url": repo_url},
             ["Component"],
             {"qualified_name": provider, "repo_url": repo_url},
-            {"contract": contract, **_evidence(CONTRACT_RULE)},
+            {
+                "contract": contract,
+                **_evidence(
+                    CONTRACT_RULE
+                    if consumer in package_names and provider in package_names
+                    else CONTRACT_UNIT_RULE
+                ),
+            },
         )
         for consumer, provider, contract in sorted(found)
     ]
