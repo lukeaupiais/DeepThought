@@ -200,8 +200,14 @@ def parser():
             q.add_argument("--symbol", required=True, help="Qualified name")
         if name == "file-impact":
             q.add_argument("--file", required=True)
-        if name in {"impact", "file-impact"}:
+        if name in {"impact", "file-impact", "component-impact"}:
             q.add_argument("--max-depth", type=int, default=3, help="1 to 5 hops")
+            q.add_argument(
+                "--offset",
+                type=int,
+                default=0,
+                help="Skip this many dependents: a truncated answer's next_offset",
+            )
         if name in {
             "callers",
             "callees",
@@ -232,8 +238,6 @@ def parser():
                 choices=("resolved", "pattern_matched", "name_matched"),
                 help="Repeat to keep only edges with these evidence types",
             )
-        if name == "component-impact":
-            q.add_argument("--max-depth", type=int, default=3, help="1 to 5 hops")
         if name == "component-files":
             q.add_argument("--component", required=True, help="Qualified name")
             q.add_argument("--after-path", default="", help="Continue after this path")
@@ -428,6 +432,7 @@ async def execute(args):
                 args.repository_id,
                 max_depth=args.max_depth,
                 evidence_types=args.evidence,
+                offset=args.offset,
                 **kwargs,
             )
         if args.command in {"members", "owner"}:
@@ -466,6 +471,7 @@ async def execute(args):
                 args.repository_id,
                 max_depth=args.max_depth,
                 evidence_types=args.evidence,
+                offset=args.offset,
                 **kwargs,
             )
         if args.command == "shared-tables":

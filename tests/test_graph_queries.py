@@ -94,6 +94,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 ["Function", "Symbol"],
                 name="helper",
                 kind="Function",
+                docstring="Helps run things.",
                 file_path="src/a.py",
                 start_line=12,
                 end_line=14,
@@ -162,6 +163,33 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                 await result.consume()
             found = await service.search_elements("helper", repo, snapshot_id=snapshot)
             self.assertEqual(found["items"][0]["element"]["name"], "helper")
+            # A bare name finds the member it names, first; a dotted query
+            # and a Lucene expression only use the index.
+            member = await service.search_elements("run", repo, snapshot_id=snapshot)
+            # helper's docstring says "run": an index hit, after the member.
+            self.assertEqual(
+                [(x["element"]["name"], x["name_match"]) for x in member["items"]],
+                [("Child.run", True), ("helper", False)],
+            )
+            self.assertTrue(found["items"][0]["name_match"])
+            exact = await service.search_elements(
+                "helper", repo, snapshot_id=snapshot, file_path="other.py"
+            )
+            self.assertEqual(exact["items"], [])
+            partial = await service.search_elements("un", repo, snapshot_id=snapshot)
+            self.assertFalse(any(x["name_match"] for x in partial["items"]))
+            dotted = await service.search_elements(
+                "Child.run", repo, snapshot_id=snapshot
+            )
+            self.assertFalse(any(x["name_match"] for x in dotted["items"]))
+            self.assertEqual(
+                (
+                    await service.search_elements(
+                        "zzz_absent", repo, snapshot_id=snapshot
+                    )
+                )["items"],
+                [],
+            )
             context = await service.get_code_context(
                 "src/a.py", repo, snapshot_id=snapshot, line_number=6
             )

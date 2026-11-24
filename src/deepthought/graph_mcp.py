@@ -91,7 +91,12 @@ def create_server():
         ctx: Context,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """Search the original code_search fulltext index; empty selects declarations."""
+        """Search declarations by name; empty selects declarations.
+
+        A query that is one identifier also finds the members it names
+        (``Flags`` finds ``Command.Flags``), listed first with
+        ``name_match``; other hits come from the code_search fulltext index.
+        """
         return await ctx.request_context.lifespan_context.search_elements(
             query,
             repository_id,
@@ -185,13 +190,15 @@ def create_server():
         max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+        offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
         Follows CALLS, INHERITS_FROM, IMPLEMENTS and REQUESTS backwards and
         HANDLES forwards, so callers of a changed HTTP handler's route in
         other services count; each dependent has its depth, its path's edges
-        and the path's weakest evidence.
+        and the path's weakest evidence. A truncated list continues with
+        ``offset`` set to its ``next_offset``.
         """
         return await ctx.request_context.lifespan_context.get_impact(
             qualified_name,
@@ -200,6 +207,7 @@ def create_server():
             max_depth=max_depth,
             evidence_types=evidence_types,
             limit=max_elements,
+            offset=offset,
         )
 
     @server.tool()
@@ -211,8 +219,12 @@ def create_server():
         max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+        offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
     ) -> dict:
-        """Get files that depend on a file, transitively, over IMPORTS and DEPENDS_ON."""
+        """Get files that depend on a file, transitively, over IMPORTS and DEPENDS_ON.
+
+        A truncated list continues with ``offset`` set to its ``next_offset``.
+        """
         return await ctx.request_context.lifespan_context.get_file_impact(
             file_path,
             repository_id,
@@ -220,6 +232,7 @@ def create_server():
             max_depth=max_depth,
             evidence_types=evidence_types,
             limit=max_elements,
+            offset=offset,
         )
 
     @server.tool()
@@ -381,8 +394,12 @@ def create_server():
         max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
         evidence_types: Evidence = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+        offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
     ) -> dict:
-        """Get components that transitively require, deploy or select a component, each with its path and weakest evidence."""
+        """Get components that transitively require, deploy or select a component, each with its path and weakest evidence.
+
+        A truncated list continues with ``offset`` set to its ``next_offset``.
+        """
         return await ctx.request_context.lifespan_context.get_component_impact(
             qualified_name,
             repository_id,
@@ -390,6 +407,7 @@ def create_server():
             max_depth=max_depth,
             evidence_types=evidence_types,
             limit=max_elements,
+            offset=offset,
         )
 
     @server.tool()

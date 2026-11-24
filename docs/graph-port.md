@@ -294,8 +294,10 @@ its path (type, edge ID, evidence type, rule ID) and the path's evidence,
 which is its weakest edge. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
 the answer is the same on every run. Results are ordered by depth, evidence
-and name; a response that exceeds its byte budget drops whole items and says
-it was truncated. The answer is a lower bound: dynamic dispatch, reflection,
+and name; a response that exceeds its byte budget or its limit drops whole
+items, says it was truncated and gives `next_offset`, where the next page
+starts (`--offset`, MCP `offset`; a snapshot does not change, so pages do not
+overlap or skip). Component impact pages the same way. The answer is a lower bound: dynamic dispatch, reflection,
 unanalyzed files and relations no tool records are not seen, and a
 `name_matched` path is only as good as its weakest name match.
 
@@ -3721,6 +3723,12 @@ environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
 `findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
+
+`searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
+The index keeps a member's dotted name (`Command.Flags`) as one token, so a
+query that is one identifier also returns, first and marked `name_match`, the
+declarations named by it or by `.` and it. `Flags` finds `Command.Flags`; `lags`
+and `Command.Flags` use only the index.
 
 ## Cypher scope and access
 
