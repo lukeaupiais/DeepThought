@@ -612,6 +612,15 @@
       "language": "go-sql",
       "labels": "tables/miniflux-storage.json",
       "oracle": "hand-read sample of 30 storage call sites"
+    },
+    {
+      "name": "tables-fastapi-template-sqlmodel",
+      "url": "https://github.com/fastapi/full-stack-fastapi-template",
+      "commit": "77e550a73bb49dd2967622c5ed11bf7a49603c93",
+      "license": "MIT",
+      "language": "python-orm",
+      "labels": "tables/fastapi-template-sqlmodel.json",
+      "oracle": "hand-read: every SQLModel table access under backend/"
     }
   ]
 }

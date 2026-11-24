@@ -1,0 +1,675 @@
+{
+  "repo": "https://github.com/fastapi/full-stack-fastapi-template",
+  "commit": "77e550a73bb49dd2967622c5ed11bf7a49603c93",
+  "labelled_by": "read by hand: every line under backend/ that names a table=True SQLModel class in select(), select_from(), delete() or Session.get(), or passes an instance of one to Session.add(), delete() or refresh(); plus the SQL strings the Alembic migrations pass to op.execute (CREATE statements left out); SQLModel names the tables user and item after the classes. A statement is labelled on the line that names the model, not the line that executes it.",
+  "accesses": [
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 31,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 32,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 33,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ],
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 68,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 69,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 71,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
+      "line": 72,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ],
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/deps.py",
+      "line": 41,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 22,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 25,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 31,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 36,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 53,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 69,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 71,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 86,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 93,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 95,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 106,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/items.py",
+      "line": 111,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/private.py",
+      "line": 35,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 42,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 46,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 97,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 99,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 119,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 141,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 169,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 197,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 221,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 228,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/api/routes/users.py",
+      "line": 230,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/core/db.py",
+      "line": 25,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 14,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 16,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 28,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 30,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 35,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 57,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 59,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 65,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/app/crud.py",
+      "line": 67,
+      "tables": [
+        [
+          "item",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 108,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 142,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 144,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 154,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 176,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 178,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_login.py",
+      "line": 188,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_private.py",
+      "line": 22,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 217,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 241,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 258,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 333,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 377,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 379,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 443,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 446,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/api/routes/test_users.py",
+      "line": 478,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/conftest.py",
+      "line": 20,
+      "tables": [
+        [
+          "item",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/conftest.py",
+      "line": 22,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/crud/test_user.py",
+      "line": 74,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/crud/test_user.py",
+      "line": 89,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/crud/test_user.py",
+      "line": 108,
+      "tables": [
+        [
+          "user",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/crud/test_user.py",
+      "line": 110,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "backend/tests/crud/test_user.py",
+      "line": 120,
+      "tables": [
+        [
+          "user",
+          "READS"
+        ]
+      ]
+    }
+  ]
+}

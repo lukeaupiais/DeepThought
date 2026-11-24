@@ -872,6 +872,10 @@ def score_tables(corpus, workspace, examples=10):
         return score_knex_tables(labels, workspace, examples)
     if language == "go-sql":
         return score_go_sql_tables(labels, workspace, examples)
+    if language == "python-orm":
+        return score_line_tables(
+            labels, workspace, examples, "data-contracts.", ["python"]
+        )
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -1168,6 +1172,8 @@ def missing_requirements(manifest, names=()):
                 if language in {"mongoose", "mongodb", "knex"}
                 else ("go",)
                 if language == "go-sql"
+                else ("python",)
+                if language == "python-orm"
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])
