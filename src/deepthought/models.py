@@ -53,6 +53,12 @@ class Definition:
     # Java methods and constructors declared ``private``, which subtypes do
     # not inherit: True. None elsewhere.
     private: bool | None = None
+    # JavaScript and TypeScript methods declared ``static``: True. None
+    # elsewhere.
+    static: bool | None = None
+    # JavaScript and TypeScript declarations their module exports as
+    # ``default``: True. None elsewhere.
+    default_export: bool | None = None
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
@@ -93,6 +99,10 @@ class Definition:
             raise ValueError("parameter_types must be a tuple of nonempty strings")
         if self.private is not None and self.private is not True:
             raise ValueError("private must be True or None")
+        if self.static is not None and self.static is not True:
+            raise ValueError("static must be True or None")
+        if self.default_export is not None and self.default_export is not True:
+            raise ValueError("default_export must be True or None")
         if self.overload is not None and self.overload is not True:
             raise ValueError("overload must be True or None")
         if self.macro_export is not None and type(self.macro_export) is not bool:
@@ -295,8 +305,9 @@ class CallSite:
     # call ``M()`` (its first result), or ``[]`` (an element of a slice).
     # None when the receiver is ``x`` itself.
     receiver_steps: tuple[str, ...] | None = None
-    # JavaScript and TypeScript calls of a plain name: the start (line,
-    # column) of the declaration of that name the call sees in its file,
+    # JavaScript and TypeScript calls of a plain name, and of ``x.m``: the
+    # start (line, column) of the declaration of that name (of ``x``) the
+    # call sees in its file,
     # following block and function scopes; ``()`` when the file declares
     # none the call sees. None when an import binds the name, or the scopes
     # around the call cannot be read (``with``, a syntax error), and
@@ -673,6 +684,10 @@ class AnalysisResult:
                 del item["parameter_types"]
             if item["private"] is None:
                 del item["private"]
+            if item["static"] is None:
+                del item["static"]
+            if item["default_export"] is None:
+                del item["default_export"]
             if item["macro_export"] is None:
                 del item["macro_export"]
             if item["overload"] is None:

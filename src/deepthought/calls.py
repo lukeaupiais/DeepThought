@@ -28,6 +28,7 @@ CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
 GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 CALL_JS_REEXPORT = "tree-sitter.js-call-reexport"
+CALL_JS_STATIC_METHOD = "tree-sitter.js-call-static-method"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -1335,6 +1336,19 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         else None
     )
 
+    defaults = defaultdict(list)
+    for d in result.definitions:
+        if d.default_export and d.kind in _CALLABLE:
+            defaults[d.file].append(d)
+
+    def declared_in(files, name):
+        """Callables the modules in ``files`` declare at top level as
+        ``name``; for ``default``, the JavaScript or TypeScript declaration
+        each exports as its default."""
+        if name == "default":
+            return [d for file in files for d in defaults.get(file, ())]
+        return top_level(files, name, _CALLABLE)
+
     def js_exported(module, name, seen):
         """Declarations a JavaScript or TypeScript module exports as
         ``name`` without declaring it: through ``export { name } from``
@@ -1345,7 +1359,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         if (module, name) in seen:
             return []
         seen = seen | {(module, name)}
-        declared = top_level((module,), name, _CALLABLE)
+        declared = declared_in((module,), name)
         if declared:
             return declared
         forwards = bindings.reexports.get(module, ())
@@ -1369,7 +1383,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         (JavaScript and TypeScript) re-exported (``js_exported``)."""
         rule_used, seen = rule, set()
         while True:
-            declared = top_level(files, name, _CALLABLE)
+            declared = declared_in(files, name)
             if declared or len(files) != 1:
                 return _pick(site.id, declared, rule_used, reason)
             (module,) = files
@@ -1572,6 +1586,23 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             return [], str(error)
         return found, "not_declared_on_type"
 
+    def script_class(site, head):
+        """The class that the first name of a JavaScript or TypeScript call
+        ``head.m()`` denotes: declared where the call's scopes see ``head``,
+        or bound by a named import of one class. None otherwise."""
+        if languages.get(site.file) not in {"javascript", "typescript"}:
+            return None
+        if site.binding is not None:
+            found = starts.get((site.file, *site.binding), [])
+        else:
+            bound = names.get((site.file, head), [])
+            if len(bound) != 1 or bound[0][0] is None:
+                return None
+            imported, targets = bound[0]
+            linked = exported(targets, imported, CALL_IMPORTED_NAME, "not_declared")
+            found = [by_id[linked.target_id]] if linked.target_id else []
+        return found[0] if len(found) == 1 and found[0].kind == "Class" else None
+
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
         caller = by_id.get(site.caller_id)
@@ -1652,7 +1683,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                         "no_declaration",
                     )
                 )
-            elif bound and bound[0][0] not in (None, "default"):
+            elif bound and bound[0][0] is not None:
                 name, targets = bound[0]
                 resolutions.append(
                     exported(
@@ -1744,6 +1775,22 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         elif bound:
             resolutions.append(
                 CallResolution(site.id, "ambiguous", reason="multiple_bindings")
+            )
+        elif (owner := script_class(site, head)) is not None:
+            # `C.m()` on a class: a static method `C` declares.
+            resolutions.append(
+                _pick(
+                    site.id,
+                    [
+                        d
+                        for d in by_symbol.get(
+                            (owner.file, f"{owner.symbol}.{name}"), ()
+                        )
+                        if d.kind in _METHOD and d.static
+                    ],
+                    CALL_JS_STATIC_METHOD,
+                    "static_not_declared",
+                )
             )
         else:
             resolutions.append(
