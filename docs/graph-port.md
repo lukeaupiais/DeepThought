@@ -4222,8 +4222,17 @@ and the rest run DDL or session statements (`ALTER`, `CREATE`, `PRAGMA`,
 (`sqlIgnoreConflict($sql)`, `str_replace`) or that arrives as a parameter.
 On pixelfed and koel the 5 and 4 `DB::select`/`DB::statement` statements
 with SQL verbs are read; their other `DB::statement` calls are DDL. Tables
-qualified with a schema (`information_schema.tables`) give the bare name,
-as everywhere in the SQL reader.
+qualified with a schema give the bare name, as everywhere in the SQL reader.
+
+The SQL reader leaves out database system catalogs, which are the
+database's tables, not the application's: any name in the
+`information_schema`, `pg_catalog`, `sys` or `performance_schema` schema,
+names starting `pg_` (PostgreSQL's catalog prefix) or `sqlite_` (reserved by
+SQLite), and Oracle's `all_`, `user_` and `dba_` dictionary views by name
+(`all_tables`, `user_tab_columns`, ...; `user_settings` stays a table).
+Before, `information_schema.columns` became a table named `columns`, which
+would join any real `columns` table; gin-vue-admin's code generator reads 27
+such catalog names.
 
 On Apache Superset's `superset/` package, outside its Alembic migrations,
 the tool maps 39 classes through `__tablename__`. `grep` for

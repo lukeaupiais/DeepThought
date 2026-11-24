@@ -491,6 +491,13 @@ class StatementTests(unittest.TestCase):
                 ("visits",),
                 ("pets",),
             ),
+            # System catalogs are not the application's tables.
+            "SELECT table_name FROM INFORMATION_SCHEMA.TABLES t "
+            "JOIN pg_catalog.pg_class c ON true JOIN pg_attribute a ON true "
+            "JOIN users u ON true": (("users",), ()),
+            "SELECT name FROM sqlite_master UNION SELECT name FROM sys.databases "
+            "UNION SELECT table_name FROM all_tables "
+            "UNION SELECT name FROM user_settings": (("user_settings",), ()),
             "WITH recent (id) AS (SELECT id FROM visits) SELECT * FROM recent": (
                 ("visits",),
                 (),

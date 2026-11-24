@@ -204,6 +204,47 @@ def _is_name(token):
     )
 
 
+# Database system catalogs: their names are the database's, not the
+# application's. Schemas: the SQL standard's information_schema, PostgreSQL's
+# pg_catalog, SQL Server's and MySQL's sys, MySQL's performance_schema.
+# PostgreSQL names its catalogs pg_* and SQLite reserves sqlite_* (both
+# documented reserved prefixes); Oracle's data dictionary views are listed.
+CATALOG_SCHEMAS = frozenset(
+    {"information_schema", "pg_catalog", "sys", "performance_schema"}
+)
+ORACLE_DICTIONARY = frozenset(
+    f"{scope}_{view}"
+    for scope in ("all", "user", "dba")
+    for view in (
+        "users",
+        "tables",
+        "tab_columns",
+        "tab_comments",
+        "col_comments",
+        "constraints",
+        "cons_columns",
+        "indexes",
+        "ind_columns",
+        "views",
+        "sequences",
+        "objects",
+        "synonyms",
+        "triggers",
+    )
+)
+
+
+def is_catalog(parts):
+    """Whether a (lower case, possibly schema-qualified) name is a database
+    system catalog."""
+    if len(parts) > 1 and parts[-2] in CATALOG_SCHEMAS:
+        return True
+    name = parts[-1]
+    return name.startswith(("pg_", "sqlite_")) or (
+        len(parts) == 1 and name in ORACLE_DICTIONARY
+    )
+
+
 def statement_tables(text, jpql=False):
     """The tables a SQL statement (or entities a JPQL one) names after FROM,
     JOIN, USING, INTO, UPDATE and TRUNCATE.
@@ -213,8 +254,10 @@ def statement_tables(text, jpql=False):
     table expression names, subqueries' own parentheses, function calls in
     FROM (a name followed by ``(``) and FROM inside function arguments
     (``EXTRACT(YEAR FROM d)``) are skipped. A name holding text the code
-    does not fix (PLACEHOLDER) is dropped. In SQL ``schema.table`` gives
-    ``table``; in JPQL a dotted name is a path (``o.pets``), not an entity.
+    does not fix (PLACEHOLDER) is dropped, and so is a system catalog
+    (``information_schema.tables``, ``pg_class``, ``sqlite_master``; see
+    is_catalog). In SQL ``schema.table`` gives ``table``; in JPQL a dotted
+    name is a path (``o.pets``), not an entity.
     """
     text = _COMMENT_OR_STRING.sub(_blank, text)
     tokens = _TOKEN.findall(text)
@@ -256,6 +299,8 @@ def statement_tables(text, jpql=False):
             return None, k
         if jpql:
             return (parts[0] if len(parts) == 1 else None), k
+        if is_catalog([table_key(p) for p in parts]):
+            return None, k
         return table_key(parts[-1]), k
 
     def take(k, into, columns=False):
