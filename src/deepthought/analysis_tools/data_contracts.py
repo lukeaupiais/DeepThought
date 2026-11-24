@@ -39,6 +39,7 @@ from ..data_contracts import (
     extract_prisma_client,
     extract_prisma_schema,
     extract_python_sql,
+    extract_script_sql,
     extract_ruby_models,
     extract_php_eloquent,
     resolve_eloquent,
@@ -387,6 +388,16 @@ SQL_RULES = {
             "exec_driver_sql, fetch, fetchrow, fetchval or raw call, in a "
             "module importing a database driver, SQLAlchemy or django.db; "
             "the receiver's type is not checked.",
+        ),
+        (
+            "script-sql",
+            "The code passes SQL naming this table (string literals, template "
+            "strings and + concatenation, the parts the code does not fix "
+            "dropped, or pg's {text} config) to a query, execute, raw, "
+            "prepare, exec, run, all, get, each or pg-promise query method, "
+            "in a JavaScript or TypeScript file importing a Node SQL driver "
+            "(pg, mysql, mysql2, mariadb, sqlite3, better-sqlite3, mssql, "
+            "oracledb, ...) or knex; the receiver's type is not checked.",
         ),
         (
             "jpa-entity-manager",
@@ -1232,6 +1243,11 @@ class DataContractTool(AnalysisTool):
                 item
                 for file, content, tree in python_trees
                 for item in extract_python_sql(tree, content, file, result.definitions)
+            ]
+            + [
+                item
+                for file, content, tree in script_trees
+                for item in extract_script_sql(tree, content, file, result.definitions)
             ]
         )
         for item in uses:
