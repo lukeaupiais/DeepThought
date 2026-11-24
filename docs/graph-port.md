@@ -767,7 +767,12 @@ none is `no_matching_arity`. When several are left, the argument types the
 call writes choose among them as javac does (JLS 15.12.2). An argument's type
 is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
 `long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
-`(T) e`, a `+` with a `String` operand (concatenation, JLS 15.18.1), or a
+`(T) e`, a `+` with a `String` operand (concatenation, JLS 15.18.1), an
+operator expression (a comparison, `!`, `&&`, `||` and `instanceof`
+give `boolean`; arithmetic, bitwise and shift operators on primitive numbers
+give the type numeric promotion gives, JLS 5.6; `&`, `|` and `^` on two
+`boolean`s give `boolean`), a conditional `c ? x : y` whose operands have
+one type (not `null`), or a
 variable whose declaration writes its type (as for `receiver_type` below,
 primitives such as `int i` and `boolean flag` included); `var`, arrays and
 other expressions are not typed; `CallSite.argument_types` records them. An

@@ -155,7 +155,7 @@ Baseline (calls):
 | preact | javascript | 3,884 | 4,426 | 0 | 1.0 | 0.8671 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,050 | 9,334 | 0 | 1.0 | 0.8356 |
+| gson | java | 11,050 | 9,342 | 0 | 1.0 | 0.8363 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
