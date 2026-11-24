@@ -518,6 +518,13 @@
       "expected": 1014,
       "extra": 0,
       "found": 1014,
+      "imports": {
+        "confirmed": 0,
+        "contradicted": 0,
+        "expected": 287,
+        "precision": null,
+        "recall": 0.0
+      },
       "kind_mismatch": 0,
       "missed": 0,
       "recall": 1.0
