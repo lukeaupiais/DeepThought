@@ -113,23 +113,42 @@ def derive(workspace, index):
         elif d.native_id:
             kind = "callable" if _callable(d.native_id) else "value"
             defined.setdefault(d.native_id, set()).add((d.file, d.line, kind))
+    lines = {}
+
+    def text_of(file):
+        if file not in lines:
+            try:
+                lines[file] = (workspace / file).read_text("utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                lines[file] = []
+        return lines[file]
+
+    # scip-python gives the other declarations of an @overload group (the
+    # implementation too), and a redefinition in the same scope, the first
+    # one's symbol as a reference on a `def` line. Each is a declaration of
+    # that symbol, so a call to it may link to any of them.
+    for r in source.references:
+        locations = defined.get(r.native_id)
+        if not locations or r.line != r.end_line or not _callable(r.native_id):
+            continue
+        if not r.native_id.startswith("scip-python "):
+            continue
+        text = text_of(r.file)
+        if r.line <= len(text) and _DECLARES.search(
+            _slice(text[r.line - 1], 0, r.column, r.coordinate_encoding)
+        ):
+            locations.add((r.file, r.line, "callable"))
     for native, locations in list(defined.items()):
         if native.endswith("`<constructor>`()."):
             owner = native[: -len("`<constructor>`().")]
             locations |= {
                 (file, line, "callable") for file, line, _ in defined.get(owner, ())
             }
-    lines = {}
     expected = {}
     for r in source.references:
         if r.line != r.end_line:
             continue
-        if r.file not in lines:
-            try:
-                lines[r.file] = (workspace / r.file).read_text("utf-8").splitlines()
-            except (OSError, UnicodeDecodeError):
-                lines[r.file] = []
-        text = lines[r.file]
+        text = text_of(r.file)
         if r.line > len(text):
             continue
         line = text[r.line - 1]
@@ -456,6 +475,25 @@ def regressions(report, baseline):
     return problems
 
 
+def impact_regressions(report, baseline):
+    """Fewer oracle dependents reached, more wrong ones, or a changed truth."""
+    problems = []
+    if report["confirmed"] < baseline["confirmed"]:
+        problems.append(f"confirmed {baseline['confirmed']} -> {report['confirmed']}")
+    if report["extra"] > baseline["extra"]:
+        problems.append(f"extra {baseline['extra']} -> {report['extra']}")
+    if (report["seeds"], report["expected"]) != (
+        baseline["seeds"],
+        baseline["expected"],
+    ):
+        problems.append(
+            f"seeds/expected {baseline['seeds']}/{baseline['expected']} -> "
+            f"{report['seeds']}/{report['expected']} "
+            "(the truth file changed; update the baseline in the same commit)"
+        )
+    return problems
+
+
 CONTRACT_COUNTS = ("true_positive", "predicted", "labelled_in_scope")
 
 
@@ -610,6 +648,25 @@ def check(names, cache, update=False, examples=10):
                 problems += [
                     "imports: " + p
                     for p in regressions(imported, baseline[corpus["name"]]["imports"])
+                ]
+        if "impact" in corpus:
+            import impact_truth
+
+            path = CORPUS / corpus["impact"]
+            impact, impact_samples = impact_truth.score(
+                result,
+                impact_truth.read(path),
+                examples=examples,
+                aliases=impact_truth.read_aliases(path),
+            )
+            report["impact"] = impact
+            samples["impact"] = impact_samples
+            if not update and "impact" in baseline.get(corpus["name"], {}):
+                problems += [
+                    "impact: " + p
+                    for p in impact_regressions(
+                        impact, baseline[corpus["name"]]["impact"]
+                    )
                 ]
         failed |= bool(problems)
         reports[corpus["name"]] = {

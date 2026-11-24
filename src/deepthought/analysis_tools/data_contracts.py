@@ -22,11 +22,17 @@ from ..data_contracts import (
     app_config_label,
     extract_ddl,
     extract_entity_manager,
+    extract_go_sql,
     extract_django,
     extract_java,
     extract_java_sql,
+    extract_prisma_client,
+    extract_prisma_schema,
     extract_python_sql,
     extract_sqlalchemy,
+    extract_typeorm,
+    prisma_accessor,
+    table_key,
     resolve_django,
 )
 from ..engine import analyze_repository
@@ -47,7 +53,7 @@ CONTAINS_RULE = register_rule(
     EvidenceRule(
         "data-contracts.repository-contains-sql",
         "resolved",
-        "The repository has this SQL file at this path.",
+        "The repository has this SQL file (or Prisma schema) at this path.",
     )
 )
 DDL_RULE = register_rule(
@@ -101,7 +107,7 @@ REPOSITORY_RULE = register_rule(
 )
 
 
-SUPPORTED_LANGUAGES = ("java", "python")
+SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "typescript")
 # JDBC URL markers of databases that live and die with one process.
 IN_MEMORY = (":mem:", ":memory:", "jdbc:derby:memory")
 
@@ -225,12 +231,85 @@ SQL_RULES = {
             "find or getReference (READS) with the entity's class literal.",
         ),
         (
+            "go-sql",
+            "The code passes SQL naming this table (string literals, joined "
+            "with + to text the code does not fix) to a database/sql, sqlx, "
+            "pgx, GORM (Raw, Exec) or bun query method, in a file importing "
+            "one of those packages or a SQL driver; the receiver's type is "
+            "not checked.",
+        ),
+        (
             "jdbc-insert-table",
             "The code calls withTableName with this table (SimpleJdbcInsert), "
             "in a file importing org.springframework.jdbc.",
         ),
     )
 }
+
+GORM_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-table-name",
+        "pattern_matched",
+        "The type, in a file importing a Go SQL package, has a TableName() "
+        "method that returns this table name as a string literal (GORM's "
+        "Tabler interface).",
+    )
+)
+PRISMA_MODEL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-model",
+        "resolved",
+        "The Prisma schema declares a model for this table: its @@map name, "
+        "else the model name.",
+    )
+)
+PRISMA_CLIENT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.prisma-client",
+        "pattern_matched",
+        "The code calls a reading (findMany, findUnique, count, ...) or "
+        "writing (create, update, upsert, delete, ...) Prisma Client method "
+        "on a property named like a Prisma model's client name (the model "
+        "name, first letter lower case): the one such model of the caller's "
+        "namespace, else of the repository. The receiver is not checked to "
+        "be a PrismaClient.",
+    )
+)
+TYPEORM_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-entity-name",
+        "pattern_matched",
+        "The class is decorated with TypeORM's @Entity (imported from "
+        "typeorm) naming this table as a string or as the name option.",
+    )
+)
+TYPEORM_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-default-table-name",
+        "name_matched",
+        "The class is decorated with TypeORM's @Entity without a name; the "
+        "table is its DefaultNamingStrategy name, the snake case of the "
+        "class name. A custom naming strategy is not read.",
+    )
+)
+TYPEORM_REPOSITORY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-repository",
+        "pattern_matched",
+        "In a file importing typeorm or @nestjs/typeorm, the code calls "
+        "getRepository or @InjectRepository with a TypeORM entity class "
+        "name: the one such entity of the caller's namespace, else of the "
+        "repository. A repository reads and writes; which of its methods are "
+        "called is not checked.",
+    )
+)
+
+
+def _nearest(candidates, scope):
+    """The tables of (scope, table) candidates in the user's own namespace
+    when it has any, else all of them."""
+    own = {t for s, t in candidates if s == scope}
+    return own or {t for _, t in candidates}
 
 
 def _evidence(rule):
@@ -245,14 +324,14 @@ def table_name(repo_url, scope, name):
     return f"{repo_url}::{scope or '.'}::db-table::{name}"
 
 
-def _sql_files(root, include, exclude):
+def _sql_files(root, include, exclude, suffix=".sql"):
     from fnmatch import fnmatch
 
     found = []
     for directory, dirs, names in os.walk(root):
         dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRECTORIES)
         for name in sorted(names):
-            if not name.lower().endswith(".sql"):
+            if not name.lower().endswith(suffix):
                 continue
             path = os.path.relpath(os.path.join(directory, name), root).replace(
                 os.sep, "/"
@@ -343,7 +422,15 @@ class DataContractTool(AnalysisTool):
             nearest = _nearest_packages(path, packages, cache)
             return min((c.manifest for c in nearest), default="")
 
-        ddl, unreadable, digests = [], [], {}
+        ddl, unreadable, digests, prisma = [], [], {}, []
+        for path in _sql_files(root, include, exclude, ".prisma"):
+            content = (root / path).read_bytes()
+            digests[path] = sha256(content).hexdigest()
+            found = extract_prisma_schema(path, content)
+            if found is None:
+                unreadable.append(path)
+            else:
+                prisma.extend(found)
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -370,16 +457,15 @@ class DataContractTool(AnalysisTool):
                 "Files changed during analysis: " + ", ".join(sorted(changed))
             )
         parsers = {}
-        trees, python_trees = [], []
+        trees, python_trees, script_trees, go_trees = [], [], [], []
         for file, language, content in sources:
-            if language not in parsers:
-                parsers[language] = make_parser(
-                    language, ".java" if language == "java" else ".py"
-                )
-            tree = parsers[language].parse(content)
-            (trees if language == "java" else python_trees).append(
-                (file, content, tree)
-            )
+            suffix = ".tsx" if file.endswith(".tsx") else ""
+            if (language, suffix) not in parsers:
+                parsers[language, suffix] = make_parser(language, suffix)
+            tree = parsers[language, suffix].parse(content)
+            {"java": trees, "python": python_trees, "go": go_trees}.get(
+                language, script_trees
+            ).append((file, content, tree))
         constants, seen = {}, set()
         for _, content, tree in trees:
             for qualified, fields in java_constants(tree, content).items():
@@ -471,7 +557,7 @@ class DataContractTool(AnalysisTool):
             )
 
         repository_name = f"{repo_url}::repository"
-        for path in sorted({d.file for d in ddl}):
+        for path in sorted({d.file for d in ddl} | {m.file for m in prisma}):
             file_name = f"{repo_url}::{path}::file"
             files.append(
                 NodeData(
@@ -482,7 +568,7 @@ class DataContractTool(AnalysisTool):
                         "path": path,
                         "file_path": path,
                         "name": path,
-                        "language": "sql",
+                        "language": "prisma" if path.endswith(".prisma") else "sql",
                         "file_sha256": digests[path],
                     },
                 )
@@ -670,17 +756,26 @@ class DataContractTool(AnalysisTool):
                     mapped.get(mapping.entity)
                 )
         sql_counts = {"statements": 0, "not_fixed": 0, "unknown_entity": 0}
-        uses = [
-            item
-            for file, content, tree in trees
-            for item in extract_java_sql(
-                tree, content, file, result.definitions, constants
-            )
-        ] + [
-            item
-            for file, content, tree in python_trees
-            for item in extract_python_sql(tree, content, file, result.definitions)
-        ]
+        go_names, go_uses = [], []
+        for file, content, tree in go_trees:
+            found = extract_go_sql(tree, content, file, result.definitions)
+            go_names.extend(found[0])
+            go_uses.extend(found[1])
+        uses = (
+            go_uses
+            + [
+                item
+                for file, content, tree in trees
+                for item in extract_java_sql(
+                    tree, content, file, result.definitions, constants
+                )
+            ]
+            + [
+                item
+                for file, content, tree in python_trees
+                for item in extract_python_sql(tree, content, file, result.definitions)
+            ]
+        )
         for item in uses:
             sql_counts["statements"] += 1
             if item.statement is None:
@@ -727,6 +822,100 @@ class DataContractTool(AnalysisTool):
                     mapped[entity],
                     SQL_RULES["jpa-entity-manager"],
                     {"entity": entity, "line": use.line, "column": use.column},
+                )
+        # GORM TableName methods: the type is declared in the same package.
+        gorm_counts = {"linked": 0, "type_not_found": 0}
+        for item in go_names:
+            package = item.file.rpartition("/")[0]
+            owners = [
+                d
+                for d in result.definitions
+                if d.symbol == item.type_name
+                and d.file.rpartition("/")[0] == package
+                and d.file.endswith(".go")
+            ]
+            if len(owners) != 1:
+                gorm_counts["type_not_found"] += 1
+                continue
+            gorm_counts["linked"] += 1
+            link(
+                "MAPS_TO",
+                symbol(owners[0].id),
+                table(item.file, item.table),
+                GORM_TABLE_RULE,
+                {"line": item.line, "column": item.column},
+            )
+        # Prisma models and the client calls that use them.
+        prisma_targets = {}
+        for model in sorted(prisma, key=lambda m: (m.file, m.line)):
+            target = table(model.file, table_key(model.table))
+            prisma_targets.setdefault(prisma_accessor(model.model), set()).add(
+                (scope(model.file), target)
+            )
+            link(
+                "DECLARES",
+                (["File"], f"{repo_url}::{model.file}::file"),
+                target,
+                PRISMA_MODEL_RULE,
+                {"line": model.line, "model": model.model},
+            )
+        orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
+        for file, content, tree in script_trees:
+            for use in extract_prisma_client(
+                tree, content, file, result.definitions, set(prisma_targets)
+            ):
+                targets = _nearest(prisma_targets[use.model], scope(use.file))
+                if len(targets) != 1:
+                    orm_counts["prisma_ambiguous"] += 1
+                    continue
+                orm_counts["prisma_linked"] += 1
+                for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                    if used:
+                        link(
+                            kind,
+                            code(use.file, use.caller_id),
+                            next(iter(targets)),
+                            PRISMA_CLIENT_RULE,
+                            {
+                                "model": use.model,
+                                "line": use.line,
+                                "column": use.column,
+                            },
+                        )
+        # TypeORM entities and the repositories of them.
+        typeorm_mappings, typeorm_uses = [], []
+        for file, content, tree in script_trees:
+            found = extract_typeorm(tree, content, file, result.definitions)
+            typeorm_mappings.extend(found[0])
+            typeorm_uses.extend(found[1])
+        typeorm_targets = {}
+        for mapping in typeorm_mappings:
+            target = table(mapping.file, mapping.table)
+            typeorm_targets.setdefault(mapping.name, set()).add(
+                (scope(mapping.file), target)
+            )
+            link(
+                "MAPS_TO",
+                symbol(mapping.model_id),
+                target,
+                TYPEORM_TABLE_RULE if mapping.explicit else TYPEORM_DEFAULT_RULE,
+                {"line": mapping.line, "column": mapping.column},
+            )
+        orm_counts.update(typeorm_linked=0, typeorm_not_an_entity=0)
+        for use in typeorm_uses:
+            targets = _nearest(typeorm_targets.get(use.model, set()), scope(use.file))
+            if len(targets) != 1:
+                orm_counts["typeorm_not_an_entity"] += 1
+                continue
+            orm_counts["typeorm_linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind in ("READS", "WRITES"):
+                link(
+                    kind,
+                    source,
+                    next(iter(targets)),
+                    TYPEORM_REPOSITORY_RULE,
+                    {"entity": use.model, "line": use.line, "column": use.column},
                 )
         files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
@@ -786,6 +975,10 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_access_resolution": sa_counts,
                     "sql_text": sql_counts,
                     "entity_manager_resolution": entity_counts,
+                    "gorm_table_names": gorm_counts,
+                    "prisma_models": len(prisma),
+                    "typeorm_entities": len(typeorm_mappings),
+                    "orm_access_resolution": orm_counts,
                     "scope": "tables from CREATE TABLE, JPA, Django and "
                     "SQLAlchemy mappings, read and written by repositories, "
                     "manager and session calls and the SQL text Java code runs; "

@@ -752,6 +752,236 @@ class PythonSqlTests(unittest.TestCase):
         )
 
 
+TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_typescript"
+)
+SCRIPT_ORMS = {
+    "package.json": '{"name": "shop"}',
+    "prisma/schema.prisma": """// The shop's tables.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id      Int     @id @default(autoincrement())
+  profile UserProfile?
+  @@map("users")
+}
+
+/// model Ghost {} is only a comment.
+model UserProfile {
+  id     Int  @id
+  userId Int  @unique
+}
+""",
+    "src/users.ts": """import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+
+export async function listUsers() {
+  return prisma.user.findMany({ include: { profile: true } });
+}
+
+export async function rename(id: number, name: string) {
+  await prisma.userProfile.upsert({ where: { id }, create: {}, update: {} });
+  return prisma.user.update({ where: { id }, data: { name } });
+}
+
+export function other(cache: any) {
+  return cache.user.get(1);
+}
+""",
+    "src/entities.ts": """import { Entity as Table, PrimaryGeneratedColumn } from "typeorm";
+
+@Table({ name: "audit_events" })
+export class AuditEvent {
+  @PrimaryGeneratedColumn() id: number;
+}
+
+export @Table() class HTTPRequestLog {}
+
+@Table(tableName) class Dynamic {}
+""",
+    "src/audit.ts": """import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { DataSource, Repository } from "typeorm";
+import { AuditEvent, HTTPRequestLog } from "./entities";
+
+@Injectable()
+export class AuditService {
+  constructor(
+    @InjectRepository(AuditEvent) private events: Repository<AuditEvent>,
+    private source: DataSource,
+  ) {}
+
+  logs() {
+    return this.source.getRepository(HTTPRequestLog).find();
+  }
+
+  unknown() {
+    return this.source.getRepository(Missing);
+  }
+}
+""",
+}
+
+
+@unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
+class ScriptOrmTests(unittest.TestCase):
+    def test_prisma_and_typeorm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SCRIPT_ORMS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("DECLARES", "prisma/schema.prisma", "userprofile", "prisma-model"),
+                ("DECLARES", "prisma/schema.prisma", "users", "prisma-model"),
+                (
+                    "MAPS_TO",
+                    "AuditEvent",
+                    "audit_events",
+                    "typeorm-entity-name",
+                ),
+                (
+                    "MAPS_TO",
+                    "HTTPRequestLog",
+                    "http_request_log",
+                    "typeorm-default-table-name",
+                ),
+                (
+                    "READS",
+                    "AuditService.constructor",
+                    "audit_events",
+                    "typeorm-repository",
+                ),
+                (
+                    "READS",
+                    "AuditService.logs",
+                    "http_request_log",
+                    "typeorm-repository",
+                ),
+                ("READS", "listUsers", "users", "prisma-client"),
+                (
+                    "WRITES",
+                    "AuditService.constructor",
+                    "audit_events",
+                    "typeorm-repository",
+                ),
+                (
+                    "WRITES",
+                    "AuditService.logs",
+                    "http_request_log",
+                    "typeorm-repository",
+                ),
+                ("WRITES", "rename", "userprofile", "prisma-client"),
+                ("WRITES", "rename", "users", "prisma-client"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            (metrics["prisma_models"], metrics["typeorm_entities"]), (2, 2)
+        )
+        self.assertEqual(
+            metrics["orm_access_resolution"],
+            {
+                "prisma_linked": 3,
+                "prisma_ambiguous": 0,
+                "typeorm_linked": 2,
+                "typeorm_not_an_entity": 1,
+            },
+        )
+        for relationship in output.relationships:
+            self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+GO = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_go"
+)
+GO_SQL = {
+    "go.mod": "module example.com/shop\n",
+    "store/user.go": """package store
+
+import (
+\t"context"
+\t"database/sql"
+)
+
+type User struct{ ID int }
+
+func (User) TableName() string { return "accounts" }
+
+type Session struct{}
+
+func (*Session) TableName() string { return name() }
+
+type Store struct{ db *sql.DB }
+
+func (s *Store) Find(ctx context.Context, id int) {
+\ts.db.QueryRowContext(ctx, "SELECT id FROM accounts WHERE id = $1", id)
+}
+
+func (s *Store) Purge(table string) {
+\ts.db.Exec(`DELETE FROM sessions` + " WHERE expired")
+\ts.db.Exec("TRUNCATE " + table)
+\ts.db.Exec("VACUUM")
+}
+""",
+    "other/cache.go": """package other
+
+func Get(c Cache) { c.Get("SELECT * FROM nothing") }
+""",
+}
+
+
+@unittest.skipUnless(GO, "Install the go grammar")
+class GoSqlTests(unittest.TestCase):
+    def test_sql_text_and_gorm_table_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, GO_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["go"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "User", "accounts", "gorm-table-name"),
+                ("READS", "Store.Find", "accounts", "go-sql"),
+                ("WRITES", "Store.Purge", "sessions", "go-sql"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            metrics["gorm_table_names"], {"linked": 1, "type_not_found": 0}
+        )
+        self.assertEqual(
+            metrics["sql_text"],
+            {"statements": 3, "not_fixed": 1, "unknown_entity": 0},
+        )
+
+
 class GraphCase(unittest.IsolatedAsyncioTestCase):
     """Writes a workspace's tree-sitter, components and data-contracts
     outputs to an isolated repository of the provisioned Neo4j."""

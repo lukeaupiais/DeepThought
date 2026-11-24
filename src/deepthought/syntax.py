@@ -877,11 +877,14 @@ def extract_ruby(
         if nodes is not None:
             nodes[definition.id] = (node, name_node)
 
-    # (node, scope, inside a class or module body)
-    stack = [(tree.root_node, (), False)]
+    # (node, scope, inside a class or module body, inside a method body)
+    stack = [(tree.root_node, (), False, False)]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, in_def = stack.pop()
         kind = _RUBY_SCOPES.get(node.type)
+        if kind is not None and in_def:
+            # Ruby does not allow a class or module in a method body.
+            continue
         if kind is not None:
             name = node.child_by_field_name("name")
             path = _ruby_constant_path(name, content) if name is not None else None
@@ -891,17 +894,30 @@ def extract_ruby(
             inner = (*(() if absolute else scope), *names)
             last = name.child_by_field_name("name") if name.type != "constant" else name
             add(node, last, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend((c, inner, True, False) for c in reversed(node.named_children))
             continue
         if node.type in {"method", "singleton_method"}:
             name = node.child_by_field_name("name")
             if name is not None:
                 text = _text(name, content)
                 symbol = ".".join((*scope, text))
-                add(node, name, symbol, "Method" if in_type else "Function")
-            # A def in a method body is defined when the method runs.
+                # A receiver (`def obj.m`) makes it a method of that object.
+                method = in_type or node.type == "singleton_method"
+                add(node, name, symbol, "Method" if method else "Function")
+            # A def in a method body defines its method when that method
+            # runs, under the same scope.
+            stack.extend(
+                (c, scope, in_type, True) for c in reversed(node.named_children)
+            )
             continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        if node.type == "singleton_class":
+            # `class << obj` opens the object's singleton class: its defs are
+            # methods.
+            stack.extend(
+                (c, scope, True, in_def) for c in reversed(node.named_children)
+            )
+            continue
+        stack.extend((c, scope, in_type, in_def) for c in reversed(node.named_children))
     return found
 
 
@@ -911,10 +927,6 @@ _PHP_TYPES = {
     "trait_declaration": "Trait",
     "enum_declaration": "Enum",
 }
-# Bodies run later, so what they declare is declared when they run. (An
-# arrow function's body is an expression, which declares nothing outside
-# these.)
-_PHP_BODIES = {"anonymous_function", "anonymous_class"}
 
 
 def extract_php(
@@ -927,9 +939,11 @@ def extract_php(
     namespace statement, or a braced ``namespace A\\B { }``) and the
     enclosing class-like declaration with ``.``. Declarations in a
     conditional block (``if (!function_exists('f')) { function f() {} }``)
-    are recorded; those in a function or method body, a closure or an
-    anonymous class are not, since PHP declares them only when that code
-    runs. ``nodes`` receives id -> (node, name).
+    are recorded, and so are those in a function or method body or a
+    closure: PHP declares them in the current namespace when that code runs,
+    so their symbols are namespace-qualified. An anonymous class's methods
+    are named by the path to the class (``N.C.make.handle`` for one in
+    ``C::make``). ``nodes`` receives id -> (node, name).
     """
     found, ordinals = [], {}
 
@@ -966,25 +980,39 @@ def extract_php(
             items.append((child, scope, False))
         return items
 
-    # (node, scope, inside a class-like body)
-    stack = list(reversed(children(tree.root_node, ())))
+    # (node, scope, inside a class-like body, namespace, lexical path): a
+    # function or class declared in a body goes to the namespace, and an
+    # anonymous class's methods are named by the path to where it is.
+    stack = [(n, s, t, s, s) for n, s, t in reversed(children(tree.root_node, ()))]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, namespace, path = stack.pop()
         kind = _PHP_TYPES.get(node.type)
         if kind is not None:
             name = node.child_by_field_name("name")
             inner = (*scope, _text(name, content))
             add(node, name, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend(
+                (c, inner, True, namespace, inner)
+                for c in reversed(node.named_children)
+            )
+            continue
+        if node.type == "anonymous_class":
+            stack.extend(
+                (c, path, True, namespace, path) for c in reversed(node.named_children)
+            )
             continue
         if node.type in {"function_definition", "method_declaration"}:
             name = node.child_by_field_name("name")
-            symbol = ".".join((*scope, _text(name, content)))
-            add(node, name, symbol, "Method" if in_type else "Function")
+            symbol = (*scope, _text(name, content))
+            add(node, name, ".".join(symbol), "Method" if in_type else "Function")
+            stack.extend(
+                (c, namespace, False, namespace, symbol)
+                for c in reversed(node.named_children)
+            )
             continue
-        if node.type in _PHP_BODIES:
-            continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        stack.extend(
+            (c, scope, in_type, namespace, path) for c in reversed(node.named_children)
+        )
     return found
 
 

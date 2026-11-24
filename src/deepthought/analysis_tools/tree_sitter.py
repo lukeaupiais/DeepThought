@@ -289,6 +289,10 @@ _CALL_RULE_TEXT = {
     call_rules.CALL_MODULE_ATTRIBUTE: "A callee 'module.name' uses a module "
     "import binding whose file declares that name at top level; a Go import "
     "without an alias binds the imported package's declared name.",
+    call_rules.CALL_PYTHON_REEXPORT: "A Python callee bound by an import, bare "
+    "or as 'module.name', names a module that does not declare the name but "
+    "binds it with exactly one 'from M import name'; that import is followed, "
+    "step by step, to the module that declares it at top level.",
     call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
     "method declared in the enclosing class body; inheritance is not followed.",
     call_rules.CALL_PACKAGE_NAME: "A bare callee name equals a function declared "
