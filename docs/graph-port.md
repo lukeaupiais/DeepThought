@@ -2140,7 +2140,18 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  route unread. chi routes (rule `chi-route`) are `Get`/`Post`/`Put`/
+  `Patch`/`Delete`/`Head`/`Options`/`Connect`/`Trace(path, handler)`,
+  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc(path,
+  handler)` (any method) calls on a router made by `chi.NewRouter()`/
+  `chi.NewMux()`, typed `*chi.Mux`, returned by `With(...)` or
+  `Route(prefix, ...)`, or the `chi.Router` parameter of a function literal
+  passed to `Route(prefix, fn)` (the prefix is joined) or `Group(fn)` (no
+  prefix); any other `chi.Router` parameter is a router passed in, as for
+  Gin. chi's `{id}` and `{id:regex}` are route variables and a trailing `*`
+  matches the rest of the path. A handler passed as a method value
+  (`r.Route("/api", api.Routes)`) is not followed.
+  Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
   `src/pages/api/**`) is one route for any method, handled by the default
   export, with `index` naming its directory; `app/**/route.{js,ts}` (or under

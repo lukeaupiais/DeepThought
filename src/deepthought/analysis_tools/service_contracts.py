@@ -261,6 +261,20 @@ ROUTE_RULES = {
             "add no segments.",
         )
     ),
+    "chi": register_rule(
+        EvidenceRule(
+            "service-contracts.chi-route",
+            "pattern_matched",
+            "A Get/Post/Put/Patch/Delete/Head/Options/Connect/Trace, Method, "
+            "MethodFunc, Handle or HandleFunc call on a chi router (from "
+            "chi.NewRouter or chi.NewMux, a parameter or struct field typed "
+            "*chi.Mux, a With of one, or the chi.Router parameter of a "
+            "function literal passed to Route or Group) in a file importing "
+            "github.com/go-chi/chi declares this path; Route prefixes are "
+            "joined, and a chi.Router passed in adds an unknown base assumed "
+            "to add no segments.",
+        )
+    ),
     "nextjs": register_rule(
         EvidenceRule(
             "service-contracts.nextjs-route",

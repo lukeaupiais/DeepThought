@@ -1481,12 +1481,42 @@ _GO_ROUTERS = {
         ("Group",),
         0,
     ),
+    "github.com/go-chi/chi/v5": (
+        "chi",
+        ("NewRouter", "NewMux"),
+        ("Mux",),
+        ("Router",),
+        -1,
+    ),
+    "github.com/go-chi/chi": (
+        "chi",
+        ("NewRouter", "NewMux"),
+        ("Mux",),
+        ("Router",),
+        -1,
+    ),
 }
 _GO_ROUTER_VERBS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+# chi's verb methods.
+_CHI_VERBS = {
+    "Get": "GET",
+    "Post": "POST",
+    "Put": "PUT",
+    "Patch": "PATCH",
+    "Delete": "DELETE",
+    "Head": "HEAD",
+    "Options": "OPTIONS",
+    "Connect": "CONNECT",
+    "Trace": "TRACE",
+}
 
 
-def _go_router_path(path):
-    """Gin/Echo ``:id`` as ``{id}`` and a ``*rest`` segment as ``{*rest}``."""
+def _go_router_path(path, framework=None):
+    """Gin/Echo ``:id`` as ``{id}`` and a ``*rest`` segment as ``{*rest}``;
+    chi's ``{id}`` and ``{id:regex}`` are already route variables, and its
+    ``*`` matches the rest of the path."""
+    if framework == "chi":
+        return "/".join("{*}" if part == "*" else part for part in path.split("/"))
     return "/".join(
         "{" + part[1:] + "}"
         if part.startswith(":") and len(part) > 1
@@ -1536,6 +1566,24 @@ def _go_router_prefixes(context, imports, mounts=None):
             node = node.parent
         return node
 
+    def nested(call, depth=0):
+        """The prefixes of the router a Group or Route call makes: Gin and
+        Echo ``Group(prefix, ...)`` join the prefix; chi ``Route(prefix,
+        fn)`` joins it and chi ``Group(fn)`` keeps the parent's."""
+        function = call.child_by_field_name("function")
+        field = text(function.child_by_field_name("field"), content)
+        parent = prefix(function.child_by_field_name("operand"), depth + 1)
+        arguments = call.child_by_field_name("arguments")
+        if parent is None or arguments is None:
+            return None
+        chi = _GO_ROUTERS[parent[0]][0] == "chi"
+        if field == "Group" and chi:
+            return parent
+        if field == "Route" and not chi or not arguments.named_children:
+            return None
+        own = context.folder.evaluate(arguments.named_children[0])
+        return parent[0], tuple(p + own for p in parent[1])
+
     def prefix(node, depth=0):
         if node is None or depth > 10:
             return None
@@ -1551,18 +1599,15 @@ def _go_router_prefixes(context, imports, mounts=None):
             if written in packages:
                 constructors = _GO_ROUTERS[packages[written]][1]
                 return (packages[written], ("",)) if field in constructors else None
-            if field == "Use" and packages.get(written) is None:
-                # Gin's Use returns the router it was called on.
+            if field in ("Use", "With") and packages.get(written) is None:
+                # Gin's Use and chi's With return the router they were
+                # called on (with more middleware).
                 found = prefix(operand, depth + 1)
-                return found if found and _GO_ROUTERS[found[0]][0] == "gin" else None
-            if field != "Group":
+                wanted = "gin" if field == "Use" else "chi"
+                return found if found and _GO_ROUTERS[found[0]][0] == wanted else None
+            if field not in ("Group", "Route"):
                 return None
-            parent = prefix(operand, depth + 1)
-            arguments = node.child_by_field_name("arguments")
-            if parent is None or arguments is None or not arguments.named_children:
-                return None
-            own = context.folder.evaluate(arguments.named_children[0])
-            return parent[0], tuple(p + own for p in parent[1])
+            return nested(node)
         if node.type == "selector_expression":
             name = text(node.child_by_field_name("field"), content)
             found = {typed(k) for k in fields.get(name, ())}
@@ -1606,6 +1651,30 @@ def _go_router_prefixes(context, imports, mounts=None):
                         if text(written, content) != name or kind is None:
                             continue
                         found = typed(text(kind, content))
+                        if (
+                            found
+                            and found[1] == (PLACEHOLDER,)
+                            and scope.type == "func_literal"
+                            and scope.parent is not None
+                            and scope.parent.type == "argument_list"
+                        ):
+                            # chi's r.Route(prefix, func(r chi.Router) {...})
+                            # and r.Group(func(r chi.Router) {...}).
+                            call = scope.parent.parent
+                            function = call.child_by_field_name("function")
+                            if (
+                                function is not None
+                                and function.type == "selector_expression"
+                                and text(function.child_by_field_name("field"), content)
+                                in ("Group", "Route")
+                                and scope.parent.named_children[-1] == scope
+                            ):
+                                around = nested(call, depth + 1)
+                                if (
+                                    around is not None
+                                    and _GO_ROUTERS[around[0]][0] == "chi"
+                                ):
+                                    return around
                         function = scope.child_by_field_name("name")
                         key = (
                             text(function, content)
@@ -1701,12 +1770,32 @@ def extract_go(context, package):
         field = text(function.child_by_field_name("field"), content)
         operand_text = text(operand, content)
         if routers is not None and (
-            field in _GO_ROUTER_VERBS or field in ("Any", "Handle", "Add", "Match")
+            field in _GO_ROUTER_VERBS
+            or field in _CHI_VERBS
+            or field in ("Any", "Handle", "Add", "Match", "HandleFunc")
+            or field in ("Method", "MethodFunc")
         ):
             router = routers(operand)
+            framework = _GO_ROUTERS[router[0]][0] if router is not None else None
+            if framework == "chi" and field in _GO_ROUTER_VERBS:
+                router = None
+            if framework != "chi" and (
+                field in _CHI_VERBS or field in ("HandleFunc", "Method", "MethodFunc")
+            ):
+                router = None
             if router is not None:
                 framework, _, _, _, handler_index = _GO_ROUTERS[router[0]]
-                if field in ("Handle", "Add", "Match"):
+                if framework == "chi" and field in _CHI_VERBS:
+                    if len(positional) < 2:
+                        continue
+                    methods = [_CHI_VERBS[field]]
+                    path_node, handlers = positional[0], positional[1:]
+                elif framework == "chi" and field in ("Handle", "HandleFunc"):
+                    if len(positional) < 2:
+                        continue
+                    methods = [ANY_METHOD]
+                    path_node, handlers = positional[0], positional[1:]
+                elif field in ("Handle", "Add", "Match", "Method", "MethodFunc"):
                     # (method or methods, path, handlers...)
                     if len(positional) < 3:
                         continue
@@ -1740,7 +1829,9 @@ def extract_go(context, package):
                 else:
                     continue
                 for base in router[1]:
-                    path = _go_router_path(base + context.folder.evaluate(path_node))
+                    path = _go_router_path(
+                        base + context.folder.evaluate(path_node), framework
+                    )
                     path, base_unknown = _unknown_base(path)
                     context.route(
                         node,
