@@ -25,6 +25,15 @@ PATHS = {
     "docs/samples/a.java": ["example"],
     "examples/tests/test_demo.py": ["example", "test"],
     "web/a.test.json": [],
+    "_examples/rest/main.go": ["example"],
+    "src/main/java/a/LatestValue.java": [],
+    "src/main/java/a/Contest.java": [],
+    "lib/src/a/FooTest.java": ["test"],
+    "lib/src/a/FooTests.kt": ["test"],
+    "src/Cart.Tests/CartServiceTests.cs": ["test"],
+    "src/Cart.UnitTests/Helpers.cs": ["test"],
+    "src/Cart.Api/Program.cs": [],
+    "benchmarks/run.ts": [],
 }
 
 

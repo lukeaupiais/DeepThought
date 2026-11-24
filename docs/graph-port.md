@@ -314,9 +314,11 @@ itself, so a signature change may need an edit there, even when its
 strongest path is longer) and `transitive` otherwise (its behaviour may
 change, so it needs re-testing). `source_roles` lists `test` and `example`
 by path (`deepthought.source_roles`: directories such as `tests/`,
-`__tests__/`, `spec/`, `testdata/`, `examples/`, `samples/`, Maven's
-`src/test/`, and test file names such as `*_test.go`, `test_*.py`,
-`*.spec.ts`); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+`__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
+`examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
+test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
+`FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
+unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
 dependents out in the query itself, before paging. Direct dependents come
 first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page
