@@ -58,12 +58,30 @@ async function main() {
 }
 """
 
+CLIENT = """
+export class Client {
+  base = '/api';
+  products() { return this.get('/products'); }
+  later() { return () => this.get('/orders/' + 1, 'DELETE'); }
+  detached() {
+    return function () { return this.get('/ignored'); };
+  }
+  private get(path: string, method = 'GET') {
+    return fetch(this.base + path, { method });
+  }
+  static find(path: string) {
+    return fetch(path);
+  }
+}
+"""
+
 FILES = {
     "api/package.json": '{"name": "api"}',
     "api/server.js": SERVER,
     "web/package.json": '{"name": "web"}',
     "web/src/http.js": HTTP,
     "web/src/store.js": STORE,
+    "web/src/client.ts": CLIENT,
     "worker/package.json": '{"name": "worker"}',
     "worker/queue.js": QUEUE,
 }
@@ -98,8 +116,13 @@ class WrapperArgumentTests(unittest.TestCase):
             [
                 # drop passes its own parameter: no call fixes the id.
                 ("DELETE /api/orders/{?}", 6, ()),
+                # this.get(...) inside an arrow function of the class; the
+                # call in a plain function has another this.
+                ("DELETE /api/orders/{?}", 10, ("web/src/client.ts:5",)),
                 # The call leaves the method out: the parameter's default.
                 ("GET /api/products", 4, ("web/src/store.js:4",)),
+                # A private method called as this.get(...)
+                ("GET /api/products", 10, ("web/src/client.ts:4",)),
                 # options = {} and options.method ?? 'GET'
                 ("GET /api/products", 11, ("web/src/store.js:7",)),
                 # import * as http: http.api(...)
@@ -110,13 +133,16 @@ class WrapperArgumentTests(unittest.TestCase):
         )
 
     def test_unresolved(self):
-        # raw is never called.
+        # raw is never called; a static method is not followed.
         found = {
             n.properties["path"]: n.properties["unresolved_http_requests"]
             for n in self.output.nodes
             if n.properties.get("unresolved_http_requests")
         }
-        self.assertEqual(found, {"web/src/http.js": ["GET {?}"]})
+        self.assertEqual(
+            found,
+            {"web/src/client.ts": ["GET {?}"], "web/src/http.js": ["GET {?}"]},
+        )
 
     def test_messages(self):
         edges = sorted(

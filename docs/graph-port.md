@@ -2486,8 +2486,13 @@ instead, each value a call of that function passes:
   it by name (`import { publishEvent as send } from './broker'`) or as a
   namespace (`ns.publishEvent(...)`), resolved as for constants across
   modules. A local name that shadows the function is not a call of it. A
-  function reached any other way (a class method, a default-exported
-  object's member, a value passed around) is not followed.
+  class method (not static, not an accessor) takes the calls
+  `this.method(...)` in its own class body, where `this` is the instance:
+  directly in a method or in an arrow function, not in a plain `function`
+  or a nested class (`private getProducts(url)` of an Angular service). A
+  function reached any other way (a subclass or another object calling the
+  method, a default-exported object's member, a value passed around) is not
+  followed.
 - **Values.** Each argument is folded in the calling module, with its own
   constants; arguments after a spread are unknown. An argument the call
   leaves out takes the parameter's default (`method = 'GET'`). An object
@@ -2510,6 +2515,7 @@ instead, each value a call of that function passes:
 | Rabin18Glan/gantabya `f90b2bc` | 2 `produceEvent('trip-events', ...)` in a controller | The send takes `trip-events` and meets the consumer |
 | Yash-op7/Distributed-Payments-Processing-System `8e4a6f5` | the only call is commented out | Unread, as before |
 | Dario213987/TPE-TicketYa `cdf3173` (front end) | 36 `api<T>(path, { method, body })` calls of one fetch helper | 32 requests linked to the right Spring route and method, all checked by hand (none before). The other 4 append a query string built at run time and stay unresolved |
+| darbyluv2code/fullstack `e8832ee` (45 copies of an Angular `ProductService`) | `this.getProducts(searchUrl)` twice per copy | Each copy's `GET {?}` becomes the two Spring Data REST search URLs (`/api/products/search/findByCategoryId?id={?}`, `.../findByNameContaining?name={?}`), 90 in all, every one the URL the caller builds. They stay unresolved because Spring Data REST repository endpoints are not read yet |
 
 The Go Kafka clients are read in files that import them. A producer or
 consumer is placed where the literal or call is written, which is not always
