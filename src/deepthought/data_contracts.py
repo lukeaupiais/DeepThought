@@ -347,9 +347,7 @@ def _sqlglot_tables(text):
 def _sqlglot_name(table, ctes):
     """The table key of a sqlglot Table, or None for a CTE, ``dual``, a
     catalog or a table-valued function."""
-    if not table.name or not isinstance(
-        table.this, exp.Identifier
-    ):
+    if not table.name or not isinstance(table.this, exp.Identifier):
         return None
     parts = [table_key(p) for p in (table.catalog, table.db, table.name) if p]
     if len(parts) == 1 and parts[0] in ctes:
