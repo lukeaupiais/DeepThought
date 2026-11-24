@@ -500,8 +500,12 @@ def score(
     nodes=None,
     unjudged=None,
     indexed=None,
+    resolutions=None,
 ):
     """Engine dependents of each seed against the oracle's.
+
+    ``resolutions``: the call resolutions to follow (by default the
+    parser's, ``resolve_calls``), such as calls bound from SCIP indexes.
 
     *confirmed*: an engine dependent the oracle also reaches; *extra*: one
     it does not (a wrong link, or a caller reached through one); *missed*:
@@ -603,7 +607,7 @@ def score(
             by_file[d.file].append(d)
     sites = {s.id: s for s in result.call_sites}
     incoming = defaultdict(set)
-    for r in resolve_calls(result):
+    for r in resolve_calls(result) if resolutions is None else resolutions:
         site = sites[r.call_id]
         if r.status == "linked" and site.caller_id in node_of:
             source, target = node_of[site.caller_id], node_of[r.target_id]

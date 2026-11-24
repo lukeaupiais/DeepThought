@@ -251,7 +251,9 @@ class ScipToolTests(unittest.TestCase):
     def test_unavailable_dependency_and_unsupported_languages(self):
         tool = ScipAnalysisTool(self.root, index_path=self.root / "missing.scip")
         self.assertFalse(asyncio.run(tool.check_availability()))
-        with self.assertRaisesRegex(ValueError, "TypeScript"):
+        with self.assertRaisesRegex(ValueError, "supports go, javascript"):
+            asyncio.run(tool.analyze("public", languages={"rust"}))
+        with self.assertRaisesRegex(ValueError, "index or receipt is missing"):
             asyncio.run(tool.analyze("public", languages={"go"}))
         with self.assertRaisesRegex(ValueError, "no indexed"):
             self.output(file_patterns=["missing.ts"])

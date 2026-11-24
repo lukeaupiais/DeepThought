@@ -405,6 +405,56 @@ class ScipCallTests(unittest.TestCase):
             ],
         )
 
+    def test_impact_follows_calls_bound_from_an_index(self):
+        import ground_truth
+
+        (self.root / "a.ts").write_text(
+            "class P { m() {} }\nfunction use(p: any) { p.m(); }\n"
+        )
+        q = "scip-typescript npm demo 1 a.ts/"
+        self.index(
+            "impact",
+            "scip-typescript",
+            [
+                (
+                    "a.ts",
+                    [
+                        (0, "P", q + "P#", True, 0),
+                        (0, "m", q + "P#m().", True, 0),
+                        (1, "use", q + "use().", True, 0),
+                        (1, "m()", q + "P#m().", False, 0),
+                    ],
+                )
+            ],
+            2,
+        )
+        calls = self.indexes / "calls.tsv"
+        calls.write_text("a.ts\t2\tm\ta.ts\t1\tcallable\n")
+        impact = self.indexes / "impact.tsv"
+        impact.write_text("a.ts\t1\tm\ta.ts\t2\tuse\t1\n")
+
+        def scored(*extra):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ground_truth.main(
+                    [
+                        "score",
+                        str(self.root),
+                        str(calls),
+                        "--language",
+                        "typescript",
+                        "--impact",
+                        str(impact),
+                        *extra,
+                    ]
+                )
+            found = json.loads(out.getvalue())["impact"]
+            return found["confirmed"], found["missed"]
+
+        # The parser leaves `p.m()` open; the index links it.
+        self.assertEqual(scored(), (0, 1))
+        self.assertEqual(scored("--scip", str(self.indexes / "impact.scip")), (1, 0))
+
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)
         result = analyze_repository(
@@ -823,6 +873,28 @@ class CalleeAtTests(unittest.TestCase):
             for wrong in ((0, 1), (1, -1), (1,), [1, 2], (1, True)):
                 with self.assertRaises(ValueError):
                     type(site)(**{**site.__dict__, "callee_at": wrong})
+
+    def test_awaited_calls_with_type_arguments_are_recorded(self):
+        # The grammar reads `await a.f<T>()` as a call of `await a.f`.
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "a.ts").write_text(
+                "async function h(c) {\n"
+                "  await c.req.parseBody<{ a: string }>();\n"
+                "  await f<T>(); await g(); x.y<T>();\n"
+                "}\n"
+            )
+            result = analyze_repository(
+                root, repository_id="r", languages=("typescript",)
+            )
+            self.assertEqual(
+                sorted((s.callee, s.callee_at) for s in result.call_sites),
+                [
+                    ("c.req.parseBody", (2, 14)),
+                    ("f", (3, 8)),
+                    ("g", (3, 22)),
+                    ("x.y", (3, 29)),
+                ],
+            )
 
 
 if __name__ == "__main__":
