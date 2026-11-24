@@ -169,6 +169,12 @@ arbitrary object gets no edge.
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
+In JavaScript and TypeScript, a `new C(...)` that one of these rules links to
+the class `C` links instead to the `constructor` that `C` declares, which is
+the code the construction runs; the rule stays the one that found `C`. A class
+that declares no constructor (one it inherits is not followed), or several
+constructor overload signatures, keeps the link to the class.
+
 A name bound both by an import and a local declaration, or declared more than
 once, is ambiguous and gets no edge. Python `typing.overload` signatures
 (`@overload`, `@typing.overload`, `@t.overload`, `@typing_extensions.overload`)
@@ -750,7 +756,7 @@ every link is `name_matched`:
 | `tree-sitter.java-static-import` | `m()` declared by no enclosing type: a method of a type imported with `import static`, by name or `*` |
 | `tree-sitter.call-self-method` | `this.m()`: the innermost enclosing type's `m` |
 | `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
-| `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
+| `tree-sitter.java-type-name` | `new T()`: the constructor of the type `T` names, by the same lookup, that the arguments select (overloads chosen as for methods, below). When `T` declares no constructor, or the arguments leave none or more than one, the link is to the type |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 

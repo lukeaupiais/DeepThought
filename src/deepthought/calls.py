@@ -8,7 +8,7 @@ ambiguous, with a reason, and produces no link.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import posixpath
 
 from .imports import (
@@ -841,16 +841,37 @@ class _JavaScope:
             if self._defs(file, prefix, _JAVA_TYPES):
                 yield prefix
 
+    def constructor(self, site, scope, resolution):
+        """A ``new T(...)`` linked to a type that declares constructors
+        links to the one the argument types select (``overloads``), which is
+        what the construction runs; otherwise it keeps the type."""
+        if resolution.status != "linked":
+            return resolution
+        owner = self.definitions[resolution.target_id]
+        declared = [
+            _Member(d, False)
+            for d in self._defs(
+                owner.file,
+                f"{owner.symbol}.{owner.symbol.split('.')[-1]}",
+                {"Constructor"},
+            )
+        ]
+        chosen = self.overloads(site, scope, self.arity(site, declared))
+        if len(chosen) == 1:
+            return replace(resolution, target_id=chosen[0].id)
+        return resolution
+
     def call(self, site, scope):
         parts = site.callee.split(".")
         file = site.file
         if site.kind == "new":
-            return _pick(
+            resolution = _pick(
                 site.id,
                 self.type(file, scope, site.callee),
                 JAVA_TYPE_NAME,
                 "type_not_declared",
             )
+            return self.constructor(site, scope, resolution)
         name = parts[-1]
         if len(parts) == 1:
             for methods in self.enclosing_members(site, scope, name):
@@ -1796,4 +1817,26 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(
                 CallResolution(site.id, "unresolved", reason="attribute_call")
             )
-    return tuple(resolutions)
+    return tuple(_constructors(resolutions, result, by_id, by_symbol, languages))
+
+
+def _constructors(resolutions, result, by_id, by_symbol, languages):
+    """JavaScript and TypeScript: a ``new C(...)`` linked to a class that
+    declares one ``constructor`` links to that constructor, which is what
+    the construction runs; a class without one keeps the link."""
+    sites = {s.id: s for s in result.call_sites}
+    for r in resolutions:
+        site = sites[r.call_id]
+        target = by_id.get(r.target_id)
+        if (
+            r.status == "linked"
+            and site.kind == "new"
+            and target is not None
+            and target.kind == "Class"
+            and languages.get(target.file) in {"javascript", "typescript"}
+        ):
+            # Overload signatures declare constructors too: then the class.
+            found = by_symbol.get((target.file, f"{target.symbol}.constructor"), ())
+            if len(found) == 1:
+                r = replace(r, target_id=found[0].id)
+        yield r
