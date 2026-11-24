@@ -21,6 +21,7 @@ from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
+    extract_entity_manager,
     extract_django,
     extract_java,
     extract_java_sql,
@@ -215,6 +216,13 @@ SQL_RULES = {
             "exec_driver_sql, fetch, fetchrow, fetchval or raw call, in a "
             "module importing a database driver, SQLAlchemy or django.db; "
             "the receiver's type is not checked.",
+        ),
+        (
+            "jpa-entity-manager",
+            "The code calls persist, merge or remove (WRITES) on a variable or "
+            "field declared as a jakarta or javax EntityManager, passing a "
+            "parameter, local or field declared as this table's entity, or "
+            "find or getReference (READS) with the entity's class literal.",
         ),
         (
             "jdbc-insert-table",
@@ -698,6 +706,28 @@ class DataContractTool(AnalysisTool):
                         SQL_RULES[item.how],
                         {**extra, "line": item.line, "column": item.column},
                     )
+        entity_counts = {"linked": 0, "not_an_entity": 0}
+        for file, content, tree in trees:
+            for use in extract_entity_manager(tree, content, file, result.definitions):
+                entity = next(
+                    (
+                        c
+                        for c in use.candidates
+                        if len(entities.get(c, ())) == 1 and c in mapped
+                    ),
+                    None,
+                )
+                if entity is None:
+                    entity_counts["not_an_entity"] += 1
+                    continue
+                entity_counts["linked"] += 1
+                link(
+                    "WRITES" if use.writes else "READS",
+                    code(use.file, use.owner_id),
+                    mapped[entity],
+                    SQL_RULES["jpa-entity-manager"],
+                    {"entity": entity, "line": use.line, "column": use.column},
+                )
         files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
             [
@@ -755,6 +785,7 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
                     "sql_text": sql_counts,
+                    "entity_manager_resolution": entity_counts,
                     "scope": "tables from CREATE TABLE, JPA, Django and "
                     "SQLAlchemy mappings, read and written by repositories, "
                     "manager and session calls and the SQL text Java code runs; "
