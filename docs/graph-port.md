@@ -1299,9 +1299,11 @@ Each Rust call expression whose callee is a path is a call site, its callee
 the path joined by `::` (`a::b::f`, `Type::new`, `::krate::f`; generic
 arguments such as `f::<T>` and `Vec::<u8>::new` are dropped). A method call on
 a receiver that is `self`, a name or a field of one is recorded as
-`receiver.name` (`self.write`, `x.y.len`); other callees (`(f)()`,
-`a().b()`, `<T as Trait>::f`) and macro invocations are not call sites. Calls
-inside item macro bodies are read as other calls are.
+`receiver.name` (`self.write`, `x.y.len`), and a method call on a call that
+is itself a call site as that call's callee, `()` and the name
+(`T::new().build`, `x.a().b`); other callees (`(f)()`, `x?.m()`,
+`<T as Trait>::f`) and macro invocations are not call sites. Calls inside
+item macro bodies are read as other calls are.
 
 The arguments of a standard macro whose arguments are expressions (`assert!`,
 `assert_eq!`, `assert_ne!`, their `debug_` forms, `dbg!`, `format!`,
@@ -1350,8 +1352,22 @@ Calls of functions declared in impls read the impl facts (see "Rust impls"):
   no impl declaring `m` (a derived, `Deref` or blanket-impl method) is
   `associated_item`, and one that names no workspace type is
   `receiver_type_unknown`.
+- `tree-sitter.rust-call-result-receiver` when `x.m()` is called on the
+  result of a call, written as the receiver (`T::new().m()`, `x.a().m()`) or
+  bound by a `let` that is the innermost declaration of `x`, binds it alone
+  and writes no type (`let x = T::new();`). `CallSite.receiver_call` holds
+  that call's span. The call must link, by any rule (this one too, so builder
+  chains are followed call by call), to a function with a body whose return
+  type writes a type as for `rust-call-typed-receiver` (`Definition.result_type`):
+  `Self` is the type of the impl around the function, and any other path is
+  read where the function is declared, outside its own body. `m` is then
+  looked up as for `Type::m`. A call that does not link, a return type that
+  is a type parameter, a tuple, `impl Trait`, a trait's `Self` or a type of
+  no workspace impl (`Option<T>`, `Result<T, E>`), and a value of any other
+  kind (`T::new()?`, a struct expression) leave the call
+  `receiver_type_unknown` or `method_call`.
 
-All five are `resolved`: Rust has no overloading, so a path names one
+All six are `resolved`: Rust has no overloading, so a path names one
 declaration in each configuration. A function declared once per `#[cfg]`, or
 by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
 alias are keyed by the alias, since the aliased type is not read: a call

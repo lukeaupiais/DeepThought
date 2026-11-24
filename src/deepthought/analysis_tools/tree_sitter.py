@@ -476,6 +476,12 @@ CALL_RULES.update(
             "innermost declaration of the local x (a parameter or 'let' that "
             "binds x alone) writes a type 'A', '&A', 'm::A<T>' or 'Self' names "
             "'m' as 'A::m' does, read from the call.",
+            call_rules.RUST_CALL_RESULT_RECEIVER: "A Rust 'x.m()' whose "
+            "receiver is the result of a call, written in place ('T::new().m()', "
+            "'x.a().m()') or bound by an untyped 'let x = T::new();', that "
+            "links to a function whose return type writes a type 'A', '&A', "
+            "'m::A<T>' or 'Self' names 'm' as 'A::m' does, 'A' read where the "
+            "function is declared.",
         }.items()
     }
 )

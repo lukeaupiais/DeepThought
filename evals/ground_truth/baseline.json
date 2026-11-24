@@ -13,6 +13,10 @@
         "not_indexed": 2,
         "unjudged": 5
       },
+      "tree-sitter.rust-call-result-receiver": {
+        "confirmed": 24,
+        "unjudged": 4
+      },
       "tree-sitter.rust-call-self-method": {
         "confirmed": 6,
         "unjudged": 1
@@ -22,48 +26,50 @@
         "unjudged": 9
       }
     },
-    "confirmed": 257,
+    "confirmed": 281,
     "contradicted": 0,
     "expected": 442,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 49,
+          "confirmed": 60,
           "expected": 88
         },
         "2": {
-          "confirmed": 38,
+          "confirmed": 42,
           "expected": 58
         },
         "3": {
-          "confirmed": 10,
+          "confirmed": 14,
           "expected": 25
         }
       },
-      "confirmed": 97,
+      "confirmed": 116,
       "expected": 171,
       "extra": 9,
-      "missed": 74,
-      "precision": 0.9151,
-      "recall": 0.5673,
+      "missed": 55,
+      "precision": 0.928,
+      "recall": 0.6784,
       "seeds": 45,
       "seeds_undeclared": 0,
       "unjudged": 0
     },
-    "missed": 190,
+    "missed": 166,
     "missed_by_engine_outcome": {
-      "no_call_site": 62,
+      "no_call_site": 42,
       "unresolved:associated_item": 3,
       "unresolved:external_crate": 5,
-      "unresolved:method_call": 119,
-      "unresolved:module_missing": 1
+      "unresolved:method_call": 58,
+      "unresolved:module_missing": 1,
+      "unresolved:receiver_type_unknown": 55,
+      "unresolved:type_alias": 2
     },
     "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.5701,
-    "unjudged": 21,
-    "unresolved_expected": 135,
-    "unresolved_unjudged": 396
+    "recall": 0.6244,
+    "unjudged": 25,
+    "unresolved_expected": 131,
+    "unresolved_unjudged": 576
   },
   "chi": {
     "by_rule": {
@@ -1208,6 +1214,11 @@
         "confirmed": 2549,
         "unjudged": 2
       },
+      "tree-sitter.rust-call-result-receiver": {
+        "confirmed": 2657,
+        "not_indexed": 2,
+        "unjudged": 14
+      },
       "tree-sitter.rust-call-self-method": {
         "confirmed": 591,
         "not_indexed": 1
@@ -1218,51 +1229,51 @@
         "unjudged": 1
       }
     },
-    "confirmed": 4534,
+    "confirmed": 7191,
     "contradicted": 0,
     "expected": 11415,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 163,
+          "confirmed": 277,
           "expected": 368
         },
         "2": {
-          "confirmed": 380,
+          "confirmed": 743,
           "expected": 927
         },
         "3": {
-          "confirmed": 135,
+          "confirmed": 295,
           "expected": 608
         }
       },
-      "confirmed": 678,
+      "confirmed": 1315,
       "expected": 1903,
       "extra": 1,
-      "missed": 1225,
-      "precision": 0.9985,
-      "recall": 0.3563,
+      "missed": 588,
+      "precision": 0.9992,
+      "recall": 0.691,
       "seeds": 277,
       "seeds_undeclared": 84,
-      "unjudged": 0
+      "unjudged": 10
     },
-    "missed": 6915,
+    "missed": 4270,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_declarations": 17,
-      "no_call_site": 4143,
+      "no_call_site": 2326,
       "unresolved:associated_item": 275,
       "unresolved:external_crate": 13,
-      "unresolved:method_call": 2430,
-      "unresolved:receiver_type_unknown": 1,
+      "unresolved:method_call": 1039,
+      "unresolved:receiver_type_unknown": 564,
       "unresolved:type_alias": 28,
       "unresolved:unbound_name": 8
     },
-    "not_indexed": 8,
+    "not_indexed": 10,
     "precision": 1.0,
-    "recall": 0.3942,
-    "unjudged": 5,
-    "unresolved_expected": 2819,
-    "unresolved_unjudged": 5285
+    "recall": 0.6259,
+    "unjudged": 19,
+    "unresolved_expected": 1984,
+    "unresolved_unjudged": 7764
   },
   "routes": {
     "routes-howtographql-graphql-js": {

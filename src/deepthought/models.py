@@ -75,7 +75,10 @@ class Definition:
     # through pointers and type arguments. Java methods: the return type as
     # written without type arguments (``Foo``, ``Map.Entry``, ``int``). None
     # elsewhere, or when that type is of another kind (``void``, an array, a
-    # type parameter).
+    # type parameter). Rust functions and methods with a body: the type path
+    # the return type writes, joined by ``::``, through references and
+    # without type arguments (``T``, ``m::T``, ``Self``), unless it names a
+    # type parameter; None for any other return type.
     result_type: str | None = None
     # Go struct types: (name, type) for each named field whose type is
     # written as for ``result_type``. Java types: the same for each static
@@ -404,7 +407,11 @@ class CallSite:
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
     # Java calls ``e.m()`` whose receiver ``e`` is itself a method call or a
     # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
-    # line, end column) of ``e``. None elsewhere.
+    # line, end column) of ``e``. Rust calls ``x.m()`` whose receiver is the
+    # result of a call: the span of that call, either the receiver itself
+    # (``T::new().m()``, ``x.a().m()``) or the value of the ``let`` that is
+    # the innermost declaration of the local ``x`` and binds it alone without
+    # a type (``let x = T::new();``). None elsewhere.
     receiver_call: tuple[int, int, int, int] | None = None
     # Java calls ``X.f.m()`` (three or more names): True when no variable or
     # field named ``X`` can be in scope, so ``X`` names a type or package.
