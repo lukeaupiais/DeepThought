@@ -731,6 +731,24 @@ extra. A write labels its target as WRITES and every other table it names as
 READS. The engine was developed against both apps, so they are regression
 gates, not held-out checks.
 
+### Python ORM tables
+
+Manifest `tables` entries with `"language": "python-orm"` score every
+`data-contracts.*` READS/WRITES edge that the engine makes in Python, per
+line, against labels read by hand. full-stack-fastapi-template is labelled in
+full, so engine lines outside the labels count as extra. The labels cover:
+
+- every line under `backend/` that names a `table=True` SQLModel class in
+  `select()`, `select_from()`, `delete()` or `Session.get()`;
+- every line that passes an instance of one to `Session.add()`, `delete()` or
+  `refresh()`;
+- the SQL strings that the Alembic migrations pass to `op.execute`, leaving
+  out CREATE statements.
+
+SQLModel names the tables `user` and `item` after the classes. A statement is
+labelled on the line that names the model. The CI job has no scip-python, so
+the gate scores the engine's name-based path.
+
 ### Knex query-builder tables
 
 Knex names a table as a string argument of its query builder.

@@ -1454,6 +1454,13 @@
       "missed": 4,
       "wrong": 0
     },
+    "tables-fastapi-template-sqlmodel": {
+      "expected": 66,
+      "extra": 0,
+      "found": 23,
+      "missed": 43,
+      "wrong": 0
+    },
     "tables-forem": {
       "expected": 134,
       "extra": 0,
