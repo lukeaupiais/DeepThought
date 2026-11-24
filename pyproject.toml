@@ -48,11 +48,15 @@ languages = [
   "tomli==2.2.1; python_version < '3.11'",
   # Manifest formats the components tool reads.
   "pyyaml==6.0.3",
+  # The GraphQL parser for schemas and operations in contracts.
+  "graphql-core==3.2.14",
 ]
 # Build and deployment manifests: TOML on Python 3.10, and Compose YAML.
 components = ["tomli==2.2.1; python_version < '3.11'", "pyyaml==6.0.3"]
 # Kept so existing `[scip]` installs keep working; protobuf is now a core dependency.
 scip = ["protobuf==7.35.1"]
+# graphql-core parses GraphQL schemas and operations for contracts.
+graphql = ["graphql-core==3.2.14"]
 
 [project.scripts]
 deepthought = "deepthought.cli:main"
