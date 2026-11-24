@@ -344,6 +344,13 @@ _CALL_RULE_TEXT = {
     "static method's C, links to the instance method m that class declares "
     "or inherits through 'extends'. A field of that name in a class on the "
     "way, or a base that names no repository class, stops the lookup.",
+    call_rules.CALL_JS_MEMBER_CHAIN: "A JavaScript or TypeScript 'x.a.m()', "
+    "'this.a.m()' or 'y.m()' where y is declared from such a chain (or "
+    "destructured from it): the class x holds, as for a typed receiver, or "
+    "the class around an instance method for 'this', then the class each "
+    "field or getter on the way is annotated with or constructs, declared "
+    "or inherited through 'extends', links to the instance method m of the "
+    "last one.",
     call_rules.CALL_PYTHON_TYPED_RECEIVER: "A Python 'x.m()' where x is a "
     "parameter annotated with a repository class, or a local whose one "
     "binding calls or annotates that class, links to m declared on the "

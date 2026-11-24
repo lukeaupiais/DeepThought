@@ -62,7 +62,9 @@ class Definition:
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
-    # Python: True for a ``typing.overload`` signature. None elsewhere.
+    # Python: True for a ``typing.overload`` signature. TypeScript: True for
+    # a signature without a body that overloads a function or method
+    # implemented beside it. None elsewhere.
     overload: bool | None = None
     # Go functions and methods (interface methods too): the type of the
     # first result, as ``T``, ``pkg.T`` or ``[]`` before an element type,
@@ -73,7 +75,11 @@ class Definition:
     result_type: str | None = None
     # Go struct types: (name, type) for each named field whose type is
     # written as for ``result_type``. Java types: the same for each static
-    # field and enum constant. None elsewhere, or when there is none.
+    # field and enum constant. JavaScript and TypeScript classes: (name,
+    # class) for each instance field annotated with a class or initialized
+    # with ``new`` of one, constructor parameter property annotated with one,
+    # and getter whose return type is one. None elsewhere, or when there is
+    # none.
     fields: tuple[tuple[str, str], ...] | None = None
     # JavaScript and TypeScript classes: the names of the instance fields the
     # body declares (``x = 1``, ``x: T``, ``declare x``) and of the
@@ -318,12 +324,14 @@ class CallSite:
     # Python calls ``x.m()``: the class name (``T``, ``m.T``) that the
     # binding of ``x`` writes. JavaScript and TypeScript calls ``x.m()``
     # where the declaration of ``x`` the call sees writes a type annotation
-    # ``T`` or ``T<...>``, or initializes ``x`` with ``new T(...)``: ``T``.
-    # None elsewhere.
+    # ``T`` or ``T<...>``, or initializes ``x`` with ``new T(...)``: ``T``;
+    # or ``"this"`` for ``this`` in an instance method or field of a class
+    # declaration (``this.a.m()``, ``const y = this; y.m()``). None
+    # elsewhere.
     receiver_type: str | None = None
-    # JavaScript and TypeScript, with ``receiver_type``: the start (line,
-    # column) of the declaration of ``T`` seen where ``x`` is declared, as
-    # for ``binding``. None elsewhere.
+    # JavaScript and TypeScript, with a ``receiver_type`` other than
+    # ``"this"``: the start (line, column) of the declaration of ``T`` seen
+    # where ``x`` is declared, as for ``binding``. None elsewhere.
     receiver_binding: tuple[int, ...] | None = None
     # Go calls on a variable bound to a function's result (``x := F()``,
     # ``x := pkg.F()``): that function, ``F`` or ``pkg.F``, in place of
@@ -339,7 +347,10 @@ class CallSite:
     # Go: how the receiver's type follows from ``receiver_type`` (or
     # ``receiver_function``), one step each: a field name ``f``, a method
     # call ``M()`` (its first result), or ``[]`` (an element of a slice).
-    # None when the receiver is ``x`` itself.
+    # JavaScript and TypeScript: the property names from ``receiver_type``
+    # to the receiver, through the member chain ``x.a.b.m()`` and through
+    # declarations ``const y = x.a`` or ``const { a } = x`` that ``y.m()``
+    # follows. None when the receiver is ``x`` itself.
     receiver_steps: tuple[str, ...] | None = None
     # JavaScript and TypeScript calls of a plain name, and of ``x.m``: the
     # start (line, column) of the declaration of that name (of ``x``) the

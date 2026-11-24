@@ -183,6 +183,7 @@ def extract(
     script = file.endswith(_SCRIPT_SUFFIXES)
     defaults = _js_default_names(tree.root_node, content) if script else set()
     aliases = _js_export_aliases(tree.root_node, content) if script else {}
+    types = None
     stack = [(tree.root_node, (), False)]
     while stack:
         node, scope, in_class = stack.pop()
@@ -280,6 +281,10 @@ def extract(
                 arity = {"macro_export": _rust_macro_export(node)}
             elif node.type == "function_definition" and _python_overload(node, content):
                 arity = {"overload": True}
+            elif script and _ts_overload(node, name, content):
+                arity = {"overload": True}
+                if any(c.type == "static" for c in node.children):
+                    arity["static"] = True
             elif node.type == "method_definition" and any(
                 c.type == "static" for c in node.children
             ):
@@ -292,6 +297,11 @@ def extract(
                 properties = _js_properties(node, content)
                 if properties:
                     arity = {**arity, "properties": properties}
+                if types is None:
+                    types = _js_type_names(tree.root_node, content)
+                fields = _js_fields(node, content, types)
+                if fields:
+                    arity = {**arity, "fields": fields}
             if file.endswith(".go"):
                 if node.type in {
                     "function_declaration",
@@ -1097,6 +1107,30 @@ def _python_overload(node, content) -> bool:
         and _text(child, content).lstrip("@").strip() in _PYTHON_OVERLOADS
         for child in parent.children
     )
+
+
+_TS_IMPLEMENTATIONS = {
+    "function_signature": {"function_declaration", "generator_function_declaration"},
+    "method_signature": {"method_definition"},
+}
+
+
+def _ts_overload(node, name, content) -> bool:
+    """Whether a TypeScript signature without a body is an overload of a
+    function or method implemented beside it, which is what runs."""
+    kinds = _TS_IMPLEMENTATIONS.get(node.type)
+    if kinds is None or node.parent is None:
+        return False
+    container = node.parent
+    if container.type == "export_statement" and container.parent is not None:
+        container = container.parent
+    for child in container.children:
+        if child.type == "export_statement":
+            child = child.child_by_field_name("declaration") or child
+        named = child.child_by_field_name("name") if child.type in kinds else None
+        if named is not None and _text(named, content) == name:
+            return True
+    return False
 
 
 _CSHARP_TYPES = {
@@ -2336,54 +2370,234 @@ def _js_properties(node, content):
     return tuple(dict.fromkeys(found))
 
 
-def _js_receiver(node, content, callee, cache, root):
-    """``receiver_type`` and ``receiver_binding`` of a JavaScript or
-    TypeScript call ``x.m()``: the class ``T`` that the declaration of ``x``
-    the call sees writes, as a type annotation (``x: T``, ``x: T<U>``) or as
-    the value ``new T(...)``, with the declaration of ``T`` seen there."""
-    if callee.count(".") != 1:
-        return {}
-    binding = _js_binding(node, content, callee, cache)
-    if not binding:
-        return {}
-    # The binding of a declared variable or parameter starts at its name.
-    point = (binding[0] - 1, binding[1])
-    declaration = root.named_descendant_for_point_range(point, point).parent
-    if declaration.type == "variable_declarator":
-        written = declaration.child_by_field_name("type")
-        if written is None:
-            value = declaration.child_by_field_name("value")
-            # Only `new T(...)` has a constructor.
-            written = value.child_by_field_name("constructor") if value else None
-    elif declaration.type in {"required_parameter", "optional_parameter"}:
-        written = declaration.child_by_field_name("type")
-    else:
-        return {}
+def _js_written_class(written, content, types):
+    """The class name a type annotation (``T``, ``T<U>``) or a ``new``
+    expression's constructor writes, or None. A name the file declares as
+    an interface or type alias may not be the class."""
     if written is not None and written.type == "type_annotation":
         written = written.named_children[0] if written.named_children else None
     if written is not None and written.type == "generic_type":
         written = written.child_by_field_name("name")
     if written is None or written.type not in {"identifier", "type_identifier"}:
-        return {}
-    type_name = _text(written, content)
+        return None
+    name = _text(written, content)
+    if written.type == "type_identifier" and name in types:
+        # Interfaces and type aliases share the type namespace with classes
+        # but are not scopes' bindings.
+        return None
+    return written, name
+
+
+def _js_this_instance(node):
+    """Whether ``this`` at ``node`` is an instance of the innermost class
+    around it: inside an instance method or field initializer, through
+    arrow functions only."""
+    scope = node.parent
+    while scope is not None:
+        if scope.type in {
+            "method_definition",
+            "public_field_definition",
+            "field_definition",
+        }:
+            # A class expression declares no class the call is named in.
+            owner = scope.parent.parent if scope.parent is not None else None
+            return (
+                owner is not None
+                and owner.type in {"class_declaration", "abstract_class_declaration"}
+                and not any(c.type == "static" for c in scope.children)
+            )
+        if scope.type in _JS_FUNCTIONS - {"arrow_function"} or scope.type in {
+            "class_static_block",
+            "program",
+        }:
+            return False
+        scope = scope.parent
+    return False
+
+
+def _js_member_path(node, content):
+    """``(head node, names)`` of a member chain ``h.a.b`` of plain property
+    names, or None; ``h`` alone gives ``(h, ())``."""
+    names = []
+    while node.type == "member_expression":
+        name = node.child_by_field_name("property")
+        if name is None or name.type != "property_identifier":
+            return None
+        names.append(_text(name, content))
+        node = node.child_by_field_name("object")
+    if node.type not in {"identifier", "this"}:
+        return None
+    return node, tuple(reversed(names))
+
+
+def _js_origin(node, name, content, cache, root, depth):
+    """``(type, binding, steps, hops)`` for the value the name ``name`` holds
+    where ``node`` is: the class its declaration annotates or constructs,
+    or ``"this"``, then the property names to follow from it. ``hops`` is
+    whether another declaration or ``this`` was followed. None otherwise."""
+    if depth > 4:
+        return None
+    if name == "this":
+        return ("this", None, (), True) if _js_this_instance(node) else None
+    binding = _js_binding(node, content, name + ".m", cache)
+    if not binding:
+        return None
+    # The binding of a declared variable or parameter starts at its name,
+    # and of a destructured one at that name in the pattern.
+    point = (binding[0] - 1, binding[1])
+    named = root.named_descendant_for_point_range(point, point)
+    declaration, key = named.parent, None
+    if named.type == "shorthand_property_identifier_pattern":
+        key, declaration = _text(named, content), declaration.parent
+    elif declaration.type == "pair_pattern":
+        written = declaration.child_by_field_name("key")
+        if written is None or written.type != "property_identifier":
+            return None
+        key, declaration = _text(written, content), declaration.parent.parent
     if ("types",) not in cache:
         cache[("types",)] = _js_type_names(root, content)
-    if written.type == "type_identifier" and type_name in cache[("types",)]:
-        # Interfaces and type aliases share the type namespace with classes
-        # but are not scopes' bindings: such a name may not be the class.
+    types = cache[("types",)]
+    if declaration.type in {"required_parameter", "optional_parameter"} and key is None:
+        found = _js_written_class(
+            declaration.child_by_field_name("type"), content, types
+        )
+        if found is None:
+            return None
+        return (found[1], _js_binding(found[0], content, found[1], cache), (), False)
+    if declaration.type != "variable_declarator":
+        return None
+    if key is None:
+        found = _js_written_class(
+            declaration.child_by_field_name("type"), content, types
+        )
+        value = declaration.child_by_field_name("value")
+        if found is None and value is not None and value.type == "new_expression":
+            found = _js_written_class(
+                value.child_by_field_name("constructor"), content, types
+            )
+        if found is not None:
+            return (
+                found[1],
+                _js_binding(found[0], content, found[1], cache),
+                (),
+                False,
+            )
+    elif not (
+        declaration.child_by_field_name("name").type == "object_pattern"
+        and declaration.child_by_field_name("type") is None
+    ):
+        return None
+    value = declaration.child_by_field_name("value")
+    path = _js_member_path(value, content) if value is not None else None
+    if path is None:
+        return None
+    head, names = path
+    origin = _js_origin(head, _text(head, content), content, cache, root, depth + 1)
+    if origin is None:
+        return None
+    return (
+        origin[0],
+        origin[1],
+        (*origin[2], *names, *((key,) if key else ())),
+        True,
+    )
+
+
+def _js_receiver(node, content, callee, cache, root):
+    """``receiver_type``, ``receiver_binding`` and ``receiver_steps`` of a
+    JavaScript or TypeScript call ``x.a.m()``: the class ``T`` (or
+    ``"this"``) that ``x`` holds, by ``_js_origin``, and the property names
+    from it to the receiver."""
+    parts = callee.split(".")
+    if len(parts) < 2 or parts[0] == "super" or callee.startswith("this.#"):
         return {}
-    return {
-        "receiver_type": type_name,
-        "receiver_binding": _js_binding(written, content, type_name, cache),
-    }
+    if parts[0] == "this" and len(parts) == 2:
+        # `this.m()` is the enclosing class's method by its own rule.
+        return {}
+    origin = _js_origin(node, parts[0], content, cache, root, 0)
+    if origin is None:
+        return {}
+    type_name, binding, steps, hops = origin
+    steps = (*steps, *parts[1:-1])
+    if hops and not steps and type_name != "this":
+        # Only an annotation or `new` types a receiver without a member
+        # chain: `const y = x` is not followed.
+        return {}
+    found = {"receiver_type": type_name}
+    if type_name != "this":
+        found["receiver_binding"] = binding
+    if steps:
+        found["receiver_steps"] = steps
+    return found
+
+
+def _js_fields(node, content, types):
+    """``Definition.fields`` of a JavaScript or TypeScript class: (name,
+    class) for each instance field annotated with a class or initialized
+    with ``new`` of one, constructor parameter property annotated with one,
+    and getter whose return type is one."""
+    body = node.child_by_field_name("body")
+    found = []
+    for member in body.named_children if body is not None else ():
+        if any(c.type == "static" for c in member.children):
+            continue
+        if member.type in {"public_field_definition", "field_definition"}:
+            name = member.child_by_field_name(
+                "name" if member.type == "public_field_definition" else "property"
+            )
+            written = _js_written_class(
+                member.child_by_field_name("type"), content, types
+            )
+            value = member.child_by_field_name("value")
+            if written is None and value is not None and value.type == "new_expression":
+                written = _js_written_class(
+                    value.child_by_field_name("constructor"), content, types
+                )
+            if name is not None and name.type == "property_identifier" and written:
+                found.append((_text(name, content), written[1]))
+        elif member.type == "method_definition":
+            name = member.child_by_field_name("name")
+            if _text(name, content) == "constructor":
+                parameters = member.child_by_field_name("parameters")
+                for parameter in parameters.named_children if parameters else ():
+                    pattern = parameter.child_by_field_name("pattern")
+                    written = _js_written_class(
+                        parameter.child_by_field_name("type"), content, types
+                    )
+                    if (
+                        pattern is not None
+                        and written
+                        and any(
+                            c.type
+                            in {
+                                "accessibility_modifier",
+                                "readonly",
+                                "override_modifier",
+                            }
+                            for c in parameter.children
+                        )
+                    ):
+                        found.append((_text(pattern, content), written[1]))
+            elif any(c.type == "get" for c in member.children):
+                written = _js_written_class(
+                    member.child_by_field_name("return_type"), content, types
+                )
+                if name.type == "property_identifier" and written:
+                    found.append((_text(name, content), written[1]))
+    return tuple(dict.fromkeys(found))
 
 
 def _js_type_names(root, content):
-    """The names of the interfaces and type aliases a TypeScript file declares."""
+    """The names of the interfaces, type aliases and type parameters a
+    TypeScript file declares."""
     found, stack = set(), [root]
     while stack:
         node = stack.pop()
-        if node.type in {"interface_declaration", "type_alias_declaration"}:
+        if node.type in {
+            "interface_declaration",
+            "type_alias_declaration",
+            "type_parameter",
+        }:
             declared = node.child_by_field_name("name")
             if declared is not None:
                 found.add(_text(declared, content))

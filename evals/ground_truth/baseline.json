@@ -924,18 +924,17 @@
     "unresolved_unjudged": 8034
   },
   "hono": {
-    "ambiguous_includes": 51,
-    "ambiguous_unjudged": 5,
+    "ambiguous_unjudged": 3,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 3437,
+        "confirmed": 3450,
         "not_indexed": 186,
         "unjudged": 20
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 1633,
         "not_indexed": 107,
-        "unjudged": 2
+        "unjudged": 4
       },
       "tree-sitter.call-module-attribute": {
         "confirmed": 135
@@ -943,6 +942,9 @@
       "tree-sitter.call-self-method": {
         "confirmed": 51,
         "not_indexed": 11
+      },
+      "tree-sitter.js-call-member-chain": {
+        "confirmed": 11
       },
       "tree-sitter.js-call-private-name": {
         "confirmed": 1
@@ -952,10 +954,10 @@
         "not_indexed": 22
       },
       "tree-sitter.js-call-typed-receiver": {
-        "confirmed": 434
+        "confirmed": 472
       }
     },
-    "confirmed": 6209,
+    "confirmed": 6271,
     "contradicted": 0,
     "expected": 3009,
     "impact": {
@@ -993,20 +995,20 @@
       "unresolved_expected": 1,
       "unresolved_unjudged": 59
     },
-    "missed": 989,
+    "missed": 927,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 51,
       "no_call_site": 73,
-      "unresolved:attribute_call": 827,
+      "unresolved:attribute_call": 809,
       "unresolved:imported_name_not_declared": 36,
       "unresolved:not_declared_in_class": 1,
-      "unresolved:outside_class": 1
+      "unresolved:outside_class": 1,
+      "unresolved:receiver_type_unknown": 7
     },
     "not_indexed": 326,
     "precision": 1.0,
-    "recall": 0.6713,
-    "unjudged": 22,
-    "unresolved_expected": 880,
+    "recall": 0.6919,
+    "unjudged": 24,
+    "unresolved_expected": 869,
     "unresolved_unjudged": 28581
   },
   "ky": {

@@ -13,6 +13,7 @@ from deepthought import analyze_repository
 from deepthought.analysis_tools.evidence import registered_rules
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
+    CALL_JS_MEMBER_CHAIN,
     CALL_JS_REEXPORT,
     CALL_JS_STATIC_METHOD,
     CALL_JS_TYPED_RECEIVER,
@@ -1205,6 +1206,250 @@ class TypeScriptCallTests(unittest.TestCase):
         )
         properties = {d.symbol: d.properties for d in result.definitions}
         self.assertEqual(properties["F"], ("x",))
+
+    def test_receivers_typed_through_fields_and_destructuring(self):
+        result = analyze(
+            {
+                "req.ts": (
+                    "export class Req {\n"
+                    "  header(name: string): string\n"
+                    "  header(): Record<string, string>\n"
+                    "  header(name?: string): any { return name }\n"
+                    "  static parse(): Req\n"
+                    "  static parse(s?: string): Req { return new Req() }\n"
+                    "}\n"
+                    "export function f(a: string): void\n"
+                    "export function f(a: number): void\n"
+                    "export function f(a: any) {}\n"
+                    "export function g(): void\n"
+                ),
+                "base.ts": (
+                    "import { Req } from './req';\n"
+                    "export class Base {\n"
+                    "  req: Req;\n"
+                    "  get head(): Req { return this.req }\n"
+                    "  alt: Req;\n"
+                    "  make(): Req { return this.req }\n"
+                    "}\n"
+                ),
+                "main.ts": (
+                    "import { Base } from './base';\n"
+                    "import { Req, f } from './req';\n"
+                    "import { Ext } from 'external';\n"
+                    "interface Shape { area(): number }\n"
+                    "class Svc { run() {} }\n"
+                    "export class Ctx extends Base {\n"
+                    "  made = new Svc();\n"
+                    "  untyped = 1;\n"
+                    "  ext: Ext;\n"
+                    "  shape: Shape;\n"
+                    "  #hidden: Svc;\n"
+                    "  static svc: Svc;\n"
+                    "  constructor(private svc: Svc, plain: Svc) { super() }\n"
+                    "  go() {\n"
+                    "    this.svc.run(); this.made.run(); this.req.header(); this.head.header();\n"
+                    "    this.untyped.x(); this.ext.y(); this.shape.area(); this.#hidden.run();\n"
+                    "    this.go.call(); super.req.header();\n"
+                    "    const run = () => this.svc.run();\n"
+                    "    function inner() { this.svc.run() }\n"
+                    "    const { svc } = this; svc.run();\n"
+                    "    const { req: r } = this; r.header();\n"
+                    "  }\n"
+                    "  static s() { this.svc.run() }\n"
+                    "}\n"
+                    "function use(c: Ctx) {\n"
+                    "  c.req.header('x'); c.made.run(); c.svc.run();\n"
+                    "  const { made } = c; made.run();\n"
+                    "  const h = c.req; h.header();\n"
+                    "  const same = c; same.go();\n"
+                    "  c.plain.run(); c.nope.run();\n"
+                    "  f(1); Req.parse();\n"
+                    "}\n"
+                ),
+                "extra.ts": (
+                    "import { Base } from './base';\n"
+                    "import { Req } from './req';\n"
+                    "enum Mode { run }\n"
+                    "class Svc { run() {} }\n"
+                    "export class Sub extends Base {\n"
+                    "  alt = 1;\n"
+                    "  mode: Mode;\n"
+                    "  #hidden: Svc;\n"
+                    "  get #g(): Req { return this.req }\n"
+                    "  go() {\n"
+                    "    this.alt.header(); this.mode.run(); this.make.header();\n"
+                    "    const self = this; self.go();\n"
+                    "    const p = this.#hidden; p.run();\n"
+                    '    const { "req": q } = this; q.header();\n'
+                    "    const { req: t }: Base = this; t.header();\n"
+                    "  }\n"
+                    "}\n"
+                    "class Outer {\n"
+                    "  x = new Svc();\n"
+                    "  m() { return class { x: Req; go() { this.x.header() } } }\n"
+                    "}\n"
+                    "class Merged { a() { const self = this; self.a() } }\n"
+                    "interface Merged { b(): void }\n"
+                ),
+                "tp.ts": (
+                    "import { Req } from './req';\n"
+                    "class Box<Req> { v: Req; go() { this.v.header() } }\n"
+                    "function tp<Req>(s: Req) { s.header() }\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for line, callee, target in (
+            # Fields annotated or constructed, parameter properties, an
+            # inherited field typed in its own file, and a getter.
+            (15, "this.svc.run", "main.ts::Svc.run"),
+            (15, "this.made.run", "main.ts::Svc.run"),
+            (15, "this.req.header", "req.ts::Req.header"),
+            (15, "this.head.header", "req.ts::Req.header"),
+            # An arrow function keeps the method's `this`.
+            (18, "this.svc.run", "main.ts::Svc.run"),
+            (20, "svc.run", "main.ts::Svc.run"),
+            (21, "r.header", "req.ts::Req.header"),
+            (26, "c.req.header", "req.ts::Req.header"),
+            (26, "c.made.run", "main.ts::Svc.run"),
+            (26, "c.svc.run", "main.ts::Svc.run"),
+            (27, "made.run", "main.ts::Svc.run"),
+            (28, "h.header", "req.ts::Req.header"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                # The implementation runs, not an overload signature.
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", target, CALL_JS_MEMBER_CHAIN, None),
+                )
+        for line, callee, reason in (
+            # Untyped, external, an interface, a method, a parameter that is
+            # no property, and nothing declared.
+            (16, "this.untyped.x", "receiver_type_unknown"),
+            (16, "this.ext.y", "receiver_type_unknown"),
+            (16, "this.shape.area", "receiver_type_unknown"),
+            (17, "this.go.call", "receiver_type_unknown"),
+            (30, "c.plain.run", "receiver_type_unknown"),
+            (30, "c.nope.run", "receiver_type_unknown"),
+            # Private names, `this` of a plain function or a static method,
+            # and an alias without a member on the way are not followed.
+            (16, "this.#hidden.run", "attribute_call"),
+            (19, "this.svc.run", "attribute_call"),
+            (23, "this.svc.run", "attribute_call"),
+            (29, "same.go", "attribute_call"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)], ("unresolved", None, None, reason)
+                )
+        self.assertEqual(
+            found[("main.ts", 31, "f")],
+            ("linked", "req.ts::f", CALL_IMPORTED_NAME, None),
+        )
+        self.assertEqual(
+            found[("main.ts", 31, "Req.parse")],
+            ("linked", "req.ts::Req.parse", CALL_JS_STATIC_METHOD, None),
+        )
+        targets = {(d.file, d.symbol, d.line): d for d in result.definitions}
+        self.assertEqual(
+            [targets[("req.ts", "Req.header", n)].overload for n in (2, 3, 4)],
+            [True, True, None],
+        )
+        self.assertTrue(targets[("req.ts", "Req.parse", 5)].static)
+        fields = {d.symbol: d.fields for d in result.definitions if d.kind == "Class"}
+        self.assertEqual(
+            fields["Ctx"], (("made", "Svc"), ("ext", "Ext"), ("svc", "Svc"))
+        )
+        self.assertEqual(
+            fields["Base"], (("req", "Req"), ("head", "Req"), ("alt", "Req"))
+        )
+        steps = {
+            (s.line, s.callee): (s.receiver_type, s.receiver_steps)
+            for s in result.call_sites
+        }
+        self.assertEqual(steps[(15, "this.req.header")], ("this", ("req",)))
+        self.assertEqual(steps[(28, "h.header")], ("Ctx", ("req",)))
+        for file, line, callee, found_as in (
+            # A field that hides a typed one, an enum, a method, and a type
+            # parameter that shares a class's name.
+            (
+                "extra.ts",
+                11,
+                "this.alt.header",
+                ("unresolved", None, None, "receiver_type_unknown"),
+            ),
+            (
+                "extra.ts",
+                11,
+                "this.mode.run",
+                ("unresolved", None, None, "receiver_type_unknown"),
+            ),
+            (
+                "extra.ts",
+                11,
+                "this.make.header",
+                ("unresolved", None, None, "receiver_type_unknown"),
+            ),
+            (
+                "tp.ts",
+                2,
+                "this.v.header",
+                ("unresolved", None, None, "receiver_type_unknown"),
+            ),
+            ("tp.ts", 3, "s.header", ("unresolved", None, None, "attribute_call")),
+            (
+                "extra.ts",
+                12,
+                "self.go",
+                ("linked", "extra.ts::Sub.go", CALL_JS_MEMBER_CHAIN, None),
+            ),
+            # A merged class may have members its body does not declare.
+            (
+                "extra.ts",
+                22,
+                "self.a",
+                ("unresolved", None, None, "receiver_type_unknown"),
+            ),
+            # Private names, quoted keys, an annotated pattern and the
+            # `this` of a class expression are not followed.
+            ("extra.ts", 13, "p.run", ("unresolved", None, None, "attribute_call")),
+            ("extra.ts", 14, "q.header", ("unresolved", None, None, "attribute_call")),
+            ("extra.ts", 15, "t.header", ("unresolved", None, None, "attribute_call")),
+            (
+                "extra.ts",
+                20,
+                "this.x.header",
+                ("unresolved", None, None, "attribute_call"),
+            ),
+        ):
+            with self.subTest(file=file, line=line, callee=callee):
+                self.assertEqual(found[(file, line, callee)], found_as)
+        self.assertIsNone(targets[("req.ts", "g", 11)].overload)
+        self.assertEqual(fields["Sub"], (("mode", "Mode"),))
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+
+    def test_javascript_fields_type_chains(self):
+        result = analyze(
+            {
+                "plain.js": (
+                    "class B { run() {} }\n"
+                    "class A { b = new B(); go() { this.b.run() } }\n"
+                    "class C { static b = new B(); go() { this.b.run() } }\n"
+                ),
+            },
+            "javascript",
+        )
+        found = links(result)
+        self.assertEqual(
+            found[("plain.js", 2, "this.b.run")],
+            ("linked", "plain.js::B.run", CALL_JS_MEMBER_CHAIN, None),
+        )
+        # A static field is no instance's.
+        self.assertEqual(
+            found[("plain.js", 3, "this.b.run")],
+            ("unresolved", None, None, "receiver_type_unknown"),
+        )
 
 
 class CallSchemaTests(unittest.TestCase):
