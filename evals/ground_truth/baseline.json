@@ -318,13 +318,13 @@
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 3,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 3,
+          "true_positive": 3
         },
         "service_pairs": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         }
       }
     },
