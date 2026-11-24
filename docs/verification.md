@@ -705,6 +705,30 @@ Neither app was used to build the reader (#190). It reads nothing wrongly, but:
   that import none of `mongodb`, `mongoose` or `mongoskin`, so the import gate
   leaves almost all of its 80 collections unread.
 
+### Go SQL tables
+
+Manifest `tables` entries with `"language": "go-sql"` score the SQL that Go
+code runs, per line, against the engine's `data-contracts.go-sql*` edges, the
+same way as Knex below. The gate runs `go mod download` in each module first
+(it builds and runs nothing), because the engine types calls against the
+module's dependencies.
+
+`tools/sqlc_table_labels.py WORKSPACE --sqlc PATH` labels code that sqlc
+generates. It runs sqlc's `json` generator on a scratch copy, which reports
+each query as sqlc's engine parser (libpg_query for PostgreSQL) read it and
+resolved it against the schema, and maps each query to the call in the
+generated Go method that runs it. A statement starting with INSERT, UPDATE or
+DELETE WRITES its target; any other READS the tables its columns and
+parameters resolve to. simplebank's 20 queries are labelled this way.
+
+miniflux's storage package is a hand-read sample: 30 of its 124
+`Query`/`QueryRow`/`Exec` calls outside tests, drawn with a fixed seed.
+A call that runs a query its callers pass in is not counted. The labels are
+a sample (`"scope": "labelled"`), so other engine lines are not counted as
+extra. A write labels its target as WRITES and every other table it names as
+READS. The engine was developed against both apps, so they are regression
+gates, not held-out checks.
+
 ### Knex query-builder tables
 
 Knex names a table as a string argument of its query builder.
