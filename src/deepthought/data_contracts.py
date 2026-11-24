@@ -4309,7 +4309,7 @@ def extract_php_eloquent(tree, content, file, definitions):
     resolved superclass and ``$table``, static Eloquent calls
     (``Model::where(...)``) and ``DB::table('t')`` chains, and the tables
     ``Schema::create`` (or ``Schema::rename``'s target) makes."""
-    classes, accesses, tables = [], [], []
+    classes, accesses, tables, sql_uses = [], [], [], []
     namespace, uses = "", {}
 
     def resolve(written):
@@ -4441,6 +4441,32 @@ def extract_php_eloquent(tree, content, file, definitions):
                         name.start_point.column,
                     )
                 )
+            sql = _php_sql_argument(child, content, resolve)
+            if sql is not None:
+                text = _php_sql_text(sql, content)
+                words = (
+                    re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+                    if text is not None
+                    else ()
+                )
+                if words and words[0].lower() in SQL_VERBS:
+                    statement = statement_tables(text)
+                    if (
+                        not (statement.reads or statement.writes)
+                        and PLACEHOLDER in text
+                    ):
+                        statement = None
+                    sql_uses.append(
+                        SqlUse(
+                            file,
+                            _innermost(definitions, file, child),
+                            "php-sql",
+                            False,
+                            statement,
+                            child.start_point.row + 1,
+                            child.start_point.column,
+                        )
+                    )
             if child.type == "scoped_call_expression":
                 scope = resolve(_text(child.child_by_field_name("scope"), content))
                 method = _text(child.child_by_field_name("name"), content)
@@ -4470,7 +4496,230 @@ def extract_php_eloquent(tree, content, file, definitions):
             walk(child)
 
     walk(tree.root_node)
-    return classes, accesses, tables
+    return classes, accesses, tables, sql_uses
+
+
+# PHP: SQL text passed to PDO, mysqli, pg_*, Doctrine DBAL and DB:: ---------
+
+LARAVEL_SQL_METHODS = {
+    "select", "selectOne", "selectResultSets", "scalar", "cursor", "insert",
+    "update", "delete", "statement", "affectingStatement", "unprepared",
+}  # fmt: skip
+PHP_SQL_METHODS = {
+    # PDO and mysqli
+    "query", "prepare", "exec", "real_query", "multi_query",
+    # Doctrine DBAL
+    "executeQuery", "executeStatement", "executeUpdate", "executeCacheQuery",
+    "fetchAllAssociative", "fetchAssociative", "fetchAllNumeric",
+    "fetchNumeric", "fetchOne", "fetchFirstColumn", "fetchAllKeyValue",
+    "fetchAllAssociativeIndexed", "iterateAssociative", "iterateNumeric",
+    "iterateColumn", "iterateKeyValue",
+}  # fmt: skip
+# Functions taking SQL: {name: (argument index with 2 arguments or fewer, else)}.
+PHP_SQL_FUNCTIONS = {
+    "mysqli_query": (1, 1),
+    "mysqli_real_query": (1, 1),
+    "mysqli_multi_query": (1, 1),
+    "mysqli_prepare": (1, 1),
+    "mysqli_execute_query": (1, 1),
+    "pg_query": (-1, 1),
+    "pg_send_query": (1, 1),
+    "pg_query_params": (0, 1),
+    "pg_send_query_params": (1, 1),
+    "pg_prepare": (-1, 2),
+    "pg_send_prepare": (2, 2),
+}
+_PHP_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "v": "\v", "f": "\f", "0": " "}
+_PHP_BLOCKS = ("compound_statement", "program")
+_PHP_FUNCTIONS = (
+    "function_definition",
+    "method_declaration",
+    "anonymous_function",
+    "arrow_function",
+)
+
+
+def _php_sql_argument(node, content, resolve):
+    """The argument node that holds SQL in a PHP call, or None."""
+    if node.type in ("member_call_expression", "nullsafe_member_call_expression"):
+        method = _text(node.child_by_field_name("name"), content)
+        target = node.child_by_field_name("object")
+        on_connection = (
+            target is not None
+            and target.type == "scoped_call_expression"
+            and resolve(_text(target.child_by_field_name("scope"), content))
+            in LARAVEL_DB
+            and _text(target.child_by_field_name("name"), content) == "connection"
+        )
+        if method not in PHP_SQL_METHODS and not (
+            on_connection and method in LARAVEL_SQL_METHODS
+        ):
+            return None
+        index = 0
+    elif node.type == "scoped_call_expression":
+        scope = resolve(_text(node.child_by_field_name("scope"), content))
+        if scope not in LARAVEL_DB or (
+            _text(node.child_by_field_name("name"), content) not in LARAVEL_SQL_METHODS
+        ):
+            return None
+        index = 0
+    elif node.type == "function_call_expression":
+        name = _text(node.child_by_field_name("function"), content).lstrip("\\")
+        if name.lower() not in PHP_SQL_FUNCTIONS:
+            return None
+        arguments = _php_arguments(node)
+        short, long = PHP_SQL_FUNCTIONS[name.lower()]
+        index = short if len(arguments) <= 2 else long
+        if not arguments or index >= len(arguments) or -index > len(arguments):
+            return None
+        return arguments[index]
+    else:
+        return None
+    arguments = _php_arguments(node)
+    return arguments[index] if len(arguments) > index else None
+
+
+def _php_assignments(variable, content):
+    """The texts ``variable`` may hold where it is used, from ``$x = ...``
+    and ``$x .= ...`` assignments before it in the same function: a list of
+    alternatives, each a list of the right sides joined in order; None when
+    it is assigned some other way."""
+    name = _text(variable, content)
+    scope = next((a for a in _ancestors(variable) if a.type in _PHP_FUNCTIONS), None)
+    if scope is None:
+        scope = variable
+        while scope.parent is not None:
+            scope = scope.parent
+    found = []
+    stack = [scope]
+    while stack:
+        node = stack.pop()
+        if node is not scope and node.type in _PHP_FUNCTIONS:
+            continue
+        stack.extend(reversed(node.named_children))
+        if node.type not in (
+            "assignment_expression",
+            "augmented_assignment_expression",
+        ):
+            continue
+        if node.end_byte > variable.start_byte:
+            continue
+        left = node.child_by_field_name("left")
+        if left is None or _text(left, content) != name:
+            continue
+        operator = node.child_by_field_name("operator")
+        written = (
+            "="
+            if node.type == "assignment_expression"
+            else (_text(operator, content) if operator is not None else "")
+        )
+        found.append(
+            (node.start_byte, written, node.child_by_field_name("right"), node)
+        )
+    found.sort(key=lambda f: f[0])
+    if any(f[1] not in ("=", ".=") for f in found):
+        return None
+    # The last assignment in a block enclosing the use always runs before
+    # it and replaces what came earlier; later assignments inside nested
+    # branches may run instead, so each is an alternative text.
+    around = {a.id for a in _ancestors(variable)}
+
+    def dominates(assignment):
+        block = next((a for a in _ancestors(assignment) if a.type in _PHP_BLOCKS), None)
+        return block is not None and block.id in around
+
+    def branches(statement):
+        body = statement.child_by_field_name("body")
+        clauses = [c for c in statement.named_children if c.type.startswith("else")]
+        if body is None or not any(c.type == "else_clause" for c in clauses):
+            return None  # Without an else no branch need run.
+        return [body, *clauses]
+
+    starts = [i for i, f in enumerate(found) if f[1] == "="]
+    kill = max((found[i][0] for i in starts if dominates(found[i][3])), default=-1)
+    # An if/else whose every branch assigns, in a block enclosing the use,
+    # replaces what came before it too.
+    for i in starts:
+        for statement in _ancestors(found[i][3]):
+            if statement.type != "if_statement" or not dominates(statement):
+                continue
+            parts = branches(statement)
+            if parts and all(
+                any(
+                    found[j][1] == "="
+                    and part.start_byte <= found[j][0] < part.end_byte
+                    for j in starts
+                )
+                for part in parts
+            ):
+                kill = max(kill, statement.start_byte)
+    starts = [i for i in starts if found[i][0] >= kill]
+    if not starts:
+        return None
+    # Each start, with the appends that follow it (all of them, as any
+    # branch may run them), is one text the statement may run.
+    return [
+        [found[i][2]] + [f[2] for f in found[i + 1 :] if f[1] == ".="] for i in starts
+    ]
+
+
+def _php_sql_text(node, content, depth=0):
+    """The text of a PHP string expression: literals, heredocs and nowdocs,
+    ``.`` joins, ``sprintf`` templates and local variables built from them;
+    what the code does not fix becomes PLACEHOLDER. None when the
+    expression is not text."""
+    if node is None or depth > 4:
+        return None
+    if node.type in ("string", "encapsed_string", "heredoc", "nowdoc"):
+        parts = []
+        body = node
+        for child in node.named_children:
+            if child.type in ("heredoc_body", "nowdoc_body"):
+                body = child
+        for child in body.named_children:
+            if child.type in ("string_content", "nowdoc_string"):
+                parts.append(_text(child, content))
+            elif child.type == "escape_sequence":
+                escaped = _text(child, content)[1:]
+                parts.append(_PHP_ESCAPES.get(escaped, escaped[:1]))
+            elif child.type in ("heredoc_start", "heredoc_end"):
+                continue
+            else:
+                parts.append(PLACEHOLDER)
+        return "".join(parts)
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _php_sql_text(node.named_children[0], content, depth)
+    if node.type == "binary_expression":
+        operator = node.child_by_field_name("operator")
+        if operator is None or _text(operator, content) != ".":
+            return None
+        sides = [
+            _php_sql_text(node.child_by_field_name(side), content, depth)
+            for side in ("left", "right")
+        ]
+        return "".join(PLACEHOLDER if p is None else p for p in sides)
+    if node.type == "function_call_expression":
+        name = _text(node.child_by_field_name("function"), content).lstrip("\\")
+        arguments = _php_arguments(node)
+        if name.lower() == "sprintf" and arguments:
+            template = _php_sql_text(arguments[0], content, depth)
+            if template is not None:
+                return re.sub(
+                    r"%(?:\d+\$)?[-+ 0]*(?:'.)?\d*(?:\.\d+)?[bcdeEfFgGosuxX]",
+                    PLACEHOLDER,
+                    template.replace("%%", "\x01"),
+                ).replace("\x01", "%")
+        return None
+    if node.type == "variable_name":
+        texts = []
+        for values in _php_assignments(node, content) or ():
+            parts = [_php_sql_text(v, content, depth + 1) for v in values]
+            if parts[0] is None:
+                return None
+            texts.append("".join(PLACEHOLDER if p is None else p for p in parts))
+        # Alternatives as one text: the tables of any branch.
+        return " ;\n".join(texts) if texts else None
+    return None
 
 
 def resolve_eloquent(classes):

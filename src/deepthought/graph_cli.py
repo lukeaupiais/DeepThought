@@ -78,6 +78,11 @@ def parser():
     index.add_argument("--include", action="append")
     index.add_argument("--exclude", action="append")
     index.add_argument(
+        "--max-files",
+        type=int,
+        help="Source file limit for --tool data-contracts, default 10000",
+    )
+    index.add_argument(
         "--scip-index",
         type=Path,
         help="Source-bound SCIP index for --tool scip, default workspace/index.scip",
@@ -281,6 +286,8 @@ async def execute(args):
             analysis = reuse = None
             if args.scip_index is not None and "scip" not in names:
                 raise ValueError("--scip-index belongs to the scip tool")
+            if args.max_files is not None and "data-contracts" not in names:
+                raise ValueError("--max-files belongs to the data-contracts tool")
             for name in names:
                 tool = tool_registry.get_tool(
                     name,
@@ -288,6 +295,8 @@ async def execute(args):
                     **(
                         {"index_path": args.scip_index}
                         if name == "scip" and args.scip_index is not None
+                        else {"max_files": args.max_files}
+                        if name == "data-contracts" and args.max_files is not None
                         else {}
                     ),
                 )

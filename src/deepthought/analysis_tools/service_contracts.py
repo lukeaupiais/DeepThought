@@ -132,9 +132,10 @@ ROUTE_RULES = {
             "service-contracts.openapi-spring-route",
             "pattern_matched",
             "An OpenAPI operation is generated into a Spring interface by an "
-            "openapi-generator-maven-plugin execution (generator spring, version "
-            "7 or later, interfaceOnly, no base path on the interface) in a "
-            "pom.xml of the repository, and a controller implementing that "
+            "openapi-generator execution (generator spring, version 7 or later, "
+            "interfaceOnly, no base path on the interface) of the Maven plugin "
+            "in a pom.xml or the Gradle plugin in a build.gradle(.kts) of the "
+            "repository, and a controller implementing that "
             "interface overrides the operation's method; the path is the "
             "operation's, joined with the controller's @RequestMapping path and "
             "the servlet context path.",
@@ -278,10 +279,41 @@ REQUEST_RULES = {
         )
     ),
 }
+# How the service that runs a module is named (SpringConfig.identity).
+IDENTITY_RULES = {
+    "spring-application-name": register_rule(
+        EvidenceRule(
+            "service-contracts.service-spring-application-name",
+            "pattern_matched",
+            "The module's spring.application.name names the service; without "
+            "one, the SPRING_APPLICATION_NAME, or the spring.application.name "
+            "under the active profiles in the SPRING_CONFIG_LOCATION files, "
+            "that every Compose service building the module gives it.",
+        )
+    ),
+    "compose-service": register_rule(
+        EvidenceRule(
+            "service-contracts.service-compose-name",
+            "pattern_matched",
+            "The module sets no spring.application.name, and every Compose "
+            "service whose build context is the module's directory has this "
+            "name.",
+        )
+    ),
+    "module-name": register_rule(
+        EvidenceRule(
+            "service-contracts.service-module-name",
+            "pattern_matched",
+            "Compose services with different names build the module and none "
+            "names it: the service is named after the module's directory.",
+        )
+    ),
+}
 _OPENAPI_CLIENT = (
     "A call of a method of a Java API class that an "
-    "openapi-generator-maven-plugin execution (generator java, version 4 or "
-    "later) in a pom.xml of the repository makes from a spec sends that "
+    "openapi-generator execution (generator java, version 4 or later) of the "
+    "Maven plugin in a pom.xml or the Gradle plugin in a build.gradle(.kts) "
+    "of the repository makes from a spec sends that "
     "operation: on a name declared once in the file with that class as its "
     "type, or on a new instance. The method and path are the operation's, "
     "under the spec's first server URL, or under an unknown base when the "
@@ -428,29 +460,67 @@ def _build_unread(maven, module):
     return False
 
 
-def _binder(config, marker, binding, binders):
-    """The broker (kafka or amqp) a binding uses in a service with
-    ``binders``: the only one, or with several, the binder its
-    ``spring.cloud.stream.bindings.<binding>.binder`` or the service's
-    ``spring.cloud.stream.default-binder`` names in the default profile, by
-    ``spring.cloud.stream.binders.<name>.type`` or the standard names."""
-    if len(binders) == 1:
-        return next(iter(binders))
-
-    def single(*keys):
-        found = {
-            v for k in keys for v in config.values(marker, k, default_profile=True)
-        }
-        return next(iter(found)) if len(found) == 1 else None
-
+def _binder_name(single, binding):
     name = single(f"spring.cloud.stream.bindings.{binding}.binder") or single(
         "spring.cloud.stream.default-binder", "spring.cloud.stream.defaultBinder"
     )
     if name is None or "${" in name:
         return None
-    kind = single(f"spring.cloud.stream.binders.{name}.type") or name
-    broker = _BINDER_TYPES.get(kind)
-    return broker if broker in binders else None
+    return single(f"spring.cloud.stream.binders.{name}.type") or name
+
+
+def _binders(config, marker, binding, binders):
+    """[(broker, Compose services)] a binding uses in a service with
+    ``binders`` (kafka, amqp): the only one; with several, the binder its
+    ``spring.cloud.stream.bindings.<binding>.binder`` or the service's
+    ``spring.cloud.stream.default-binder`` names, by
+    ``spring.cloud.stream.binders.<name>.type`` or the standard names.
+
+    Those keys are read in the default profile, or, for a module that
+    Compose services build, in each service with its active profiles: one
+    entry per broker, with the services that use it. A service whose binder
+    is not read gives (None, [service])."""
+    if len(binders) == 1:
+        units = tuple(sorted(u.label for u in config.units(marker)))
+        return [(next(iter(binders)), units)]
+    keys = (
+        "spring.cloud.stream.default-binder",
+        "spring.cloud.stream.defaultBinder",
+    )
+    units = config.units(marker)
+    if not units:
+
+        def single(*keys):
+            found = {
+                v for k in keys for v in config.values(marker, k, default_profile=True)
+            }
+            return next(iter(found)) if len(found) == 1 else None
+
+        kind = _binder_name(single, binding)
+        broker = _BINDER_TYPES.get(kind)
+        return [(broker if broker in binders else None, ())]
+    per_unit = {}
+    for key in (
+        f"spring.cloud.stream.bindings.{binding}.binder",
+        *keys,
+    ):
+        for label, value in config.deployment_values(marker, key).items():
+            per_unit.setdefault(label, {})[key] = value
+    grouped = {}
+    for label in sorted(per_unit):
+        values = per_unit[label]
+
+        def single(*names, values=values, label=label):
+            found = {values.get(n) for n in names} - {None}
+            if not found and names[0].startswith("spring.cloud.stream.binders."):
+                value = config.deployment_values(marker, names[0]).get(label)
+                found = {value} - {None}
+            return next(iter(found)) if len(found) == 1 else None
+
+        kind = _binder_name(single, binding)
+        broker = _BINDER_TYPES.get(kind)
+        grouped.setdefault(broker if broker in binders else None, []).append(label)
+    return [(broker, tuple(labels)) for broker, labels in grouped.items()]
 
 
 def _stream_endpoints(root, config, sites, repo_url):
@@ -543,11 +613,13 @@ def _stream_endpoints(root, config, sites, repo_url):
                         MessageUnread(site.file, site.line, site.role, reason)
                     )
                     continue
-            binder = _binder(config, marker, binding, binders)
-            if binder is None:
+            used = _binders(config, marker, binding, binders)
+            if any(broker is None for broker, _ in used):
                 unread.append(
                     MessageUnread(site.file, site.line, site.role, "binder_unknown")
                 )
+            used = [(b, labels) for b, labels in used if b is not None]
+            if not used:
                 continue
             configured = config.values(
                 marker, f"spring.cloud.stream.bindings.{binding}.destination"
@@ -563,33 +635,38 @@ def _stream_endpoints(root, config, sites, repo_url):
                     )
                 )
                 continue
-            if binder == "amqp":
-                destination += "/#"
-            endpoints.append(
-                MessageEndpoint(
-                    id=identifier(
-                        repo_url,
-                        site.file,
-                        f"{site.role} {service} {site.binding} {site.line}",
-                        "MessageEndpoint",
-                        0,
-                    ),
-                    file=site.file,
-                    line=site.line,
-                    column=site.column,
-                    declaration_id=site.declaration_id,
-                    role=site.role,
-                    broker=binder,
-                    destination=destination,
-                    client=(
-                        "spring-cloud-stream"
-                        if site.function is None
-                        else "spring-cloud-function"
-                    ),
-                    module=None if current == module else current,
-                    service=None if current == module else service,
+            identity = config.identity(marker)[0]
+            for binder, labels in used:
+                key = f"{site.role} {service} {site.binding} {site.line}"
+                endpoints.append(
+                    MessageEndpoint(
+                        id=identifier(
+                            repo_url,
+                            site.file,
+                            key if len(used) == 1 else f"{key} {binder}",
+                            "MessageEndpoint",
+                            0,
+                        ),
+                        file=site.file,
+                        line=site.line,
+                        column=site.column,
+                        declaration_id=site.declaration_id,
+                        role=site.role,
+                        broker=binder,
+                        destination=destination + "/#"
+                        if binder == "amqp"
+                        else destination,
+                        client=(
+                            "spring-cloud-stream"
+                            if site.function is None
+                            else "spring-cloud-function"
+                        ),
+                        module=None if current == module else current,
+                        service=None if current == module else service,
+                        service_identity=identity,
+                        deployed_as=labels,
+                    )
                 )
-            )
     return endpoints, unread
 
 
@@ -1567,6 +1644,20 @@ class ServiceContractTool(AnalysisTool):
                         **(
                             {"service_module": endpoint.module}
                             if endpoint.module
+                            else {}
+                        ),
+                        **(
+                            {
+                                "service_identity_rule": IDENTITY_RULES[
+                                    endpoint.service_identity
+                                ].rule_id
+                            }
+                            if endpoint.service_identity
+                            else {}
+                        ),
+                        **(
+                            {"deployed_as": list(endpoint.deployed_as)}
+                            if endpoint.deployed_as
                             else {}
                         ),
                         **_evidence(MESSAGE_RULES[(endpoint.client, endpoint.role)]),

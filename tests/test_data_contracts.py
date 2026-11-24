@@ -1060,6 +1060,34 @@ end
 }
 
 
+class SourceLimitTests(unittest.TestCase):
+    def test_file_limit_is_reported_and_can_be_raised(self):
+        files = {
+            f"app/models/m{i}.rb": f"class M{i} < ActiveRecord::Base\nend\n"
+            for i in range(3)
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            capped = asyncio.run(
+                DataContractTool(directory, max_files=2).analyze(
+                    "r", languages=["ruby"]
+                )
+            )
+            full = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        metrics = capped.metadata.custom_metrics
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertEqual(metrics["source_limits"], ["file_count_limit"])
+        self.assertEqual(metrics["active_record_models"], 2)
+        self.assertTrue(
+            any("max_files=2" in w for w in capped.metadata.warnings),
+            capped.metadata.warnings,
+        )
+        self.assertEqual(full.metadata.custom_metrics["source_limits"], [])
+        self.assertEqual(full.metadata.custom_metrics["active_record_models"], 3)
+
+
 class RailsTests(unittest.TestCase):
     def test_inflector_matches_active_support(self):
         from deepthought.data_contracts import (
@@ -1763,6 +1791,78 @@ class SequelizeTests(unittest.TestCase):
         self.assertEqual(metrics["sequelize_unresolved"], 1)
         self.assertEqual(
             metrics["sequelize_access_resolution"], {"linked": 3, "not_a_model": 1}
+        )
+
+
+PHP_SQL = {
+    "app/Dao/EntryDao.php": """\
+<?php
+namespace App\\Dao;
+
+use Illuminate\\Support\\Facades\\DB;
+
+class EntryDao
+{
+    public function save($pdo, $id, $checked)
+    {
+        $stm = $pdo->prepare('UPDATE `_entry` SET read = 1 WHERE id = ?');
+        $sql = <<<'SQL'
+            SELECT * FROM `_feed`
+            SQL;
+        $sql .= ' WHERE id = :id';
+        $pdo->query($sql);
+        if ($checked) {
+            $sql = "INSERT INTO entry_tags(id) VALUES ({$id})";
+        } else {
+            $sql = 'DELETE FROM entry_tags WHERE id = ' . $id;
+        }
+        $pdo->exec($sql);
+        $sql = 'SELECT * FROM categories';
+        $pdo->query($sql);
+        mysqli_query($link, sprintf('SELECT * FROM %s WHERE a = 1', $table));
+        pg_query("SELECT * FROM accounts");
+        DB::select('select * from users where active = ?', [1]);
+        DB::connection('audit')->statement('DELETE FROM audit_log');
+        $xpath->query('//item');
+        $request->query('page');
+    }
+}
+""",
+}
+
+
+class PhpSqlTests(unittest.TestCase):
+    def test_sql_text_in_pdo_mysqli_pg_and_db_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PHP_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["php"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.properties.get("rule_id") == "data-contracts.php-sql"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("READS", "_feed", 15),
+                ("READS", "accounts", 25),
+                ("READS", "categories", 23),
+                ("READS", "users", 26),
+                ("WRITES", "_entry", 10),
+                ("WRITES", "audit_log", 27),
+                # Either branch's text may run: both write entry_tags.
+                ("WRITES", "entry_tags", 21),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sql_text"],
+            {"statements": 8, "not_fixed": 1, "unknown_entity": 0},
         )
 
 

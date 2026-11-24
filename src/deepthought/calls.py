@@ -27,6 +27,7 @@ CALL_PRIVATE_NAME = "tree-sitter.js-call-private-name"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
 GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
+CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
 JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
@@ -986,6 +987,115 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             name, files = bound[0]
             rule_used = CALL_PYTHON_REEXPORT
 
+    def declared_through(files, name, kinds):
+        """Top-level ``kinds`` named ``name`` in the modules ``files``,
+        following a single module-level ``from M import name`` (Python) to
+        the module that declares it."""
+        seen = set()
+        while True:
+            declared = top_level(files, name, kinds)
+            if declared or len(files) != 1:
+                return declared
+            (module,) = files
+            bound = bindings.module_level.get((module, name), [])
+            if (
+                languages.get(module) != "python"
+                or (module, name) in seen
+                or not bound
+                or len(names.get((module, name), [])) != 1
+            ):
+                return declared
+            seen.add((module, name))
+            name, files = bound[0]
+
+    def python_class(file, scope, written):
+        """The classes a Python annotation names, looked up as a base is:
+        an enclosing or module-level class, an imported name, or an
+        attribute of an imported module."""
+        *head, name = written.split(".")
+        if head:
+            bound = modules.get((file, ".".join(head)), [])
+            return (
+                declared_through(bound[0], name, {"Class"}) if len(bound) == 1 else []
+            )
+        for depth in range(len(scope), 0, -1):
+            # A parameter annotation is evaluated in the class body around
+            # the method, which `lexical` skips, so a name declared there
+            # gives no single class.
+            prefix = ".".join(scope[:depth])
+            if any(
+                d.kind == "Class" for d in by_symbol.get((file, prefix), ())
+            ) and by_symbol.get((file, f"{prefix}.{name}")):
+                return []
+        lexical = bindings.lexical(file, scope, name, {"Class"})
+        bound = names.get((file, name), [])
+        if lexical and not bound:
+            return lexical
+        if not lexical and len(bound) == 1 and bound[0][0] not in (None, "default"):
+            imported, targets = bound[0]
+            return declared_through(targets, imported, {"Class"})
+        return []
+
+    python_bases = None
+
+    def python_method(cls, name):
+        """``(methods, reason)``: the methods ``name`` a Python class has,
+        declared or inherited through its declared bases, depth first and
+        left to right; that order is the method resolution order when no
+        class is reached twice. A base that names no repository class may
+        hold the method, so the lookup stops there."""
+        nonlocal python_bases
+        if python_bases is None:
+            from .inheritance import resolve_supertypes
+
+            facts = {item.id: item for item in result.supertypes}
+            python_bases = defaultdict(list)
+            for resolution in resolve_supertypes(result):
+                item = facts[resolution.call_id]
+                if languages.get(item.file) == "python" and item.name != "object":
+                    # `object` is every class's last base and declares no
+                    # method a repository class would call by name.
+                    python_bases[item.owner_id].append(
+                        ((item.line, item.column), resolution)
+                    )
+            for entries in python_bases.values():
+                entries.sort(key=lambda entry: entry[0])
+        # Without a class reached twice, the method resolution order is the
+        # depth-first, left-to-right order of the bases.
+        seen, stack = set(), [cls]
+        while stack:
+            current = stack.pop()
+            if current.id in seen:
+                return [], "diamond"
+            seen.add(current.id)
+            stack.extend(
+                by_id[base.target_id]
+                for _, base in python_bases.get(current.id, ())
+                if base.status == "linked"
+            )
+
+        def walk(current):
+            own = [
+                d
+                for d in by_symbol.get((current.file, f"{current.symbol}.{name}"), ())
+                if d.kind in _METHOD
+            ]
+            if own:
+                return own
+            for _, base in python_bases.get(current.id, ()):
+                if base.status != "linked":
+                    raise LookupError("base_not_resolved")
+                found = walk(by_id[base.target_id])
+                if found:
+                    return found
+            return []
+
+        try:
+            found = walk(cls)
+        except LookupError as error:
+            return [], str(error)
+        return found, "not_declared_on_type"
+
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
         caller = by_id.get(site.caller_id)
@@ -997,6 +1107,22 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(rust.call(site))
             continue
         parts = site.callee.split(".")
+        classes = (
+            python_class(site.file, scope[:-1], site.receiver_type)
+            if site.receiver_type is not None and languages.get(site.file) == "python"
+            else []
+        )
+        if len(classes) == 1:
+            # `x.m()` where `x` is a parameter annotated with a class, or a
+            # local whose one assignment calls or annotates a class. The
+            # name is looked up where the function is defined. A name that
+            # is no single repository class (`str`, a factory function)
+            # leaves the call to the rules below.
+            methods, reason = python_method(classes[0], parts[-1])
+            resolutions.append(
+                _pick(site.id, methods, CALL_PYTHON_TYPED_RECEIVER, reason)
+            )
+            continue
         if site.shadowed and parts[0] not in {"self", "this"}:
             # A local name (`for f in fs: f()`) is not the module's `f`.
             resolutions.append(

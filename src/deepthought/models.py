@@ -233,7 +233,8 @@ class CallSite:
     # variable or field ``x`` in scope writes a class type: that type as
     # written (``Foo``, ``Map.Entry``). Go calls ``x.M()`` where ``x`` is
     # declared in the function around the call: the type that declaration
-    # writes (``T`` or ``pkg.T``). None elsewhere.
+    # writes (``T`` or ``pkg.T``). Python calls ``x.m()``: the class name
+    # (``T``, ``m.T``) that the binding of ``x`` writes. None elsewhere.
     receiver_type: str | None = None
 
     def __post_init__(self):
