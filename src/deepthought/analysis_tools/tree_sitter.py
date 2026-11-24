@@ -355,6 +355,16 @@ _CALL_RULE_TEXT = {
     "parameter annotated with a repository class, or a local whose one "
     "binding calls or annotates that class, links to m declared on the "
     "class or inherited through its declared bases.",
+    call_rules.PYTHON_CALL_SUPER: "A Python 'super().m()' written directly in a "
+    "method of class C links to the m that C's declared bases declare or "
+    "inherit, in the method resolution order after C (depth first, left to "
+    "right, with no class reached twice); a base that names no repository "
+    "class stops the lookup.",
+    call_rules.PYTHON_CALL_SELF_INHERITED: "A Python 'self.m()' in a class that "
+    "declares no m links to the m its declared bases declare or inherit, in "
+    "the method resolution order (depth first, left to right, with no class "
+    "reached twice); a base that names no repository class stops the lookup. "
+    "A subclass's override is not followed.",
     call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
     "method declared in the enclosing class body; inheritance is not followed.",
     call_rules.CALL_PRIVATE_NAME: "A JavaScript or TypeScript 'obj.#m()' "

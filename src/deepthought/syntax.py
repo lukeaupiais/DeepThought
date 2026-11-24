@@ -4065,6 +4065,32 @@ def extract_call_sites(
             )
             if head is not None:
                 found = (f"{head}.{_text(name, content)}", found[1])
+        if python and found is not None and found[0] is None:
+            # `super().m()`: a method of the enclosing class's bases.
+            target = node.child_by_field_name("function")
+            receiver = (
+                target.child_by_field_name("object")
+                if target is not None and target.type == "attribute"
+                else None
+            )
+            attribute = (
+                target.child_by_field_name("attribute")
+                if receiver is not None
+                else None
+            )
+            arguments = (
+                receiver.child_by_field_name("arguments")
+                if receiver is not None and receiver.type == "call"
+                else None
+            )
+            if (
+                arguments is not None
+                and not arguments.named_children
+                and _text(receiver.child_by_field_name("function"), content) == "super"
+                and attribute is not None
+                and attribute.type == "identifier"
+            ):
+                found = (f"super().{_text(attribute, content)}", found[1])
         if found is not None:
             callee, kind = found
             if callee is not None:

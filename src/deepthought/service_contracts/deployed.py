@@ -274,11 +274,135 @@ def aspire_units(root):
     return units
 
 
+def _instructions(text):
+    """(INSTRUCTION, arguments) of each Dockerfile instruction, with line
+    continuations joined and comments dropped."""
+    text = re.sub(r"\\[ \t]*\r?\n", " ", text)
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            word, _, rest = line.partition(" ")
+            yield word.upper(), rest.strip()
+
+
+def _words(text):
+    """Shell or JSON-array words of an instruction's arguments."""
+    text = text.strip()
+    if text.startswith("["):
+        return re.findall(r'"((?:[^"\\]|\\.)*)"', text)
+    return [w.strip("\"'") for w in text.split()]
+
+
+def _image_path(workdir, path):
+    """``path`` made absolute against ``workdir`` and normalized."""
+    parts = [] if path.startswith("/") else workdir.strip("/").split("/")
+    for part in path.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+        else:
+            parts.append(part)
+    return "/" + "/".join(p for p in parts if p)
+
+
+def dotnet_project(root, context, dockerfile):
+    """The repository directory of the one .NET project a Dockerfile
+    publishes, or None.
+
+    The Dockerfile is followed stage by stage: ``WORKDIR`` (a stage built
+    ``FROM`` an earlier stage keeps its directory and files), and
+    ``COPY S D`` (or ``ADD``) of one directory S of the build context (``.``
+    for all of it) to image directory D. Each
+    ``RUN dotnet publish [project]`` publishes the project named (a
+    ``.csproj`` path, its file name possibly a ``*`` pattern) or the one in
+    the working directory; that image path is mapped back to the repository
+    through the copied context. Every publish must name the same directory,
+    and it must hold a ``.csproj``. Visual Studio's Dockerfiles build from
+    the solution directory, so the context alone does not say which project
+    the image runs."""
+    if dockerfile is None:
+        return None
+    try:
+        # Instructions are ASCII; comments may be in another encoding.
+        text = (root / dockerfile).read_text(encoding="utf-8", errors="replace")
+    except (OSError, UnicodeDecodeError):
+        return None
+    stages, workdir, copied, found, current = {}, "/", (), set(), None
+    base_dir = root / context if context else root
+    for instruction, arguments in _instructions(text):
+        words = _words(arguments)
+        if instruction == "FROM":
+            image = words[0] if words else ""
+            workdir, copied = stages.get(image.lower(), ("/", ()))
+            if len(words) >= 3 and words[1].upper() == "AS":
+                stages[words[2].lower()] = (workdir, copied)
+                current = words[2].lower()
+            else:
+                current = None
+            continue
+        if instruction == "WORKDIR" and words:
+            workdir = _image_path(workdir, words[0])
+        elif instruction in ("COPY", "ADD"):
+            plain = [w for w in words if not w.startswith("--")]
+            # COPY --from copies from another image, not the context.
+            source = plain[0].strip("/").removeprefix("./") if plain else ""
+            source = "" if source == "." else source
+            if (
+                len(plain) == 2
+                and not any(w.startswith("--from") for w in words)
+                and not any(c in source for c in "*?[$")
+                and ".." not in source.split("/")
+                and (base_dir / source).is_dir()
+            ):
+                copied = copied + ((source, _image_path(workdir, plain[1])),)
+        elif instruction == "RUN":
+            for match in re.finditer(r"\bdotnet\s+publish\b([^&;|]*)", arguments):
+                given = [w.strip("\"'") for w in match.group(1).split()]
+                projects = [w for w in given if w.endswith(".csproj")]
+                if len(projects) > 1:
+                    return None
+                directory = (
+                    _image_path(workdir, projects[0].rpartition("/")[0] or ".")
+                    if projects
+                    else workdir
+                )
+                mapped = [
+                    (len(target), index, source, target)
+                    for index, (source, target) in enumerate(copied)
+                    if directory == target
+                    or directory.startswith(target.rstrip("/") + "/")
+                ]
+                if "*" in directory or not mapped:
+                    return None
+                _, _, source, target = max(mapped)
+                rest = directory[len(target.rstrip("/")) :].strip("/")
+                found.add("/".join(p for p in (source, rest) if p))
+        if current is not None:
+            stages[current] = (workdir, copied)
+    if len(found) != 1:
+        return None
+    inner = next(iter(found))
+    directory = "/".join(p for p in (context, inner) if p)
+    base = root / directory if directory else root
+    if not base.is_dir() or not any(base.glob("*.csproj")):
+        return None
+    return directory
+
+
 def deployed_units(root):
     """Compose services, Kubernetes containers and Aspire projects that
-    build a directory of the repository."""
+    build a directory of the repository. A Compose service whose Dockerfile
+    publishes one .NET project runs that project's directory."""
     units = [
-        Deployed(unit.label, unit.name, unit.context, (unit.name,), unit.environment)
+        Deployed(
+            unit.label,
+            unit.name,
+            dotnet_project(root, unit.context, unit.dockerfile) or unit.context,
+            (unit.name,),
+            unit.environment,
+        )
         for unit in compose_units(root)
     ]
     return units + kubernetes_units(root) + aspire_units(root)
