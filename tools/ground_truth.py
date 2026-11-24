@@ -614,23 +614,31 @@ def route_regressions(report, baseline):
     return problems
 
 
+TABLE_LANGUAGES = {"ruby": (".rb", "::"), "php": (".php", "\\")}
+
+
 def score_tables(corpus, workspace, examples=10):
-    """The table each ActiveRecord model maps to, against labels that
-    ActiveRecord itself computed (tools/rails_table_oracle.rb).
+    """The table each model class maps to, against labels from the ORM's own
+    rules: ActiveRecord's (tools/rails_table_oracle.rb) or, for Doctrine,
+    the entity metadata checked against the schema its migrations build
+    (tools/doctrine_table_oracle.php).
 
     A model is *found* when the engine maps it to the labelled table and to
-    no other, *wrong* when it maps it to any other table, and *missed* when
-    it maps it to none. *extra* is a model the engine maps that the labels
-    neither list nor set aside under ``not_counted``. The engine runs with its
-    defaults, file limit included, on Ruby files only.
+    no other but its labelled join tables, *wrong* when it maps it to any
+    other table, and *missed* when it does not map it to its table. *extra*
+    is a model the engine maps that the labels neither list nor set aside
+    under ``not_counted``. The engine runs with its defaults, file limit
+    included, on the corpus's language only (``language``, Ruby by default).
     """
     import asyncio
 
     from deepthought.analysis_tools.data_contracts import DataContractTool
 
     labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    language = corpus.get("language", "ruby")
+    suffix, separator = TABLE_LANGUAGES[language]
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze("tables", languages=["ruby"])
+        DataContractTool(Path(workspace)).analyze("tables", languages=[language])
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     mapped = {}
@@ -643,16 +651,26 @@ def score_tables(corpus, workspace, examples=10):
             or source is None
             or target is None
             or "Class" not in source.labels
-            or not str(source.properties.get("file_path", "")).endswith(".rb")
+            or not str(source.properties.get("file_path", "")).endswith(suffix)
         ):
             continue
-        name = source.properties["name"].replace(".", "::")
+        name = source.properties["name"].replace(".", separator)
         mapped.setdefault(name, set()).add(target.properties.get("name"))
     expected = {m["class"]: m["table"] for m in labels["models"]}
+    allowed = {
+        m["class"]: {m["table"], *m.get("join_tables", ())} for m in labels["models"]
+    }
     ignored = {m["class"] for m in labels.get("not_counted", ())}
-    found = sorted(c for c, t in expected.items() if mapped.get(c) == {t})
-    wrong = sorted(c for c, t in expected.items() if mapped.get(c, {t}) - {t})
-    missed = sorted(c for c in expected if c not in mapped)
+    found = sorted(
+        c
+        for c, t in expected.items()
+        if t in mapped.get(c, ()) and not mapped[c] - allowed[c]
+    )
+    wrong = sorted(c for c in expected if mapped.get(c, set()) - allowed[c])
+    # Mapped to nothing but its join tables.
+    missed = sorted(
+        c for c, t in expected.items() if not mapped.get(c, set()) - (allowed[c] - {t})
+    )
     extra = sorted(c for c in mapped if c not in expected and c not in ignored)
     report = {
         "expected": len(expected),
@@ -746,8 +764,9 @@ def missing_requirements(manifest, names=()):
     ):
         modules.update(CONTRACT_MODULES)
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
-    if any(selected(c) for c in manifest.get("tables", ())):
-        modules.add(LANGUAGES["ruby"][1])
+    for corpus in manifest.get("tables", ()):
+        if selected(corpus):
+            modules.add(LANGUAGES[corpus.get("language", "ruby")][1])
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
 
 
