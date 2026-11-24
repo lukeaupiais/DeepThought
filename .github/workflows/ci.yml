@@ -106,6 +106,20 @@ jobs:
           python -m pip install 'build==1.4.3' 'hatchling==1.30.1'
           python -m build --no-isolation --wheel
           python -m pip install "$(realpath dist/*.whl)[languages,scip,neo4j,mcp]"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Install the pinned SCIP indexers
+        run: |
+          npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Check the indexers are found
+        run: python -m deepthought indexers
       - name: Wait for the dedicated test database
         run: |
           python - <<'PY'

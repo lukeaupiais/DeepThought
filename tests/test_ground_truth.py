@@ -1103,3 +1103,24 @@ fn g(p: P) { let P { x } = p; }
             ground_truth._rust_pattern_paths(source),
             {(3, 8), (4, 8), (4, 15), (7, 17)},
         )
+
+
+class MethodShorthandTest(unittest.TestCase):
+    def test_a_method_definition_is_not_a_call(self):
+        shorthand = ground_truth._method_shorthand
+        for before, rest in (
+            ("  ", "(ws, code) {"),
+            ("    async ", "() {"),
+            ("  get ", "() {"),
+            ("  ", "<T>(x: T): Promise<T> {"),
+            ("  ", "(data: string | Uint8Array<ArrayBuffer>, _options) {"),
+        ):
+            self.assertTrue(shorthand(before, rest), (before, rest))
+        for before, rest in (
+            ("  ws.", "(code) {"),
+            ("  ", "(code)"),
+            ("  ", "(() => {"),
+            ("  return ", "(x) {"),
+            ("  ", "(x): void => {"),
+        ):
+            self.assertFalse(shorthand(before, rest), (before, rest))

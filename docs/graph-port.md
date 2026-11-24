@@ -147,8 +147,13 @@ before, so their snapshot and graph identities do not change.
 
 Tree-sitter extraction records each call whose callee is a plain or dotted name
 (`f()`, `a.b.f()`, `self.m()`, `new Box()`) as a `CallSite` with its innermost
-enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
-chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
+enclosing declaration. In Python, JavaScript and TypeScript (and Go, below), a
+method called on a call's, construction's or element's result, on `super` or
+through an optional chain is recorded too, its receiver written with arguments
+and indexes dropped (`f().g`, `new T().m`, `xs[].m`, `super.m`, `a?.b`,
+`f?.().m`); no name-binding rule reads these, so they stay unlinked unless a
+SCIP index links them. Other calls (`f()()`, `x[0]()`, `(a as T).m()`) are not
+recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
 inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
 covers take their targets from the index instead (below); the original's SCIP
@@ -2889,6 +2894,20 @@ every server. Among them, the edge goes to the one that resolves the
 field, or else to the one that declares it. A `.graphql` document with
 requests gets a `File` node (language `graphql`) that the repository
 `CONTAINS` (rule `service-contracts.repository-contains-graphql`).
+
+Schemas and operations are parsed by graphql-core (`graphql-core`, the
+`graphql` extra, also in `languages`), the reference GraphQL parser for
+Python: root fields are the fields of the parsed object type definitions
+and extensions, and of the parsed operations' first selection level, with
+the lines and columns of their names. Template substitutions (`${...}`)
+are blanked before parsing. A source graphql-core does not parse, and
+every source when it is not installed, is read by the fallback reader, a
+tokenizer that skips strings, comments, arguments and directives; it gets
+no new features. On the 220 `.graphql`/`.gql` files of the validation
+repositories and corpora (the gqlgen repository, Prisma examples, the
+Apollo and howtographql corpora and others) both readers give the same
+fields, lines and unread facts; one deliberately invalid gqlgen test
+schema is left to the fallback.
 
 Counted as unread:
 - `graphql:schema_root_renamed`: a schema definition that names a root

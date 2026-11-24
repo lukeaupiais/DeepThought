@@ -542,10 +542,8 @@ source/utils/body.ts	72	encode	-	0	external
 source/utils/body.ts	72	toString	-	0	external
 source/utils/body.ts	82	TransformStream	-	0	external
 source/utils/body.ts	82	pipeThrough	-	0	external
-source/utils/body.ts	83	transform	-	0	external
 source/utils/body.ts	84	enqueue	-	0	external
 source/utils/body.ts	98	max	-	0	external
-source/utils/body.ts	104	flush	-	0	external
 source/utils/body.ts	105	Uint8Array	-	0	external
 source/utils/body.ts	112	get	-	0	external
 source/utils/body.ts	113	bind	-	0	external
@@ -553,11 +551,9 @@ source/utils/body.ts	115	set	-	0	external
 source/utils/body.ts	119	keys	-	0	external
 source/utils/body.ts	124	bind	-	0	external
 source/utils/body.ts	125	defineProperty	-	0	external
-source/utils/body.ts	126	value	-	0	external
 source/utils/body.ts	128	nativeMethod	source/utils/body.ts	124	local
 source/utils/body.ts	130	getError	source/utils/body.ts	112	local
 source/utils/body.ts	139	defineProperties	-	0	external
-source/utils/body.ts	149	value	-	0	external
 source/utils/body.ts	150	nativeClone	source/utils/body.ts	113	local
 source/utils/body.ts	153	set	-	0	external
 source/utils/body.ts	156	copyResponseMetadata	source/utils/body.ts	112	value
@@ -566,7 +562,6 @@ source/utils/body.ts	177	wrappableBody	source/utils/body.ts	167	value
 source/utils/body.ts	184	get	-	0	external
 source/utils/body.ts	185	TransformStream	-	0	external
 source/utils/body.ts	185	pipeThrough	-	0	external
-source/utils/body.ts	186	transform	-	0	external
 source/utils/body.ts	189	ResponseSizeError	source/errors/ResponseSizeError.ts	20	callable
 source/utils/body.ts	189	ResponseSizeError	source/errors/ResponseSizeError.ts	25	callable
 source/utils/body.ts	193	enqueue	-	0	external

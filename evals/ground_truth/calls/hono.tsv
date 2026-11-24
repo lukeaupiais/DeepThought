@@ -1026,9 +1026,7 @@ src/adapter/bun/server.test.ts	11	getBunServer	src/adapter/bun/server.ts	14	valu
 src/adapter/bun/ssg.ts	16	write	src/adapter/bun/ssg.ts	6	local
 src/adapter/bun/ssg.ts	28	baseToSSG	src/helper/ssg/ssg.ts	375	value
 src/adapter/bun/websocket.test.ts	9	createWSContext	src/adapter/bun/websocket.ts	41	value
-src/adapter/bun/websocket.test.ts	10	send	src/adapter/bun/websocket.ts	10	callable
 src/adapter/bun/websocket.test.ts	11	send	src/adapter/bun/websocket.test.ts	7	local
-src/adapter/bun/websocket.test.ts	13	close	src/adapter/bun/websocket.ts	11	callable
 src/adapter/bun/websocket.test.ts	14	close	src/adapter/bun/websocket.test.ts	8	local
 src/adapter/bun/websocket.test.ts	18	send	src/helper/websocket/index.ts	88	callable
 src/adapter/bun/websocket.test.ts	20	close	src/helper/websocket/index.ts	98	callable
@@ -1059,11 +1057,8 @@ src/adapter/bun/websocket.test.ts	93	Context	src/context.ts	352	callable
 src/adapter/bun/websocket.test.ts	93	Request	-	0	external
 src/adapter/bun/websocket.test.ts	101	resolve	-	0	external
 src/adapter/bun/websocket.test.ts	104	createWSContext	src/adapter/bun/websocket.ts	41	value
-src/adapter/bun/websocket.test.ts	116	onOpen	src/helper/websocket/index.ts	25	value
 src/adapter/bun/websocket.test.ts	117	open	src/adapter/bun/websocket.test.ts	108	local
-src/adapter/bun/websocket.test.ts	120	onMessage	src/helper/websocket/index.ts	26	value
 src/adapter/bun/websocket.test.ts	121	message	src/adapter/bun/websocket.test.ts	109	local
-src/adapter/bun/websocket.test.ts	127	onClose	src/helper/websocket/index.ts	27	value
 src/adapter/bun/websocket.test.ts	128	close	src/adapter/bun/websocket.test.ts	110	local
 src/adapter/bun/websocket.test.ts	135	upgradeWebSocket	src/adapter/bun/websocket.ts	59	value
 src/adapter/bun/websocket.test.ts	136	Context	src/context.ts	293	callable
@@ -1092,7 +1087,6 @@ src/adapter/bun/websocket.test.ts	225	createBunWebSocket	src/adapter/bun/websock
 src/adapter/bun/websocket.ts	42	WSContext	src/helper/websocket/index.ts	80	callable
 src/adapter/bun/websocket.ts	42	WSContext	src/helper/websocket/index.ts	82	callable
 src/adapter/bun/websocket.ts	44	send	src/adapter/bun/websocket.ts	10	callable
-src/adapter/bun/websocket.ts	50	close	src/helper/websocket/index.ts	62	callable
 src/adapter/bun/websocket.ts	51	close	src/adapter/bun/websocket.ts	11	callable
 src/adapter/bun/websocket.ts	59	defineWebSocketHelper	src/helper/websocket/index.ts	121	value
 src/adapter/bun/websocket.ts	70	TypeError	-	0	external
@@ -1111,15 +1105,12 @@ src/adapter/bun/websocket.ts	95	onError	src/adapter/bun/websocket.ts	89	local
 src/adapter/bun/websocket.ts	98	handler	src/adapter/bun/websocket.ts	87	local
 src/adapter/bun/websocket.ts	100	catch	-	0	external
 src/adapter/bun/websocket.ts	103	handleError	src/adapter/bun/websocket.ts	88	local
-src/adapter/bun/websocket.ts	111	open	src/adapter/bun/websocket.ts	20	callable
 src/adapter/bun/websocket.ts	114	Event	-	0	external
 src/adapter/bun/websocket.ts	114	createWSContext	src/adapter/bun/websocket.ts	41	value
 src/adapter/bun/websocket.ts	114	runHandler	src/adapter/bun/websocket.ts	87	value
-src/adapter/bun/websocket.ts	117	close	src/adapter/bun/websocket.ts	21	callable
 src/adapter/bun/websocket.ts	120	runHandler	src/adapter/bun/websocket.ts	87	value
 src/adapter/bun/websocket.ts	122	CloseEvent	-	0	external
 src/adapter/bun/websocket.ts	126	createWSContext	src/adapter/bun/websocket.ts	41	value
-src/adapter/bun/websocket.ts	131	message	src/adapter/bun/websocket.ts	22	callable
 src/adapter/bun/websocket.ts	137	runHandler	src/adapter/bun/websocket.ts	87	value
 src/adapter/bun/websocket.ts	139	createWSMessageEvent	src/helper/websocket/index.ts	105	value
 src/adapter/bun/websocket.ts	140	createWSContext	src/adapter/bun/websocket.ts	41	value
@@ -1409,8 +1400,6 @@ src/adapter/cloudflare-workers/websocket.ts	14	header	src/request.ts	185	callabl
 src/adapter/cloudflare-workers/websocket.ts	24	WSContext	src/helper/websocket/index.ts	80	callable
 src/adapter/cloudflare-workers/websocket.ts	24	WSContext	src/helper/websocket/index.ts	82	callable
 src/adapter/cloudflare-workers/websocket.ts	25	close	-	0	external
-src/adapter/cloudflare-workers/websocket.ts	26	protocol	src/helper/websocket/index.ts	67	value
-src/adapter/cloudflare-workers/websocket.ts	30	readyState	src/helper/websocket/index.ts	65	value
 src/adapter/cloudflare-workers/websocket.ts	33	URL	-	0	external
 src/adapter/cloudflare-workers/websocket.ts	34	send	-	0	external
 src/adapter/cloudflare-workers/websocket.ts	40	addEventListener	-	0	external
@@ -1494,8 +1483,6 @@ src/adapter/deno/websocket.ts	18	upgradeWebSocket	src/adapter/deno/deno.d.ts	49	
 src/adapter/deno/websocket.ts	23	WSContext	src/helper/websocket/index.ts	80	callable
 src/adapter/deno/websocket.ts	23	WSContext	src/helper/websocket/index.ts	82	callable
 src/adapter/deno/websocket.ts	24	close	-	0	external
-src/adapter/deno/websocket.ts	25	protocol	src/helper/websocket/index.ts	67	value
-src/adapter/deno/websocket.ts	29	readyState	src/helper/websocket/index.ts	65	value
 src/adapter/deno/websocket.ts	32	URL	-	0	external
 src/adapter/deno/websocket.ts	33	send	-	0	external
 src/adapter/lambda-edge/conninfo.test.ts	7	random	-	0	external
@@ -1733,7 +1720,6 @@ src/adapter/service-worker/handler.test.ts	35	handle	src/adapter/service-worker/
 src/adapter/service-worker/handler.test.ts	36	Promise	-	0	external
 src/adapter/service-worker/handler.test.ts	37	handler	src/adapter/service-worker/handler.test.ts	35	local
 src/adapter/service-worker/handler.test.ts	38	Request	-	0	external
-src/adapter/service-worker/handler.test.ts	39	respondWith	src/adapter/service-worker/types.ts	16	callable
 src/adapter/service-worker/handler.test.ts	40	resolve	src/adapter/service-worker/handler.test.ts	36	local
 src/adapter/service-worker/handler.test.ts	43	json	-	0	external
 src/adapter/service-worker/handler.test.ts	43	then	-	0	external
@@ -1743,19 +1729,16 @@ src/adapter/service-worker/handler.test.ts	48	handle	src/adapter/service-worker/
 src/adapter/service-worker/handler.test.ts	49	Promise	-	0	external
 src/adapter/service-worker/handler.test.ts	50	handler	src/adapter/service-worker/handler.test.ts	48	local
 src/adapter/service-worker/handler.test.ts	51	Request	-	0	external
-src/adapter/service-worker/handler.test.ts	52	respondWith	src/adapter/service-worker/types.ts	16	callable
 src/adapter/service-worker/handler.test.ts	53	resolve	src/adapter/service-worker/handler.test.ts	49	local
 src/adapter/service-worker/handler.test.ts	56	text	-	0	external
 src/adapter/service-worker/handler.test.ts	56	then	-	0	external
 src/adapter/service-worker/handler.test.ts	60	Hono	src/hono.ts	16	callable
 src/adapter/service-worker/handler.test.ts	60	Hono	src/hono.ts	26	callable
 src/adapter/service-worker/handler.test.ts	61	handle	src/adapter/service-worker/handler.ts	22	value
-src/adapter/service-worker/handler.test.ts	62	fetch	-	0	external
 src/adapter/service-worker/handler.test.ts	63	Response	-	0	external
 src/adapter/service-worker/handler.test.ts	66	Promise	-	0	external
 src/adapter/service-worker/handler.test.ts	67	handler	src/adapter/service-worker/handler.test.ts	61	local
 src/adapter/service-worker/handler.test.ts	68	Request	-	0	external
-src/adapter/service-worker/handler.test.ts	69	respondWith	src/adapter/service-worker/types.ts	16	callable
 src/adapter/service-worker/handler.test.ts	70	resolve	src/adapter/service-worker/handler.test.ts	66	local
 src/adapter/service-worker/handler.test.ts	73	text	-	0	external
 src/adapter/service-worker/handler.test.ts	73	then	-	0	external
@@ -1767,7 +1750,6 @@ src/adapter/service-worker/handler.test.ts	79	handle	src/adapter/service-worker/
 src/adapter/service-worker/handler.test.ts	82	Promise	-	0	external
 src/adapter/service-worker/handler.test.ts	83	handler	src/adapter/service-worker/handler.test.ts	79	local
 src/adapter/service-worker/handler.test.ts	84	Request	-	0	external
-src/adapter/service-worker/handler.test.ts	85	respondWith	src/adapter/service-worker/types.ts	16	callable
 src/adapter/service-worker/handler.test.ts	86	resolve	src/adapter/service-worker/handler.test.ts	82	local
 src/adapter/service-worker/handler.test.ts	92	text	-	0	external
 src/adapter/service-worker/handler.test.ts	96	Hono	src/hono.ts	16	callable
@@ -2459,9 +2441,7 @@ src/client/client.test.ts	2305	json	src/context.ts	726	value
 src/client/client.test.ts	2307	json	src/context.ts	726	value
 src/client/client.test.ts	2320	hc	src/client/client.ts	151	value
 src/client/client.ts	16	Proxy	-	0	external
-src/client/client.ts	17	get	-	0	external
 src/client/client.ts	21	createProxy	src/client/client.ts	15	value
-src/client/client.ts	23	apply	-	0	external
 src/client/client.ts	24	callback	src/client/client.ts	15	local
 src/client/client.ts	34	toString	-	0	external
 src/client/client.ts	66	buildSearchParams	src/client/client.ts	41	value
@@ -3155,10 +3135,8 @@ src/compose.ts	55	onError	src/compose.ts	17	local
 src/compose.ts	63	onNotFound	src/compose.ts	18	local
 src/context.test.ts	5	defineProperty	-	0	external
 src/context.test.ts	6	Proxy	-	0	external
-src/context.test.ts	7	set	-	0	external
 src/context.test.ts	9	TypeError	-	0	external
 src/context.test.ts	11	set	-	0	external
-src/context.test.ts	13	get	-	0	external
 src/context.test.ts	16	TypeError	-	0	external
 src/context.test.ts	19	get	-	0	external
 src/context.test.ts	21	defineProperties	-	0	external
@@ -3516,7 +3494,6 @@ src/helper/accepts/accepts.test.ts	326	Hono	src/hono.ts	26	callable
 src/helper/accepts/accepts.test.ts	327	get	src/hono-base.ts	121	value
 src/helper/accepts/accepts.test.ts	328	accepts	src/helper/accepts/accepts.ts	104	value
 src/helper/accepts/accepts.test.ts	334	ReadableStream	-	0	external
-src/helper/accepts/accepts.test.ts	335	start	-	0	external
 src/helper/accepts/accepts.test.ts	336	TextEncoder	-	0	external
 src/helper/accepts/accepts.test.ts	336	encode	-	0	external
 src/helper/accepts/accepts.test.ts	336	enqueue	-	0	external
@@ -5770,13 +5747,11 @@ src/helper/websocket/index.test.ts	62	upgradeWebSocket	src/helper/websocket/inde
 src/helper/websocket/index.test.ts	69	Promise	-	0	external
 src/helper/websocket/index.test.ts	70	WSContext	src/helper/websocket/index.ts	80	callable
 src/helper/websocket/index.test.ts	70	WSContext	src/helper/websocket/index.ts	82	callable
-src/helper/websocket/index.test.ts	71	close	src/helper/websocket/index.ts	62	callable
 src/helper/websocket/index.test.ts	72	resolve	src/helper/websocket/index.test.ts	69	local
 src/helper/websocket/index.test.ts	76	close	src/helper/websocket/index.ts	98	callable
 src/helper/websocket/index.test.ts	83	Promise	-	0	external
 src/helper/websocket/index.test.ts	84	WSContext	src/helper/websocket/index.ts	80	callable
 src/helper/websocket/index.test.ts	84	WSContext	src/helper/websocket/index.ts	82	callable
-src/helper/websocket/index.test.ts	85	send	src/helper/websocket/index.ts	61	callable
 src/helper/websocket/index.test.ts	86	resolve	src/helper/websocket/index.test.ts	83	local
 src/helper/websocket/index.test.ts	90	send	src/helper/websocket/index.ts	88	callable
 src/helper/websocket/index.test.ts	94	WSContext	src/helper/websocket/index.ts	80	callable
@@ -5790,7 +5765,6 @@ src/helper/websocket/index.test.ts	110	WSContext	src/helper/websocket/index.ts	8
 src/helper/websocket/index.test.ts	110	WSContext	src/helper/websocket/index.ts	82	callable
 src/helper/websocket/index.test.ts	117	WSContext	src/helper/websocket/index.ts	80	callable
 src/helper/websocket/index.test.ts	117	WSContext	src/helper/websocket/index.ts	82	callable
-src/helper/websocket/index.test.ts	118	send	src/helper/websocket/index.ts	61	callable
 src/helper/websocket/index.test.ts	123	send	src/helper/websocket/index.ts	88	callable
 src/helper/websocket/index.test.ts	126	ArrayBuffer	-	0	external
 src/helper/websocket/index.test.ts	126	send	src/helper/websocket/index.ts	88	callable
@@ -5878,7 +5852,6 @@ src/hono-base.ts	559	dispatch	src/hono-base.ts	425	callable
 src/hono-base.ts	559	respondWith	src/types.ts	2779	callable
 src/hono.test.ts	19	Error	-	0	external
 src/hono.test.ts	29	Proxy	-	0	external
-src/hono.test.ts	30	get	-	0	external
 src/hono.test.ts	33	defineProperties	-	0	external
 src/hono.test.ts	36	apply	-	0	external
 src/hono.test.ts	53	Hono	src/hono.ts	16	callable
@@ -9134,13 +9107,11 @@ src/jsx/dom/client.test.tsx	117	render	src/jsx/dom/client.ts	12	callable
 src/jsx/dom/client.test.tsx	122	forEach	-	0	external
 src/jsx/dom/client.ts	33	keys	-	0	external
 src/jsx/dom/client.ts	34	warn	-	0	external
-src/jsx/dom/client.ts	38	render	src/jsx/dom/client.ts	12	callable
 src/jsx/dom/client.ts	41	Error	-	0	external
 src/jsx/dom/client.ts	45	setJsxNode	src/jsx/dom/client.ts	27	local
 src/jsx/dom/client.ts	47	renderNode	src/jsx/dom/render.ts	848	value
 src/jsx/dom/client.ts	48	buildNode	src/jsx/dom/render.ts	732	value
 src/jsx/dom/client.ts	50	useState	src/jsx/hooks/index.ts	182	value
-src/jsx/dom/client.ts	61	unmount	src/jsx/dom/client.ts	13	callable
 src/jsx/dom/client.ts	81	createRoot	src/jsx/dom/client.ts	23	value
 src/jsx/dom/client.ts	82	render	src/jsx/dom/client.ts	12	callable
 src/jsx/dom/components.test.tsx	9	runner	src/jsx/dom/components.test.tsx	12	callable
@@ -12459,7 +12430,6 @@ src/jsx/streaming.ts	146	join	-	0	external
 src/jsx/streaming.ts	146	raw	src/utils/html.ts	40	value
 src/jsx/streaming.ts	151	TextEncoder	-	0	external
 src/jsx/streaming.ts	162	ReadableStream	-	0	external
-src/jsx/streaming.ts	163	start	-	0	external
 src/jsx/streaming.ts	167	toString	src/jsx/base.ts	305	callable
 src/jsx/streaming.ts	170	resolveCallback	src/utils/html.ts	150	value
 src/jsx/streaming.ts	177	encode	-	0	external
@@ -12483,7 +12453,6 @@ src/jsx/streaming.ts	213	forEach	-	0	external
 src/jsx/streaming.ts	215	all	-	0	external
 src/jsx/streaming.ts	219	onError	src/jsx/streaming.ts	159	local
 src/jsx/streaming.ts	223	close	-	0	external
-src/jsx/streaming.ts	226	cancel	-	0	external
 src/jsx/utils.test.ts	21	normalizeIntrinsicElementKey	src/jsx/utils.ts	11	value
 src/jsx/utils.test.ts	37	isValidAttributeName	src/jsx/utils.ts	49	value
 src/jsx/utils.test.ts	56	isValidAttributeName	src/jsx/utils.ts	49	value
@@ -13133,7 +13102,6 @@ src/middleware/body-limit/index.test.ts	55	request	src/hono-base.ts	518	value
 src/middleware/body-limit/index.test.ts	57	buildRequestInit	src/middleware/body-limit/index.test.ts	4	value
 src/middleware/body-limit/index.test.ts	62	text	-	0	external
 src/middleware/body-limit/index.test.ts	69	ReadableStream	-	0	external
-src/middleware/body-limit/index.test.ts	70	start	-	0	external
 src/middleware/body-limit/index.test.ts	72	TextEncoder	-	0	external
 src/middleware/body-limit/index.test.ts	72	encode	-	0	external
 src/middleware/body-limit/index.test.ts	72	enqueue	-	0	external
@@ -13151,7 +13119,6 @@ src/middleware/body-limit/index.test.ts	87	post	src/hono-base.ts	122	value
 src/middleware/body-limit/index.test.ts	87	text	src/context.ts	700	value
 src/middleware/body-limit/index.test.ts	87	text	src/request.ts	274	callable
 src/middleware/body-limit/index.test.ts	88	ReadableStream	-	0	external
-src/middleware/body-limit/index.test.ts	89	start	-	0	external
 src/middleware/body-limit/index.test.ts	91	Uint8Array	-	0	external
 src/middleware/body-limit/index.test.ts	91	enqueue	-	0	external
 src/middleware/body-limit/index.test.ts	93	close	-	0	external
@@ -13182,7 +13149,6 @@ src/middleware/body-limit/index.test.ts	157	text	src/context.ts	700	value
 src/middleware/body-limit/index.test.ts	157	text	src/request.ts	274	callable
 src/middleware/body-limit/index.test.ts	164	slice	-	0	external
 src/middleware/body-limit/index.test.ts	166	ReadableStream	-	0	external
-src/middleware/body-limit/index.test.ts	167	start	-	0	external
 src/middleware/body-limit/index.test.ts	168	forEach	-	0	external
 src/middleware/body-limit/index.test.ts	169	TextEncoder	-	0	external
 src/middleware/body-limit/index.test.ts	169	encode	-	0	external
@@ -13193,7 +13159,6 @@ src/middleware/body-limit/index.test.ts	191	buildRequestInit	src/middleware/body
 src/middleware/body-limit/index.test.ts	191	request	src/hono-base.ts	518	value
 src/middleware/body-limit/index.test.ts	194	text	-	0	external
 src/middleware/body-limit/index.test.ts	199	ReadableStream	-	0	external
-src/middleware/body-limit/index.test.ts	200	start	-	0	external
 src/middleware/body-limit/index.test.ts	201	TextEncoder	-	0	external
 src/middleware/body-limit/index.test.ts	201	encode	-	0	external
 src/middleware/body-limit/index.test.ts	201	enqueue	-	0	external
@@ -13201,7 +13166,6 @@ src/middleware/body-limit/index.test.ts	202	close	-	0	external
 src/middleware/body-limit/index.test.ts	206	request	src/hono-base.ts	518	value
 src/middleware/body-limit/index.test.ts	216	text	-	0	external
 src/middleware/body-limit/index.test.ts	226	ReadableStream	-	0	external
-src/middleware/body-limit/index.test.ts	227	start	-	0	external
 src/middleware/body-limit/index.test.ts	228	TextEncoder	-	0	external
 src/middleware/body-limit/index.test.ts	228	encode	-	0	external
 src/middleware/body-limit/index.test.ts	228	enqueue	-	0	external
@@ -13648,7 +13612,6 @@ src/middleware/cache/index.test.ts	802	header	src/context.ts	519	value
 src/middleware/cache/index.test.ts	803	text	src/context.ts	700	value
 src/middleware/cache/index.test.ts	803	text	src/request.ts	274	callable
 src/middleware/cache/index.test.ts	807	ReadableStream	-	0	external
-src/middleware/cache/index.test.ts	808	start	-	0	external
 src/middleware/cache/index.test.ts	809	TextEncoder	-	0	external
 src/middleware/cache/index.test.ts	809	encode	-	0	external
 src/middleware/cache/index.test.ts	809	enqueue	-	0	external
@@ -14953,7 +14916,6 @@ src/middleware/csrf/index.ts	146	HTTPException	src/http-exception.ts	55	callable
 src/middleware/csrf/index.ts	149	next	src/middleware/csrf/index.ts	138	local
 src/middleware/etag/digest.test.ts	5	Uint8Array	-	0	external
 src/middleware/etag/digest.test.ts	7	ReadableStream	-	0	external
-src/middleware/etag/digest.test.ts	8	pull	-	0	external
 src/middleware/etag/digest.test.ts	9	fill	-	0	external
 src/middleware/etag/digest.test.ts	10	enqueue	-	0	external
 src/middleware/etag/digest.test.ts	12	close	-	0	external
@@ -15066,7 +15028,6 @@ src/middleware/etag/index.test.ts	111	use	src/hono-base.ts	130	value
 src/middleware/etag/index.test.ts	112	get	src/hono-base.ts	121	value
 src/middleware/etag/index.test.ts	113	body	src/context.ts	682	value
 src/middleware/etag/index.test.ts	114	ReadableStream	-	0	external
-src/middleware/etag/index.test.ts	115	start	-	0	external
 src/middleware/etag/index.test.ts	116	Uint8Array	-	0	external
 src/middleware/etag/index.test.ts	116	enqueue	-	0	external
 src/middleware/etag/index.test.ts	117	Uint8Array	-	0	external
@@ -15075,7 +15036,6 @@ src/middleware/etag/index.test.ts	118	close	-	0	external
 src/middleware/etag/index.test.ts	123	get	src/hono-base.ts	121	value
 src/middleware/etag/index.test.ts	124	body	src/context.ts	682	value
 src/middleware/etag/index.test.ts	125	ReadableStream	-	0	external
-src/middleware/etag/index.test.ts	126	start	-	0	external
 src/middleware/etag/index.test.ts	127	Uint8Array	-	0	external
 src/middleware/etag/index.test.ts	127	enqueue	-	0	external
 src/middleware/etag/index.test.ts	128	Uint8Array	-	0	external
@@ -15093,13 +15053,11 @@ src/middleware/etag/index.test.ts	144	createPatternedBody	src/middleware/etag/in
 src/middleware/etag/index.test.ts	145	get	src/hono-base.ts	121	value
 src/middleware/etag/index.test.ts	146	body	src/context.ts	682	value
 src/middleware/etag/index.test.ts	147	ReadableStream	-	0	external
-src/middleware/etag/index.test.ts	148	start	-	0	external
 src/middleware/etag/index.test.ts	149	enqueue	-	0	external
 src/middleware/etag/index.test.ts	150	close	-	0	external
 src/middleware/etag/index.test.ts	155	get	src/hono-base.ts	121	value
 src/middleware/etag/index.test.ts	156	body	src/context.ts	682	value
 src/middleware/etag/index.test.ts	157	ReadableStream	-	0	external
-src/middleware/etag/index.test.ts	158	start	-	0	external
 src/middleware/etag/index.test.ts	159	enqueue	-	0	external
 src/middleware/etag/index.test.ts	159	slice	-	0	external
 src/middleware/etag/index.test.ts	160	enqueue	-	0	external
@@ -15126,7 +15084,6 @@ src/middleware/etag/index.test.ts	186	etag	src/middleware/etag/index.ts	78	value
 src/middleware/etag/index.test.ts	186	use	src/hono-base.ts	130	value
 src/middleware/etag/index.test.ts	187	get	src/hono-base.ts	121	value
 src/middleware/etag/index.test.ts	188	ReadableStream	-	0	external
-src/middleware/etag/index.test.ts	189	start	-	0	external
 src/middleware/etag/index.test.ts	190	close	-	0	external
 src/middleware/etag/index.test.ts	193	body	src/context.ts	682	value
 src/middleware/etag/index.test.ts	195	request	src/hono-base.ts	518	value
@@ -15254,11 +15211,9 @@ src/middleware/etag/index.test.ts	478	etag	src/middleware/etag/index.ts	78	value
 src/middleware/etag/index.test.ts	478	use	src/hono-base.ts	130	value
 src/middleware/etag/index.test.ts	479	get	src/hono-base.ts	121	value
 src/middleware/etag/index.test.ts	480	ReadableStream	-	0	external
-src/middleware/etag/index.test.ts	481	pull	-	0	external
 src/middleware/etag/index.test.ts	482	TextEncoder	-	0	external
 src/middleware/etag/index.test.ts	482	encode	-	0	external
 src/middleware/etag/index.test.ts	482	enqueue	-	0	external
-src/middleware/etag/index.test.ts	484	cancel	-	0	external
 src/middleware/etag/index.test.ts	488	body	src/context.ts	682	value
 src/middleware/etag/index.test.ts	491	request	src/hono-base.ts	518	value
 src/middleware/etag/index.test.ts	499	Hono	src/hono.ts	16	callable
@@ -24192,7 +24147,6 @@ src/utils/stream.test.ts	62	StreamingApi	src/utils/stream.ts	6	callable
 src/utils/stream.test.ts	62	StreamingApi	src/utils/stream.ts	21	callable
 src/utils/stream.test.ts	63	getReader	-	0	external
 src/utils/stream.test.ts	65	ReadableStream	-	0	external
-src/utils/stream.test.ts	66	start	-	0	external
 src/utils/stream.test.ts	67	Error	-	0	external
 src/utils/stream.test.ts	67	error	-	0	external
 src/utils/stream.test.ts	71	pipe	src/utils/stream.ts	78	callable
@@ -24205,12 +24159,10 @@ src/utils/stream.test.ts	78	StreamingApi	src/utils/stream.ts	6	callable
 src/utils/stream.test.ts	78	StreamingApi	src/utils/stream.ts	21	callable
 src/utils/stream.test.ts	79	getReader	-	0	external
 src/utils/stream.test.ts	81	ReadableStream	-	0	external
-src/utils/stream.test.ts	82	start	-	0	external
 src/utils/stream.test.ts	83	Error	-	0	external
 src/utils/stream.test.ts	83	error	-	0	external
 src/utils/stream.test.ts	86	pipe	src/utils/stream.ts	78	callable
 src/utils/stream.test.ts	88	ReadableStream	-	0	external
-src/utils/stream.test.ts	89	start	-	0	external
 src/utils/stream.test.ts	90	TextEncoder	-	0	external
 src/utils/stream.test.ts	90	encode	-	0	external
 src/utils/stream.test.ts	90	enqueue	-	0	external
@@ -24278,7 +24230,6 @@ src/utils/stream.ts	26	getReader	-	0	external
 src/utils/stream.ts	31	push	-	0	external
 src/utils/stream.ts	32	cancel	-	0	external
 src/utils/stream.ts	35	ReadableStream	-	0	external
-src/utils/stream.ts	36	pull	-	0	external
 src/utils/stream.ts	37	read	-	0	external
 src/utils/stream.ts	38	close	-	0	external
 src/utils/stream.ts	38	enqueue	-	0	external

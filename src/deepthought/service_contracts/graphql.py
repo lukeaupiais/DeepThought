@@ -138,8 +138,77 @@ def _blank(match):
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
+def _graphql_core():
+    """The graphql-core package, or None when it is not installed."""
+    try:
+        import graphql
+    except ImportError:
+        return None
+    return graphql
+
+
+# A template's ${...} interpolations, blanked to keep offsets.
+_INTERPOLATION = re.compile(r"\$\{[^{}]*\}")
+
+
+def _parsed(source):
+    """graphql-core's document of ``source``, else None (not installed, or
+    not a GraphQL document it parses)."""
+    graphql = _graphql_core()
+    if graphql is None:
+        return None
+    try:
+        return graphql.parse(_INTERPOLATION.sub(_blank, source))
+    except graphql.GraphQLError:
+        return None
+    except RecursionError:
+        return None
+
+
+def _line_column(source, offset):
+    line = source.count("\n", 0, offset)
+    return line + 1, offset - (source.rfind("\n", 0, offset) + 1)
+
+
 def schema_fields(source, file):
-    """Root fields a GraphQL schema file declares, and unread facts."""
+    """Root fields a GraphQL schema file declares, and unread facts.
+
+    graphql-core parses the schema; when it is not installed or cannot
+    parse the file, ``_schema_fields_text`` reads it."""
+    document = _parsed(source)
+    if document is None:
+        return _schema_fields_text(source, file)
+    graphql = _graphql_core()
+    roots = {"query": "Query", "mutation": "Mutation", "subscription": "Subscription"}
+    for definition in document.definitions:
+        if isinstance(
+            definition,
+            (graphql.SchemaDefinitionNode, graphql.SchemaExtensionNode),
+        ):
+            for root in definition.operation_types or ():
+                operation = root.operation.value
+                if root.type.name.value != roots[operation]:
+                    line, _ = _line_column(source, definition.loc.start)
+                    return [], [Unread(file, line, "graphql", "schema_root_renamed")]
+    declared = []
+    for definition in document.definitions:
+        if not isinstance(
+            definition,
+            (graphql.ObjectTypeDefinitionNode, graphql.ObjectTypeExtensionNode),
+        ):
+            continue
+        operation = definition.name.value
+        if operation not in roots.values():
+            continue
+        for field in definition.fields or ():
+            line, _ = _line_column(source, field.name.loc.start)
+            declared.append(GraphqlDeclaration(file, line, operation, field.name.value))
+    return declared, []
+
+
+def _schema_fields_text(source, file):
+    """Root fields a GraphQL schema file declares, and unread facts, read
+    without a parser: the fallback of ``schema_fields``. Kept as it is."""
     # Descriptions, strings and comments carry no fields; keep line numbers.
     stripped = re.sub(r'"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*', _blank, source)
     # A directive's name is not a field; its arguments are skipped by depth.
@@ -686,7 +755,53 @@ _TOKEN = re.compile(r"\.\.\.|[{}()\[\]:=$!@,]|[_A-Za-z]\w*|-?\d[\w.+-]*")
 def operation_fields(source, file, line_offset=0, column_offset=0, caller_id=None):
     """Root fields selected by the operations of an executable GraphQL
     document, and unread facts. Fragments are skipped; a fragment spread or
-    inline fragment among an operation's root fields is unread."""
+    inline fragment among an operation's root fields is unread. A field
+    marked ``@client`` (Apollo Client resolves it locally) and ``__``
+    meta-fields are not requests.
+
+    graphql-core parses the document; when it is not installed or cannot
+    parse it, ``_operation_fields_text`` reads it."""
+    document = _parsed(source)
+    if document is None:
+        return _operation_fields_text(
+            source, file, line_offset, column_offset, caller_id
+        )
+    graphql = _graphql_core()
+
+    def position(offset):
+        line, column = _line_column(source, offset)
+        return (
+            line + line_offset,
+            column + (column_offset if line == 1 else 0),
+        )
+
+    found, unread = [], []
+    for definition in document.definitions:
+        if not isinstance(definition, graphql.OperationDefinitionNode):
+            continue
+        operation = definition.operation.value.capitalize()
+        name = definition.name.value if definition.name else None
+        for selection in definition.selection_set.selections:
+            if not isinstance(selection, graphql.FieldNode):
+                line, _ = position(selection.loc.start)
+                unread.append(Unread(file, line, "graphql", "client_fragment_root"))
+                continue
+            field = selection.name.value
+            local = any(d.name.value == "client" for d in selection.directives or ())
+            if field.startswith("__") or local:
+                continue
+            line, column = position(selection.name.loc.start)
+            found.append(
+                GraphqlOperation(file, line, column, caller_id, operation, field, name)
+            )
+    return found, unread
+
+
+def _operation_fields_text(
+    source, file, line_offset=0, column_offset=0, caller_id=None
+):
+    """``operation_fields`` read without a parser: its fallback. Kept as
+    it is."""
     stripped = re.sub(r'"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*', _blank, source)
     tokens = list(_TOKEN.finditer(stripped))
     found, unread = [], []

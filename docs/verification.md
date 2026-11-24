@@ -121,6 +121,9 @@ python tools/ground_truth.py score WORKSPACE TRUTH --language python
 # Calls bound from SCIP indexes, and where they differ from the parser's:
 python tools/ground_truth.py score WORKSPACE TRUTH --language python \
     --scip INDEX --disagreements OUT.tsv
+# Impact too, over the same (parser or SCIP-bound) calls:
+python tools/ground_truth.py score WORKSPACE TRUTH --language python \
+    --scip INDEX --impact IMPACT_TRUTH
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
 ```
 
@@ -215,6 +218,10 @@ vitest.config.mjs aliases them for its tests. The `.ts` and `.tsx` test files
 are dropped from the truth, since the corpus analyzes JavaScript only.
 scip-typescript names the constructor of a class declared in a function
 without defining it; `derive` binds such a construction to the class.
+An object-literal or class method written as `close(ws) { ... }` that
+implements an interface member carries that member as a reference, which
+looks like a call; `derive` leaves out a name followed by a parameter list
+and an opening brace that ends the line (hono 49 such rows, ky 5, preact 5).
 
 `check` refuses to score (exit status 2) when a grammar or the YAML reader a
 selected corpus needs is not installed. Without them the engine reports files
@@ -698,6 +705,30 @@ Neither app was used to build the reader (#190). It reads nothing wrongly, but:
   that import none of `mongodb`, `mongoose` or `mongoskin`, so the import gate
   leaves almost all of its 80 collections unread.
 
+### Go SQL tables
+
+Manifest `tables` entries with `"language": "go-sql"` score the SQL that Go
+code runs, per line, against the engine's `data-contracts.go-sql*` edges, the
+same way as Knex below. The gate runs `go mod download` in each module first
+(it builds and runs nothing), because the engine types calls against the
+module's dependencies.
+
+`tools/sqlc_table_labels.py WORKSPACE --sqlc PATH` labels code that sqlc
+generates. It runs sqlc's `json` generator on a scratch copy, which reports
+each query as sqlc's engine parser (libpg_query for PostgreSQL) read it and
+resolved it against the schema, and maps each query to the call in the
+generated Go method that runs it. A statement starting with INSERT, UPDATE or
+DELETE WRITES its target; any other READS the tables its columns and
+parameters resolve to. simplebank's 20 queries are labelled this way.
+
+miniflux's storage package is a hand-read sample: 30 of its 124
+`Query`/`QueryRow`/`Exec` calls outside tests, drawn with a fixed seed.
+A call that runs a query its callers pass in is not counted. The labels are
+a sample (`"scope": "labelled"`), so other engine lines are not counted as
+extra. A write labels its target as WRITES and every other table it names as
+READS. The engine was developed against both apps, so they are regression
+gates, not held-out checks.
+
 ### Knex query-builder tables
 
 Knex names a table as a string argument of its query builder.
@@ -1040,7 +1071,26 @@ default import fails and its local name is followed). Overload signatures are
 renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
-38 give 431, all confirmed, and 6 fall outside the project. gson's call truth comes from javac, not an
+38 give 431, all confirmed, and 6 fall outside the project.
+
+`tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
+Python with mypy (`--check-untyped-defs`, no configuration file, so no
+plugin of the repository is loaded and nothing is imported or run). It
+follows imports, `as` aliases and `name as name` re-exports, renames
+`@overload` groups together, and counts a new error that names no name (a
+module `__getattr__` turns the missing attribute into an `object`) when its
+line uses the old name. mypy says nothing about a call through an untyped
+value, so a call row it does not report on a line its precision report
+marks as holding Any is `untyped` and not judged. A method that overrides a
+base method is skipped, because its uses resolve to the base and its rename
+breaks nothing; mypy decides that too, by rejecting `@typing.override` on a
+method that overrides nothing. Each edit gets a new modification time,
+since mypy trusts its cache when a file's size and whole-second time are
+unchanged. On click, 38 sampled declarations give 93 call rows, all
+confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
+36 give 145, all confirmed, and 2 are `untyped`.
+
+gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
