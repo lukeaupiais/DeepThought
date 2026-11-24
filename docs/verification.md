@@ -142,9 +142,10 @@ Baseline (calls):
 
 | Corpus | Language | Expected | Confirmed | Contradicted | Precision | Recall |
 |---|---|---|---|---|---|---|
-| click | python | 3,313 | 927 | 1 | 0.9989 | 0.2756 |
-| ky | typescript | 143 | 225 | 0 | 1.0 | 0.2587 |
-| cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
+| click | python | 3,313 | 2,878 | 0 | 1.0 | 0.8639 |
+| ky | typescript | 143 | 322 | 0 | 1.0 | 0.9371 |
+| cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
+| chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
 | gson | java | 11,139 | 4,332 | 0 | 1.0 | 0.3824 |
@@ -191,6 +192,7 @@ outside the repository. Recall is over import lines with a repository target.
 | click | 331 | 331 | 0 | 1.0 | 1.0 |
 | ky | 98 | 98 | 0 | 1.0 | 1.0 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
+| chi | 31 | 31 | 0 | 1.0 | 1.0 |
 
 Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
 tests are outside its TypeScript project, so the index does not cover them.
@@ -563,12 +565,20 @@ declaration already spans: a function `run` is not merged with a method
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
+| chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
 Recall falls with depth because each missing link cuts off everything behind
 it.
+Outside Python, a call on a callable's name line belongs to it: Go's
+`func (ns nodes) Sort() { sort.Sort(ns); ns.tailSort() }` calls `tailSort`
+from `Sort`. Python keeps that line for the enclosing function, because it
+holds decorators and default values, so a Python one-line body is not judged.
+chi is pinned with `_examples/` excluded, since the Go toolchain and scip-go
+ignore directories that start with `_`. Without the exclusion, the engine's
+callers there would count as extra with nothing to judge them by.
 A decorator call runs where the decorated function is declared, not in its
 body. scip-python's range for a function starts at its first decorator, so
 the lines from there to the `def` line belong to the enclosing function: a

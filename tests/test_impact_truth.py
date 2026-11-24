@@ -171,6 +171,18 @@ class DecoratorTests(unittest.TestCase):
         self.assertEqual(incoming[("lib.py", 3)], {("t.py", 4)})
 
 
+class NameLineTests(unittest.TestCase):
+    def test_a_one_line_body_belongs_to_its_function_outside_python(self):
+        # Go: func (ns nodes) Sort() { ns.tailSort() } on line 1.
+        nodes = {("t.go", 1): ("Sort", 1, 1), ("t.go", 3): ("tailSort", 3, 5)}
+        calls = {("t.go", 1, "tailSort"): {("t.go", 3, "callable")}}
+        self.assertEqual(
+            impact_truth.call_graph(nodes, calls, name_line_inside=True),
+            {("t.go", 3): {("t.go", 1)}},
+        )
+        self.assertEqual(impact_truth.call_graph(nodes, calls), {})
+
+
 class SameNameTests(unittest.TestCase):
     def test_a_function_is_not_folded_onto_a_method_of_the_same_name(self):
         import deepthought
