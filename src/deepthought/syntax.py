@@ -246,6 +246,12 @@ def extract(
                 }
                 if _java_private(node, content):
                     arity["private"] = True
+                if node.type == "method_declaration":
+                    returned = _java_declared_type(
+                        node.child_by_field_name("type"), None, content
+                    )
+                    if returned is not None and returned.split(".")[0] not in variables:
+                        arity["result_type"] = returned
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -2377,6 +2383,33 @@ def _java_argument_type(node, content, cache):
     return None
 
 
+def _java_argument_calls(node):
+    """``CallSite.argument_calls`` of a Java call or ``new``."""
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None or node.type not in {
+        "method_invocation",
+        "object_creation_expression",
+    }:
+        return None
+    spans = []
+    for child in arguments.named_children:
+        if child.type in {"line_comment", "block_comment"}:
+            continue
+        while child.type == "parenthesized_expression" and child.named_children:
+            child = child.named_children[0]
+        spans.append(
+            (
+                child.start_point.row + 1,
+                child.start_point.column,
+                child.end_point.row + 1,
+                child.end_point.column,
+            )
+            if child.type == "method_invocation"
+            else None
+        )
+    return tuple(spans) if any(spans) else None
+
+
 def _java_argument_types(node, content, cache):
     """``CallSite.argument_types`` of a Java call or ``new``."""
     if node.type not in {"method_invocation", "object_creation_expression"}:
@@ -3140,6 +3173,7 @@ def extract_call_sites(
                         argument_types=_java_argument_types(node, content, receivers)
                         if java
                         else None,
+                        argument_calls=_java_argument_calls(node) if java else None,
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python

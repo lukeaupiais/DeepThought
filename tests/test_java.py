@@ -1177,6 +1177,93 @@ class JavaTests(unittest.TestCase):
         }
         self.assertEqual(rules, dict.fromkeys((20, 21), JAVA_PLATFORM_ARGUMENT))
 
+    def test_method_call_arguments_have_their_methods_return_types(self):
+        lines = [
+            "package p;",
+            "class Elem {}",
+            "class Prim extends Elem {}",
+            "class Api {",
+            "  void j(String x) {}",  # 5
+            "  void j(Elem x) {}",  # 6
+            "  void n(int x) {}",  # 7
+            "  void n(Object x) {}",  # 8
+            "}",
+            "class Box<T> {",
+            "  Prim prim() { return null; }",  # 11
+            "  int size() { return 0; }",  # 12
+            "  T item() { return null; }",  # 13
+            "  void none() {}",  # 14
+            "  Prim[] all() { return null; }",  # 15
+            "  static String name() { return null; }",  # 16
+            "  Inner inner() { return null; }",  # 17
+            "  static class Inner extends Elem {}",
+            "}",
+            "class Main {",
+            "  void m(Api a, Box<String> box, Object o) {",
+            "    a.j(box.prim());",  # 22: Prim is an Elem
+            "    a.n(box.size());",  # 23: int
+            "    a.j(box.item());",  # 24: a type parameter
+            "    a.j(Box.name());",  # 25: a static method
+            "    a.j((box.prim()));",  # 26: parentheses
+            "    a.j(o.toString());",  # 27: not linked
+            "    a.n(box.prim());",  # 28: boxing not needed
+            "    a.j(box.inner());",  # 29: a name written in Box
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+        }
+        for line, callee, target in (
+            (22, "a.j", 6),
+            (23, "a.n", 7),
+            (24, "a.j", [5, 6]),
+            (25, "a.j", 5),
+            (26, "a.j", 6),
+            (27, "a.j", [5, 6]),
+            (28, "a.n", 8),
+            (29, "a.j", 6),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], target)
+        results = {
+            d.symbol: d.result_type
+            for d in result.definitions
+            if d.symbol.startswith("Box.")
+        }
+        self.assertEqual(
+            results,
+            {
+                "Box.prim": "Prim",
+                "Box.size": "int",
+                "Box.item": None,
+                "Box.none": None,
+                "Box.all": None,
+                "Box.name": "String",
+                "Box.inner": "Inner",
+                "Box.Inner": None,
+            },
+        )
+        calls = {(s.line, s.callee): s.argument_calls for s in sites.values()}
+        self.assertEqual(calls[(22, "a.j")], ((22, 8, 22, 18),))
+        self.assertEqual(calls[(26, "a.j")], ((26, 9, 26, 19),))
+        self.assertIsNone(calls[(22, "box.prim")])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        site = sites[next(iter(sites))]
+        for bad in ((None,), ((1, 2, 3),), [(1, 2, 3, 4)], ((1, 2, 3, -1),)):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                replace(site, arguments=len(bad), argument_calls=bad)
+        with self.assertRaises(ValueError):
+            replace(site, arguments=2, argument_calls=((1, 0, 1, 2),))
+
     def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
         lines = [
             "package p;",
