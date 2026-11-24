@@ -121,6 +121,9 @@ python tools/ground_truth.py score WORKSPACE TRUTH --language python
 # Calls bound from SCIP indexes, and where they differ from the parser's:
 python tools/ground_truth.py score WORKSPACE TRUTH --language python \
     --scip INDEX --disagreements OUT.tsv
+# Impact too, over the same (parser or SCIP-bound) calls:
+python tools/ground_truth.py score WORKSPACE TRUTH --language python \
+    --scip INDEX --impact IMPACT_TRUTH
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
 ```
 
@@ -215,6 +218,10 @@ vitest.config.mjs aliases them for its tests. The `.ts` and `.tsx` test files
 are dropped from the truth, since the corpus analyzes JavaScript only.
 scip-typescript names the constructor of a class declared in a function
 without defining it; `derive` binds such a construction to the class.
+An object-literal or class method written as `close(ws) { ... }` that
+implements an interface member carries that member as a reference, which
+looks like a call; `derive` leaves out a name followed by a parameter list
+and an opening brace that ends the line (hono 49 such rows, ky 5, preact 5).
 
 `check` refuses to score (exit status 2) when a grammar or the YAML reader a
 selected corpus needs is not installed. Without them the engine reports files
@@ -1010,7 +1017,37 @@ with every method declared in the corpus that implements it; with
 `--dispatch`, such a call is a possible call of each of them, and a
 dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
 for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
-none. gson's call truth comes from javac, not an
+none.
+
+Go call truth comes from scip-go, so a separate oracle checks it with the
+compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
+module, renames a seeded sample of declarations one at a time, and runs
+`go build` and `go test -c` (with `-gcflags=all=-e`, binaries written to a
+scratch directory and never run). Every place that referred to the old
+name fails to compile, and the tool renames each reported use in turn so
+that importing packages compile and report theirs. A conversion that needed
+the method to satisfy an interface is an `implements` row; a package left
+failing for that reason cannot be compiled by its importers, whose files
+are `blocked`. A package whose own build fails never has its test variant
+compiled under `./...`, so its tests are compiled one package at a time.
+`go_compile_truth.py compare compile.tsv calls.tsv` then checks that every
+SCIP call row whose target was sampled is one of the compiler's references.
+On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
+fall in blocked packages, and 2 references are not calls (a middleware
+passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66
+references without a call row uses the function as a value.
+
+`tools/ts_compile_truth.py WORKSPACE CALLS --tsc PATH [--project P]` does the
+same for TypeScript with `tsc --noEmit`, sampling declarations the call truth
+links to. Only errors the rename adds count, so a project with existing type
+errors can still be used. An import of the missing name is the only error in
+the importing file, so the tool renames it there and follows aliases,
+re-exports and default imports (a default export is made a named one, so each
+default import fails and its local name is followed). Overload signatures are
+renamed with their implementation. TypeScript outside the project is
+`blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
+with a project over `src` and its type packages installed without scripts,
+38 give 431, all confirmed, and 6 fall outside the project. gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
