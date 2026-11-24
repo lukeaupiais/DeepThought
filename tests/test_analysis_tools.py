@@ -72,6 +72,7 @@ class RegistryTests(unittest.TestCase):
                 "go",
                 "java",
                 "javascript",
+                "php",
                 "python",
                 "ruby",
                 "rust",

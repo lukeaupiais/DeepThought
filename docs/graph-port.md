@@ -1388,6 +1388,47 @@ No difference is unexplained. devise's syntax errors are its generator
 templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
 until they are rendered.
 
+## PHP
+
+PHP sources (`.php`) are analyzed when `php` is selected (`--language php`)
+and the `php` extra is installed (tree-sitter-php 0.25.2, read with its PHP
+grammar, which allows HTML around `<?php` tags); the language is opt-in.
+Declarations are classes (`Class`), interfaces (`Interface`), traits
+(`Trait`), enums (`Enum`), functions (`Function`) and the methods of all four
+class-like kinds (`Method`, abstract and interface methods included). Symbols
+join the namespace and the enclosing class-like declaration with `.`
+(`App.Http.Controller.handle`): a `namespace A\B;` statement scopes the
+statements after it up to the next one, and a braced `namespace A\B { }`
+scopes its body (`namespace { }` is the global namespace). A declaration in a
+conditional block (`if (!function_exists('f')) { function f() {} }`, common
+in WordPress) is recorded, once for each branch that declares it. One in a
+function or method body, a closure or an anonymous class is not, since PHP
+declares it only when that code runs, and neither are namespaces themselves,
+constants, properties, enum cases, `use` imports, calls or bases yet.
+
+`tools/compare_php_declarations_with_php_parser.py` checks this against
+nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
+Rector are built on: `tools/php_declarations_php_parser.php` applies the same
+scoping rules to its tree, and a declaration matches when both report the
+same file, line and byte column of its name, name, kind and symbol. A
+difference on a line where PHP-Parser reports a syntax error, or after one in
+the same file, is put down to it, and one in or after a part of the file the
+grammar could not parse is put down to the grammar; every other difference is
+unexplained.
+
+| Corpus | Files (with syntax errors) | PHP-Parser | Matched | PHP-Parser only: grammar error |
+|---|---|---|---|---|
+| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,897 | 1,897 | 0 |
+| guzzle/guzzle `ba6574f` | 149 (0) | 3,334 | 3,334 | 0 |
+| composer/composer `edc2b0d` | 653 (0) | 5,951 | 5,951 | 0 |
+| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,688 | 13,687 | 1 |
+| laravel/framework `817f2fc` | 3,205 (1) | 37,497 | 37,497 | 0 |
+
+No difference is unexplained, and no declaration is reported by tree-sitter
+alone. The grammar error is WordPress's `function readonly()`, a fallback for
+PHP before 8.1 where `readonly` is not a keyword: the grammar reads `readonly`
+as one and leaves the function out.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
