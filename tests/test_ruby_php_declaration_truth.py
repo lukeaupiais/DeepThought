@@ -48,6 +48,13 @@ function top() {}
 """
 
 
+def _has_prism():
+    if shutil.which("ruby") is None:
+        return False
+    probe = subprocess.run(["ruby", "-e", 'require "prism"'], capture_output=True)
+    return probe.returncode == 0
+
+
 def oracle(command, name, text):
     root = Path(tempfile.mkdtemp())
     try:
@@ -99,6 +106,52 @@ class DeclarationOracleTests(unittest.TestCase):
                 (19, "byRef", "method", 19),
                 (20, "list", "method", 20),
                 (23, "top", "function", 23),
+            },
+        )
+
+    @unittest.skipUnless(_has_prism(), "ruby with Prism is required")
+    def test_ruby_requires(self):
+        files = {
+            "mygem.gemspec": 'Gem::Specification.new { |s| s.require_paths = ["src"] }\n',
+            "src/mygem.rb": (
+                'require "mygem/a"\n'
+                'require_relative "mygem/b"\n'
+                'autoload :C, "mygem/c"\n'
+                'require "set"\n'
+                'require "no_such_gem_here"\n'
+                'require "mygem/#{x}"\n'
+                'require_relative "missing"\n'
+            ),
+            "src/mygem/a.rb": "",
+            "src/mygem/b.rb": "",
+            "src/mygem/c.rb": "",
+            "lib/mygem/a.rb": "",
+            "vendor/skip.rb": 'require "set"\n',
+        }
+        root = Path(tempfile.mkdtemp())
+        try:
+            for name, text in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            out = subprocess.run(
+                ["ruby", str(ROOT / "tools/ruby_require_truth.rb"), str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        finally:
+            shutil.rmtree(root)
+        rows = {tuple(line.split("\t")) for line in out.splitlines() if line[0] != "#"}
+        # The gemspec's require_paths, not lib/, is the load path; a gem Ruby
+        # cannot find, an interpolated path and a missing relative file are
+        # not listed; vendor/ is skipped.
+        self.assertEqual(
+            rows,
+            {
+                ("src/mygem.rb", "1", "import", "src/mygem/a.rb", "0", "module"),
+                ("src/mygem.rb", "2", "import", "src/mygem/b.rb", "0", "module"),
+                ("src/mygem.rb", "3", "import", "src/mygem/c.rb", "0", "module"),
+                ("src/mygem.rb", "4", "import", "-", "0", "external"),
             },
         )
 

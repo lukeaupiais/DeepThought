@@ -17,6 +17,8 @@ from deepthought.analysis_tools.evidence import get_rule
 from deepthought.data_contracts import (
     default_table_name,
     extract_ddl,
+    mongoose_majors,
+    mongoose_pluralize,
     statement_tables,
 )
 from deepthought.service_contracts.spring import _text_block
@@ -2082,6 +2084,149 @@ class SharedTableTests(GraphCase):
                     ],
                 )
             ],
+        )
+
+
+MONGOOSE = {
+    "package.json": '{"dependencies": {"mongoose": "^8.9.0"}}',
+    "legacy/package.json": '{"dependencies": {"mongoose": "^5.0.0 || ^6.0.0"}}',
+    "models/user.js": """\
+const mongoose = require('mongoose');
+const { Schema } = mongoose;
+const userSchema = new Schema({ email: String });
+userSchema.statics.byEmail = function (email) {
+  return this.findOne({ email });
+};
+module.exports = mongoose.model('User', userSchema);
+""",
+    "models/post.ts": """\
+import { Schema, model } from 'mongoose';
+const base = { timestamps: true };
+const postSchema = new Schema({}, { ...base, collection: 'blog_posts' });
+class PostClass {
+  static recent() { return this.find().limit(5); }
+}
+postSchema.loadClass(PostClass);
+export const Post = model('Post', postSchema);
+""",
+    "models/event.js": """\
+const mongoose = require('mongoose');
+const Event = mongoose.model(
+  'Event', new mongoose.Schema({}, { discriminatorKey: 'kind' }), 'audit_events');
+const Click = Event.discriminator('Click', new mongoose.Schema({}));
+const Odd = mongoose.model('Odd', new mongoose.Schema({}), process.env.TABLE);
+const Shared = mongoose.model('Shared', require('shared-schemas').schema);
+module.exports = { Event, Click, Odd, Shared };
+""",
+    "models/index.js": """\
+module.exports = { User: require('./user'), Post: require('./post').Post };
+""",
+    "legacy/goose.js": """\
+const mongoose = require('mongoose');
+module.exports = mongoose.model('Goose', new mongoose.Schema({}));
+""",
+    "controllers/users.js": """\
+const mongoose = require('mongoose');
+const _ = require('lodash');
+const User = require('../models/user');
+const models = require('../models');
+const { Click } = require('../models/event');
+async function handle(list) {
+  await User.find({}).lean();
+  await models.User.updateOne({}, {});
+  await models.Post.findOneAndUpdate({}, {});
+  await mongoose.model('Event').countDocuments();
+  await mongoose.models.Click.deleteMany({});
+  await Click.create({});
+  _.find(list, 'a');
+  list.find((x) => x);
+  await models.Missing.find();
+}
+""",
+    "test/users.test.js": """\
+const User = require('../models/user');
+User.deleteMany({});
+""",
+}
+
+
+class MongooseTests(unittest.TestCase):
+    def test_default_names_match_mongoose(self):
+        cases = {
+            "User": "users", "UserHistory": "userhistories", "Person": "people",
+            "Woman": "women", "Child": "children", "Ox": "oxen", "Axis": "axes",
+            "Octopus": "octopi", "Status": "status", "Bus": "buses",
+            "Tomato": "tomatoes", "Datum": "data", "Analysis": "analyses",
+            "Leaf": "leafs", "Wolf": "wolves", "Knife": "knives", "Hive": "hives",
+            "Category": "categories", "Box": "boxes", "Index": "indexes",
+            "Mouse": "mice", "Quiz": "quizzes", "Fish": "fish", "News": "news",
+            "Address": "addresses", "Photo": "photos", "Item2": "item2",
+            "system.profile": "system.profile",
+        }  # fmt: skip
+        for name, plural in cases.items():
+            self.assertEqual(mongoose_pluralize(name), plural, name)
+        self.assertEqual(mongoose_pluralize("Goose", 5), "gooses")
+        self.assertEqual(mongoose_pluralize("Goose", 6), "geese")
+        self.assertEqual(mongoose_pluralize("Human", 6), "humen")
+        self.assertEqual(mongoose_pluralize("Human", 7), "humans")
+        self.assertEqual(mongoose_majors(["^8.23.0"]), {7})
+        self.assertEqual(mongoose_majors(["~5.13.2"]), {5})
+        self.assertEqual(mongoose_majors([">=6 <8"]), {6, 7})
+        self.assertEqual(mongoose_majors(["latest"]), {5, 6, 7})
+        self.assertEqual(mongoose_majors([]), {5, 6, 7})
+
+    def test_models_collections_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, MONGOOSE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["javascript", "typescript"]
+                )
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("model"),
+                r.properties.get("line"),
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("MAPS_TO", "audit_events", "mongoose-collection", "Click", 4),
+                ("MAPS_TO", "audit_events", "mongoose-collection", "Event", 2),
+                ("MAPS_TO", "blog_posts", "mongoose-collection", "Post", 8),
+                ("MAPS_TO", "users", "mongoose-default-collection", "User", 7),
+                ("READS", "audit_events", "mongoose-call", "Event", 10),
+                ("READS", "blog_posts", "mongoose-call", "Post", 5),
+                ("READS", "blog_posts", "mongoose-call", "Post", 9),
+                ("READS", "users", "mongoose-call", "User", 5),
+                ("READS", "users", "mongoose-call", "User", 7),
+                ("WRITES", "audit_events", "mongoose-call", "Click", 11),
+                ("WRITES", "audit_events", "mongoose-call", "Click", 12),
+                ("WRITES", "blog_posts", "mongoose-call", "Post", 9),
+                ("WRITES", "users", "mongoose-call", "User", 8),
+            ],
+        )
+        discriminator = next(
+            r
+            for r in output.relationships
+            if r.type == "MAPS_TO" and r.properties.get("model") == "Click"
+        )
+        self.assertEqual(discriminator.properties["discriminator_of"], "Event")
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["mongoose_models"], 4)
+        self.assertEqual(
+            metrics["mongoose_unresolved"],
+            {"collection": 1, "schema": 1, "version": 1},
+        )
+        self.assertEqual(
+            metrics["mongoose_access_resolution"],
+            {"linked": 8, "not_a_model": 1, "unresolved_model": 0},
         )
 
 

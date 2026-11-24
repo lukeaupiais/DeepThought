@@ -255,7 +255,10 @@
       ],
       "truth": "declarations/rack.tsv",
       "oracle": "Ruby 3.3.6 Ripper",
-      "oracle_command": "ruby tools/ruby_declaration_truth.rb ."
+      "oracle_command": "ruby tools/ruby_declaration_truth.rb .",
+      "imports": "imports/rack.tsv",
+      "imports_oracle": "Prism and $LOAD_PATH.resolve_feature_path (Ruby 3.3.6)",
+      "imports_command": "ruby tools/ruby_require_truth.rb ."
     },
     {
       "name": "slim",

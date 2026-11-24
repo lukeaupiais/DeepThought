@@ -73,7 +73,12 @@ javac's own attribution (`tools/JavaCallTruth.java`, JDK only): every method
 invocation and `new` expression javac binds, at the line of the called name,
 targeting the line of the declaration's name. A `new` expression accepts its
 constructor and its class. Calls javac cannot bind (a missing library) are left
-out.
+out, and so is a call of an overloaded method or constructor with an
+argument whose type javac cannot resolve. gson's proto tests use classes built
+from `.proto` files that the corpus does not contain, so for
+`toJson(null, TestAllTypes.class)` javac's error recovery picked
+`toJson(JsonElement, Appendable)`. Leaving those calls out dropped 102 rows,
+nearly all in `proto/`.
 
 An engine link matches a target when it is on the target's line or is the
 innermost declaration whose span holds that line: the engine records a Java
@@ -148,7 +153,7 @@ Baseline (calls):
 | chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,139 | 4,332 | 0 | 1.0 | 0.3824 |
+| gson | java | 11,050 | 7,726 | 0 | 1.0 | 0.6907 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -296,6 +301,18 @@ Anything else is external, and `use const` is not listed.
 
 The gate fails on fewer confirmed or more contradicted imports, or a
 changed truth.
+
+#### Ruby requires
+
+rack also carries require truth from `tools/ruby_require_truth.rb`. Prism
+finds each `require`, `require_relative` and `autoload` whose path is one
+literal string. A `require_relative` resolves against the requiring file's
+directory. A `require` or `autoload` searches the gemspec's `require_paths`
+first (`lib` by default), as `gem` and `bundle exec` do. Otherwise
+`$LOAD_PATH.resolve_feature_path` decides: a standard library or installed
+gem is external, and a feature Ruby cannot find here (`simplecov`, Rails in
+`test.rb`) is not listed. Of 340 rows, 287 name a repository file. The
+engine does not resolve Ruby requires yet, so the baseline is 0 confirmed.
 
 ### Service contracts
 
@@ -566,7 +583,7 @@ declaration already spans: a function `run` is not merged with a method
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
-| gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
+| gson | 164 | 5052 | 2612 | 0 | 0.517 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 

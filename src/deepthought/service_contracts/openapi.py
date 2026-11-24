@@ -14,6 +14,10 @@ poms in the repository give the plugin), or of the Gradle plugin
   or later, ``interfaceOnly`` true, and no ``delegatePattern``: the
   interfaces then carry each operation's method and path and no base path
   (``requestMappingMode`` ``controller``, the default, or ``none``);
+- generator ``spring`` with library ``spring-cloud``, plugin version 7 or
+  later, ``interfaceOnly`` false: ``<Api>Client`` in ``apiPackage`` is a
+  Feign client of the interface's operations (its ``@FeignClient`` URL is a
+  property or service discovery, so its base is not fixed);
 - generator ``java``, plugin version 4 or later, with a library whose API
   classes send each operation from a method named after it (the default
   ``okhttp-gson``, ``native``, ``resttemplate``, ``webclient``,
@@ -22,9 +26,10 @@ poms in the repository give the plugin), or of the Gradle plugin
   reads it;
 - ``inputSpec`` a file in the repository (``${project.basedir}``,
   ``${basedir}`` and the poms' properties are replaced);
-- each operation is in ``<apiNamePrefix><Group><apiNameSuffix>`` in
-  ``apiPackage``, once per group: its tags for a client, and for a server
-  its tags with ``useTags`` and its first path segment without it; its Java
+- each operation is in ``<apiNamePrefix><Group><apiNameSuffix>`` (Spring
+  takes no prefix) in ``apiPackage``, once per group: its tags for a java
+  client, and for Spring its tags with ``useTags`` and its first path
+  segment without it; its Java
   method is the ``operationId`` with a lower-case first letter.
 
 Anything else (another generator or library, an older plugin, a generated
@@ -37,6 +42,7 @@ from pathlib import PurePosixPath
 import re
 import xml.etree.ElementTree as ElementTree
 
+from .http import PLACEHOLDER
 from .openapi_gradle import gradle_executions
 
 HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
@@ -77,6 +83,9 @@ class SpecOperation:
     spec_line: int
     # A client's base URL, from the spec's servers; "" for a server.
     base_url: str = ""
+    # The generated client: "openapi-java" (a java API class) or
+    # "openapi-spring-cloud" (a Feign client); "" for a server.
+    client: str = ""
 
 
 @dataclass(frozen=True)
@@ -366,8 +375,18 @@ def _generate(
     library = _substitute(options.get("library", config.get("library", "")), properties)
     major = _major(_substitute(version or "", properties)) or 0
     mode = options.get("requestMappingMode", "controller")
-    client = generator == "java"
-    if client:
+    cloud = generator == "spring" and library == "spring-cloud"
+    client = generator == "java" or cloud
+    if cloud:
+        # The Feign clients are generated only with the interfaces' default
+        # implementation (SpringCodegen: not interfaceOnly).
+        if major < 7:
+            reason = "generator_version"
+        elif flag("interfaceOnly"):
+            reason = "client_not_generated"
+        else:
+            reason = None
+    elif client:
         if library not in _JAVA_LIBRARIES:
             reason = "client_library"
         elif major < 4:
@@ -406,17 +425,25 @@ def _generate(
         return
     prefix = _substitute(config.get("apiNamePrefix", ""), properties)
     suffix = _substitute(config.get("apiNameSuffix", "Api"), properties)
-    if client:
+    if generator == "java":
         group_names, base, target = _tags, _server_url(document), clients
+        kind = "openapi-java"
     else:
         group_names = _tags if flag("useTags") else _first_segment
-        base, target = "", servers
+        # A Feign client's URL is the ${<api var>.url:<base>} property, or
+        # service discovery without useFeignClientUrl: not fixed either way.
+        base, target = (PLACEHOLDER, clients) if cloud else ("", servers)
+        kind = "openapi-spring-cloud" if cloud else ""
     for group, name, http_method, route, op_line in _spec_operations(
         document, text, spec_file, group_names, unread
     ):
-        # toApiName: camelize(prefix + "_" + tag + "_" + suffix).
-        api = _camelize(f"{prefix}_{_camelize(group)}_{suffix}")
-        interface = f"{package}.{api}"
+        if generator == "java":
+            # toApiName: camelize(prefix + "_" + tag + "_" + suffix).
+            api = _camelize(f"{prefix}_{_camelize(group)}_{suffix}")
+        else:
+            # SpringCodegen.toApiName: camelize(tag) + suffix, no prefix.
+            api = _camelize(group) + suffix
+        interface = f"{package}.{api}" + ("Client" if cloud else "")
         target.setdefault(interface, []).append(
             SpecOperation(
                 interface,
@@ -426,6 +453,7 @@ def _generate(
                 spec_file,
                 op_line,
                 base,
+                kind,
             )
         )
 

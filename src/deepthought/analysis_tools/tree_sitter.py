@@ -314,6 +314,11 @@ _CALL_RULE_TEXT = {
     "Java's lookup order (enclosing and local types, single-type imports, the "
     "package, wildcard imports, then a qualified name) that declares the "
     "method; a variable that obscures the type is not checked.",
+    call_rules.JAVA_TYPED_RECEIVER: "In a Java call 'x.name' or 'this.x.name', "
+    "the declaration of the local variable, parameter or field x in scope "
+    "writes a class type T (or 'var x = new T()'), T denotes a type by Java's "
+    "lookup order, and T declares or inherits the method; argument types are "
+    "not checked.",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
     call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "
