@@ -1601,6 +1601,7 @@ class ModelUse:
     writes: bool
     line: int
     column: int
+    wrapper: bool = False  # TypeORM: through a project's getRepository
 
 
 def extract_prisma_schema(file, content: bytes):
@@ -1716,22 +1717,33 @@ def _call_parts(call, content):
 
 
 def extract_typeorm(tree, content, file, definitions):
-    """(mappings, uses) of one TypeScript or JavaScript file: classes
-    decorated with TypeORM's ``@Entity`` and the entity classes passed to
-    ``getRepository`` or ``@InjectRepository``."""
+    """(mappings, uses, children) of one TypeScript or JavaScript file:
+    classes decorated with TypeORM's ``@Entity``, the entity classes passed
+    to ``getRepository`` or ``@InjectRepository``, and ``@ChildEntity``
+    classes."""
     root = tree.root_node
     imports = _script_imports(root, content)
     typeorm = {
         local: name for local, (module, name) in imports.items() if module in _TYPEORM
     }
-    if not typeorm:
-        return [], []
-    mappings, uses = [], []
+    # A class name a getRepository argument may name: an imported binding
+    # or a class this file declares, never a local variable or parameter.
+    if not typeorm and b"getRepository" not in content:
+        return [], [], []
+    # Without a typeorm import, only a project's own getRepository wrapper
+    # is read, as vendure's ``connection.getRepository(ctx, Product)``.
+    bindings = set(imports) | {
+        _text(c.child_by_field_name("name"), content)
+        for kind in ("class_declaration", "abstract_class_declaration")
+        for c in _descendants(root, kind)
+        if c.child_by_field_name("name") is not None
+    }
+    mappings, uses, children = [], [], []
     stack = [root]
     while stack:
         node = stack.pop()
         stack.extend(reversed(node.named_children))
-        if node.type == "class_declaration":
+        if node.type in ("class_declaration", "abstract_class_declaration"):
             decorators = [c for c in node.named_children if c.type == "decorator"]
             if node.parent is not None and node.parent.type == "export_statement":
                 decorators += [
@@ -1749,6 +1761,23 @@ def extract_typeorm(tree, content, file, definitions):
                         continue
                 else:
                     continue
+                if typeorm.get(callee) == "ChildEntity":
+                    base = _script_base_class(node, content)
+                    model_id = _innermost(
+                        definitions, file, node.child_by_field_name("name")
+                    )
+                    if base is not None and model_id is not None:
+                        children.append(
+                            TypeormChild(
+                                file,
+                                model_id,
+                                _text(node.child_by_field_name("name"), content),
+                                base,
+                                node.start_point.row + 1,
+                                node.start_point.column,
+                            )
+                        )
+                    break
                 if typeorm.get(callee) != "Entity":
                     continue
                 name = None
@@ -1791,20 +1820,94 @@ def extract_typeorm(tree, content, file, definitions):
             injected = callee == "InjectRepository" and typeorm.get(callee) == callee
             if not (injected or callee == "getRepository") or not args:
                 continue
-            if args[0].type != "identifier":
-                continue
+            # TypeORM's own getRepository takes the entity alone, and
+            # @InjectRepository takes it first.
+            if (
+                typeorm
+                and args[0].type == "identifier"
+                and (injected or len(args) == 1)
+            ):
+                entity, wrapper = _text(args[0], content), False
+            else:
+                named = [
+                    _text(a, content)
+                    for a in args
+                    if a.type == "identifier" and _text(a, content) in bindings
+                ]
+                if len(named) != 1 or injected:
+                    continue
+                entity, wrapper = named[0], True
+            method = _chained_method(node, content)
+            reads = method not in _TYPEORM_WRITES
+            writes = method not in _TYPEORM_READS
             uses.append(
                 ModelUse(
                     file,
                     _innermost(definitions, file, node),
-                    _text(args[0], content),
-                    True,
-                    True,
+                    entity,
+                    reads,
+                    writes,
                     node.start_point.row + 1,
                     node.start_point.column,
+                    wrapper,
                 )
             )
-    return mappings, uses
+    return mappings, uses, children
+
+
+@dataclass(frozen=True)
+class TypeormChild:
+    """A class decorated with TypeORM's ``@ChildEntity``: a single-table
+    inheritance child stored in its root entity's table."""
+
+    file: str
+    model_id: str
+    name: str
+    base: str  # the class it extends, by name
+    line: int
+    column: int
+
+
+def _script_base_class(node, content):
+    """The name a class declaration extends, when it is a plain name."""
+    for heritage in node.named_children:
+        if heritage.type != "class_heritage":
+            continue
+        for clause in heritage.named_children:
+            if clause.type != "extends_clause":
+                continue
+            value = clause.child_by_field_name("value")
+            if value is not None and value.type == "identifier":
+                return _text(value, content)
+    return None
+
+
+# TypeORM 0.3 Repository methods that only read or only write. Any other
+# method, or a repository that is not called directly, reads and writes.
+_TYPEORM_READS = frozenset(
+    "find findBy findOne findOneBy findOneOrFail findOneByOrFail findAndCount "
+    "findAndCountBy findByIds count countBy exist exists existsBy sum average "
+    "minimum maximum".split()
+)
+_TYPEORM_WRITES = frozenset(
+    "save insert update upsert delete remove softDelete softRemove restore "
+    "recover increment decrement clear".split()
+)
+
+
+def _chained_method(call, content):
+    """The method called on a call's result, as ``save`` in
+    ``getRepository(X).save(y)`` (through an ``await``), else None."""
+    parent = call.parent
+    if parent is None or parent.type != "member_expression":
+        return None
+    outer = parent.parent
+    if outer is None or outer.type != "call_expression":
+        return None
+    if outer.child_by_field_name("function") != parent:
+        return None
+    name = parent.child_by_field_name("property")
+    return _text(name, content) if name is not None else None
 
 
 def extract_prisma_client(tree, content, file, definitions, accessors):

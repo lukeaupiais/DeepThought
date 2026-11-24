@@ -203,10 +203,11 @@ def java_source_roots(workspace):
     return sorted(roots)
 
 
-def derive_java(workspace, java="java", bases=False, chains=False):
+def derive_java(workspace, java="java", bases=False, chains=False, recovered=False):
     """Expected calls (or, with ``bases``, declared supertypes; with
-    ``chains``, explicit constructor invocations) from javac, attributing one
-    source root at a time."""
+    ``chains``, explicit constructor invocations; with ``recovered``, the
+    calls javac bound by error recovery, to each overload it could have
+    chosen) from javac, attributing one source root at a time."""
     workspace = Path(workspace).resolve()
     roots = java_source_roots(workspace)
     oracle = Path(__file__).with_name("JavaCallTruth.java")
@@ -225,6 +226,7 @@ def derive_java(workspace, java="java", bases=False, chains=False):
                 str(oracle),
                 *(["--bases"] if bases else []),
                 *(["--chains"] if chains else []),
+                *(["--recovered"] if recovered else []),
                 str(workspace),
                 root,
                 *others,
@@ -889,6 +891,7 @@ def check(names, cache, update=False, examples=10):
                 examples=examples,
                 aliases=impact_truth.read_aliases(path),
                 nodes=impact_truth.read_nodes(path),
+                unjudged=impact_truth.read_unjudged(path),
                 fold_nested=bool(
                     {"typescript", "javascript"} & set(corpus["languages"])
                 ),
@@ -1439,6 +1442,11 @@ def main(argv=None):
     j.add_argument(
         "--chains", action="store_true", help="this(...) and super(...) only"
     )
+    j.add_argument(
+        "--recovered",
+        action="store_true",
+        help="calls bound by error recovery, to every overload they could take",
+    )
     s = sub.add_parser("score")
     s.add_argument("workspace", type=Path)
     s.add_argument("truth", type=Path)
@@ -1465,7 +1473,9 @@ def main(argv=None):
         return 0
     if args.command == "derive-java":
         write_truth(
-            *derive_java(args.workspace, args.java, args.bases, args.chains),
+            *derive_java(
+                args.workspace, args.java, args.bases, args.chains, args.recovered
+            ),
             sys.stdout,
         )
         return 0

@@ -427,6 +427,19 @@ angular.json sets to `''`. The connect is `webSocketFactory: () =>
 SockJS(this.buildUrl())`. Before #176 the whole contract analysis of this
 repository failed on a comment inside import braces.
 
+19EB/microservices-base-kafka (9facb7f) is a Node and kafkajs app with three
+services, each of which pings the other two. It is labelled by hand in
+`build_node_messaging.py`, from a repository the kafkajs reader's own
+validation (#168) did not use.
+
+Each service's `broker.ts` wraps `producer.send({topic})` in
+`KafkaPublish(kafka, topic, payload)` and subscribes to its own constant
+topic. The six labelled links run from that shared `send` line, with the
+`KafkaPublish(kafka, '<topic>')` call as the producer invocation, to the
+other service's `subscribe`. Main reads all three subscriptions but none of
+the sends, because the topic is a parameter fixed only at the wrapper's
+callers. So it links 0 of 6, with no false positives.
+
 ### Routes and GraphQL fields
 
 The contract corpora score links between services, so a route the engine
@@ -751,7 +764,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 2913 | 6 | 0.577 | 0.998 |
+| gson | 164 | 5052 | 2913 | 2 | 0.577 | 0.999 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -805,12 +818,17 @@ index). The call truth leaves out `this(...)` and `super(...)`, which name
 no declaration, but a constructor that delegates depends on the one it
 calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
 `derive-java --chains` lists them and they join the impact graph as
-`--extra-calls`. gson's 6 extras are real calls that the truth has no edge
-for. One is a field initializer, `miniGson.getAdapter(...)` at
-`StreamingTypeAdaptersTest.java:46`, which is in no method or constructor
-span, so the class is not a dependent in the truth. The other 5 are the
-methods at `LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, which
-reach `Gson.toJson(Object, Type)`, and through it
-`JsonElement.newJsonStringBuilder`, by calls that the call truth leaves out
-because javac chose them by error recovery (the generated proto classes are
-missing).
+`--extra-calls`. A call javac bound by error recovery (the proto classes
+are missing) is not ruled on: `derive-java --recovered` lists each one against
+every overload of the name it bound, the impact truth is derived a second time
+with those calls added (`--possible-calls`), and a dependent only that wider
+graph reaches is written as an `# unjudged` row for its seed. An engine
+dependent on such a row counts as unjudged, not extra; 238 rows cover gson's
+proto tests, and 4 engine dependents land on them: the test methods at
+`LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, as dependents of
+`Gson.toJson(Object, Type)` and `JsonElement.newJsonStringBuilder()`.
+gson's 2 extras are real calls that the truth has no edge for: field
+initializers, `miniGson.getAdapter(...)` at `StreamingTypeAdaptersTest.java:43`
+and `gson.getAdapter(Object.class)` at `ObjectTypeAdapterTest.java:33`, which
+are in no method or constructor span, so their classes are not dependents in
+the truth.

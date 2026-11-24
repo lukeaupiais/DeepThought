@@ -883,12 +883,6 @@ class ScriptOrmTests(unittest.TestCase):
                     "audit_events",
                     "typeorm-repository",
                 ),
-                (
-                    "WRITES",
-                    "AuditService.logs",
-                    "http_request_log",
-                    "typeorm-repository",
-                ),
                 ("WRITES", "rename", "userprofile", "prisma-client"),
                 ("WRITES", "rename", "users", "prisma-client"),
             ],
@@ -904,10 +898,129 @@ class ScriptOrmTests(unittest.TestCase):
                 "prisma_ambiguous": 0,
                 "typeorm_linked": 2,
                 "typeorm_not_an_entity": 1,
+                "typeorm_wrapper_not_an_entity": 0,
             },
         )
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+    def test_typeorm_wrappers_and_child_entities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, TYPEORM_WRAPPERS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        wrapper = "typeorm-repository-wrapper"
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "Allocation", "stock_movement", "typeorm-child-entity"),
+                ("MAPS_TO", "Order", "order", "typeorm-default-table-name"),
+                ("MAPS_TO", "Sale", "stock_movement", "typeorm-child-entity"),
+                (
+                    "MAPS_TO",
+                    "StockMovement",
+                    "stock_movement",
+                    "typeorm-default-table-name",
+                ),
+                ("READS", "OrderService.count", "order", "typeorm-repository"),
+                ("READS", "OrderService.find", "order", wrapper),
+                ("READS", "OrderService.query", "order", wrapper),
+                ("READS", "OrderService.sales", "stock_movement", wrapper),
+                ("WRITES", "OrderService.query", "order", wrapper),
+                ("WRITES", "OrderService.save", "order", wrapper),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            metrics["typeorm_child_entities"], {"linked": 2, "base_not_an_entity": 0}
+        )
+        self.assertEqual(
+            metrics["orm_access_resolution"],
+            {
+                "prisma_linked": 0,
+                "prisma_ambiguous": 0,
+                "typeorm_linked": 5,
+                "typeorm_not_an_entity": 0,
+                "typeorm_wrapper_not_an_entity": 1,
+            },
+        )
+        for relationship in output.relationships:
+            self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+TYPEORM_WRAPPERS = {
+    "src/entity.ts": """import { ChildEntity, Entity, TableInheritance } from "typeorm";
+
+@Entity()
+export class Order {}
+
+@Entity()
+@TableInheritance({ column: { name: "type" } })
+export abstract class StockMovement {}
+
+@ChildEntity()
+export class Allocation extends StockMovement {}
+
+@ChildEntity()
+export class Sale extends Allocation {}
+""",
+    "src/order.service.ts": """import { In } from "typeorm";
+import { Order, Sale } from "./entity";
+import { Connection } from "./connection";
+
+export class OrderService {
+    constructor(private connection: Connection) {}
+
+    async find(ctx, ids) {
+        return this.connection.getRepository(ctx, Order).find({ where: { id: In(ids) } });
+    }
+
+    async save(ctx, order) {
+        return this.connection.getRepository(ctx, Order).save(order);
+    }
+
+    count() {
+        return this.connection.raw.getRepository(Order).count();
+    }
+
+    query(ctx) {
+        return this.connection.getRepository(ctx, Order).createQueryBuilder("o");
+    }
+
+    sales(ctx) {
+        return this.connection.getRepository(ctx, Sale).findOneBy({});
+    }
+
+    dynamic(ctx, entity) {
+        // A parameter names no entity.
+        return this.connection.getRepository(ctx, entity).find();
+    }
+
+    unknown(ctx) {
+        // An imported class that is not an entity.
+        return this.connection.getRepository(ctx, Connection).find();
+    }
+}
+""",
+    "src/connection.ts": """export class Connection {
+    raw: any;
+    getRepository(ctx, target?) {
+        return this.raw.getRepository(target ?? ctx);
+    }
+}
+""",
+}
 
 
 GO = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(

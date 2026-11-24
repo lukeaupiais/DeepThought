@@ -18,8 +18,10 @@ STOMP (WebSocket messaging): Spring ``@MessageMapping`` methods consume
 ``<application prefix><path>``, ``@SendTo``, ``@SubscribeMapping`` and
 ``SimpMessagingTemplate.convertAndSend`` publish, and JavaScript STOMP clients
 (``Stomp.over``/``Stomp.client``, webstomp, ``@stomp/stompjs`` ``Client``,
-AngularJS ngStomp ``$stomp``)
-``send``/``publish`` and ``subscribe``. The broker is ``stomp``.
+AngularJS ngStomp ``$stomp``: ``send``/``publish`` and ``subscribe``;
+``@stomp/rx-stomp`` ``RxStomp``: ``publish`` and ``watch``;
+``ng2-stomp-service`` ``StompService``: ``send`` and ``subscribe``; see
+``stomp_clients``). The broker is ``stomp``.
 
 GraphQL subscription pubsub: ``publish(topic, ...)`` and
 ``asyncIterator(topic)`` (or ``asyncIterableIterator``, ``subscribe``) on a
@@ -35,6 +37,7 @@ import re
 from ..syntax import identifier
 from .folding import Folder, text
 from .http import PLACEHOLDER
+from .stomp_clients import bound_kinds, value_kind
 from .spring import _Imports, _annotations, _arguments, _Values
 from .web import _go_imports, _js_modules, _js_object, _python_imports
 
@@ -804,8 +807,6 @@ def _unwrap_go(node):
 
 # -- JavaScript / TypeScript -------------------------------------------------
 
-_STOMP_FACTORIES = {"Stomp.over", "Stomp.client", "webstomp.over", "webstomp.client"}
-
 
 def _bound_kinds(root, content, classify):
     """{name: kind} for the names (``x`` or ``this.x``) that every assignment
@@ -1329,26 +1330,36 @@ def extract_nest_microservices(sites, language):
         sites.add(node, "publish", "nestjs", f"{kind}:{route}", "nestjs-microservices")
 
 
+_STOMP_VERBS = {
+    # kind: {verb: (role, destination argument is an options object)}
+    "stompjs": {
+        "publish": ("publish", True),
+        "send": ("publish", False),
+        "subscribe": ("consume", False),
+    },
+    "rx-stomp": {"publish": ("publish", True), "watch": ("consume", None)},
+    "ng2-stomp-service": {"send": ("publish", False), "subscribe": ("consume", False)},
+}
+
+
 def extract_javascript(sites, language):
     content, root = sites.content, sites.root
     modules = _js_modules(root, content)
 
     def classify(value):
-        if value.type == "call_expression":
-            called = text(value.child_by_field_name("function"), content)
-            return "stomp" if called in _STOMP_FACTORIES else None
-        if _constructed(value, content, modules, (("@stomp/stompjs", "Client"),)):
-            return "stomp"
+        stomp = value_kind(value, content, modules)
+        if stomp is not None:
+            return stomp
         if _constructed(value, content, modules, _PUBSUB_CLASSES):
             return "graphql-pubsub"
         if _constructed(value, content, modules, _REDIS_PUBSUB):
             return "redis"
         return None
 
-    names = _bound_kinds(root, content, classify)
+    names = bound_kinds(root, content, modules, classify)
     # AngularJS ngStomp's injected service, read as $http is in web.py.
     if b"$stomp" in content:
-        names["$stomp"] = "stomp"
+        names["$stomp"] = "stompjs"
     if not names:
         return
     folder = Folder(language, root, content)
@@ -1367,18 +1378,17 @@ def extract_javascript(sites, language):
         positional = [c for c in arguments.named_children if c.type != "comment"]
         if not positional:
             continue
-        if kind == "stomp":
-            if verb == "publish":
-                options = _js_object(positional[0], content)
-                if "destination" not in options:
-                    continue
-                destination = folder.evaluate(options["destination"])
-            elif verb in ("send", "subscribe"):
-                destination = folder.evaluate(positional[0])
-            else:
+        if kind in _STOMP_VERBS:
+            if verb not in _STOMP_VERBS[kind]:
                 continue
-            role = "consume" if verb == "subscribe" else "publish"
-            sites.add(node, role, "stomp", destination, "stompjs")
+            role, options = _STOMP_VERBS[kind][verb]
+            target = positional[0]
+            if options or (options is None and target.type == "object"):
+                found = _js_object(target, content)
+                if "destination" not in found:
+                    continue
+                target = found["destination"]
+            sites.add(node, role, "stomp", folder.evaluate(target), kind)
             continue
         if verb == "publish":
             role, topics = "publish", [positional[0]]

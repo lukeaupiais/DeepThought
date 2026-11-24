@@ -8,8 +8,15 @@ the module's top-level names (Python assignments, JavaScript ``const``/
 ``let``/``var``, Go ``var``/``const``/``:=``), and Python ``self.NAME`` for a
 class attribute assigned once in the class body and never through an
 attribute assignment in the class. A name bound more than once in
-that scope, or assigned anywhere else, is unknown text. Everything else is
-unknown text (PLACEHOLDER).
+that scope, or assigned anywhere else, is unknown text. A name no scope
+binds (an import, or a global a bundler defines) takes the value
+``externals`` gives it. JavaScript/TypeScript ``this.NAME`` is the
+initializer of the instance field NAME of the enclosing class, or of a base
+class declared in the same file, when no class of the file assigns
+``this.NAME``, no constructor parameter property is named NAME and no class
+of the file that extends the enclosing class declares NAME again (a
+subclass in another file is not seen). Everything else is unknown text
+(PLACEHOLDER).
 """
 
 import re
@@ -28,6 +35,16 @@ _FUNCTIONS = {
     "go": ("function_declaration", "method_declaration", "func_literal"),
 }
 _FUNCTIONS["typescript"] = _FUNCTIONS["javascript"]
+# Functions that bind their own ``this``.
+_THIS_FUNCTIONS = (
+    "function_declaration",
+    "function_expression",
+    "function",
+    "generator_function_declaration",
+    "generator_function",
+)
+_JS_CLASSES = ("class_declaration", "class", "abstract_class_declaration")
+_JS_FIELDS = ("public_field_definition", "field_definition")
 _MAX_DEPTH = 8
 
 
@@ -60,10 +77,11 @@ def _unescape(value):
 
 
 class Folder:
-    def __init__(self, language, root, content):
+    def __init__(self, language, root, content, externals=None):
         self.language = language
         self.content = content
         self.root = root
+        self.externals = externals or {}
         self._bindings = {}
         self._active = set()
 
@@ -122,6 +140,12 @@ class Folder:
             return []
         if self.language in ("javascript", "typescript"):
             if kind == "variable_declarator":
+                if (
+                    node.parent is not None
+                    and node.parent.parent is not None
+                    and node.parent.parent.type == "ambient_declaration"
+                ):
+                    return []  # ``declare const X`` gives no value
                 name = node.child_by_field_name("name")
                 if name.type == "identifier":
                     return [(text(name, content), node.child_by_field_name("value"))]
@@ -207,6 +231,187 @@ class Folder:
     def _name(self, node, depth):
         found = self.binding(node)
         if found is None:
+            name = text(node, self.content)
+            if name in self.externals and not self._bound(node):
+                return self.externals[name]
+            return PLACEHOLDER
+        return self._fold(found[0].id, found[1], depth)
+
+    def _bound(self, node):
+        """Some scope around ``node`` binds its name."""
+        name = text(node, self.content)
+        scope = self._scope_of(node)
+        while True:
+            if self._collect(scope).get(name):
+                return True
+            if scope is self.root:
+                return False
+            scope = self._scope_of(scope)
+
+    # -- JavaScript/TypeScript instance fields ------------------------------
+
+    def _top_classes(self):
+        """name -> class nodes declared at the top level of the file."""
+        if not hasattr(self, "_classes"):
+            self._classes = {}
+            for node in self.root.named_children:
+                if node.type == "export_statement":
+                    node = node.child_by_field_name("declaration") or node
+                if node.type in _JS_CLASSES:
+                    name = node.child_by_field_name("name")
+                    if name is not None:
+                        self._classes.setdefault(text(name, self.content), []).append(
+                            node
+                        )
+        return self._classes
+
+    def _base_class(self, cls):
+        """The class of this file that ``cls`` extends, or None."""
+        heritage = next(
+            (c for c in cls.named_children if c.type == "class_heritage"), None
+        )
+        if heritage is None:
+            return None
+        clause = next(
+            (c for c in heritage.named_children if c.type == "extends_clause"),
+            heritage,
+        )
+        base = clause.child_by_field_name("value") or next(
+            iter(clause.named_children), None
+        )
+        if base is None or base.type != "identifier":
+            return None
+        found = self._top_classes().get(text(base, self.content), [])
+        return found[0] if len(found) == 1 else None
+
+    def _fields(self, cls, name):
+        """Instance field definitions of ``name`` in a class body, and the
+        constructor parameter property named ``name`` (or None)."""
+        body = cls.child_by_field_name("body")
+        fields, parameter = [], None
+        for member in body.named_children if body is not None else ():
+            if member.type in _JS_FIELDS:
+                key = member.child_by_field_name("name") or member.child_by_field_name(
+                    "property"
+                )
+                static = any(c.type == "static" for c in member.children)
+                if key is not None and text(key, self.content) == name and not static:
+                    fields.append(member)
+            elif (
+                member.type == "method_definition"
+                and text(member.child_by_field_name("name"), self.content)
+                == "constructor"
+            ):
+                parameters = member.child_by_field_name("parameters")
+                for p in parameters.named_children if parameters is not None else ():
+                    pattern = p.child_by_field_name("pattern")
+                    if (
+                        pattern is not None
+                        and text(pattern, self.content) == name
+                        and any(
+                            c.type in ("accessibility_modifier", "readonly")
+                            for c in p.children
+                        )
+                    ):
+                        parameter = p
+        return fields, parameter
+
+    def _this_assigned(self, name):
+        """Some code of the file assigns ``this.NAME``."""
+        if not hasattr(self, "_this_targets"):
+            self._this_targets = set()
+            stack = [self.root]
+            while stack:
+                node = stack.pop()
+                target = None
+                if node.type in (
+                    "assignment_expression",
+                    "augmented_assignment_expression",
+                ):
+                    target = node.child_by_field_name("left")
+                elif node.type == "update_expression":
+                    target = node.child_by_field_name("argument") or next(
+                        iter(node.named_children), None
+                    )
+                if (
+                    target is not None
+                    and target.type == "member_expression"
+                    and target.child_by_field_name("object").type == "this"
+                ):
+                    self._this_targets.add(
+                        text(target.child_by_field_name("property"), self.content)
+                    )
+                stack.extend(node.named_children)
+        return name in self._this_targets
+
+    def _redeclared_below(self, cls, name):
+        """A class of this file extending ``cls`` (at any depth) declares
+        ``name``."""
+        classes = [c for found in self._top_classes().values() for c in found]
+        below, frontier = set(), {cls.id}
+        while frontier:
+            frontier = {
+                c.id
+                for c in classes
+                if c.id not in below
+                and (base := self._base_class(c)) is not None
+                and base.id in frontier
+            }
+            below |= frontier
+        for c in classes:
+            if c.id in below:
+                fields, parameter = self._fields(c, name)
+                if fields or parameter is not None:
+                    return True
+        return False
+
+    def enclosing_class(self, node):
+        """The class whose instance ``this`` is at ``node``, or None."""
+        current = node.parent
+        while current is not None and current.type != "class_body":
+            if current.type in _THIS_FUNCTIONS or current.type == "class_static_block":
+                return None
+            if current.type in ("method_definition", *_JS_FIELDS) and any(
+                c.type == "static" for c in current.children
+            ):
+                return None
+            current = current.parent
+        return None if current is None else current.parent
+
+    def instance_member(self, node):
+        """The field definition or constructor parameter property that
+        declares ``this.NAME`` (``node`` is the member expression), or None:
+        declared once in the enclosing class or its same-file bases, never
+        assigned through ``this.NAME`` and not declared again by a same-file
+        subclass."""
+        name = text(node.child_by_field_name("property"), self.content)
+        cls = self.enclosing_class(node)
+        if cls is None or self._this_assigned(name):
+            return None
+        if self._redeclared_below(cls, name):
+            return None
+        while cls is not None:
+            fields, parameter = self._fields(cls, name)
+            if len(fields) + (parameter is not None) > 1:
+                return None
+            if fields:
+                return fields[0]
+            if parameter is not None:
+                return parameter
+            cls = self._base_class(cls)
+        return None
+
+    def instance_field(self, node):
+        """The field definition of ``this.NAME`` and its initializer, or
+        None (also for a constructor parameter property)."""
+        member = self.instance_member(node)
+        if member is None or member.type not in _JS_FIELDS:
+            return None
+        return member, member.child_by_field_name("value")
+
+    def _this_field(self, node, depth):
+        found = self.instance_field(node)
+        if found is None or found[1] is None:
             return PLACEHOLDER
         return self._fold(found[0].id, found[1], depth)
 
@@ -390,6 +595,12 @@ class Folder:
                     return self.evaluate(
                         node.child_by_field_name("left"), depth
                     ) + self.evaluate(node.child_by_field_name("right"), depth)
+            if (
+                kind == "member_expression"
+                and node.child_by_field_name("object").type == "this"
+                and node.child_by_field_name("property").type == "property_identifier"
+            ):
+                return self._this_field(node, depth)
             return PLACEHOLDER
         if self.language == "go":
             if kind == "interpreted_string_literal":

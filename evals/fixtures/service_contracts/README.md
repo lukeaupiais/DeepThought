@@ -22,6 +22,7 @@ matcher could find.
 | websocket-gs-messaging-stomp.json | spring-guides/gs-messaging-stomp-websocket @ 45228a145a9fc0289aa87ed424870bfcd3c413d5 (complete/) | Apache-2.0 | Java Spring WebSocket + STOMP, JavaScript @stomp/stompjs | HTTP (handshake), STOMP destinations as messaging |
 | websocket-spring-boot-angular2-stomp.json | chriswhite199/spring-boot-angular2-stomp @ 78ade07e770f5c674a0111cb8df14ff315dfdef3 | Apache-2.0 | Java Spring WebSocket + STOMP + SockJS, TypeScript Angular ng2-stomp-service | HTTP (handshake), STOMP destinations as messaging |
 | jhipster-sample-app-websocket.json | jhipster/jhipster-sample-app-websocket @ 410a632c041f8ee50059362681b2a3a53f49361d | Apache-2.0 | Java Spring MVC + WebSocket/STOMP/SockJS, TypeScript Angular HttpClient/httpResource + @stomp/rx-stomp | HTTP (REST and handshake), STOMP destinations as messaging |
+| node-microservices-base-kafka.json | 19EB/microservices-base-kafka @ 9facb7f3c6a588252aa6364fb119beeedafa7b56 | MIT | TypeScript Node, Express, kafkajs | Kafka |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).
@@ -42,7 +43,8 @@ artifact URLs. Clone each repository at its pinned commit into `$CORPORA/<dir>` 
    matches against the checked-out files. Each match must be unique (or the nth match must be
    named), so every client and server line in the JSONs was checked against the pinned commit.
    Run `CORPORA=<clones> python3 build.py <outdir>` to regenerate (the WebSocket
-   corpora: `build_websocket.py`, same arguments).
+   corpora: `build_websocket.py`, the Node messaging ones: `build_node_messaging.py`, same
+   arguments; both share `corpus_builder.py`).
 4. **microSecEnD labels** were used only to cross-check service pairs. Links were derived again
    from source. Every entry in each `*_traceability.json` was resolved against the pinned
    checkout, and the application-level edges were read by hand. Disagreements are listed in
