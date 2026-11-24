@@ -204,6 +204,47 @@ def _is_name(token):
     )
 
 
+# Database system catalogs: their names are the database's, not the
+# application's. Schemas: the SQL standard's information_schema, PostgreSQL's
+# pg_catalog, SQL Server's and MySQL's sys, MySQL's performance_schema.
+# PostgreSQL names its catalogs pg_* and SQLite reserves sqlite_* (both
+# documented reserved prefixes); Oracle's data dictionary views are listed.
+CATALOG_SCHEMAS = frozenset(
+    {"information_schema", "pg_catalog", "sys", "performance_schema"}
+)
+ORACLE_DICTIONARY = frozenset(
+    f"{scope}_{view}"
+    for scope in ("all", "user", "dba")
+    for view in (
+        "users",
+        "tables",
+        "tab_columns",
+        "tab_comments",
+        "col_comments",
+        "constraints",
+        "cons_columns",
+        "indexes",
+        "ind_columns",
+        "views",
+        "sequences",
+        "objects",
+        "synonyms",
+        "triggers",
+    )
+)
+
+
+def is_catalog(parts):
+    """Whether a (lower case, possibly schema-qualified) name is a database
+    system catalog."""
+    if len(parts) > 1 and parts[-2] in CATALOG_SCHEMAS:
+        return True
+    name = parts[-1]
+    return name.startswith(("pg_", "sqlite_")) or (
+        len(parts) == 1 and name in ORACLE_DICTIONARY
+    )
+
+
 def statement_tables(text, jpql=False):
     """The tables a SQL statement (or entities a JPQL one) names after FROM,
     JOIN, USING, INTO, UPDATE and TRUNCATE.
@@ -213,8 +254,10 @@ def statement_tables(text, jpql=False):
     table expression names, subqueries' own parentheses, function calls in
     FROM (a name followed by ``(``) and FROM inside function arguments
     (``EXTRACT(YEAR FROM d)``) are skipped. A name holding text the code
-    does not fix (PLACEHOLDER) is dropped. In SQL ``schema.table`` gives
-    ``table``; in JPQL a dotted name is a path (``o.pets``), not an entity.
+    does not fix (PLACEHOLDER) is dropped, and so is a system catalog
+    (``information_schema.tables``, ``pg_class``, ``sqlite_master``; see
+    is_catalog). In SQL ``schema.table`` gives ``table``; in JPQL a dotted
+    name is a path (``o.pets``), not an entity.
     """
     text = _COMMENT_OR_STRING.sub(_blank, text)
     tokens = _TOKEN.findall(text)
@@ -256,6 +299,8 @@ def statement_tables(text, jpql=False):
             return None, k
         if jpql:
             return (parts[0] if len(parts) == 1 else None), k
+        if is_catalog([table_key(p) for p in parts]):
+            return None, k
         return table_key(parts[-1]), k
 
     def take(k, into, columns=False):
@@ -2161,6 +2206,61 @@ def extract_go_sql(tree, content, file, definitions):
                 )
             )
     return names, uses
+
+
+GORM_MODULES = ("gorm.io/gorm", "github.com/jinzhu/gorm")
+
+
+def _sql_package(path):
+    return any(path == g or path.startswith(g + "/") for g in GO_SQL_PACKAGES)
+
+
+def _owner_at(definitions, file, line, column):
+    """The innermost declaration of ``file`` holding (line, column)."""
+    best = None
+    for d in definitions:
+        if d.file == file and (d.line, d.column) <= (line, column) <= (
+            d.end_line,
+            d.end_column,
+        ):
+            size = (d.end_line - d.line, d.end_column - d.column)
+            if best is None or size < best[0]:
+                best = (size, d.id)
+    return best[1] if best else None
+
+
+def go_sql_from_facts(calls, definitions):
+    """SQL uses of Go calls the type checker resolved (``go_facts``): a
+    method of GO_SQL_METHODS declared in a Go SQL package, or returning one
+    of its types (an interface such as sqlc's DBTX), passed SQL text that
+    go/types computes (constants, locals assigned once, ``+`` joins)."""
+    uses = []
+    for call in calls:
+        if call.method not in GO_SQL_METHODS or not (
+            _sql_package(call.declared) or any(map(_sql_package, call.results))
+        ):
+            continue
+        text = next((t for t in call.texts[:3] if t is not None), None)
+        if text is None:
+            continue
+        words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+        if not words or words[0].lower() not in SQL_VERBS:
+            continue
+        statement = statement_tables(text)
+        if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+            statement = None
+        uses.append(
+            SqlUse(
+                call.file,
+                _owner_at(definitions, call.file, call.line, call.column),
+                "go-sql-types",
+                False,
+                statement,
+                call.line,
+                call.column,
+            )
+        )
+    return uses
 
 
 # Ruby on Rails: ActiveRecord models and db/schema.rb -------------------------
