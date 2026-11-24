@@ -71,7 +71,9 @@ class Definition:
     # through pointers and type arguments. Java methods: the return type as
     # written without type arguments (``Foo``, ``Map.Entry``, ``int``). None
     # elsewhere, or when that type is of another kind (``void``, an array, a
-    # type parameter).
+    # type parameter). Python functions and methods: the class the return
+    # annotation names, as a parameter annotation's (``T``, ``m.T``,
+    # ``Optional[T]``).
     result_type: str | None = None
     # Go struct types: (name, type) for each named field whose type is
     # written as for ``result_type``. Java types: the same for each static
@@ -368,7 +370,8 @@ class CallSite:
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
     # Java calls ``e.m()`` whose receiver ``e`` is itself a method call or a
     # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
-    # line, end column) of ``e``. None elsewhere.
+    # line, end column) of ``e``. Python calls ``x.m()`` on a local whose one
+    # binding is ``x = f(...)``: the span of that call. None elsewhere.
     receiver_call: tuple[int, int, int, int] | None = None
     # Java calls ``X.f.m()`` (three or more names): True when no variable or
     # field named ``X`` can be in scope, so ``X`` names a type or package.

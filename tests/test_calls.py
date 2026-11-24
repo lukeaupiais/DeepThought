@@ -24,6 +24,7 @@ from deepthought.calls import (
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     PYTHON_CALL_SELF_INHERITED,
+    PYTHON_CALL_RESULT_RECEIVER,
     PYTHON_CALL_SUPER,
     resolve_calls,
 )
@@ -599,6 +600,65 @@ class PythonCallTests(unittest.TestCase):
         self.assertEqual(
             found[("shadow.py", 4, "work")],
             ("ambiguous", None, None, "multiple_bindings"),
+        )
+
+    def test_calls_on_locals_bound_to_a_call_whose_return_annotation_names_a_class(
+        self,
+    ):
+        files = {
+            "lib.py": (
+                "import typing as t\n"
+                "class Base:\n"
+                "    def up(self): pass\n"
+                "class Ctx(Base):\n"
+                "    def run(self): pass\n"
+                "    def child(self) -> 'Ctx': return Ctx()\n"
+                "    def maybe(self) -> t.Optional['Ctx']: return None\n"
+                "def make() -> Ctx: return Ctx()\n"
+                "def plain(): return Ctx()\n"
+                "def text() -> str: return ''\n"
+            ),
+            "main.py": (
+                "from lib import Ctx, make, plain, text\n"
+                "def f(c: Ctx):\n"
+                "    a = make()\n"
+                "    a.run(); a.up()\n"  # 4: declared, inherited
+                "    b = c.child()\n"
+                "    b.run()\n"  # 6: a method's return annotation
+                "    d = b.maybe()\n"
+                "    d.run()\n"  # 8: through a receiver that is one too
+                "    e = plain()\n"
+                "    e.run()\n"  # 10: no annotation
+                "    s = text()\n"
+                "    s.upper()\n"  # 12: not a repository class
+                "    g = make()\n"
+                "    g = plain()\n"
+                "    g.run()\n"  # 15: two assignments
+                "    h: Ctx | None = None\n"
+                "    h = Ctx()\n"
+                "    h.run()\n"  # 18: None, then the class
+                "    a.missing()\n"  # 19
+            ),
+        }
+        found = links(analyze(files, "python"))
+        run = ("linked", "lib.py::Ctx.run", PYTHON_CALL_RESULT_RECEIVER, None)
+        self.assertEqual(found[("main.py", 4, "a.run")], run)
+        self.assertEqual(
+            found[("main.py", 4, "a.up")],
+            ("linked", "lib.py::Base.up", PYTHON_CALL_RESULT_RECEIVER, None),
+        )
+        self.assertEqual(found[("main.py", 6, "b.run")], run)
+        self.assertEqual(found[("main.py", 8, "d.run")], run)
+        for line, callee in ((10, "e.run"), (12, "s.upper"), (15, "g.run")):
+            with self.subTest(line=line):
+                self.assertEqual(found[("main.py", line, callee)][0], "unresolved")
+        self.assertEqual(
+            found[("main.py", 18, "h.run")],
+            ("linked", "lib.py::Ctx.run", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        self.assertEqual(
+            found[("main.py", 19, "a.missing")],
+            ("unresolved", None, None, "not_declared_on_type"),
         )
 
     def test_calls_on_parameters_and_locals_whose_binding_names_a_class(self):

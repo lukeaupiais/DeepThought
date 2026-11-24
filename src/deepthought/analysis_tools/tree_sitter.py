@@ -403,6 +403,13 @@ _CALL_RULE_TEXT = {
     "enum constant F, whose declaration writes a class type U (an enum "
     "constant: its enum); U declares or inherits the method, chosen among "
     "overloads as other Java calls are.",
+    call_rules.PYTHON_CALL_RESULT_RECEIVER: "In a Python call 'x.name' where "
+    "the one binding of the local x in its function is 'x = f(...)' (x is no "
+    "parameter and the function imports nothing), the call f(...) links to a "
+    "function or method whose return annotation names one repository class "
+    "(T, m.T, Optional[T], T | None), looked up where that function is "
+    "defined; that class declares or inherits the method through its "
+    "declared bases.",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
     call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "

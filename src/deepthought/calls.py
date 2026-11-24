@@ -34,6 +34,7 @@ CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 PYTHON_CALL_SUPER = "tree-sitter.python-call-super"
+PYTHON_CALL_RESULT_RECEIVER = "tree-sitter.python-call-result-receiver"
 PYTHON_CALL_SELF_INHERITED = "tree-sitter.python-call-self-inherited"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -2230,6 +2231,50 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(
                 CallResolution(site.id, "unresolved", reason="attribute_call")
             )
+    # Python `x = f(...); x.m()`: once `f(...)` links, the class its return
+    # annotation names. A receiver call may itself be such a call, so this
+    # repeats while links are added.
+    python_spans = {
+        (s.file, s.line, s.column, s.end_line, s.end_column): s
+        for s in result.call_sites
+        if languages.get(s.file) == "python"
+    }
+    position = {r.call_id: i for i, r in enumerate(resolutions)}
+    changed = True
+    while changed:
+        changed = False
+        for site in sorted(result.call_sites, key=lambda value: value.id):
+            if (
+                site.receiver_call is None
+                or languages.get(site.file) != "python"
+                or resolutions[position[site.id]].status != "unresolved"
+            ):
+                continue
+            receiver = python_spans.get((site.file, *site.receiver_call))
+            linked = (
+                resolutions[position[receiver.id]] if receiver is not None else None
+            )
+            target = (
+                by_id.get(linked.target_id)
+                if linked is not None and linked.status == "linked"
+                else None
+            )
+            if (
+                target is None
+                or target.kind not in _METHOD
+                or target.result_type is None
+            ):
+                continue
+            classes = python_class(
+                target.file, target.symbol.split(".")[:-1], target.result_type
+            )
+            if len(classes) != 1:
+                continue
+            methods, reason = python_method(classes[0], site.callee.split(".")[-1])
+            resolution = _pick(site.id, methods, PYTHON_CALL_RESULT_RECEIVER, reason)
+            if resolution != resolutions[position[site.id]]:
+                resolutions[position[site.id]] = resolution
+                changed = resolution.status == "linked" or changed
     return tuple(_constructors(resolutions, result, by_id, by_symbol, languages))
 
 
