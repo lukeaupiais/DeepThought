@@ -934,6 +934,53 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             name, files = bound[0]
             rule_used = CALL_PYTHON_REEXPORT
 
+    def go_named(file, typed):
+        """The files that may declare the Go type ``typed`` written in
+        ``file``, and its name there."""
+        *package, type_name = typed.split(".")
+        if package:
+            bound = modules.get((file, package[0]), [])
+            return (bound[0] if bound else ()), type_name
+        return peers.get(file, (file,)), type_name
+
+    def go_methods(file, typed, name):
+        files, type_name = go_named(file, typed)
+        return [
+            d
+            for f in files
+            for d in by_symbol.get((f, f"{type_name}.{name}"), ())
+            if d.kind == "Method"
+        ]
+
+    def go_follow(file, typed, steps):
+        """(file, type) after following ``steps`` from the Go type ``typed``
+        written in ``file``: a field of one struct, the first result of one
+        method, an element of a slice. The type is written in the file
+        returned. None when a step names nothing declared, or more than
+        one thing."""
+        for step in steps:
+            if step == "[]":
+                if not typed.startswith("[]"):
+                    return None
+                typed = typed[2:]
+                continue
+            if step.endswith("()"):
+                found = go_methods(file, typed, step[:-2])
+                if len(found) != 1 or found[0].result_type is None:
+                    return None
+                file, typed = found[0].file, found[0].result_type
+                continue
+            files, type_name = go_named(file, typed)
+            # Only a struct has fields, and a name declared twice gives none.
+            structs = [d for f in files for d in by_symbol.get((f, type_name), ())]
+            field = (
+                dict(structs[0].fields or ()).get(step) if len(structs) == 1 else None
+            )
+            if field is None:
+                return None
+            file, typed = structs[0].file, field
+        return file, typed
+
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
         caller = by_id.get(site.caller_id)
@@ -993,22 +1040,21 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             continue
         head, name = ".".join(parts[:-1]), parts[-1]
         if site.receiver_type is not None:
-            # Go: `x.M()` on a variable whose declaration writes its type.
-            *package, type_name = site.receiver_type.split(".")
-            if package:
-                bound = modules.get((site.file, package[0]), [])
-                files = bound[0] if bound else ()
-            else:
-                files = peers.get(site.file, (site.file,))
+            # Go: `x.M()` on a variable whose declaration gives its type.
+            followed = go_follow(
+                site.file, site.receiver_type, site.receiver_steps or ()
+            )
+            if followed is None or followed[1].startswith("[]"):
+                resolutions.append(
+                    CallResolution(
+                        site.id, "unresolved", reason="receiver_type_unknown"
+                    )
+                )
+                continue
             resolutions.append(
                 _pick(
                     site.id,
-                    [
-                        d
-                        for f in files
-                        for d in by_symbol.get((f, f"{type_name}.{name}"), ())
-                        if d.kind == "Method"
-                    ],
+                    go_methods(*followed, name),
                     GO_CALL_TYPED_RECEIVER,
                     "not_declared_on_type",
                 )
