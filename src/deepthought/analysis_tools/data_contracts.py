@@ -206,10 +206,11 @@ DRIZZLE_QUERY_RULE = register_rule(
         "A query-builder call names the variable of a Drizzle table: from "
         "and the joins read, insert, update and delete write; "
         "db.query.<name>.findMany/findFirst reads. The variable is found "
-        "through the file's declarations and relative imports, re-exports "
-        "and export * included; a package import or a query key resolves "
-        "to the one table variable of that name in the caller's namespace, "
-        "else in the repository. The receiver is not checked to be a "
+        "through the file's declarations and its imports (relative, "
+        "tsconfig paths aliases and workspace packages), re-exports and "
+        "export * included; an import it cannot follow to its end or a "
+        "query key resolves to the one table variable of that name in the "
+        "caller's namespace, else in the repository. The receiver is not checked to be a "
         "Drizzle database.",
     )
 )
@@ -1491,6 +1492,41 @@ class DataContractTool(AnalysisTool):
             if found is not None:
                 digests[path] = sha256(content).hexdigest()
                 ts_paths[path.rpartition("/")[0]] = found
+        # Workspace packages, for imports of a sibling package by name.
+        workspace_packages, ts_outputs = [], {}
+        for path in _sql_files(root, include, exclude, ".json"):
+            name = path.rpartition("/")[2]
+            if name != "package.json" and not re.fullmatch(
+                r"tsconfig(?:\.[\w-]+)*\.json", name
+            ):
+                continue
+            content = (root / path).read_bytes()
+            if name == "package.json":
+                found = read_package_entries(path, content)
+                if found is not None:
+                    workspace_packages.append(found)
+                    digests[path] = sha256(content).hexdigest()
+                continue
+            found = read_tsconfig_out(path, content)
+            if found is not None:
+                digests[path] = sha256(content).hexdigest()
+                ts_outputs.setdefault(path.rpartition("/")[0], []).append(found)
+        import_cache = {}
+
+        def resolve_import(file, module):
+            """The repository file a script import names: a relative path, a
+            tsconfig ``paths`` alias or a workspace package."""
+            key = (file, module)
+            if key not in import_cache:
+                import_cache[key] = (
+                    resolve_script_module(file, module, script_files)
+                    or resolve_script_alias(file, module, script_files, ts_paths)
+                    or resolve_workspace_module(
+                        file, module, script_files, workspace_packages, ts_outputs
+                    )
+                )
+            return import_cache[key]
+
         for file, content, tree in script_trees:
             models, inits, created, uses = extract_sequelize(
                 tree, content, file, result.definitions
@@ -1513,10 +1549,7 @@ class DataContractTool(AnalysisTool):
             sequelize_inits,
             merge_sequelize_defines(defines),
             scope,
-            lambda file, module: (
-                resolve_script_module(file, module, script_files)
-                or resolve_script_alias(file, module, script_files, ts_paths)
-            ),
+            resolve_import,
         )
         sequelize_targets = {}
         for index, (name, how, names) in sorted(sequelize_tables.items()):
@@ -1571,35 +1604,10 @@ class DataContractTool(AnalysisTool):
             found = extract_mongoose(tree, content, file, result.definitions)
             if found is not None:
                 mongoose_files[file] = found
-        # Workspace packages, for imports of a sibling package by name.
-        workspace_packages, ts_outputs = [], {}
-        for path in _sql_files(root, include, exclude, ".json"):
-            name = path.rpartition("/")[2]
-            if name != "package.json" and not re.fullmatch(
-                r"tsconfig(?:\.[\w-]+)*\.json", name
-            ):
-                continue
-            content = (root / path).read_bytes()
-            if name == "package.json":
-                found = read_package_entries(path, content)
-                if found is not None:
-                    workspace_packages.append(found)
-                    digests[path] = sha256(content).hexdigest()
-                continue
-            found = read_tsconfig_out(path, content)
-            if found is not None:
-                digests[path] = sha256(content).hexdigest()
-                ts_outputs.setdefault(path.rpartition("/")[0], []).append(found)
         mongoose_tables, mongoose_unresolved, mongoose_model = resolve_mongoose(
             mongoose_files,
             mongoose_majors(mongoose_specs),
-            lambda file, module: (
-                resolve_script_module(file, module, script_files)
-                or resolve_script_alias(file, module, script_files, ts_paths)
-                or resolve_workspace_module(
-                    file, module, script_files, workspace_packages, ts_outputs
-                )
-            ),
+            resolve_import,
             scope,
         )
         mongoose_targets = {}
@@ -1878,7 +1886,6 @@ class DataContractTool(AnalysisTool):
                 ).append(item)
             drizzle_uses.extend(found[1])
             script_modules[file] = found[2]
-        source_files = {c.file for c in result.coverage}
         by_variable = {}
         drizzle_counts = {"tables": 0, "not_fixed": 0}
         for file in sorted(drizzle_tables):
@@ -1907,8 +1914,12 @@ class DataContractTool(AnalysisTool):
 
         def exported_table(file, name, seen=()):
             """The tables a module exports under a name, following
-            re-exports and ``export *``."""
-            if file is None or (file, name) in seen:
+            re-exports and ``export *``; "?" when the chain reaches a module
+            the reader cannot see (a package, or a file it could not
+            parse)."""
+            if file is None:
+                return {"?"}
+            if (file, name) in seen:
                 return set()
             seen = (*seen, (file, name))
             items = drizzle_tables.get(file, {}).get(name)
@@ -1920,29 +1931,28 @@ class DataContractTool(AnalysisTool):
                 )
             module = script_modules.get(file)
             if module is None:
-                return set()
+                return {"?"}
             if name in module.re_exports:
                 source, original = module.re_exports[name]
-                return exported_table(
-                    resolve_script_module(file, source, source_files), original, seen
-                )
+                return exported_table(resolve_import(file, source), original, seen)
             found = set()
             for source in module.star_exports:
-                found |= exported_table(
-                    resolve_script_module(file, source, source_files), name, seen
-                )
-            return found
+                found |= exported_table(resolve_import(file, source), name, seen)
+            return found - {"?"} if found - {"?"} else found
 
         drizzle_access = {"linked": 0, "not_a_table": 0}
         for use in drizzle_uses:
             ref = use.ref
             if ref.how == "local":
                 targets = exported_table(use.file, ref.name)
-            elif ref.how == "import" and ref.module.startswith("."):
-                targets = exported_table(
-                    resolve_script_module(use.file, ref.module, source_files), ref.name
-                )
+            elif ref.how == "import":
+                targets = exported_table(resolve_import(use.file, ref.module), ref.name)
             else:
+                targets = {"?"}
+            if targets == {"?"}:
+                # A package, or a module chain the reader cannot see through
+                # (a file it could not parse): the one table variable of
+                # that name.
                 targets = _nearest(by_variable.get(ref.name, set()), scope(use.file))
             if len(targets) != 1 or None in targets:
                 drizzle_access["not_a_table"] += 1

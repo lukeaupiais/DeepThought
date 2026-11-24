@@ -3731,9 +3731,11 @@ def resolve_script_alias(file, source, files, configs):
 
 
 def read_package_entries(path, content):
-    """(name, directory, entry paths, {dependency: spec}) of a package.json:
-    the entry points its ``exports["."]`` (every condition), ``types``,
-    ``typings``, ``main`` and ``module`` give; None without a name."""
+    """(name, directory, entry paths, {dependency: spec}, subpaths) of a
+    package.json: the entry points its ``exports["."]`` (every condition),
+    ``types``, ``typings``, ``main`` and ``module`` give, and the targets of
+    each other ``exports`` key ({"src/*": ["./src/*.ts"]}), or None when it
+    has no exports map; None without a name."""
     import json
 
     try:
@@ -3742,9 +3744,21 @@ def read_package_entries(path, content):
         return None
     if not isinstance(manifest, dict) or not isinstance(manifest.get("name"), str):
         return None
-    entries = []
+    entries, subpaths = [], {}
     exported = manifest.get("exports")
     if isinstance(exported, dict) and any(k.startswith(".") for k in exported):
+        for key, value in exported.items():
+            if key.startswith("./"):
+                found, stack = [], [value]
+                while stack:
+                    item = stack.pop()
+                    if isinstance(item, str):
+                        found.append(item)
+                    elif isinstance(item, dict):
+                        stack.extend(item.values())
+                    elif isinstance(item, list):
+                        stack.extend(item)
+                subpaths[key[2:]] = found
         exported = exported.get(".")
     stack = [exported]
     while stack:
@@ -3763,7 +3777,11 @@ def read_package_entries(path, content):
         for name, spec in (manifest.get(section) or {}).items():
             if isinstance(spec, str):
                 dependencies[name] = spec
-    return manifest["name"], path.rpartition("/")[0], entries, dependencies
+    if not isinstance(manifest.get("exports"), dict) or not any(
+        k.startswith(".") for k in manifest["exports"]
+    ):
+        subpaths = None  # no exports map: every file of the package is open
+    return manifest["name"], path.rpartition("/")[0], entries, dependencies, subpaths
 
 
 def read_tsconfig_out(path, content):
@@ -3794,7 +3812,10 @@ def resolve_workspace_module(file, source, files, packages, outputs):
     file is that file; one under a tsconfig's ``outDir`` in the package's
     directory is the source the compiler writes it from, under ``rootDir``
     (``dist/index.js`` from ``src/index.ts``). The entries must agree on one
-    source. ``packages`` is [(name, directory, entries, dependencies)];
+    source. A subpath (``@scope/name/src/schema``) goes through the
+    package's ``exports`` map when it has one, else to that path in the
+    package. ``packages`` is [(name, directory, entries, dependencies,
+    subpaths)];
     ``outputs`` is {tsconfig directory: [(outDir, rootDir)]}."""
     if source.startswith(".") or source.startswith("/"):
         return None
@@ -3813,7 +3834,28 @@ def resolve_workspace_module(file, source, files, packages, outputs):
     members = [p for p in packages if p[0] == name]
     if len(members) != 1:
         return None
-    _, directory, entries, _ = members[0]
+    _, directory, entries, _, subpaths = members[0]
+    if rest and subpaths is not None:
+        # Node's exports map: an exact subpath, else the longest pattern.
+        if rest in subpaths:
+            entries = subpaths[rest]
+        else:
+            best = None
+            for key, targets in subpaths.items():
+                prefix, star, suffix = key.partition("*")
+                if (
+                    star
+                    and rest.startswith(prefix)
+                    and rest.endswith(suffix)
+                    and len(rest) >= len(prefix) + len(suffix)
+                    and (best is None or len(prefix) > len(best[0]))
+                ):
+                    middle = rest[len(prefix) : len(rest) - len(suffix)]
+                    best = (prefix, [t.replace("*", middle) for t in targets])
+            if best is None:
+                return None
+            entries = best[1]
+        rest = ""
     found = set()
     for entry in [rest] if rest else entries:
         path = _join(directory, entry)
