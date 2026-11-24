@@ -21,6 +21,11 @@ from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
+from ..service_contracts.graphql import (
+    GraphqlDeclaration,
+    extract_nest_resolvers,
+    schema_fields,
+)
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.messaging import (
     MessageEndpoint,
@@ -269,6 +274,17 @@ GRPC_SERVER_RULES = {
         ),
     )
 }
+GRAPHQL_RESOLVER_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.nestjs-graphql-resolver",
+        "pattern_matched",
+        "A method of a class decorated @Resolver carries @Query, @Mutation or "
+        "@Subscription imported from @nestjs/graphql; the root field is the "
+        "decorator's literal name, the name of its options, or the method's "
+        "name, in the GraphQL server of the file's Node package.",
+    )
+)
+
 GRPC_CALL_RULE = register_rule(
     EvidenceRule(
         grpc_contracts.STUB_CALL,
@@ -519,6 +535,7 @@ class ServiceContractTool(AnalysisTool):
         root = self.repo_path.resolve()
         routes, requests, unread = [], [], []
         endpoints, messaging_unread, stream_sites = [], [], []
+        graphql_resolvers = []
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -630,12 +647,39 @@ class ServiceContractTool(AnalysisTool):
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])
+            if coverage.language == "typescript" and b"@nestjs/graphql" in content:
+                found = extract_nest_resolvers(
+                    tree,
+                    content,
+                    repo_url,
+                    coverage.file,
+                    result.definitions,
+                    coverage.language,
+                )
+                graphql_resolvers.extend(found[0])
+                unread.extend(found[1])
             if coverage.language == "java" and b"cloud.stream" in content:
                 found = extract_stream(
                     tree, content, coverage.file, result.definitions, constants
                 )
                 stream_sites.extend(found[0])
                 messaging_unread.extend(found[1])
+        graphql_declared = []
+        for path in sorted(
+            p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)
+        ):
+            relative = path.relative_to(root)
+            if any(
+                part.startswith(".") or part in ("node_modules", "vendor")
+                for part in relative.parts
+            ):
+                continue
+            found = schema_fields(
+                path.read_text(encoding="utf-8", errors="replace"),
+                relative.as_posix(),
+            )
+            graphql_declared.extend(found[0])
+            unread.extend(found[1])
         found = _stream_endpoints(root, config, stream_sites, repo_url)
         endpoints.extend(found[0])
         messaging_unread.extend(found[1])
@@ -811,6 +855,73 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        graphql_fields = {}
+        for item in graphql_declared + graphql_resolvers:
+            scope = _node_package(root, item.file) or "."
+            graphql_fields.setdefault((scope, item.operation, item.field), [[], []])
+            index = 0 if isinstance(item, GraphqlDeclaration) else 1
+            graphql_fields[(scope, item.operation, item.field)][index].append(item)
+        declaring_scopes = {
+            scope
+            for scope, _, _ in graphql_fields
+            if any(graphql_fields[k][0] for k in graphql_fields if k[0] == scope)
+        }
+        graphql_unread = {}
+        for (scope, operation, field), (declared, resolving) in sorted(
+            graphql_fields.items()
+        ):
+            full = f"{operation}.{field}"
+            name = f"{repo_url}::graphql::{scope}::{full}"
+            first = (declared or resolving)[0]
+            if not resolving:
+                graphql_unread["declared_not_resolved"] = (
+                    graphql_unread.get("declared_not_resolved", 0) + 1
+                )
+            elif not declared and scope in declaring_scopes:
+                graphql_unread["resolved_not_declared"] = (
+                    graphql_unread.get("resolved_not_declared", 0) + 1
+                )
+            nodes.append(
+                NodeData(
+                    ["GraphqlField", "Contract"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "protocol": "graphql",
+                        "name": full,
+                        "display_name": full,
+                        "operation": operation,
+                        "field": field,
+                        "scope": scope,
+                        "file_path": first.file,
+                        "line": first.line,
+                        **(
+                            {"declared_in": [f"{d.file}:{d.line}" for d in declared]}
+                            if declared
+                            else {}
+                        ),
+                    },
+                )
+            )
+            for resolver in resolving:
+                if resolver.handler_id is None:
+                    labels, source = file_node(resolver.file)
+                else:
+                    labels, source = symbol_node(resolver.handler_id)
+                relationships.append(
+                    RelationshipData(
+                        "HANDLES",
+                        labels,
+                        {"qualified_name": source, "repo_url": repo_url},
+                        ["GraphqlField", "Contract"],
+                        {"qualified_name": name, "repo_url": repo_url},
+                        {
+                            "line": resolver.line,
+                            "column": resolver.column,
+                            **_evidence(GRAPHQL_RESOLVER_RULE),
+                        },
+                    )
+                )
         grpc_names = {}
         for (service, method), declared in sorted(grpc.index.methods.items()):
             full = f"{service}/{method}"
@@ -953,6 +1064,8 @@ class ServiceContractTool(AnalysisTool):
                     # No controller in the repository overrides it.
                     key = "openapi:operation_not_handled"
                     unread_counts[key] = unread_counts.get(key, 0) + 1
+        for reason, count in graphql_unread.items():
+            unread_counts[f"graphql:{reason}"] = count
         for item in openapi_unread:
             key = f"openapi:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
@@ -999,6 +1112,7 @@ class ServiceContractTool(AnalysisTool):
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 "test_source_files_skipped": test_files,
+                "graphql_fields": len(graphql_fields),
                 "grpc_methods": len(grpc.index.methods),
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),

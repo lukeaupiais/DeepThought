@@ -33,8 +33,9 @@ Subcommands:
                                            and compare with the baseline; the
                                            manifest's ``contracts`` corpora
                                            (labelled cross-service links) and
-                                           ``declarations`` corpora (C and C++
-                                           declarations from clang) too
+                                           ``declarations`` corpora (C, C++,
+                                           Ruby and PHP declarations from
+                                           each language's own parser) too
 
 Scores (calls):
   confirmed     linked, and the target is one the oracle names
