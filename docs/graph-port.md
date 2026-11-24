@@ -154,6 +154,7 @@ arbitrary object gets no edge.
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` where `x` is declared in the function around the call and the innermost visible declaration writes a named type: a parameter, receiver or named result (`c *Command`), `var x T`, a typed `const`, or `x := T{...}`, `&T{...}`, `new(T)` or `make(T)`. It links to the method `M` declared on `T`, in the caller's package or, for `pkg.T`, in the package the file imports as `pkg`. Methods promoted from embedded fields are not followed, and a function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
+| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
@@ -169,7 +170,10 @@ and reason. The `calls` capability is not advertised, so an empty callers or
 callees result still says the relation was unsupported or unobserved.
 
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
-at the callee name.
+at the callee name, matched as a whole identifier after the call's column. On
+Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
+8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
+`tree-sitter.python-call-typed-receiver` links 85, all confirmed.
 
 ## Declaration nesting
 
