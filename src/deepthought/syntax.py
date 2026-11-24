@@ -311,6 +311,14 @@ def extract(
                     arity = {"result_type": _go_result_type(node, content)}
                 elif kind == "Struct":
                     arity = {"fields": _go_fields(node, content)}
+                elif kind == "Type":
+                    underlying = _go_type(
+                        node.child_by_field_name("type"),
+                        content,
+                        _go_type_parameters(node, content),
+                    )
+                    if underlying is not None and underlying.startswith("[]"):
+                        arity = {"underlying_type": underlying}
             definition = Definition(
                 id=identifier(repository_id, file, symbol, kind, ordinal),
                 file=file,
@@ -3813,16 +3821,27 @@ def _go_expression_type(node, outer, content, cache, depth=0):
         arguments = node.child_by_field_name("arguments")
         if function is None or arguments is None:
             return None
-        if _text(function, content) in {"new", "make"} and arguments.named_children:
+        if (
+            _text(function, content) in {"new", "make"}
+            and arguments.named_children
+            and _go_visible(_text(function, content), function, outer, content, cache)
+            is None
+        ):
             typed = _go_type(arguments.named_children[0], content)
             return None if typed is None else (typed, ())
         if function.type == "identifier":
             # `F()`: a function of the package, unless a declaration in
             # the function (a func literal, a parameter) is named F.
             name = _text(function, content)
-            if name in {"new", "make"} or (
-                _go_visible(name, function, outer, content, cache) is not None
-            ):
+            visible = _go_visible(name, function, outer, content, cache)
+            if visible is not None:
+                # `f := func() *T {...}; f()`: the literal's first result.
+                kind, value = visible
+                if kind is None and getattr(value, "type", None) == "func_literal":
+                    typed = _go_result_type(value, content)
+                    return None if typed is None else (typed, ())
+                return None
+            if name in {"new", "make"}:
                 return None
             return f"{name}()", ()
         operand = function.child_by_field_name("operand")

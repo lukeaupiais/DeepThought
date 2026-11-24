@@ -160,7 +160,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous, and an imported name exported again this way is not followed |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
-| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call or, when nothing in the function declares it, by exactly one top-level `var` of the package (a name declared twice, also in two files for different platforms, or a `var` with neither type nor value, gives no type). A variable of another file is named by `CallSite.receiver_variable`, and each Go file's `PackageClause.variables` lists its package-level variables with the type their declaration writes or a value `T{...}`, `&T{...}`, `new(T)`, `F()` or `pkg.F()` gives. `pkg.V.M()` follows the variable `V` of the package the file imports as `pkg`. The receiver may also be a call or index chain, `a.F().M()`, `a.f[i].M()` or `F().M()`: the call is then named after the chain (`CallSite.callee` `a.F().M`, `a.f[].M`) and each call or index is one receiver step. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call or, when nothing in the function declares it, by exactly one top-level `var` of the package (a name declared twice, also in two files for different platforms, or a `var` with neither type nor value, gives no type). A variable of another file is named by `CallSite.receiver_variable`, and each Go file's `PackageClause.variables` lists its package-level variables with the type their declaration writes or a value `T{...}`, `&T{...}`, `new(T)`, `F()` or `pkg.F()` gives. `pkg.V.M()` follows the variable `V` of the package the file imports as `pkg`. The receiver may also be a call or index chain, `a.F().M()`, `a.f[i].M()` or `F().M()`: the call is then named after the chain (`CallSite.callee` `a.F().M`, `a.f[].M`) and each call or index is one receiver step. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array, or of a named slice type: `Definition.underlying_type` holds `[]T` for `type S []T`), `T(e)` (a conversion to the one non-alias type `T` of the package), `f()` where `f := func() T {...}` (the literal's first result). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
@@ -170,6 +170,7 @@ arbitrary object gets no edge.
 | `tree-sitter.js-call-member-chain` | JavaScript/TypeScript: `x.a.b.m()` where `x` is typed as for `js-call-typed-receiver`, or is `this` in an instance method or field of a class declaration (through arrow functions); and `y.m()` where `y` is declared from such a chain (`const y = x.a`) or destructured from it (`const { a } = x`, `const { a: y } = this`). `CallSite.receiver_type` holds the class (or `"this"`, the innermost class around the call) and `CallSite.receiver_steps` the property names. Each step reads `Definition.fields`: an instance field annotated with a class or initialized with `new` of one, a constructor parameter property annotated with one, or a getter whose return type is one, declared on the class or inherited through `extends`. The written name is the class's own scopes' declaration, or else what the file's import of it names, and must be one class that no interface or namespace merges with. It links to the instance method `m` of the last class, as `js-call-typed-receiver` does. A step that is untyped, a method, external, an interface, an enum or a type parameter of the file leaves the call unresolved (`receiver_type_unknown`). Private names, computed or quoted keys, annotated patterns, static fields, `super`, a plain alias `const y = x` and the `this` of a function, a static method or a class expression are not followed |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
+| `tree-sitter.go-call-conversion` | Go: `T(x)` whose bare name is no function of the package but one type declared at top level by a file of the package (a named type, struct, interface or alias): a conversion, linked to that type. `pkg.T(x)` is not linked yet |
 
 In JavaScript and TypeScript, a `new C(...)` that one of these rules links to
 the class `C` links instead to the `constructor` that `C` declares, which is
@@ -2148,8 +2149,8 @@ it picks the frontend (see "Services named by their deployments").
 
 ### C# HttpClient requests
 
-C# files are read for `HttpClient` requests (`service_contracts.csharp_http`,
-client `dotnet-httpclient`):
+C# files are read for `HttpClient` and Refit requests
+(`service_contracts.csharp_http`, client `dotnet-httpclient`):
 
 - **Clients.** A call on a value of type `HttpClient`: a parameter (primary
   constructor parameters included), field, property or local declared with
@@ -2175,13 +2176,23 @@ client `dotnet-httpclient`):
   relative URL is resolved against it as a URI (`https+http://` service
   discovery addresses count as `http://`). A class registered with a base
   that is not literal, or with different bases, has none, and its relative
-  URLs are paths under an unknown base.
+  URLs are paths under an unknown base. A `BaseAddress` set in a
+  `.ConfigureHttpClient(...)` chained on the registration counts too.
+- **Refit** (client `refit`). Each method of an interface carrying
+  `[Get("/path")]`, `[Post(...)]`, `[Put]`, `[Delete]`, `[Patch]`, `[Head]`
+  or `[Options]` from the `Refit` namespace (`using Refit;`, a
+  `global using` of the project, or `Refit.Get`) is a request, placed on
+  the attribute and sent from the method. `AddRefitClient<I>()` with a
+  `BaseAddress` (as for typed clients) or `RestService.For<I>("url")` gives
+  interface `I` a base. Refit appends the path to the base, base path
+  included; with no literal base the path is read as written. A path that
+  is not a string literal is unknown text.
 
 Requests are resolved like any other (`http-service-path`, `http-path`,
 `http-gateway`). Wrappers that take the URL as a parameter of a public
 method (eShopOnWeb's `HttpService`), `IHttpClientFactory.CreateClient`
-results assigned to `var`, Refit interfaces and API version query
-parameters are not read.
+results assigned to `var`, and API version query parameters are not
+read.
 
 dotnet/eShop `669682e`: the WebApp's `CatalogService` and
 `OrderingService` (bases `https+http://catalog-api` and
@@ -2419,7 +2430,7 @@ link to their mutations, and `subscribeWebPush` is
 
 Browser and load-test code usually calls a gateway, not the service:
 robot-shop's pages call `/api/cart/...`, which nginx forwards to the cart
-service as `/...`. The tool reads two kinds of gateway route
+service as `/...`. The tool reads three kinds of gateway route
 (`deepthought.service_contracts.gateways`):
 
 - **Spring Cloud Gateway.** `spring.cloud.gateway.routes` (or
@@ -2434,6 +2445,18 @@ service as `/...`. The tool reads two kinds of gateway route
   prefix starts the route's `Path=` prefix. A route with another rewrite
   (`RewritePath`, `SetPath`), a path pattern with wildcards before `/**`, or a
   `StripPrefix` longer than the prefix is counted as unread.
+- **YARP.** The `ReverseProxy` section of `appsettings.json` (JSON with
+  comments and trailing commas) in a .NET project with analyzed C# sources.
+  A route's `Match.Path` must be literal segments followed by a catch-all
+  (`/catalog-service/{**catch-all}`). Its path transforms apply in order:
+  `PathRemovePrefix` (which must remove a prefix of the path so far),
+  `PathPrefix`, and a `PathPattern` of literal segments followed by the same
+  catch-all. Every destination of the route's cluster must have a literal
+  `Address` with the same path, which YARP prepends; their host is the
+  target when they share one. `PathSet`, other route values and other
+  patterns leave the route unread. Environment overlays
+  (`appsettings.Development.json`, ...) are not read, as with Spring
+  profiles.
 - **nginx.** `location /prefix/ { proxy_pass http://host[:port][/uri]; }` in
   `*.conf` and `*.conf.template` files outside hidden, `node_modules` and
   `vendor` folders. A `proxy_pass` with a URI replaces the prefix with it, as

@@ -2518,6 +2518,36 @@
       ]
     },
     {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-14-03-36-21-backfill-welcome-email-sender-fields-to-email-design-settings.ts",
+      "line": 10,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-14-03-36-21-backfill-welcome-email-sender-fields-to-email-design-settings.ts",
+      "line": 26,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-14-03-36-21-backfill-welcome-email-sender-fields-to-email-design-settings.ts",
+      "line": 56,
+      "tables": [
+        [
+          "email_design_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
       "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
       "line": 6,
       "tables": [
@@ -2688,6 +2718,16 @@
       ]
     },
     {
+      "file": "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-00-00-store-custom-field-values-as-leaf-rows.ts",
+      "line": 21,
+      "tables": [
+        [
+          "members_custom_field_values",
+          "WRITES"
+        ]
+      ]
+    },
+    {
       "file": "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-54-14-reset-automation-email-analytics.ts",
       "line": 8,
       "tables": [
@@ -2703,6 +2743,36 @@
       "tables": [
         [
           "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-10-15-24-09-reset-custom-field-definitions-for-underscored-keys.ts",
+      "line": 39,
+      "tables": [
+        [
+          "members_custom_fields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-10-15-24-09-reset-custom-field-definitions-for-underscored-keys.ts",
+      "line": 57,
+      "tables": [
+        [
+          "members_custom_field_values",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-10-15-24-09-reset-custom-field-definitions-for-underscored-keys.ts",
+      "line": 59,
+      "tables": [
+        [
+          "members_custom_fields",
           "WRITES"
         ]
       ]
@@ -2848,6 +2918,16 @@
       ]
     },
     {
+      "file": "ghost/core/server/data/migrations/versions/6.61/2026-08-19-14-30-20-add-written-by-to-members-custom-field-values.ts",
+      "line": 24,
+      "tables": [
+        [
+          "members_custom_field_values",
+          "WRITES"
+        ]
+      ]
+    },
+    {
       "file": "ghost/core/server/data/migrations/versions/6.67/2026-09-29-16-22-08-add-description-to-automations.ts",
       "line": 18,
       "tables": [
@@ -2914,6 +2994,16 @@
         [
           "automations",
           "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.73/2026-10-20-19-25-05-rebuild-metafield-values-keyed-by-field.ts",
+      "line": 117,
+      "tables": [
+        [
+          "members_metafield_values",
+          "READS"
         ]
       ]
     },
@@ -3048,6 +3138,26 @@
       ]
     },
     {
+      "file": "ghost/core/server/data/migrations/versions/6.76/2026-11-06-11-42-06-delete-duplicate-products-benefits.ts",
+      "line": 12,
+      "tables": [
+        [
+          "products_benefits",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.76/2026-11-06-11-42-06-delete-duplicate-products-benefits.ts",
+      "line": 18,
+      "tables": [
+        [
+          "products_benefits",
+          "READS"
+        ]
+      ]
+    },
+    {
       "file": "ghost/core/server/data/migrations/versions/6.77/2026-11-05-10-00-00-discard-stripe-checkout-collection-settings.ts",
       "line": 17,
       "tables": [
@@ -3094,6 +3204,16 @@
         [
           "user_accounts",
           "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",
+      "line": 63,
+      "tables": [
+        [
+          "user_accounts",
+          "READS"
         ]
       ]
     },
@@ -4439,6 +4559,66 @@
     },
     {
       "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 135,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 156,
+      "tables": [
+        [
+          "app_installations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 171,
+      "tables": [
+        [
+          "app_installations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 224,
+      "tables": [
+        [
+          "app_installations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 232,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 282,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
       "line": 293,
       "tables": [
         [
@@ -4454,6 +4634,56 @@
         [
           "users",
           "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 332,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 379,
+      "tables": [
+        [
+          "app_installations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 392,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 418,
+      "tables": [
+        [
+          "app_installations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 440,
+      "tables": [
+        [
+          "app_installations",
+          "WRITES"
         ]
       ]
     },
@@ -6149,6 +6379,16 @@
     },
     {
       "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 220,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
       "line": 278,
       "tables": [
         [
@@ -6218,12 +6458,412 @@
       ]
     },
     {
+      "file": "ghost/core/server/services/jobs-service/jobs-outbox.ts",
+      "line": 95,
+      "tables": [
+        [
+          "jobs_outbox",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/jobs-service/jobs-outbox.ts",
+      "line": 139,
+      "tables": [
+        [
+          "jobs_outbox",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/jobs-service/jobs-outbox.ts",
+      "line": 147,
+      "tables": [
+        [
+          "jobs_outbox",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/jobs-service/jobs-outbox.ts",
+      "line": 159,
+      "tables": [
+        [
+          "jobs_outbox",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/jobs-service/jobs-outbox.ts",
+      "line": 167,
+      "tables": [
+        [
+          "jobs_outbox",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/jobs-service/jobs-outbox.ts",
+      "line": 187,
+      "tables": [
+        [
+          "jobs_outbox",
+          "READS"
+        ]
+      ]
+    },
+    {
       "file": "ghost/core/server/services/members-events/last-seen-at-updater.js",
       "line": 122,
       "tables": [
         [
           "members",
           "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 89,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 94,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 98,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 102,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 131,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 151,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 159,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/bindings-service.ts",
+      "line": 242,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 358,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 393,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 434,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 455,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 473,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 487,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 516,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 554,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 631,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 653,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 661,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 680,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 705,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 740,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/definitions-service.ts",
+      "line": 750,
+      "tables": [
+        [
+          "members_metafields",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/queries.ts",
+      "line": 58,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/queries.ts",
+      "line": 139,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/queries.ts",
+      "line": 173,
+      "tables": [
+        [
+          "members_metafields",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 333,
+      "tables": [
+        [
+          "members_metafield_values",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 677,
+      "tables": [
+        [
+          "members_metafield_values",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 704,
+      "tables": [
+        [
+          "members_metafield_values",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 721,
+      "tables": [
+        [
+          "members_metafield_values",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 732,
+      "tables": [
+        [
+          "members_metafield_change_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 781,
+      "tables": [
+        [
+          "members_metafield_values",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 786,
+      "tables": [
+        [
+          "members_metafield_values",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-metafields/values-service.ts",
+      "line": 816,
+      "tables": [
+        [
+          "members_metafield_change_events",
+          "READS"
         ]
       ]
     },
@@ -7399,11 +8039,91 @@
     },
     {
       "file": "ghost/core/server/services/stripe-checkout-config/service.ts",
+      "line": 422,
+      "tables": [
+        [
+          "stripe_checkout_config",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stripe-checkout-config/service.ts",
+      "line": 437,
+      "tables": [
+        [
+          "stripe_checkout_config",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stripe-checkout-config/service.ts",
       "line": 550,
       "tables": [
         [
           "products",
           "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stripe-checkout-config/service.ts",
+      "line": 578,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tiers/requirements.ts",
+      "line": 175,
+      "tables": [
+        [
+          "tier_requirements",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tiers/requirements.ts",
+      "line": 186,
+      "tables": [
+        [
+          "tier_requirement_tiers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tiers/requirements.ts",
+      "line": 188,
+      "tables": [
+        [
+          "tier_requirement_tiers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tiers/requirements.ts",
+      "line": 201,
+      "tables": [
+        [
+          "tier_requirement_tiers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tiers/requirements.ts",
+      "line": 202,
+      "tables": [
+        [
+          "tier_requirements",
+          "WRITES"
         ]
       ]
     },
@@ -7464,6 +8184,16 @@
         [
           "posts_tags",
           "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/web/shared/middleware/api/spam-prevention.ts",
+      "line": 77,
+      "tables": [
+        [
+          "rate_limits",
+          "READS"
         ]
       ]
     },
@@ -8158,12 +8888,104 @@
       30
     ],
     [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-19-32-45-rename-welcome-email-automations-table-to-automations.ts",
+      9
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-19-32-45-rename-welcome-email-automations-table-to-automations.ts",
+      10
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-19-32-45-rename-welcome-email-automations-table-to-automations.ts",
+      23
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-19-32-45-rename-welcome-email-automations-table-to-automations.ts",
+      26
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-19-32-45-rename-welcome-email-automations-table-to-automations.ts",
+      27
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-19-32-45-rename-welcome-email-automations-table-to-automations.ts",
+      40
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-00-00-store-custom-field-values-as-leaf-rows.ts",
+      47
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-00-00-store-custom-field-values-as-leaf-rows.ts",
+      65
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-00-00-store-custom-field-values-as-leaf-rows.ts",
+      73
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-00-00-store-custom-field-values-as-leaf-rows.ts",
+      97
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-00-00-store-custom-field-values-as-leaf-rows.ts",
+      106
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.58/2026-08-10-15-24-09-reset-custom-field-definitions-for-underscored-keys.ts",
+      55
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-00-00-swap-custom-field-values-to-key-fk.ts",
+      76
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.61/2026-08-19-14-30-20-add-written-by-to-members-custom-field-values.ts",
+      22
+    ],
+    [
       "ghost/core/server/data/migrations/versions/6.63/2026-09-03-10-07-03-rename-custom-field-tables-to-metafields.ts",
       136
     ],
     [
+      "ghost/core/server/data/migrations/versions/6.70/2026-10-08-14-03-25-make-metafield-bindings-site-wide.ts",
+      65
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.70/2026-10-08-14-03-25-make-metafield-bindings-site-wide.ts",
+      72
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.70/2026-10-08-14-03-25-make-metafield-bindings-site-wide.ts",
+      79
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.70/2026-10-08-14-03-25-make-metafield-bindings-site-wide.ts",
+      84
+    ],
+    [
       "ghost/core/server/data/migrations/versions/6.70/2026-10-12-08-20-15-update-plan-nickname-length.ts",
       20
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.73/2026-10-20-19-25-05-rebuild-metafield-values-keyed-by-field.ts",
+      99
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.73/2026-10-20-19-25-05-rebuild-metafield-values-keyed-by-field.ts",
+      102
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.73/2026-10-20-19-25-05-rebuild-metafield-values-keyed-by-field.ts",
+      116
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.73/2026-10-20-21-48-55-store-metafield-namespaces.ts",
+      195
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.73/2026-10-20-21-48-55-store-metafield-namespaces.ts",
+      198
     ],
     [
       "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",

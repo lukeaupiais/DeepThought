@@ -557,8 +557,18 @@
       "license": "MIT",
       "language": "knex",
       "labels": "tables/ghost-knex.json",
-      "oracle": "tree-sitter parse of every Knex call on a literal table (tools/knex_labels.py), every label read by hand",
+      "oracle": "tree-sitter parse of every Knex call on a literal or constant table (tools/knex_labels.py), every label read by hand",
       "oracle_command": "python tools/knex_labels.py . ghost-knex.json --repo https://github.com/TryGhost/Ghost"
+    },
+    {
+      "name": "tables-backstage-knex",
+      "url": "https://github.com/backstage/backstage",
+      "commit": "b3ed9690207fe606362f5785b7cbe91ccc8a8542",
+      "license": "Apache-2.0",
+      "language": "knex",
+      "labels": "tables/backstage-knex.json",
+      "oracle": "tree-sitter parse of every Knex call on a literal or constant table (tools/knex_labels.py), every label read by hand",
+      "oracle_command": "python tools/knex_labels.py . backstage-knex.json --repo https://github.com/backstage/backstage"
     }
   ]
 }

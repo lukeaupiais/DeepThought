@@ -13,6 +13,7 @@ from deepthought.service_contracts.gateways import (
     forward,
     nginx_routes,
     spring_gateway_routes,
+    yarp_routes,
 )
 from deepthought.service_contracts.http import PLACEHOLDER
 from deepthought.service_contracts.model import HttpRequest, HttpRoute
@@ -133,6 +134,64 @@ server {
 }
 """
 
+YARP = """{
+  // .NET configuration allows comments.
+  "Logging": { "LogLevel": { "Default": "Information" } },
+  "ReverseProxy": {
+    "Routes": {
+      "catalog-route": {
+        "ClusterId": "catalog",
+        "Match": { "Path": "/catalog-service/{**catch-all}" },
+        "Transforms": [ { "PathPattern": "{**catch-all}" } ]
+      },
+      "orders-route": {
+        "ClusterId": "orders",
+        "Match": { "Path": "/api/orders/{**rest}", "Methods": [ "GET" ] },
+        "Transforms": [ { "PathRemovePrefix": "/api" }, { "PathPrefix": "/v1" } ]
+      },
+      "kept-route": {
+        "ClusterId": "spread",
+        "Match": { "Path": "/kept/{*rest}" }
+      },
+      "set-route": {
+        "ClusterId": "catalog",
+        "Match": { "Path": "/set/{**rest}" },
+        "Transforms": [ { "PathSet": "/fixed" } ]
+      },
+      "value-route": {
+        "ClusterId": "catalog",
+        "Match": { "Path": "/items/{id}/{**rest}" }
+      },
+      "other-pattern": {
+        "ClusterId": "catalog",
+        "Match": { "Path": "/other/{**rest}" },
+        "Transforms": [ { "PathPattern": "/x/{**else}" } ]
+      },
+      "split-route": {
+        "ClusterId": "split",
+        "Match": { "Path": "/split/{**rest}" }
+      },
+    },
+    "Clusters": {
+      "catalog": { "Destinations": { "d1": { "Address": "http://catalog.api:8080" } } },
+      "orders": { "Destinations": { "d1": { "Address": "http://orders/base/" } } },
+      "spread": {
+        "Destinations": {
+          "a": { "Address": "http://a:80/" },
+          "b": { "Address": "http://b:80/" }
+        }
+      },
+      "split": {
+        "Destinations": {
+          "a": { "Address": "http://a/one" },
+          "b": { "Address": "http://a/two" }
+        }
+      }
+    }
+  }
+}
+"""
+
 
 class GatewayReaderTests(unittest.TestCase):
     @unittest.skipUnless(YAML, "pyyaml is not installed")
@@ -166,6 +225,37 @@ class GatewayReaderTests(unittest.TestCase):
                 "path_pattern",
             ],
         )
+
+    def test_yarp(self):
+        routes, unread = yarp_routes(YARP, "gw/appsettings.json")
+        self.assertEqual(
+            [(r.prefix, r.replacement, r.target, r.kind) for r in routes],
+            [
+                (("catalog-service",), (), "catalog.api", "yarp"),
+                # PathRemovePrefix then PathPrefix; the destination's path
+                # comes first.
+                (("api", "orders"), ("base", "v1", "orders"), "orders", "yarp"),
+                # No transform passes the path on; destinations on different
+                # hosts name no target.
+                (("kept",), ("kept",), None, "yarp"),
+            ],
+        )
+        self.assertEqual(
+            routes[0].line, YARP[: YARP.find('"catalog-route"')].count("\n") + 1
+        )
+        self.assertEqual(
+            [u.reason for u in unread],
+            [
+                "path_rewritten",
+                "path_pattern",
+                "path_rewritten",
+                "destination_not_literal",
+            ],
+        )
+        self.assertEqual(
+            yarp_routes("{ not json", "x.json")[1][0].reason, "json_not_parsed"
+        )
+        self.assertEqual(yarp_routes('{"Logging": {}}', "x.json"), ([], []))
 
     def test_nginx(self):
         routes, unread = nginx_routes(NGINX, "web/default.conf")
@@ -335,6 +425,70 @@ class GatewayToolTests(unittest.TestCase):
         # Four Spring routes, three nginx ones; node_modules is not read.
         self.assertEqual(metrics["gateway_routes"], 7)
         self.assertEqual(metrics["unread"]["gateway:path_rewritten"], 3)
+
+
+@unittest.skipUnless(
+    YAML
+    and importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_c_sharp"),
+    "tree-sitter-c-sharp is not installed",
+)
+class YarpGatewayTests(unittest.TestCase):
+    def test_requests_follow_the_base_configuration(self):
+        overlay = YARP.replace("catalog-service", "other-service")
+        files = {
+            "src/Catalog/Catalog.csproj": "<Project />",
+            "src/Catalog/Api.cs": (
+                "public static class Api {\n"
+                "  public static void Map(IEndpointRouteBuilder app) {\n"
+                '    app.MapGet("/products/{id}", (int id) => id);\n'
+                "  }\n"
+                "}\n"
+            ),
+            "src/Gateway/Gateway.csproj": "<Project />",
+            "src/Gateway/Program.cs": "var app = WebApplication.Create();\n",
+            "src/Gateway/appsettings.json": YARP,
+            # An environment overlay is not read.
+            "src/Gateway/appsettings.Development.json": overlay,
+            # Nor is the configuration of a project with no analyzed sources.
+            "tools/appsettings.json": overlay,
+            "src/Web/Web.csproj": "<Project />",
+            "src/Web/Client.cs": (
+                "class Client {\n"
+                "  Task F() => new HttpClient().GetAsync("
+                '"/catalog-service/products/1");\n'
+                "}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, text in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        edges = [
+            (
+                r.properties["request"],
+                r.properties["rule_id"],
+                r.properties["gateway"],
+                r.target_match["qualified_name"].split("::")[1],
+            )
+            for r in output.relationships
+            if r.type == "REQUESTS"
+        ]
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "GET /catalog-service/products/1",
+                    HTTP_GATEWAY,
+                    "src/Gateway/appsettings.json:6",
+                    "src/Catalog/Api.cs",
+                )
+            ],
+        )
+        self.assertEqual(output.metadata.custom_metrics["gateway_routes"], 3)
 
 
 if __name__ == "__main__":

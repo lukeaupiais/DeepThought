@@ -36,7 +36,11 @@ from ..service_contracts.deployed import (
     deployed_units,
     locust_host,
 )
-from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
+from ..service_contracts.gateways import (
+    nginx_routes,
+    spring_gateway_routes,
+    yarp_routes,
+)
 from ..service_contracts.graphql import (
     CLIENTS as GRAPHQL_CLIENTS,
     SERVERS as GRAPHQL_SERVERS,
@@ -62,6 +66,7 @@ from ..service_contracts.openapi import generated_apis
 from ..service_contracts.aspnet import extract_aspnet
 from ..service_contracts.csharp_http import (
     extract_csharp_requests,
+    extract_refit_requests,
     global_usings,
     typed_client_bases,
     typed_client_registrations,
@@ -1053,8 +1058,9 @@ def _deployed(root, deployments, routes, requests):
 
 def _gateways(root, config, sources):
     """Gateway routes: Spring Cloud Gateway routes in the configuration of
-    the analyzed Java files' modules, and nginx proxy locations in ``*.conf``
-    and ``*.conf.template`` files outside hidden and dependency folders."""
+    the analyzed Java files' modules, nginx proxy locations in ``*.conf``
+    and ``*.conf.template`` files outside hidden and dependency folders, and
+    YARP routes in the ``appsettings*.json`` of analyzed C# projects."""
     routes, unread, seen = [], [], set()
     for coverage, _, _ in sources:
         if coverage.language != "java":
@@ -1092,6 +1098,27 @@ def _gateways(root, config, sources):
         found = nginx_routes(text, relative.as_posix())
         routes.extend(found[0])
         unread.extend(found[1])
+    # YARP: the ReverseProxy section of the base .NET configuration
+    # (appsettings.json) of a project with analyzed C# sources. Environment
+    # files (appsettings.Development.json, ...) are overlays for one
+    # environment and are not read, as Spring profile documents are not.
+    projects = {
+        PurePosixPath(c.file).parent for c, _, _ in sources if c.language == "csharp"
+    }
+    for relative in _config_paths(root, {"appsettings.json"}):
+        if not any(PurePosixPath(relative).parent in (p, *p.parents) for p in projects):
+            continue
+        if any(part in ("bin", "obj") for part in PurePosixPath(relative).parts):
+            continue
+        try:
+            text = (root / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "ReverseProxy" not in text:
+            continue
+        found = yarp_routes(text, relative)
+        routes.extend(found[0])
+        unread.extend(found[1])
     return routes, unread
 
 
@@ -1120,7 +1147,7 @@ def _config_paths(root, names):
             if not f.startswith(".") and f not in ("node_modules", "vendor")
         )
         for name in sorted(files):
-            if name in names:
+            if names(name) if callable(names) else name in names:
                 found.append(
                     (PurePosixPath(directory) / name).relative_to(root).as_posix()
                 )
@@ -1405,14 +1432,22 @@ class ServiceContractTool(AnalysisTool):
             for coverage, content, tree in sources
             if coverage.language == "csharp"
         ]
+        csharp_usings = global_usings(
+            root, (c for c in csharp if b"global using" in c[2])
+        )
         client_bases = typed_client_bases(
-            typed_client_registrations(c for c in csharp if b"AddHttpClient" in c[2]),
+            typed_client_registrations(
+                c
+                for c in csharp
+                if re.search(rb"AddHttpClient|AddRefitClient|RestService", c[2])
+            ),
             [
                 d.symbol
                 for d in result.definitions
-                if d.kind in ("Class", "Struct", "Record") and d.file.endswith(".cs")
+                if d.kind in ("Class", "Struct", "Record", "Interface")
+                and d.file.endswith(".cs")
             ],
-            global_usings(root, (c for c in csharp if b"global using" in c[2])),
+            csharp_usings,
         )
         # Spring interfaces openapi-generator makes from specs at build time.
         # Java API classes it makes for clients, and the modules that set a
@@ -1489,6 +1524,19 @@ class ServiceContractTool(AnalysisTool):
                         coverage.file,
                         result.definitions,
                         client_bases,
+                    )
+                    + (
+                        extract_refit_requests(
+                            tree,
+                            content,
+                            repo_url,
+                            coverage.file,
+                            result.definitions,
+                            client_bases,
+                            csharp_usings,
+                        )
+                        if b"interface" in content
+                        else []
                     ),
                     unread_found,
                 )

@@ -88,7 +88,7 @@ SCHEMA_OTHER = {
     "dropColumn",
     "raw",
 }
-SKIPPED_DIRS = {"node_modules", "test", "tests", "__tests__", ".git", "e2e"}
+SKIPPED_DIRS = {"node_modules", "test", "tests", "__tests__", ".git", "e2e", ".yarn"}
 LANGUAGES = {
     ".js": tree_sitter.Language(tree_sitter_javascript.language()),
     ".cjs": tree_sitter.Language(tree_sitter_javascript.language()),
@@ -119,6 +119,79 @@ def table_name(value):
     if not name or not all(c.isalnum() or c in "_." for c in name):
         return None
     return name
+
+
+def file_constants(tree):
+    """Top-level ``const NAME = 'text'`` of a file, exported or not."""
+    found = {}
+    for node in tree.root_node.named_children:
+        if node.type == "export_statement":
+            node = node.child_by_field_name("declaration")
+        if node is None or node.type != "lexical_declaration":
+            continue
+        if not text(node).startswith("const"):
+            continue
+        for decl in node.named_children:
+            if decl.type != "variable_declarator":
+                continue
+            name, value = (
+                decl.child_by_field_name("name"),
+                decl.child_by_field_name("value"),
+            )
+            if name is not None and name.type == "identifier":
+                value = literal(unwrap(value))
+                if value is not None:
+                    found[text(name)] = value
+    return found
+
+
+def module_file(path, source):
+    """The workspace file a relative import names, or None."""
+    if not source.startswith("."):
+        return None
+    base = (path.parent / source).resolve()
+    for stem in (base.with_suffix(""), base):
+        for suffix in LANGUAGES:
+            for candidate in (Path(f"{stem}{suffix}"), stem / f"index{suffix}"):
+                if candidate.is_file():
+                    return candidate
+    return None
+
+
+_CONSTANTS = {}
+
+
+def constants_of(path):
+    path = path.resolve()
+    if path not in _CONSTANTS:
+        tree = tree_sitter.Parser(LANGUAGES[path.suffix]).parse(path.read_bytes())
+        _CONSTANTS[path] = file_constants(tree)
+    return _CONSTANTS[path]
+
+
+def table_constants(path, tree):
+    """String constants a file can name a table by: its own top-level
+    consts and the ones it imports by name from a relative module."""
+    found = dict(constants_of(path))
+    for node in tree.root_node.named_children:
+        if node.type != "import_statement":
+            continue
+        source = literal(node.child_by_field_name("source"))
+        target = module_file(path, source) if source else None
+        if target is None:
+            continue
+        exported = constants_of(target)
+        stack = [node]
+        while stack:
+            spec = stack.pop()
+            stack.extend(spec.named_children)
+            if spec.type != "import_specifier":
+                continue
+            name = spec.child_by_field_name("name")
+            alias = spec.child_by_field_name("alias") or name
+            if name is not None and text(name) in exported:
+                found[text(alias)] = exported[text(name)]
+    return found
 
 
 def first_argument(call):
@@ -196,6 +269,10 @@ def chain_inner(node):
             name, obj = callee_name(node)
             if obj is None:
                 return names, node.child_by_field_name("function"), node
+            if plain(name) in _CURRENT:
+                # ``await this.#knex<T>('t')`` parses as a call of
+                # ``await this.#knex``.
+                return names, unwrap(fn), node
             names.append(name)
             node = unwrap(obj)
             continue
@@ -357,6 +434,116 @@ def typed_handles(tree):
     return names
 
 
+def transaction_parameters(tree, local):
+    """Names a file gives the transaction Knex passes to a callback:
+    ``knex.transaction(async (tx) => ...)`` makes ``tx`` a handle. Repeated
+    until no name is added, for transactions nested in transactions."""
+    names = set()
+    while True:
+        known = local | names
+        found = set()
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            stack.extend(node.children)
+            if node.type != "call_expression":
+                continue
+            callee = node.child_by_field_name("function")
+            if (
+                callee is None
+                or callee.type != "member_expression"
+                or text(callee.child_by_field_name("property")) != "transaction"
+                or not is_handle(callee.child_by_field_name("object"), known)
+            ):
+                continue
+            args = node.child_by_field_name("arguments")
+            callback = args.named_children[0] if args and args.named_children else None
+            if callback is None or callback.type not in {
+                "arrow_function",
+                "function_expression",
+                "function",
+            }:
+                continue
+            first = first_parameter(callback)
+            if first is not None:
+                found.add(plain(first))
+        if found <= names:
+            return names
+        names |= found
+
+
+NOT_SUBQUERY = {"transaction", "then", "catch", "finally", "asCallback", "map", "on"}
+CALLBACKS = {"arrow_function", "function_expression", "function"}
+
+
+def first_parameter(callback):
+    single = callback.child_by_field_name("parameter")
+    params = callback.child_by_field_name("parameters")
+    first = single or (
+        params.named_children[0] if params and params.named_children else None
+    )
+    if first is not None and first.type in {"required_parameter", "optional_parameter"}:
+        first = first.child_by_field_name("pattern")
+    if first is not None and first.type == "identifier":
+        return text(first)
+    return None
+
+
+def typed_builders(tree):
+    """Names the file declares with the type Knex.QueryBuilder: a builder
+    handed in by the caller, ``(q: Knex.QueryBuilder) => q.from('t')``."""
+    names = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.children)
+        if node.type != "type_annotation":
+            continue
+        kind = text(node).lstrip(":").strip().split("<")[0].strip()
+        if kind != "Knex.QueryBuilder":
+            continue
+        name = node.parent.child_by_field_name(
+            "pattern"
+        ) or node.parent.child_by_field_name("name")
+        if name is not None and name.type == "identifier":
+            names.add(text(name))
+    return names
+
+
+def subquery_parameters(tree, local, builders):
+    """Names a file gives the builder Knex passes to a callback argument of
+    a builder method: ``.whereIn('id', (q) => q.from('t'))``,
+    ``.union(function (q) { ... })``. Repeated until no name is added, for
+    subqueries nested in subqueries."""
+    names = set()
+    while True:
+        known = builders | names
+        found = set()
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            stack.extend(node.children)
+            if node.type != "call_expression":
+                continue
+            callee = node.child_by_field_name("function")
+            if callee is None or callee.type != "member_expression":
+                continue
+            if text(callee.child_by_field_name("property")) in NOT_SUBQUERY:
+                continue
+            _, root, _ = chain_inner(callee.child_by_field_name("object"))
+            if not (is_handle(root, local) or is_handle(root, known)):
+                continue
+            args = node.child_by_field_name("arguments")
+            for arg in args.named_children if args else []:
+                if arg.type in CALLBACKS:
+                    name = first_parameter(arg)
+                    if name is not None:
+                        found.add(name)
+        if found <= names:
+            return names
+        names |= found
+
+
 def held_builders(tree, local):
     """Variables a file stores a handle's builder in: ``const q = knex('t')``."""
     names = set()
@@ -408,10 +595,17 @@ def sites(path, rel, handles, not_handles):
     local = {
         h for h in handles | typed_handles(tree) if f"{rel}:{h}" not in not_handles
     }
+    local |= {
+        h
+        for h in transaction_parameters(tree, local)
+        if f"{rel}:{h}" not in not_handles
+    }
     _CURRENT.clear()
     _CURRENT.update(local)
-    builders = held_builders(tree, local)
+    builders = held_builders(tree, local) | typed_builders(tree)
+    builders |= subquery_parameters(tree, local, builders)
     ctes = cte_names(tree)
+    consts = table_constants(path, tree)
     found = []
     stack = [tree.root_node]
     while stack:
@@ -421,6 +615,8 @@ def sites(path, rel, handles, not_handles):
             continue
         arg = first_argument(node)
         value = literal(arg)
+        if value is None and arg is not None and arg.type == "identifier":
+            value = consts.get(text(arg))
         if value is None:
             continue
         name, obj = callee_name(node)
