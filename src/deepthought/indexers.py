@@ -333,6 +333,9 @@ def run_indexer(
     with tempfile.TemporaryDirectory(prefix="deepthought-scip-") as scratch:
         temporary = Path(scratch) / "index.scip"
         argv, cwd = _arguments(spec, root, temporary, project_name or root.name)
+        # --infer-tsconfig writes a tsconfig.json into the workspace; the run
+        # must leave the workspace as it found it.
+        inferred = root / "tsconfig.json" if "--infer-tsconfig" in argv else None
         try:
             result = subprocess.run(
                 [str(executable), *argv],
@@ -347,6 +350,9 @@ def run_indexer(
             run.reason = "indexer_timeout"
             run.wall_seconds = time.monotonic() - started
             return run
+        finally:
+            if inferred is not None:
+                inferred.unlink(missing_ok=True)
         log = (result.stdout + result.stderr)[-4000:]
         if result.returncode or not temporary.is_file():
             run.reason, run.detail = "indexer_failed", log
