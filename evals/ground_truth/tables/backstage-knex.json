@@ -1,0 +1,4859 @@
+{
+  "repo": "https://github.com/backstage/backstage",
+  "commit": "b3ed9690207fe606362f5785b7cbe91ccc8a8542",
+  "labelled_by": "tools/knex_labels.py, every label read by hand",
+  "accesses": [
+    {
+      "file": "packages/backend-defaults/migrations/auth/20240327104803_public_keys.js",
+      "line": 25,
+      "tables": [
+        [
+          "backstage_backend_public_keys__keys",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/migrations/scheduler/20210928160613_init.js",
+      "line": 26,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/migrations/scheduler/20240712211735_nullable_next_run.js",
+      "line": 36,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/auth/plugin/keys/DatabaseKeyStore.ts",
+      "line": 78,
+      "tables": [
+        [
+          "backstage_backend_public_keys__keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/auth/plugin/keys/DatabaseKeyStore.ts",
+      "line": 86,
+      "tables": [
+        [
+          "backstage_backend_public_keys__keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/auth/plugin/keys/DatabaseKeyStore.ts",
+      "line": 113,
+      "tables": [
+        [
+          "backstage_backend_public_keys__keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/database/connectors/postgres.ts",
+      "line": 664,
+      "tables": [
+        [
+          "pg_database",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/PluginTaskSchedulerJanitor.ts",
+      "line": 60,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/PluginTaskSchedulerJanitor.ts",
+      "line": 63,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/PluginTaskSchedulerJanitor.ts",
+      "line": 76,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskStatePoller.ts",
+      "line": 186,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 146,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 153,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 165,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 178,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 197,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 360,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 408,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 443,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/TaskWorker.ts",
+      "line": 499,
+      "tables": [
+        [
+          "backstage_backend_tasks__tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/migrations/20211229105307_init.js",
+      "line": 24,
+      "tables": [
+        [
+          "static_assets_cache",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/migrations/20240113144027_assets-namespace.js",
+      "line": 56,
+      "tables": [
+        [
+          "static_assets_cache",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/src/lib/assets/StaticAssetsStore.ts",
+      "line": 86,
+      "tables": [
+        [
+          "static_assets_cache",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/src/lib/assets/StaticAssetsStore.ts",
+      "line": 103,
+      "tables": [
+        [
+          "static_assets_cache",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/src/lib/assets/StaticAssetsStore.ts",
+      "line": 116,
+      "tables": [
+        [
+          "static_assets_cache",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/src/lib/assets/StaticAssetsStore.ts",
+      "line": 131,
+      "tables": [
+        [
+          "static_assets_cache",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/app-backend/src/lib/assets/StaticAssetsStore.ts",
+      "line": 165,
+      "tables": [
+        [
+          "static_assets_cache",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20200619125845_init.js",
+      "line": 23,
+      "tables": [
+        [
+          "signing_keys",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20230428155633_sessions.js",
+      "line": 27,
+      "tables": [
+        [
+          "sessions",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20240510120825_user_info.js",
+      "line": 23,
+      "tables": [
+        [
+          "user_info",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20250707164600_user_created_at.js",
+      "line": 28,
+      "tables": [
+        [
+          "user_info",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20250909120000_oidc_client_registration.js",
+      "line": 25,
+      "tables": [
+        [
+          "oidc_clients",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20250909120000_oidc_client_registration.js",
+      "line": 69,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20250909120000_oidc_client_registration.js",
+      "line": 120,
+      "tables": [
+        [
+          "oidc_authorization_codes",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20251020000000_offline_sessions.js",
+      "line": 23,
+      "tables": [
+        [
+          "offline_sessions",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20251118120000_oauth_state_text.js",
+      "line": 34,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20251217120000_drop_oidc_clients_fk.js",
+      "line": 37,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20251217120000_drop_oidc_clients_fk.js",
+      "line": 38,
+      "tables": [
+        [
+          "oidc_clients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20260317120000_drop_offline_sessions_fk.js",
+      "line": 37,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20260317120000_drop_offline_sessions_fk.js",
+      "line": 39,
+      "tables": [
+        [
+          "oidc_clients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20261030120000_remove_dcr.js",
+      "line": 23,
+      "tables": [
+        [
+          "oidc_clients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20261030120000_remove_dcr.js",
+      "line": 25,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20261030120000_remove_dcr.js",
+      "line": 28,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/migrations/20261030120000_remove_dcr.js",
+      "line": 39,
+      "tables": [
+        [
+          "oidc_clients",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 103,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 110,
+      "tables": [
+        [
+          "offline_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 123,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 127,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 149,
+      "tables": [
+        [
+          "offline_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 179,
+      "tables": [
+        [
+          "offline_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 192,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 205,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 214,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OfflineSessionDatabase.ts",
+      "line": 233,
+      "tables": [
+        [
+          "offline_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 100,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 136,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 141,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 157,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 178,
+      "tables": [
+        [
+          "oauth_authorization_sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 193,
+      "tables": [
+        [
+          "oidc_authorization_codes",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 208,
+      "tables": [
+        [
+          "oidc_authorization_codes",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 234,
+      "tables": [
+        [
+          "oidc_authorization_codes",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 239,
+      "tables": [
+        [
+          "oidc_authorization_codes",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/OidcDatabase.ts",
+      "line": 255,
+      "tables": [
+        [
+          "oidc_authorization_codes",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/UserInfoDatabase.ts",
+      "line": 39,
+      "tables": [
+        [
+          "user_info",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/database/UserInfoDatabase.ts",
+      "line": 50,
+      "tables": [
+        [
+          "user_info",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/identity/DatabaseKeyStore.ts",
+      "line": 48,
+      "tables": [
+        [
+          "signing_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/identity/DatabaseKeyStore.ts",
+      "line": 55,
+      "tables": [
+        [
+          "signing_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/auth-backend/src/identity/DatabaseKeyStore.ts",
+      "line": 66,
+      "tables": [
+        [
+          "signing_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      "line": 26,
+      "tables": [
+        [
+          "ingestions",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      "line": 101,
+      "tables": [
+        [
+          "ingestion_marks",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      "line": 140,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20260522155028_last_error_column.js",
+      "line": 34,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      "line": 30,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      "line": 31,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      "line": 34,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 55,
+      "tables": [
+        [
+          "ingestions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 69,
+      "tables": [
+        [
+          "ingestions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 82,
+      "tables": [
+        [
+          "ingestions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 97,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 105,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 119,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 134,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 149,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 153,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 157,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 164,
+      "tables": [
+        [
+          "ingestion_marks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 168,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 174,
+      "tables": [
+        [
+          "ingestions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 197,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 203,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 213,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 228,
+      "tables": [
+        [
+          "ingestion_marks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 236,
+      "tables": [
+        [
+          "ingestions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 271,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 310,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 313,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 317,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 325,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 329,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 333,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 352,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 536,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 551,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 561,
+      "tables": [
+        [
+          "ingestion_marks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 575,
+      "tables": [
+        [
+          "ingestion_marks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 614,
+      "tables": [
+        [
+          "ingestion_mark_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-incremental-ingestion/src/database/IncrementalIngestionDatabaseManager.ts",
+      "line": 646,
+      "tables": [
+        [
+          "ingestions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-unprocessed/src/UnprocessedEntitiesModule.ts",
+      "line": 114,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-unprocessed/src/UnprocessedEntitiesModule.ts",
+      "line": 118,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-unprocessed/src/UnprocessedEntitiesModule.ts",
+      "line": 133,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-unprocessed/src/UnprocessedEntitiesModule.ts",
+      "line": 137,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend-module-unprocessed/src/UnprocessedEntitiesModule.ts",
+      "line": 211,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200511113813_init.js",
+      "line": 28,
+      "tables": [
+        [
+          "locations",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200511113813_init.js",
+      "line": 46,
+      "tables": [
+        [
+          "entities",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200511113813_init.js",
+      "line": 102,
+      "tables": [
+        [
+          "entities_search",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200520140700_location_update_log_table.js",
+      "line": 23,
+      "tables": [
+        [
+          "location_update_log",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      "line": 44,
+      "tables": [
+        [
+          "entities",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      "line": 103,
+      "tables": [
+        [
+          "entities_search",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      "line": 156,
+      "tables": [
+        [
+          "entities",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      "line": 215,
+      "tables": [
+        [
+          "entities_search",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200805163904_location_update_log_duplication_fix.js",
+      "line": 26,
+      "tables": [
+        [
+          "location_update_log",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200805163904_location_update_log_duplication_fix.js",
+      "line": 61,
+      "tables": [
+        [
+          "location_update_log",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200809202832_add_bootstrap_location.js",
+      "line": 25,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200809202832_add_bootstrap_location.js",
+      "line": 36,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200923104503_case_insensitivity.js",
+      "line": 23,
+      "tables": [
+        [
+          "entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20200923104503_case_insensitivity.js",
+      "line": 26,
+      "tables": [
+        [
+          "entities_search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20201005122705_add_entity_full_name.js",
+      "line": 27,
+      "tables": [
+        [
+          "entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20201006130744_entity_data_column.js",
+      "line": 30,
+      "tables": [
+        [
+          "entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20201019130742_add_relations_table.js",
+      "line": 23,
+      "tables": [
+        [
+          "entities_relations",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20201123205611_relations_table_uniq.js",
+      "line": 26,
+      "tables": [
+        [
+          "entities_relations",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20201123205611_relations_table_uniq.js",
+      "line": 63,
+      "tables": [
+        [
+          "entities_relations",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      "line": 24,
+      "tables": [
+        [
+          "refresh_state",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      "line": 67,
+      "tables": [
+        [
+          "final_entities",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      "line": 92,
+      "tables": [
+        [
+          "refresh_state_references",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      "line": 127,
+      "tables": [
+        [
+          "relations",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      "line": 152,
+      "tables": [
+        [
+          "search",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20220116144621_remove_legacy.js",
+      "line": 32,
+      "tables": [
+        [
+          "entities",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20220116144621_remove_legacy.js",
+      "line": 66,
+      "tables": [
+        [
+          "entities_search",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20220116144621_remove_legacy.js",
+      "line": 89,
+      "tables": [
+        [
+          "entities_relations",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20220222164811_reprocess_for_relation_refs.js",
+      "line": 24,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20220222164811_reprocess_for_relation_refs.js",
+      "line": 25,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20220616202842_refresh_keys.js",
+      "line": 23,
+      "tables": [
+        [
+          "refresh_keys",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20221109192547_search_add_original_value_column.js",
+      "line": 30,
+      "tables": [
+        [
+          "search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20221109192547_search_add_original_value_column.js",
+      "line": 37,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20221109192547_search_add_original_value_column.js",
+      "line": 38,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20230125085746_trigger_reprocessing.js",
+      "line": 23,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20230125085746_trigger_reprocessing.js",
+      "line": 24,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20230525141717_stitch_queue.js",
+      "line": 47,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20230525141717_stitch_queue.js",
+      "line": 49,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20230525141717_stitch_queue.js",
+      "line": 63,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20241003170511_alter_target_in_locations.js",
+      "line": 34,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20241024104700_add_entity_ref_to_final_entities.js",
+      "line": 35,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20241024104700_add_entity_ref_to_final_entities.js",
+      "line": 38,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      "line": 65,
+      "tables": [
+        [
+          "search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      "line": 159,
+      "tables": [
+        [
+          "search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      "line": 160,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      "line": 234,
+      "tables": [
+        [
+          "search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      "line": 235,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 30,
+      "tables": [
+        [
+          "stitch_queue",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 54,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 58,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 103,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 147,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 150,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 158,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 162,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 166,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      "line": 169,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260403000000_add_location_entity_ref.js",
+      "line": 68,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260403000000_add_location_entity_ref.js",
+      "line": 73,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20260403000000_add_location_entity_ref.js",
+      "line": 115,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      "line": 41,
+      "tables": [
+        [
+          "catalog_generation_counter",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      "line": 49,
+      "tables": [
+        [
+          "catalog_generation_counter",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      "line": 105,
+      "tables": [
+        [
+          "sqlite_master",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      "line": 112,
+      "tables": [
+        [
+          "information_schema.statistics",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultCatalogDatabase.ts",
+      "line": 74,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultCatalogDatabase.ts",
+      "line": 106,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 96,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 139,
+      "tables": [
+        [
+          "refresh_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 145,
+      "tables": [
+        [
+          "refresh_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 165,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 180,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 212,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 233,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 277,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 384,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProcessingDatabase.ts",
+      "line": 391,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 203,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 217,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 262,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 267,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 273,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 305,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 341,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 386,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/DefaultProviderDatabase.ts",
+      "line": 388,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/metrics.ts",
+      "line": 90,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/metrics.ts",
+      "line": 142,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/metrics.ts",
+      "line": 152,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/metrics.ts",
+      "line": 192,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/metrics.ts",
+      "line": 212,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 55,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 64,
+      "tables": [
+        [
+          "refresh_state_references",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 110,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 118,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 155,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 169,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 242,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/deleteWithEagerPruningOfChildren.ts",
+      "line": 244,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/refreshByRefreshKeys.ts",
+      "line": 36,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/provider/refreshByRefreshKeys.ts",
+      "line": 43,
+      "tables": [
+        [
+          "refresh_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/refreshState/checkLocationKeyConflict.ts",
+      "line": 33,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/refreshState/insertUnprocessedEntity.ts",
+      "line": 44,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/refreshState/updateUnprocessedEntity.ts",
+      "line": 39,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/relations/syncRelations.ts",
+      "line": 171,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/relations/syncRelations.ts",
+      "line": 192,
+      "tables": [
+        [
+          "relations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/relations/syncRelations.ts",
+      "line": 209,
+      "tables": [
+        [
+          "relations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/assignGeneration.ts",
+      "line": 38,
+      "tables": [
+        [
+          "catalog_generation_counter",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/assignGeneration.ts",
+      "line": 42,
+      "tables": [
+        [
+          "catalog_generation_counter",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/assignGeneration.ts",
+      "line": 54,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/getDeferredStitchableEntities.ts",
+      "line": 77,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/getDeferredStitchableEntities.ts",
+      "line": 102,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/getDeferredStitchableEntities.ts",
+      "line": 131,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markDeferredStitchCompleted.ts",
+      "line": 44,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markDeferredStitchCompleted.ts",
+      "line": 51,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markDeferredStitchFailed.ts",
+      "line": 33,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markDeferredStitchFailed.ts",
+      "line": 40,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markForStitching.ts",
+      "line": 59,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markForStitching.ts",
+      "line": 77,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/markForStitching.ts",
+      "line": 82,
+      "tables": [
+        [
+          "stitch_queue",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 86,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 97,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 100,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 108,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 241,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 252,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 259,
+      "tables": [
+        [
+          "final_entities",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 304,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/performStitching.ts",
+      "line": 310,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/syncSearchRows.ts",
+      "line": 179,
+      "tables": [
+        [
+          "_desired_search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/syncSearchRows.ts",
+      "line": 230,
+      "tables": [
+        [
+          "search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/stitcher/syncSearchRows.ts",
+      "line": 231,
+      "tables": [
+        [
+          "search",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/util/deleteOrphanedEntities.ts",
+      "line": 38,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/util/deleteOrphanedEntities.ts",
+      "line": 41,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/util/deleteOrphanedEntities.ts",
+      "line": 83,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/util/deleteOrphanedEntities.ts",
+      "line": 91,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/util/deleteOrphanedEntities.ts",
+      "line": 97,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/database/operations/util/deleteOrphanedEntities.ts",
+      "line": 112,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 107,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 128,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 160,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 197,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 220,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 225,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 235,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 242,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 252,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 288,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 296,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 313,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 321,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 335,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 391,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 417,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 498,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 514,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 539,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 545,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 629,
+      "tables": [
+        [
+          "locations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/DefaultLocationStore.ts",
+      "line": 678,
+      "tables": [
+        [
+          "locations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/GenericScmEventRefreshProvider.ts",
+      "line": 95,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/GenericScmEventRefreshProvider.ts",
+      "line": 99,
+      "tables": [
+        [
+          "refresh_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/GenericScmEventRefreshProvider.ts",
+      "line": 104,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/GenericScmEventRefreshProvider.ts",
+      "line": 122,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/GenericScmEventRefreshProvider.ts",
+      "line": 126,
+      "tables": [
+        [
+          "refresh_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/providers/GenericScmEventRefreshProvider.ts",
+      "line": 136,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 149,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 267,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 269,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 302,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 307,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 351,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 469,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 497,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 499,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 513,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 533,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 539,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 697,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 701,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 703,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 712,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 722,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 729,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 731,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 743,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 744,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 752,
+      "tables": [
+        [
+          "relations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 753,
+      "tables": [
+        [
+          "refresh_state",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 761,
+      "tables": [
+        [
+          "refresh_state",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 777,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 801,
+      "tables": [
+        [
+          "refresh_state_references",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 803,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 835,
+      "tables": [
+        [
+          "search",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 851,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/service/DefaultEntitiesCatalog.ts",
+      "line": 868,
+      "tables": [
+        [
+          "final_entities",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/catalog-backend/src/stitching/progressTracker.ts",
+      "line": 57,
+      "tables": [
+        [
+          "stitch_queue",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/migrations/20240523100528_init.js",
+      "line": 26,
+      "tables": [
+        [
+          "event_bus_events",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/migrations/20240523100528_init.js",
+      "line": 55,
+      "tables": [
+        [
+          "event_bus_subscriptions",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/src/service/hub/DatabaseEventBusStore.ts",
+      "line": 421,
+      "tables": [
+        [
+          "event_bus_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/src/service/hub/DatabaseEventBusStore.ts",
+      "line": 457,
+      "tables": [
+        [
+          "event_bus_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/src/service/hub/DatabaseEventBusStore.ts",
+      "line": 458,
+      "tables": [
+        [
+          "event_bus_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/src/service/hub/DatabaseEventBusStore.ts",
+      "line": 562,
+      "tables": [
+        [
+          "event_bus_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/src/service/hub/DatabaseEventBusStore.ts",
+      "line": 636,
+      "tables": [
+        [
+          "event_bus_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/events-backend/src/service/hub/DatabaseEventBusStore.ts",
+      "line": 687,
+      "tables": [
+        [
+          "event_bus_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend-module-slack/migrations/20260327000000_create_slack_message_timestamps.js",
+      "line": 23,
+      "tables": [
+        [
+          "slack_message_timestamps",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend-module-slack/src/lib/SlackNotificationProcessor.ts",
+      "line": 544,
+      "tables": [
+        [
+          "slack_message_timestamps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend-module-slack/src/lib/SlackNotificationProcessor.ts",
+      "line": 567,
+      "tables": [
+        [
+          "slack_message_timestamps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend-module-slack/src/module.ts",
+      "line": 124,
+      "tables": [
+        [
+          "slack_message_timestamps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/migrations/20231215_init.js",
+      "line": 23,
+      "tables": [
+        [
+          "notification",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/migrations/20240313_broadcast.js",
+      "line": 23,
+      "tables": [
+        [
+          "broadcast",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/migrations/20240313_broadcast.js",
+      "line": 37,
+      "tables": [
+        [
+          "broadcast_user_status",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/migrations/20240808_settings.js",
+      "line": 23,
+      "tables": [
+        [
+          "user_settings",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/migrations/20250317_addTopic.js",
+      "line": 31,
+      "tables": [
+        [
+          "user_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/migrations/20250317_addTopic.js",
+      "line": 35,
+      "tables": [
+        [
+          "user_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 259,
+      "tables": [
+        [
+          "broadcast",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 260,
+      "tables": [
+        [
+          "broadcast_user_status",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 274,
+      "tables": [
+        [
+          "notification",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 365,
+      "tables": [
+        [
+          "notification",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 371,
+      "tables": [
+        [
+          "broadcast",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 380,
+      "tables": [
+        [
+          "broadcast_user_status",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 415,
+      "tables": [
+        [
+          "notification",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 429,
+      "tables": [
+        [
+          "broadcast",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 461,
+      "tables": [
+        [
+          "notification",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 464,
+      "tables": [
+        [
+          "broadcast",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 481,
+      "tables": [
+        [
+          "notification",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 500,
+      "tables": [
+        [
+          "notification",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 506,
+      "tables": [
+        [
+          "broadcast",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 511,
+      "tables": [
+        [
+          "broadcast_user_status",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 526,
+      "tables": [
+        [
+          "broadcast_user_status",
+          "READS"
+        ],
+        [
+          "broadcast_user_status",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 562,
+      "tables": [
+        [
+          "notification",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 574,
+      "tables": [
+        [
+          "notification",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 591,
+      "tables": [
+        [
+          "user_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 657,
+      "tables": [
+        [
+          "user_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 660,
+      "tables": [
+        [
+          "user_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 679,
+      "tables": [
+        [
+          "notification",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/notifications-backend/src/database/DatabaseNotificationsStore.ts",
+      "line": 685,
+      "tables": [
+        [
+          "broadcast",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      "line": 23,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      "line": 45,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      "line": 57,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      "line": 75,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      "line": 87,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 81,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 90,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 104,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 112,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 118,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 136,
+      "tables": [
+        [
+          "scaffolder_task_workspaces",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      "line": 140,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/migrations/20210120143715_init.js",
+      "line": 23,
+      "tables": [
+        [
+          "tasks",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/migrations/20210120143715_init.js",
+      "line": 45,
+      "tables": [
+        [
+          "task_events",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 271,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 361,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 404,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 427,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 449,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 489,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 504,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 532,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 550,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 575,
+      "tables": [
+        [
+          "task_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 617,
+      "tables": [
+        [
+          "task_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 632,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 644,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 656,
+      "tables": [
+        [
+          "task_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 734,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 738,
+      "tables": [
+        [
+          "task_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 767,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 780,
+      "tables": [
+        [
+          "tasks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 791,
+      "tables": [
+        [
+          "task_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 796,
+      "tables": [
+        [
+          "task_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 816,
+      "tables": [
+        [
+          "tasks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/scaffolder-backend/src/scaffolder/tasks/DatabaseTaskStore.ts",
+      "line": 835,
+      "tables": [
+        [
+          "task_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/migrations/20210311110000_init.js",
+      "line": 25,
+      "tables": [
+        [
+          "documents",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/migrations/20210727180000_delta_update.js",
+      "line": 32,
+      "tables": [
+        [
+          "documents",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 126,
+      "tables": [
+        [
+          "documents_to_insert",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 129,
+      "tables": [
+        [
+          "documents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 141,
+      "tables": [
+        [
+          "documents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 143,
+      "tables": [
+        [
+          "documents_to_insert",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 149,
+      "tables": [
+        [
+          "documents",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 161,
+      "tables": [
+        [
+          "documents_to_insert",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 193,
+      "tables": [
+        [
+          "documents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/search-backend-module-pg/src/database/DatabaseDocumentStore.ts",
+      "line": 200,
+      "tables": [
+        [
+          "documents",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/user-settings-backend/migrations/20220824183000_init.js",
+      "line": 23,
+      "tables": [
+        [
+          "user_settings",
+          "DECLARES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/user-settings-backend/src/database/DatabaseUserSettingsStore.ts",
+      "line": 73,
+      "tables": [
+        [
+          "user_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/user-settings-backend/src/database/DatabaseUserSettingsStore.ts",
+      "line": 134,
+      "tables": [
+        [
+          "user_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/user-settings-backend/src/database/DatabaseUserSettingsStore.ts",
+      "line": 169,
+      "tables": [
+        [
+          "user_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "plugins/user-settings-backend/src/database/DatabaseUserSettingsStore.ts",
+      "line": 185,
+      "tables": [
+        [
+          "user_settings",
+          "WRITES"
+        ]
+      ]
+    }
+  ],
+  "not_counted": [
+    [
+      "packages/backend-defaults/migrations/auth/20240327104803_public_keys.js",
+      49
+    ],
+    [
+      "packages/backend-defaults/migrations/scheduler/20210928160613_init.js",
+      63
+    ],
+    [
+      "packages/backend-defaults/migrations/scheduler/20240712211735_nullable_next_run.js",
+      24
+    ],
+    [
+      "packages/backend-defaults/migrations/scheduler/20240712211735_nullable_next_run.js",
+      38
+    ],
+    [
+      "packages/backend-defaults/migrations/scheduler/20250411000000_last_run.js",
+      24
+    ],
+    [
+      "packages/backend-defaults/migrations/scheduler/20250411000000_last_run.js",
+      43
+    ],
+    [
+      "plugins/app-backend/migrations/20211229105307_init.js",
+      59
+    ],
+    [
+      "plugins/app-backend/migrations/20211229105307_init.js",
+      62
+    ],
+    [
+      "plugins/app-backend/migrations/20240113144027_assets-namespace.js",
+      25
+    ],
+    [
+      "plugins/app-backend/migrations/20240113144027_assets-namespace.js",
+      65
+    ],
+    [
+      "plugins/auth-backend/migrations/20200619125845_init.js",
+      45
+    ],
+    [
+      "plugins/auth-backend/migrations/20210326100300_timestamptz.js",
+      25
+    ],
+    [
+      "plugins/auth-backend/migrations/20210326100300_timestamptz.js",
+      42
+    ],
+    [
+      "plugins/auth-backend/migrations/20220321100910_timestamptz_again.js",
+      32
+    ],
+    [
+      "plugins/auth-backend/migrations/20220321100910_timestamptz_again.js",
+      49
+    ],
+    [
+      "plugins/auth-backend/migrations/20220522100910_key_field_size.js",
+      25
+    ],
+    [
+      "plugins/auth-backend/migrations/20220522100910_key_field_size.js",
+      41
+    ],
+    [
+      "plugins/auth-backend/migrations/20230428155633_sessions.js",
+      47
+    ],
+    [
+      "plugins/auth-backend/migrations/20230428155633_sessions.js",
+      51
+    ],
+    [
+      "plugins/auth-backend/migrations/20240510120825_user_info.js",
+      48
+    ],
+    [
+      "plugins/auth-backend/migrations/20250707164600_user_created_at.js",
+      23
+    ],
+    [
+      "plugins/auth-backend/migrations/20250707164600_user_created_at.js",
+      32
+    ],
+    [
+      "plugins/auth-backend/migrations/20250707164600_user_created_at.js",
+      45
+    ],
+    [
+      "plugins/auth-backend/migrations/20250909120000_oidc_client_registration.js",
+      156
+    ],
+    [
+      "plugins/auth-backend/migrations/20250909120000_oidc_client_registration.js",
+      157
+    ],
+    [
+      "plugins/auth-backend/migrations/20250909120000_oidc_client_registration.js",
+      158
+    ],
+    [
+      "plugins/auth-backend/migrations/20251020000000_offline_sessions.js",
+      77
+    ],
+    [
+      "plugins/auth-backend/migrations/20251118120000_oauth_state_text.js",
+      23
+    ],
+    [
+      "plugins/auth-backend/migrations/20251118120000_oauth_state_text.js",
+      38
+    ],
+    [
+      "plugins/auth-backend/migrations/20251217120000_drop_oidc_clients_fk.js",
+      27
+    ],
+    [
+      "plugins/auth-backend/migrations/20251217120000_drop_oidc_clients_fk.js",
+      41
+    ],
+    [
+      "plugins/auth-backend/migrations/20260317120000_drop_offline_sessions_fk.js",
+      27
+    ],
+    [
+      "plugins/auth-backend/migrations/20260317120000_drop_offline_sessions_fk.js",
+      42
+    ],
+    [
+      "plugins/auth-backend/migrations/20261030120000_remove_dcr.js",
+      31
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      89
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      132
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      166
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      176
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      177
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20221116073152_init.js",
+      178
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260522155028_last_error_column.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260522155028_last_error_column.js",
+      46
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      44
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      67
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      79
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      86
+    ],
+    [
+      "plugins/catalog-backend-module-incremental-ingestion/migrations/20260811133818_ingestion_mark_entities_source_key.js",
+      90
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200511113813_init.js",
+      93
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200511113813_init.js",
+      129
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200511113813_init.js",
+      130
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200511113813_init.js",
+      133
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200511113813_init.js",
+      134
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200520140700_location_update_log_table.js",
+      42
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      25
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      28
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      32
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      37
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      38
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      91
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      127
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      128
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      137
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      140
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      144
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      149
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      150
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      203
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      239
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200702153613_entities.js",
+      240
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200805163904_location_update_log_duplication_fix.js",
+      25
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200805163904_location_update_log_duplication_fix.js",
+      60
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200807120600_entitySearch.js",
+      25
+    ],
+    [
+      "plugins/catalog-backend/migrations/20200807120600_entitySearch.js",
+      37
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201005122705_add_entity_full_name.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201005122705_add_entity_full_name.js",
+      36
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201005122705_add_entity_full_name.js",
+      41
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201005122705_add_entity_full_name.js",
+      52
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201005122705_add_entity_full_name.js",
+      60
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201006130744_entity_data_column.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201006130744_entity_data_column.js",
+      39
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201006130744_entity_data_column.js",
+      46
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201006130744_entity_data_column.js",
+      56
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201006203131_entity_remove_redundant_columns.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201006203131_entity_remove_redundant_columns.js",
+      35
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201007201501_index_entity_search.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201007201501_index_entity_search.js",
+      33
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201019130742_add_relations_table.js",
+      53
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201123205611_relations_table_uniq.js",
+      25
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201123205611_relations_table_uniq.js",
+      50
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201123205611_relations_table_uniq.js",
+      62
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201123205611_relations_table_uniq.js",
+      88
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201210185851_fk_index.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201210185851_fk_index.js",
+      27
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201210185851_fk_index.js",
+      38
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201210185851_fk_index.js",
+      41
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201230103504_update_log_varchar.js",
+      28
+    ],
+    [
+      "plugins/catalog-backend/migrations/20201230103504_update_log_varchar.js",
+      55
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210209121210_locations_fk_index.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210209121210_locations_fk_index.js",
+      27
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210209121210_locations_fk_index.js",
+      38
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210209121210_locations_fk_index.js",
+      41
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      179
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      180
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      181
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      182
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210302150147_refresh_state.js",
+      183
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210622104022_refresh_state_location_key.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210622104022_refresh_state_location_key.js",
+      35
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210813143113_add_refresh_state_hash.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210813143113_add_refresh_state_hash.js",
+      37
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210925102509_add_refresh_state_input_hash.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20210925102509_add_refresh_state_input_hash.js",
+      35
+    ],
+    [
+      "plugins/catalog-backend/migrations/20220116144621_remove_legacy.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20220116144621_remove_legacy.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20220116144621_remove_legacy.js",
+      25
+    ],
+    [
+      "plugins/catalog-backend/migrations/20220616202842_refresh_keys.js",
+      49
+    ],
+    [
+      "plugins/catalog-backend/migrations/20220616202842_refresh_keys.js",
+      54
+    ],
+    [
+      "plugins/catalog-backend/migrations/20221109192547_search_add_original_value_column.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20221109192547_search_add_original_value_column.js",
+      48
+    ],
+    [
+      "plugins/catalog-backend/migrations/20221201085245_add_last_updated_at_in_final_entities.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20221201085245_add_last_updated_at_in_final_entities.js",
+      36
+    ],
+    [
+      "plugins/catalog-backend/migrations/20230525141717_stitch_queue.js",
+      23
+    ],
+    [
+      "plugins/catalog-backend/migrations/20230525141717_stitch_queue.js",
+      80
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241003170511_alter_target_in_locations.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241003170511_alter_target_in_locations.js",
+      44
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241024104700_add_entity_ref_to_final_entities.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241024104700_add_entity_ref_to_final_entities.js",
+      40
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241024104700_add_entity_ref_to_final_entities.js",
+      53
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241111000000_drop_redundant_indices.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241111000000_drop_redundant_indices.js",
+      28
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241111000000_drop_redundant_indices.js",
+      33
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241111000000_drop_redundant_indices.js",
+      44
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241111000000_drop_redundant_indices.js",
+      48
+    ],
+    [
+      "plugins/catalog-backend/migrations/20241111000000_drop_redundant_indices.js",
+      53
+    ],
+    [
+      "plugins/catalog-backend/migrations/20250401200503_update_refresh_state_columns.js",
+      24
+    ],
+    [
+      "plugins/catalog-backend/migrations/20250401200503_update_refresh_state_columns.js",
+      38
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      131
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      139
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      155
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      163
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      208
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      216
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      230
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260214000000_search_fk_final_entities.js",
+      238
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      73
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      84
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      97
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      107
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      113
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      132
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260215000000_move_stitch_queue.js",
+      173
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260403000000_add_location_entity_ref.js",
+      58
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260403000000_add_location_entity_ref.js",
+      133
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260403000000_add_location_entity_ref.js",
+      147
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260510000000_search_indices_and_dedup.js",
+      154
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260510000000_search_indices_and_dedup.js",
+      384
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260510000000_search_indices_and_dedup.js",
+      389
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260510000000_search_indices_and_dedup.js",
+      404
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260516000000_relations_target_index.js",
+      69
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260516000000_relations_target_index.js",
+      86
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260609000000_drop_search_entity_id_idx.js",
+      68
+    ],
+    [
+      "plugins/catalog-backend/migrations/20260609000000_drop_search_entity_id_idx.js",
+      92
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261007000000_stitch_failure_count.js",
+      21
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261007000000_stitch_failure_count.js",
+      28
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      34
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      35
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      40
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      68
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      87
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      92
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      93
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      98
+    ],
+    [
+      "plugins/events-backend/migrations/20240523100528_init.js",
+      95
+    ],
+    [
+      "plugins/events-backend/migrations/20240523100528_init.js",
+      96
+    ],
+    [
+      "plugins/notifications-backend-module-slack/migrations/20260327000000_create_slack_message_timestamps.js",
+      43
+    ],
+    [
+      "plugins/notifications-backend/migrations/20231215_init.js",
+      48
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240221_removeDone.js",
+      23
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240221_removeDone.js",
+      33
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240313_broadcast.js",
+      58
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240313_broadcast.js",
+      59
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240808_settings.js",
+      39
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240902_addIcon.js",
+      23
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240902_addIcon.js",
+      26
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240902_addIcon.js",
+      35
+    ],
+    [
+      "plugins/notifications-backend/migrations/20240902_addIcon.js",
+      38
+    ],
+    [
+      "plugins/notifications-backend/migrations/20250317_addTopic.js",
+      25
+    ],
+    [
+      "plugins/notifications-backend/migrations/20250317_addTopic.js",
+      44
+    ],
+    [
+      "plugins/notifications-backend/migrations/20250317_addTopic.js",
+      54
+    ],
+    [
+      "plugins/notifications-backend/migrations/20250317_addTopic.js",
+      60
+    ],
+    [
+      "plugins/notifications-backend/migrations/20260621_addMetadata.js",
+      23
+    ],
+    [
+      "plugins/notifications-backend/migrations/20260621_addMetadata.js",
+      26
+    ],
+    [
+      "plugins/notifications-backend/migrations/20260621_addMetadata.js",
+      35
+    ],
+    [
+      "plugins/notifications-backend/migrations/20260621_addMetadata.js",
+      38
+    ],
+    [
+      "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      42
+    ],
+    [
+      "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      72
+    ],
+    [
+      "plugins/scaffolder-backend-module-workspace-database/migrations/20250122000000_task_workspaces.js",
+      95
+    ],
+    [
+      "plugins/scaffolder-backend-module-workspace-database/src/provider/DatabaseWorkspaceProvider.ts",
+      55
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20210120143715_init.js",
+      79
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20210120143715_init.js",
+      83
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20210120143715_init.js",
+      84
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20210409225200_secrets.js",
+      23
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20210409225200_secrets.js",
+      35
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20220129100000_created_by.js",
+      23
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20220129100000_created_by.js",
+      35
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20240203232000_state.js",
+      23
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20240203232000_state.js",
+      32
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20240401213200_workspace.js",
+      23
+    ],
+    [
+      "plugins/scaffolder-backend/migrations/20240401213200_workspace.js",
+      32
+    ],
+    [
+      "plugins/search-backend-module-pg/migrations/20210311110000_init.js",
+      55
+    ],
+    [
+      "plugins/search-backend-module-pg/migrations/20210727180000_delta_update.js",
+      26
+    ],
+    [
+      "plugins/search-backend-module-pg/migrations/20210727180000_delta_update.js",
+      38
+    ],
+    [
+      "plugins/search-backend-module-pg/migrations/20210727180000_delta_update.js",
+      47
+    ],
+    [
+      "plugins/user-settings-backend/migrations/20220824183000_init.js",
+      42
+    ]
+  ]
+}

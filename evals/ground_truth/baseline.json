@@ -1259,6 +1259,13 @@
       "missed": 0,
       "wrong": 0
     },
+    "tables-backstage-knex": {
+      "expected": 399,
+      "extra": 0,
+      "found": 328,
+      "missed": 70,
+      "wrong": 1
+    },
     "tables-countly-mongodb": {
       "expected": 1148,
       "extra": 0,
@@ -1281,10 +1288,10 @@
       "wrong": 0
     },
     "tables-ghost-knex": {
-      "expected": 800,
+      "expected": 873,
       "extra": 0,
-      "found": 0,
-      "missed": 800,
+      "found": 642,
+      "missed": 231,
       "wrong": 0
     },
     "tables-kimai": {
