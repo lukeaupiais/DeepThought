@@ -1092,10 +1092,14 @@
         "unjudged": 2
       },
       "tree-sitter.python-call-attribute-receiver": {
-        "confirmed": 10
+        "confirmed": 17
+      },
+      "tree-sitter.python-call-reexport": {
+        "confirmed": 764,
+        "unjudged": 119
       },
       "tree-sitter.python-call-result-receiver": {
-        "confirmed": 13
+        "confirmed": 40
       },
       "tree-sitter.python-call-self-inherited": {
         "confirmed": 12
@@ -1104,33 +1108,34 @@
         "confirmed": 8
       },
       "tree-sitter.python-call-typed-receiver": {
-        "confirmed": 40
+        "confirmed": 346,
+        "unjudged": 1
       }
     },
-    "confirmed": 605,
+    "confirmed": 1709,
     "contradicted": 0,
     "expected": 1959,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 82,
+          "confirmed": 200,
           "expected": 310
         },
         "2": {
-          "confirmed": 70,
+          "confirmed": 189,
           "expected": 331
         },
         "3": {
-          "confirmed": 42,
+          "confirmed": 184,
           "expected": 429
         }
       },
-      "confirmed": 194,
+      "confirmed": 573,
       "expected": 1070,
       "extra": 0,
-      "missed": 876,
+      "missed": 497,
       "precision": 1.0,
-      "recall": 0.1813,
+      "recall": 0.5355,
       "seeds": 203,
       "seeds_undeclared": 0,
       "unjudged": 0
@@ -1153,22 +1158,21 @@
       "recall": 0.8358,
       "unresolved": 25
     },
-    "missed": 1359,
+    "missed": 261,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 1,
       "unresolved:attribute_call": 15,
       "unresolved:attribute_not_typed": 10,
       "unresolved:attribute_type_not_declared": 6,
       "unresolved:base_not_resolved": 11,
-      "unresolved:local_binding": 549,
-      "unresolved:module_attribute_not_declared": 758,
-      "unresolved:receiver_type_not_declared": 9
+      "unresolved:local_binding": 216,
+      "unresolved:receiver_type_not_declared": 2
     },
     "precision": 1.0,
-    "recall": 0.3063,
-    "unjudged": 2,
-    "unresolved_expected": 1365,
-    "unresolved_unjudged": 2086
+    "recall": 0.8668,
+    "unjudged": 122,
+    "unresolved_expected": 261,
+    "unresolved_unjudged": 1966
   },
   "ky": {
     "by_rule": {
