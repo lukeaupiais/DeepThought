@@ -280,9 +280,10 @@ class OpenApiTests(unittest.TestCase):
                 ("carts/api/carts.json", 9, "api_name"),
                 ("legacy/pom.xml", 1, "generator_version"),
                 ("owners/pom.xml", 1, "base_path_on_interface"),
+                # spring-cloud makes Feign clients only without interfaceOnly.
+                ("owners/pom.xml", 1, "client_not_generated"),
                 ("owners/pom.xml", 1, "generated_controller"),
                 ("owners/pom.xml", 1, "generated_controller"),
-                ("owners/pom.xml", 1, "not_spring_server"),
                 ("owners/pom.xml", 1, "spec_not_found"),
                 # Read by the spring and the java execution.
                 (f"owners/{RESOURCES}/openapi.yml", 25, "operation_id"),
@@ -382,7 +383,7 @@ class OpenApiTests(unittest.TestCase):
         # deleteOwner, updatePets, audit, listPetTypes and root have no
         # handler.
         self.assertEqual(metrics["openapi:operation_not_handled"], 5)
-        self.assertEqual(metrics["openapi:not_spring_server"], 1)
+        self.assertEqual(metrics["openapi:client_not_generated"], 1)
         linked = [r for r in resolutions if r.status == "linked"]
         self.assertEqual(len(linked), 1)
 
@@ -710,3 +711,152 @@ class OpenApiClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _feign_pom(options, *, version="7.4.0"):
+    return (
+        "<project><build><plugins><plugin>"
+        "<artifactId>openapi-generator-maven-plugin</artifactId>"
+        f"<version>{version}</version><executions><execution><configuration>"
+        "<generatorName>spring</generatorName><library>spring-cloud</library>"
+        "<inputSpec>${project.basedir}/api.yml</inputSpec>"
+        "<apiPackage>trips.feign.api</apiPackage>"
+        # Spring takes no apiNamePrefix.
+        "<apiNamePrefix>Ignored</apiNamePrefix>"
+        f"<configOptions><useTags>true</useTags>{options}</configOptions>"
+        "</configuration></execution></executions></plugin></plugins></build>"
+        "</project>"
+    )
+
+
+FEIGN_SPEC = """
+openapi: 3.0.1
+servers:
+  - url: http://trips:8080
+paths:
+  /v1/trips:
+    post:
+      tags: [trips]
+      operationId: createTrip
+  /v1/trips/{id}:
+    get:
+      tags: [trips]
+      operationId: getTrip
+"""
+
+CHECKOUT = """
+package checkout;
+
+import trips.feign.api.TripsApi;
+import trips.feign.api.TripsApiClient;
+
+public class Checkout {
+    private final TripsApiClient trips;
+
+    Checkout(TripsApiClient trips) { this.trips = trips; }
+
+    void run(TripsApi plain) {
+        trips.createTrip(null);
+        trips.getTrip("1");
+        // Not a method of the Feign client.
+        trips.getTripWithHttpInfo("1");
+        // The interface, not the client: not read.
+        plain.getTrip("1");
+    }
+}
+"""
+
+FEIGN_FILES = {
+    "trips-feign/pom.xml": _feign_pom(""),
+    "trips-feign/api.yml": FEIGN_SPEC,
+    # Not read: no client with interfaceOnly, and a plugin before 7.
+    "interfaces/pom.xml": _feign_pom("<interfaceOnly>true</interfaceOnly>"),
+    "interfaces/api.yml": FEIGN_SPEC,
+    "older/pom.xml": _feign_pom("", version="6.6.0"),
+    "older/api.yml": FEIGN_SPEC,
+    f"trips/{RESOURCES}/application.properties": "spring.application.name=trips\n",
+    "trips/pom.xml": "<project/>",
+    f"trips/{JAVA}/trips/TripController.java": TRIPS,
+    "checkout/pom.xml": "<project/>",
+    f"checkout/{JAVA}/checkout/Checkout.java": CHECKOUT,
+}
+
+
+@unittest.skipUnless(READY, "pyyaml or tree-sitter grammars are not installed")
+class OpenApiFeignClientTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        _write(self.root, FEIGN_FILES)
+        self.tool = ServiceContractTool(self.root)
+        self.output = asyncio.run(self.tool.analyze("r"))
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_generated_clients(self):
+        servers, clients, unread = generated_apis(self.root)
+        self.assertEqual(servers, {})
+        self.assertEqual(
+            {
+                api: sorted(
+                    (o.method_name, o.http_method, o.base_url + o.path, o.client)
+                    for o in operations
+                )
+                for api, operations in clients.items()
+            },
+            {
+                # The base is a property or service discovery: not fixed.
+                "trips.feign.api.TripsApiClient": [
+                    ("createTrip", "POST", "\x00/v1/trips", "openapi-spring-cloud"),
+                    ("getTrip", "GET", "\x00/v1/trips/{id}", "openapi-spring-cloud"),
+                ],
+            },
+        )
+        self.assertEqual(
+            sorted((u.file, u.reason) for u in unread),
+            [
+                ("interfaces/pom.xml", "client_not_generated"),
+                ("older/pom.xml", "generator_version"),
+            ],
+        )
+
+    def test_graph(self):
+        requests = sorted(
+            (
+                r.properties["line"],
+                r.properties["client"],
+                r.properties["request"],
+                r.properties["declared_in"],
+                r.properties["rule_id"],
+                r.source_match["qualified_name"].split("::")[2],
+                r.target_match["qualified_name"].split("::")[1],
+            )
+            for r in self.output.relationships
+            if r.type == "REQUESTS"
+        )
+        self.assertEqual(
+            requests,
+            [
+                (
+                    13,
+                    "openapi-spring-cloud",
+                    "POST {?}/v1/trips",
+                    "trips-feign/api.yml:9",
+                    "service-contracts.openapi-feign-client-path",
+                    "Checkout.run",
+                    f"trips/{JAVA}/trips/TripController.java",
+                ),
+                (
+                    14,
+                    "openapi-spring-cloud",
+                    "GET {?}/v1/trips/{id}",
+                    "trips-feign/api.yml:13",
+                    "service-contracts.openapi-feign-client-path",
+                    "Checkout.run",
+                    f"trips/{JAVA}/trips/TripController.java",
+                ),
+            ],
+        )
+        rule = get_rule("service-contracts.openapi-feign-client-path")
+        self.assertEqual(rule.evidence_type, "pattern_matched")
