@@ -1058,6 +1058,8 @@ are `blocked`. A package whose own build fails never has its test variant
 compiled under `./...`, so its tests are compiled one package at a time.
 `go_compile_truth.py compare compile.tsv calls.tsv` then checks that every
 SCIP call row whose target was sampled is one of the compiler's references.
+A method of an interface type can be renamed too: calls through the
+interface then fail, and each type that satisfied it is an `implements` row.
 On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
 fall in blocked packages, and 2 references are not calls (a middleware
 passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66
