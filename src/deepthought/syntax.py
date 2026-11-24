@@ -252,6 +252,15 @@ def extract(
                     )
                     if returned is not None and returned.split(".")[0] not in variables:
                         arity["result_type"] = returned
+            elif file.endswith(".java") and node.type in {
+                "class_declaration",
+                "interface_declaration",
+                "enum_declaration",
+                "record_declaration",
+            }:
+                statics = _java_static_fields(node, content)
+                if statics:
+                    arity = {"fields": statics}
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -2383,6 +2392,92 @@ def _java_argument_type(node, content, cache):
     return None
 
 
+def _java_static_fields(node, content):
+    """(name, type) for each static field of a Java type declaration whose
+    type ``_java_declared_type`` writes (an interface's fields are static,
+    and an enum constant has its enum's type); None when there is none."""
+    body = node.child_by_field_name("body")
+    if body is None:
+        return None
+    interface = node.type == "interface_declaration"
+    found = []
+    members = list(body.named_children)
+    for member in body.named_children:
+        if member.type == "enum_body_declarations":
+            members.extend(member.named_children)
+    for member in members:
+        if member.type == "enum_constant":
+            name = member.child_by_field_name("name")
+            if name is not None:
+                found.append(
+                    (
+                        _text(name, content),
+                        _text(node.child_by_field_name("name"), content),
+                    )
+                )
+            continue
+        if member.type not in {"field_declaration", "constant_declaration"}:
+            continue
+        modifiers = next((c for c in member.children if c.type == "modifiers"), None)
+        if not interface and not (
+            modifiers is not None
+            and any(c.type == "static" for c in modifiers.children)
+        ):
+            continue
+        written = member.child_by_field_name("type")
+        for declarator in member.children_by_field_name("declarator"):
+            name = declarator.child_by_field_name("name")
+            if name is None or declarator.child_by_field_name("dimensions") is not None:
+                continue
+            typed = _java_declared_type(written, None, content)
+            if typed is not None:
+                found.append((_text(name, content), typed))
+    return tuple(found) or None
+
+
+def _java_argument_fields(node, content):
+    """``CallSite.argument_fields`` of a Java call or ``new``."""
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None or node.type not in {
+        "method_invocation",
+        "object_creation_expression",
+    }:
+        return None
+    found = []
+    for child in arguments.named_children:
+        if child.type in {"line_comment", "block_comment"}:
+            continue
+        while child.type == "parenthesized_expression" and child.named_children:
+            child = child.named_children[0]
+        qualifier = child.child_by_field_name("object")
+        field = child.child_by_field_name("field")
+        if (
+            child.type != "field_access"
+            or qualifier is None
+            or qualifier.type != "identifier"
+            or field is None
+            or field.type != "identifier"
+            or _java_names_variable(child, _text(qualifier, content), content)
+        ):
+            found.append(None)
+            continue
+        found.append((_text(qualifier, content), _text(field, content)))
+    return tuple(found) if any(found) else None
+
+
+def _java_names_variable(node, name, content):
+    """Whether a declaration around ``node`` in its file declares a variable
+    or field ``name``, which a simple name in an expression denotes before a
+    type (JLS 6.5.2)."""
+    before = (node.start_point.row, node.start_point.column)
+    ancestor = node.parent
+    while ancestor is not None:
+        if _java_declared_here(ancestor, name, content, before):
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 def _java_argument_calls(node):
     """``CallSite.argument_calls`` of a Java call or ``new``."""
     arguments = node.child_by_field_name("arguments")
@@ -3174,6 +3269,9 @@ def extract_call_sites(
                         if java
                         else None,
                         argument_calls=_java_argument_calls(node) if java else None,
+                        argument_fields=_java_argument_fields(node, content)
+                        if java
+                        else None,
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python

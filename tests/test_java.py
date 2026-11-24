@@ -13,6 +13,7 @@ from deepthought.analysis_tools import TreeSitterTool
 from deepthought.calls import (
     CALL_SELF_METHOD,
     JAVA_ENCLOSING_METHOD,
+    JAVA_FIELD_ARGUMENT,
     JAVA_INHERITED_METHOD,
     JAVA_STATIC_IMPORT,
     JAVA_PLATFORM_ARGUMENT,
@@ -1263,6 +1264,118 @@ class JavaTests(unittest.TestCase):
                 replace(site, arguments=len(bad), argument_calls=bad)
         with self.assertRaises(ValueError):
             replace(site, arguments=2, argument_calls=((1, 0, 1, 2),))
+
+    def test_static_field_arguments_have_their_declared_types(self):
+        lines = [
+            "package p; import a.*; import b.*;",
+            "class Elem {}",
+            "class Prim extends Elem {",
+            "  static final Prim ONE = new Prim();",
+            "  static final int COUNT = 1;",
+            "  final Prim self = null;",  # not static
+            "  static Prim[] ALL = null;",
+            "  static Prim LIST[] = null;",
+            "  static Inner IN = null;",
+            "  static class Inner extends Elem {}",
+            "}",
+            "interface Consts { Elem NONE = null; }",  # implicitly static
+            "enum Kind { A, B; static final int LABEL = 1; }",
+            "class Api {",
+            "  void j(String x) {}",  # 15
+            "  void j(Elem x) {}",  # 16
+            "  void n(int x) {}",  # 17
+            "  void n(Object x) {}",  # 18
+            "  void k(Kind x) {}",  # 19
+            "  void k(int x) {}",  # 20
+            "  void p(String x, int y) {}",  # 21
+            "  void p(Elem x, int y) {}",  # 22
+            "}",
+            "class Main {",
+            "  void m(Api a, Object o) {",
+            "    a.j(Prim.ONE);",  # 26
+            "    a.n(Prim.COUNT);",  # 27: int
+            "    a.j(Prim.self);",  # 28: no static field
+            "    a.j(Prim.ALL);",  # 29: an array
+            "    a.j(Prim.LIST);",  # 30: an array
+            "    a.j(Consts.NONE);",  # 31: an interface constant
+            "    a.k(Kind.A);",  # 32: an enum constant
+            "    a.k(Kind.LABEL);",  # 33: a static field of an enum
+            "    a.j((Prim.ONE));",  # 34: parentheses
+            "    a.j(Gone.ONE);",  # 35: no repository type
+            "    a.j(Prim.IN);",  # 36: a name written in Prim
+            "    a.j(Dup.ONE);",  # 37: two types named Dup
+            "    a.p(Prim.ONE, 1);",  # 38: with a typed argument
+            "  }",
+            "  void v(Api a, Kind Prim) {",
+            "    a.j(Prim.ONE);",  # 41: the parameter, not the type
+            "  }",
+            "}",
+        ]
+        dup = "package {0};\nimport p.Prim;\npublic class Dup {{ static Prim ONE; }}\n"
+        result = analyze(
+            {
+                "src/p/Api.java": "\n".join(lines) + "\n",
+                "src/a/Dup.java": dup.format("a"),
+                "src/b/Dup.java": dup.format("b"),
+            }
+        )
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        resolutions = resolve_calls(result)
+        found = {
+            sites[r.call_id].line: (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolutions
+            if sites[r.call_id].callee.startswith("a.")
+        }
+        either = [15, 16]
+        self.assertEqual(
+            found,
+            {
+                26: 16,
+                27: 17,
+                28: either,
+                29: either,
+                30: either,
+                31: 16,
+                32: 19,
+                33: 20,
+                34: 16,
+                35: either,
+                36: 16,
+                37: either,
+                38: 22,
+                41: either,
+            },
+        )
+        rules = {
+            sites[r.call_id].line: r.rule_id
+            for r in resolutions
+            if r.status == "linked" and sites[r.call_id].callee.startswith("a.")
+        }
+        self.assertEqual(
+            rules, dict.fromkeys((26, 27, 31, 32, 33, 34, 36, 38), JAVA_FIELD_ARGUMENT)
+        )
+        fields = {
+            d.symbol: d.fields
+            for d in result.definitions
+            if d.kind in {"Class", "Interface", "Enum"} and d.file == "src/p/Api.java"
+        }
+        self.assertEqual(
+            fields["Prim"], (("ONE", "Prim"), ("COUNT", "int"), ("IN", "Inner"))
+        )
+        self.assertEqual(fields["Consts"], (("NONE", "Elem"),))
+        self.assertEqual(
+            fields["Kind"], (("A", "Kind"), ("B", "Kind"), ("LABEL", "int"))
+        )
+        self.assertIsNone(fields["Api"])
+        site = next(s for s in sites.values() if s.line == 41)
+        self.assertIsNone(site.argument_fields)
+        site = next(s for s in sites.values() if s.line == 34)
+        self.assertEqual(site.argument_fields, (("Prim", "ONE"),))
 
     def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
         lines = [

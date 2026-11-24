@@ -371,6 +371,13 @@ _CALL_RULE_TEXT = {
     "single-type import from a 'java.' package, which only the JDK defines, "
     "and so is no subtype of a repository type; the method is found by the "
     "lookup the call would otherwise use.",
+    call_rules.JAVA_FIELD_ARGUMENT: "Java overloads that the argument types "
+    "written leave open are told apart by an argument 'X.f' whose X no "
+    "variable or field declared around the call in its file names: X is "
+    "taken as the type it names, and f as that type's static field or enum "
+    "constant with its declared type. A field named X that the enclosing "
+    "class inherits would be the one named instead; the method is found by "
+    "the lookup the call would otherwise use.",
 }
 CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))

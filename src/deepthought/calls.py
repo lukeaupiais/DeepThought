@@ -37,6 +37,7 @@ JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
 JAVA_TYPED_RECEIVER = "tree-sitter.java-call-typed-receiver"
 JAVA_PLATFORM_ARGUMENT = "tree-sitter.java-overload-platform-argument"
+JAVA_FIELD_ARGUMENT = "tree-sitter.java-overload-static-field-argument"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
 RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
@@ -341,6 +342,9 @@ class _JavaScope:
         # Whether subtype checks may use that JDK types are no repository
         # subtypes (see ``methods``).
         self._platform = False
+        # Whether an argument ``X.f`` takes the type of the static field
+        # ``f`` of the type ``X`` (see ``methods``).
+        self._fields = False
         self._supertypes = {}
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
@@ -478,6 +482,18 @@ class _JavaScope:
                 return CallResolution(
                     site.id, "linked", narrowed[0].definition.id, JAVA_PLATFORM_ARGUMENT
                 )
+        if len(chosen) > 1 and site.argument_fields:
+            # Only the types of static fields named as arguments may tell
+            # the overloads apart; a link they decide carries their rule.
+            self._fields = True
+            try:
+                narrowed = self.overloads(site, scope, fitting)
+            finally:
+                self._fields = False
+            if len(narrowed) == 1:
+                return CallResolution(
+                    site.id, "linked", narrowed[0].definition.id, JAVA_FIELD_ARGUMENT
+                )
         resolution = _pick(
             site.id,
             [m.definition for m in chosen],
@@ -601,6 +617,19 @@ class _JavaScope:
         specs = self.single.get((file, written.split(".")[0]))
         return bool(specs) and all(spec.startswith("java.") for spec in specs)
 
+    def static_field(self, file, scope, written, name):
+        """(type, (file, scope) it is written in) of the static field
+        ``name`` that the type name ``written`` declares, seen from a file
+        and scope; None when the name denotes no single repository type or
+        that type declares no such field with a recorded type."""
+        found = self.type(file, scope, written)
+        if len(found) != 1 or not found[0].fields:
+            return None
+        typed = dict(found[0].fields).get(name)
+        if typed is None:
+            return None
+        return typed, (found[0].file, tuple(found[0].symbol.split(".")))
+
     def call_result(self, file, span):
         """(return type, (file, scope) it is written in) of the method that
         the Java call at ``span`` in ``file`` links to; None when that call
@@ -629,7 +658,11 @@ class _JavaScope:
         (strict, then with boxing, then variable arity) with an applicable
         method, then the most specific of them. Only methods known to be
         the choice are returned; otherwise ``methods`` is returned."""
-        if len(methods) < 2 or not (site.argument_types or site.argument_calls):
+        if len(methods) < 2 or not (
+            site.argument_types
+            or site.argument_calls
+            or (self._fields and site.argument_fields)
+        ):
             return methods
         at = (site.file, tuple(scope))
         arguments = list(site.argument_types or (None,) * site.arguments)
@@ -639,6 +672,13 @@ class _JavaScope:
                 # An argument that is a method call has the type its linked
                 # method returns, written where that method is declared.
                 found = self.call_result(site.file, span)
+                if found is not None:
+                    arguments[i], ats[i] = found
+        for i, named in enumerate((self._fields and site.argument_fields) or ()):
+            if named is not None:
+                # ``X.f`` with no variable ``X`` in scope: the static field
+                # ``f`` of the type ``X``, typed where ``X`` declares it.
+                found = self.static_field(site.file, scope, *named)
                 if found is not None:
                     arguments[i], ats[i] = found
         top = scope[0] if scope else None
