@@ -19,6 +19,7 @@ import time
 
 from .._version import __version__
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
+from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
@@ -27,6 +28,8 @@ from ..data_contracts import (
     extract_gorm,
     gorm_table_name,
     extract_django,
+    extract_drizzle,
+    resolve_script_module,
     extract_java,
     extract_java_sql,
     extract_prisma_client,
@@ -116,6 +119,30 @@ REPOSITORY_RULE = register_rule(
 )
 
 
+DRIZZLE_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-table",
+        "pattern_matched",
+        "A variable holds a Drizzle table: pgTable, mysqlTable, sqliteTable "
+        "or singlestoreTable imported from drizzle-orm's core module, a "
+        "schema's .table, or a *TableCreator whose function wraps the name "
+        "in fixed text, called with this literal name.",
+    )
+)
+DRIZZLE_QUERY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-query",
+        "pattern_matched",
+        "A query-builder call names the variable of a Drizzle table: from "
+        "and the joins read, insert, update and delete write; "
+        "db.query.<name>.findMany/findFirst reads. The variable is found "
+        "through the file's declarations and relative imports, re-exports "
+        "and export * included; a package import or a query key resolves "
+        "to the one table variable of that name in the caller's namespace, "
+        "else in the repository. The receiver is not checked to be a "
+        "Drizzle database.",
+    )
+)
 RAILS_SCHEMA_RULE = register_rule(
     EvidenceRule(
         "data-contracts.rails-schema-table",
@@ -1090,6 +1117,96 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        # Drizzle tables and the query-builder calls that name them.
+        drizzle_tables, drizzle_uses, script_modules = {}, [], {}
+        for file, content, tree in script_trees:
+            found = extract_drizzle(tree, content, file, result.definitions)
+            for item in found[0]:
+                drizzle_tables.setdefault(file, {}).setdefault(
+                    item.variable, []
+                ).append(item)
+            drizzle_uses.extend(found[1])
+            script_modules[file] = found[2]
+        source_files = {c.file for c in result.coverage}
+        by_variable = {}
+        drizzle_counts = {"tables": 0, "not_fixed": 0}
+        for file in sorted(drizzle_tables):
+            for variable, items in sorted(drizzle_tables[file].items()):
+                for item in items:
+                    if item.table == PLACEHOLDER:
+                        drizzle_counts["not_fixed"] += 1
+                        continue
+                    drizzle_counts["tables"] += 1
+                    target = table(file, item.table)
+                    link(
+                        "DECLARES",
+                        code(file, None),
+                        target,
+                        DRIZZLE_TABLE_RULE,
+                        {
+                            "line": item.line,
+                            "column": item.column,
+                            "variable": variable,
+                        },
+                    )
+                if len(items) == 1 and items[0].table != PLACEHOLDER:
+                    by_variable.setdefault(variable, set()).add(
+                        (scope(file), table(file, items[0].table))
+                    )
+
+        def exported_table(file, name, seen=()):
+            """The tables a module exports under a name, following
+            re-exports and ``export *``."""
+            if file is None or (file, name) in seen:
+                return set()
+            seen = (*seen, (file, name))
+            items = drizzle_tables.get(file, {}).get(name)
+            if items:
+                return (
+                    {table(file, items[0].table)}
+                    if len(items) == 1 and items[0].table != PLACEHOLDER
+                    else {None}
+                )
+            module = script_modules.get(file)
+            if module is None:
+                return set()
+            if name in module.re_exports:
+                source, original = module.re_exports[name]
+                return exported_table(
+                    resolve_script_module(file, source, source_files), original, seen
+                )
+            found = set()
+            for source in module.star_exports:
+                found |= exported_table(
+                    resolve_script_module(file, source, source_files), name, seen
+                )
+            return found
+
+        drizzle_access = {"linked": 0, "not_a_table": 0}
+        for use in drizzle_uses:
+            ref = use.ref
+            if ref.how == "local":
+                targets = exported_table(use.file, ref.name)
+            elif ref.how == "import" and ref.module.startswith("."):
+                targets = exported_table(
+                    resolve_script_module(use.file, ref.module, source_files), ref.name
+                )
+            else:
+                targets = _nearest(by_variable.get(ref.name, set()), scope(use.file))
+            if len(targets) != 1 or None in targets:
+                drizzle_access["not_a_table"] += 1
+                continue
+            drizzle_access["linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        next(iter(targets)),
+                        DRIZZLE_QUERY_RULE,
+                        {"variable": ref.name, "line": use.line, "column": use.column},
+                    )
         # Rails: db/schema.rb tables, ActiveRecord models and their calls.
         ruby_classes, ruby_prefixes, ruby_accesses = [], {}, []
         rails_overridden = False
@@ -1221,6 +1338,8 @@ class DataContractTool(AnalysisTool):
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
                     "orm_access_resolution": orm_counts,
+                    "drizzle_tables": drizzle_counts,
+                    "drizzle_access_resolution": drizzle_access,
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,
