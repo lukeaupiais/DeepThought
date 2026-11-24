@@ -411,6 +411,20 @@ def create_server():
         )
 
     @server.tool()
+    async def getSharedTables(
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """List database tables that code in more than one package declares, maps, reads or writes, with each package's roles (shared-database coupling)."""
+        return await ctx.request_context.lifespan_context.get_shared_tables(
+            repository_id,
+            snapshot_id=snapshot_id,
+            limit=max_elements,
+        )
+
+    @server.tool()
     async def findReferences(
         native_symbol: str,
         repository_id: str,

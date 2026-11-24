@@ -123,6 +123,34 @@ WORKSPACE = {
 }
 
 
+def shared_datasource_files():
+    """Three services; billing and report share one persistent database."""
+    entity = (
+        "package {p};\nimport jakarta.persistence.*;\n"
+        '@Entity @Table(name = "orders") public class Order {{ }}\n'
+    )
+    repository = (
+        "package {p};\nimport org.springframework.data.repository.{base};\n"
+        "public interface Orders extends {base}<Order, Long> {{ }}\n"
+    )
+    files = {}
+    for module, url, base in (
+        ("billing", "jdbc:postgresql://db:5432/shop", "CrudRepository"),
+        ("report", "jdbc:postgresql://db:5432/shop", "PagingAndSortingRepository"),
+        ("cache", "jdbc:h2:mem:cache", "PagingAndSortingRepository"),
+    ):
+        java = f"{module}/src/main/java/{module}/"
+        files[f"{module}/pom.xml"] = (
+            f"<project><artifactId>{module}</artifactId></project>"
+        )
+        files[f"{module}/src/main/resources/application.yml"] = (
+            f"spring:\n  datasource:\n    url: {url}\n"
+        )
+        files[java + "Order.java"] = entity.format(p=module)
+        files[java + "Orders.java"] = repository.format(p=module, base=base)
+    return files
+
+
 def write(directory, files):
     for name, text in files.items():
         path = Path(directory) / name
@@ -263,29 +291,7 @@ class ToolTests(unittest.TestCase):
         )
 
     def test_one_persistent_datasource_shares_its_tables(self):
-        entity = (
-            "package {p};\nimport jakarta.persistence.*;\n"
-            '@Entity @Table(name = "orders") public class Order {{ }}\n'
-        )
-        repository = (
-            "package {p};\nimport org.springframework.data.repository.{base};\n"
-            "public interface Orders extends {base}<Order, Long> {{ }}\n"
-        )
-        files = {}
-        for module, url, base in (
-            ("billing", "jdbc:postgresql://db:5432/shop", "CrudRepository"),
-            ("report", "jdbc:postgresql://db:5432/shop", "PagingAndSortingRepository"),
-            ("cache", "jdbc:h2:mem:cache", "PagingAndSortingRepository"),
-        ):
-            java = f"{module}/src/main/java/{module}/"
-            files[f"{module}/pom.xml"] = (
-                f"<project><artifactId>{module}</artifactId></project>"
-            )
-            files[f"{module}/src/main/resources/application.yml"] = (
-                f"spring:\n  datasource:\n    url: {url}\n"
-            )
-            files[java + "Order.java"] = entity.format(p=module)
-            files[java + "Orders.java"] = repository.format(p=module, base=base)
+        files = shared_datasource_files()
         with tempfile.TemporaryDirectory() as directory:
             write(directory, files)
             outputs = [
@@ -624,6 +630,61 @@ class JavaSqlTests(unittest.TestCase):
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
 
 
+ENTITY_MANAGER = {
+    "pom.xml": "<project><artifactId>shop</artifactId></project>",
+    "src/main/java/shop/Owner.java": JAVA_SQL["src/main/java/shop/Owner.java"],
+    "src/main/java/shop/OwnerStore.java": """package shop;
+import java.util.List;
+import jakarta.persistence.EntityManager;
+public class OwnerStore {
+    private EntityManager em;
+    private Owner current;
+    private List<Owner> recent;
+    void save(Owner owner) {
+        if (owner.id == null) { em.persist(owner); } else { this.em.merge(owner); }
+    }
+    Owner load(int id) { return em.find(Owner.class, id); }
+    void forgetCurrent() { em.remove(this.current); }
+    void forgetRecent(Owner owner) { recent.remove(owner); }
+    void unknown(Object thing) { em.remove(thing); }
+}
+""",
+}
+
+
+@unittest.skipUnless(JAVA, "Install the java grammar")
+class EntityManagerTests(unittest.TestCase):
+    def test_calls_on_declared_entities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, ENTITY_MANAGER)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["java"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.properties["line"],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.properties["rule_id"] == "data-contracts.jpa-entity-manager"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "OwnerStore.load", 11, "owners"),
+                ("WRITES", "OwnerStore.forgetCurrent", 12, "owners"),
+                ("WRITES", "OwnerStore.save", 9, "owners"),
+                ("WRITES", "OwnerStore.save", 9, "owners"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["entity_manager_resolution"],
+            {"linked": 4, "not_an_entity": 1},
+        )
+
+
 PYTHON_SQL = {
     "pyproject.toml": '[project]\nname = "jobs"\n',
     "jobs/store.py": """import sqlite3
@@ -691,11 +752,12 @@ class PythonSqlTests(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(
-    JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
-    "Provision isolated Neo4j and the java grammar",
-)
-class ImpactTests(unittest.IsolatedAsyncioTestCase):
+class GraphCase(unittest.IsolatedAsyncioTestCase):
+    """Writes a workspace's tree-sitter, components and data-contracts
+    outputs to an isolated repository of the provisioned Neo4j."""
+
+    files = WORKSPACE
+
     async def asyncSetUp(self):
         from deepthought.graph_queries import GraphQueryService
         from deepthought.storage.graph import (
@@ -719,9 +781,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             self.manager.driver, database=self.manager.database
         )
         with tempfile.TemporaryDirectory() as directory:
-            write(directory, WORKSPACE)
+            write(directory, self.files)
             self.outputs = [
                 await TreeSitterTool(directory).analyze(self.repo, languages={"java"}),
+                await ComponentsTool(directory).analyze(self.repo),
                 await DataContractTool(directory).analyze(self.repo),
             ]
         self.snapshot = "rev-" + uuid4().hex
@@ -740,6 +803,12 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 )
             ).consume()
 
+
+@unittest.skipUnless(
+    JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
+    "Provision isolated Neo4j and the java grammar",
+)
+class ImpactTests(GraphCase):
     async def test_a_writer_affects_the_readers_of_its_table(self):
         names = {
             n.properties["name"]: n.properties["qualified_name"]
@@ -766,6 +835,48 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             names["LineItemReader"], self.repo, snapshot_id=self.snapshot
         )
         self.assertEqual(reader["items"], [])
+
+
+@unittest.skipUnless(
+    JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
+    "Provision isolated Neo4j and the java grammar",
+)
+class SharedTableTests(GraphCase):
+    files = shared_datasource_files()
+
+    async def test_tables_shared_between_packages(self):
+        shared = await self.service.get_shared_tables(
+            self.repo, snapshot_id=self.snapshot
+        )
+        self.assertEqual(
+            [
+                (
+                    item["element"]["name"],
+                    item["writers"],
+                    [
+                        (
+                            p["qualified_name"].split("::")[1],
+                            [(r["role"], r["count"]) for r in p["roles"]],
+                        )
+                        for p in item["packages"]
+                    ],
+                )
+                for item in shared["items"]
+            ],
+            [
+                (
+                    "orders",
+                    1,
+                    [
+                        (
+                            "billing/pom.xml",
+                            [("MAPS_TO", 1), ("READS", 1), ("WRITES", 1)],
+                        ),
+                        ("report/pom.xml", [("MAPS_TO", 1), ("READS", 1)]),
+                    ],
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":
