@@ -296,6 +296,10 @@ class AppliedTest(unittest.TestCase):
         for rest in ("", ".x()", "!(x)", " = f(x)", "[0](x)"):
             self.assertFalse(ground_truth._applied(rest), rest)
 
+    def test_a_tagged_template_calls_its_tag_in_javascript(self):
+        self.assertTrue(ground_truth._applied("`<p>${x}</p>`", template=True))
+        self.assertFalse(ground_truth._applied("`raw`"))
+
     def test_declarations_are_not_calls(self):
         for before in ("def ", "    fn ", "func ", "func (r *T) ", "function "):
             self.assertTrue(ground_truth._DECLARES.search(before), before)

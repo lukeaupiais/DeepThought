@@ -38,6 +38,22 @@
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ky.tsv HISTORY --language typescript --revision 3541888878c4d303a8bc2ad61815f4e048f55a5d"
     },
     {
+      "name": "hono",
+      "url": "https://github.com/honojs/hono",
+      "commit": "9075031ea46533ae3b6e5b6c11f8333d67a7d6c2",
+      "license": "MIT",
+      "languages": [
+        "typescript"
+      ],
+      "truth": "calls/hono.tsv",
+      "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
+      "oracle_command": "scip-typescript index",
+      "imports": "imports/hono.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "impact": "impact/hono.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/hono.tsv HISTORY --language typescript --revision 9075031ea46533ae3b6e5b6c11f8333d67a7d6c2"
+    },
+    {
       "name": "preact",
       "url": "https://github.com/preactjs/preact",
       "commit": "1fbc07f67bd841315332cac73de8ce1ae3e8b7b5",

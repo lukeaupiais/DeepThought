@@ -149,6 +149,7 @@ Baseline (calls):
 |---|---|---|---|---|---|---|
 | click | python | 3,313 | 2,878 | 0 | 1.0 | 0.8639 |
 | ky | typescript | 143 | 322 | 0 | 1.0 | 0.9371 |
+| hono | typescript | 3,009 | 5,652 | 23 | 0.9959 | 0.5274 |
 | cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
 | chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
 | preact | javascript | 3,884 | 2,031 | 6 | 0.9971 | 0.2634 |
@@ -218,6 +219,7 @@ outside the repository. Recall is over import lines with a repository target.
 |---|---|---|---|---|---|
 | click | 331 | 331 | 0 | 1.0 | 1.0 |
 | ky | 98 | 98 | 0 | 1.0 | 1.0 |
+| hono | 1,007 | 1,003 | 0 | 1.0 | 0.996 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
 | preact | 442 | 195 | 0 | 1.0 | 0.4412 |
@@ -614,6 +616,10 @@ The third entry ("JavaScript corpus preact, 2026-11-24") adds preact: 58
 cases, impact 0.099 recall at 0.343 precision (1.16 files per case) against
 search 0.150 at 0.055 (10.98 files per case).
 
+The fourth entry ("TypeScript corpus hono, 2026-11-24") adds hono: 41
+cases, impact 0.141 recall at 0.233 precision (1.46 files per case) against
+search 0.515 at 0.091 (13.63 files per case).
+
 ### Impact ground truth
 
 The replay scores impact against co-edits, which also measures whether
@@ -647,10 +653,11 @@ declaration already spans: a function `run` is not merged with a method
 | Corpus | Seeds | Oracle dependents | Confirmed | Extra | Recall | Precision |
 |---|---|---|---|---|---|---|
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
-| ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
+| ky | 38 | 175 | 139 | 0 | 0.794 | 1.0 |
+| hono | 39 | 105 | 93 | 49 | 0.886 | 0.655 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
-| preact | 28 | 73 | 42 | 3 | 0.575 | 0.933 |
+| preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
 | gson | 164 | 5052 | 2866 | 5 | 0.567 | 0.998 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
@@ -664,12 +671,27 @@ holds decorators and default values, so a Python one-line body is not judged.
 chi is pinned with `_examples/` excluded, since the Go toolchain and scip-go
 ignore directories that start with `_`. Without the exclusion, the engine's
 callers there would count as extra with nothing to judge them by.
-preact's 3 extra dependents are functions declared inside another function
-(`const onSuspensionComplete = () => ...` in a method of
-`compat/src/suspense.js`, a `function Context` in `createContext`): the
-index makes them local symbols, so the oracle counts their calls as the
-enclosing function's and has no node for them. Reading them as the enclosing
-function would judge them; until then they count against the engine.
+scip-typescript makes a function declared inside another one a local
+symbol (`const onSuspensionComplete = () => ...` in a method of preact's
+`compat/src/suspense.js`), so the oracle has no node for it and counts its
+calls as the enclosing function's. For TypeScript and JavaScript corpora the
+scorer reads such an engine declaration, one that matches no oracle node, as
+the innermost engine declaration around it when that one is a node of the
+truth. This took ky from 5 extra to 0 and preact from 3 extra to 0 (2 more
+confirmed), with no truth change.
+
+The oracle also counts as callables a variable or class property whose
+initializer is a function even when it starts on a later line or has nested
+type parameters (`export const hc = <T extends Hono<any, any, any>>(`), and
+counts a tagged template (`html\`...\``) as a call of its tag. hono showed
+all three. The ky and preact truths derive unchanged.
+
+hono's 49 extra dependents are declarations the index does not name:
+functions local to an anonymous test callback (`const anotherApp = ...`
+inside `describe(...)`, 37 of the 43 distinct declarations), methods of an
+object literal (`websocket.open`, 3), the class `ClientRequestImpl`, and
+two functions whose type parameters nest deeper than the oracle reads. Its 23 call contradictions are the
+sibling-scope binding fixed by #159.
 A decorator call runs where the decorated function is declared, not in its
 body. scip-python's range for a function starts at its first decorator, so
 the lines from there to the `def` line belong to the enclosing function: a

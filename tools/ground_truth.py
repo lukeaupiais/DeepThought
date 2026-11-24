@@ -87,12 +87,15 @@ def _slice(text, start, end, encoding):
     return text[start:end]
 
 
-def _applied(rest):
-    """Whether the text after a name occurrence opens an argument list."""
+def _applied(rest, template=False):
+    """Whether the text after a name occurrence opens an argument list, or
+    with ``template`` (JavaScript and TypeScript) a tagged template, which
+    calls the tag: ``html`<p>${x}</p>` ``."""
     generic = _GENERIC.match(rest)
     if generic:
         rest = rest[generic.end() :]
-    return rest.lstrip(" \t").startswith("(")
+    rest = rest.lstrip(" \t")
+    return rest.startswith("(") or (template and rest.startswith("`"))
 
 
 def derive(workspace, index):
@@ -159,7 +162,9 @@ def derive(workspace, index):
         encoding = r.coordinate_encoding
         written = _slice(line, r.column, r.end_column, encoding)
         name = written if _NAME.fullmatch(written) else _descriptor_name(r.native_id)
-        if not name or not _applied(_slice(line, r.end_column, None, encoding)):
+        template = r.native_id.startswith("scip-typescript ")
+        rest = _slice(line, r.end_column, None, encoding)
+        if not name or not _applied(rest, template):
             continue
         if _DECLARES.search(_slice(line, 0, r.column, encoding)):
             # A declaration the index records as a reference (scip-python
@@ -858,6 +863,9 @@ def check(names, cache, update=False, examples=10):
                 impact_truth.read(path),
                 examples=examples,
                 aliases=impact_truth.read_aliases(path),
+                fold_nested=bool(
+                    {"typescript", "javascript"} & set(corpus["languages"])
+                ),
             )
             report["impact"] = impact
             samples["impact"] = impact_samples
