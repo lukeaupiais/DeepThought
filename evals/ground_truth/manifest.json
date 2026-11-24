@@ -211,5 +211,28 @@
       "oracle": "PHP 8.3.6 token_get_all",
       "oracle_command": "php tools/php_declaration_truth.php ."
     }
+  ],
+  "routes": [
+    {
+      "name": "routes-realworld-nestjs",
+      "url": "https://github.com/lujakob/nestjs-realworld-example-app",
+      "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
+      "license": "ISC (package.json)",
+      "labels": "routes/realworld-nestjs.json"
+    },
+    {
+      "name": "routes-nestjs-prisma-starter",
+      "url": "https://github.com/notiz-dev/nestjs-prisma-starter",
+      "commit": "225e5a906865df237a681c1ad228a3ecf2909326",
+      "license": "MIT",
+      "labels": "routes/nestjs-prisma-starter.json"
+    },
+    {
+      "name": "routes-howtographql-graphql-js",
+      "url": "https://github.com/howtographql/graphql-js",
+      "commit": "e0a3a21dbf8e594226250b04fdc0a5776493e64d",
+      "license": "MIT (package.json)",
+      "labels": "routes/howtographql-graphql-js.json"
+    }
   ]
 }

@@ -35,7 +35,10 @@ Subcommands:
                                            (labelled cross-service links) and
                                            ``declarations`` corpora (C, C++,
                                            Ruby and PHP declarations from
-                                           each language's own parser) too
+                                           each language's own parser) and
+                                           ``routes`` corpora (HTTP routes
+                                           and GraphQL fields labelled from
+                                           a spec) too
 
 Scores (calls):
   confirmed     linked, and the target is one the oracle names
@@ -524,6 +527,81 @@ def score_contracts(corpus, workspace):
     return report, samples
 
 
+def score_routes(corpus, workspace, examples=10):
+    """The routes and GraphQL root fields the engine reads, against labels
+    taken from a source the code does not produce (an API spec, a committed
+    generated schema).
+
+    HTTP routes match on method and path (``{var}`` for any parameter); a
+    GraphQL field is found only when a resolver ``HANDLES`` it. *extra* is
+    what the engine reads that the labels do not list, apart from
+    ``neutral_http`` entries (real routes beyond the spec).
+    """
+    import asyncio
+
+    from deepthought.analysis_tools import ServiceContractTool
+
+    labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    tool = ServiceContractTool(Path(workspace))
+    output = asyncio.run(tool.analyze("routes"))
+    _, routes, _, _, _ = tool.last_facts
+    read_http = {(m, r.path) for r in routes for m in r.methods}
+    fields = {
+        n.properties["qualified_name"]: n.properties["name"]
+        for n in output.nodes
+        if "GraphqlField" in n.labels
+    }
+    handled = {
+        fields[r.target_match["qualified_name"]]
+        for r in output.relationships
+        if r.type == "HANDLES" and r.target_match.get("qualified_name") in fields
+    }
+    report, samples = {}, {}
+    for kind, expected, read, neutral in (
+        (
+            "http",
+            {tuple(x) for x in labels.get("http", ())},
+            read_http,
+            {tuple(x) for x in labels.get("neutral_http", ())},
+        ),
+        ("graphql", set(labels.get("graphql", ())), handled, set()),
+    ):
+        if not expected:
+            continue
+        extra = read - expected - neutral
+        report[kind] = {
+            "expected": len(expected),
+            "found": len(expected & read),
+            "extra": len(extra),
+        }
+        samples[kind] = {
+            "missed": sorted(expected - read)[:examples],
+            "extra": sorted(extra)[:examples],
+        }
+    return report, samples
+
+
+def route_regressions(report, baseline):
+    """Fewer labelled routes or fields read, more unlabelled ones, or
+    changed labels, per kind."""
+    problems = []
+    for kind, before in sorted(baseline.items()):
+        after = report.get(kind)
+        if after is None:
+            problems.append(f"{kind}: no longer scored")
+            continue
+        if after["found"] < before["found"]:
+            problems.append(f"{kind} found {before['found']} -> {after['found']}")
+        if after["extra"] > before["extra"]:
+            problems.append(f"{kind} extra {before['extra']} -> {after['extra']}")
+        if after["expected"] != before["expected"]:
+            problems.append(
+                f"{kind} expected {before['expected']} -> {after['expected']} "
+                "(the labels changed; update the baseline in the same commit)"
+            )
+    return problems
+
+
 def contract_regressions(report, baseline):
     """Fewer correct links, more wrong ones, or changed labels, per kind."""
     problems = []
@@ -576,7 +654,10 @@ def missing_requirements(manifest, names=()):
     for corpus in manifest["corpora"] + manifest.get("declarations", []):
         if selected(corpus):
             modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
-    if any(selected(c) for c in manifest.get("contracts", ())):
+    if any(
+        selected(c)
+        for c in [*manifest.get("contracts", ()), *manifest.get("routes", ())]
+    ):
         modules.update(CONTRACT_MODULES)
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
@@ -722,6 +803,25 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             contracts[corpus["name"]] = report
+    routed = baseline.setdefault("routes", {})
+    for corpus in manifest.get("routes", ()):
+        if names and corpus["name"] not in names:
+            continue
+        report, samples = score_routes(corpus, fetch(corpus, cache), examples)
+        problems = (
+            route_regressions(report, routed[corpus["name"]])
+            if (corpus["name"] in routed and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "routes": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            routed[corpus["name"]] = report
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
