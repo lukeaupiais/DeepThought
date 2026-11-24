@@ -224,8 +224,7 @@
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 14,
       "ambiguous:multiple_declarations": 5,
-      "no_call_site": 19,
-      "unresolved:attribute_call": 145,
+      "unresolved:attribute_call": 164,
       "unresolved:base_not_resolved": 22,
       "unresolved:diamond": 2,
       "unresolved:local_binding": 76
@@ -233,8 +232,8 @@
     "precision": 1.0,
     "recall": 0.9146,
     "unjudged": 7,
-    "unresolved_expected": 245,
-    "unresolved_unjudged": 3589
+    "unresolved_expected": 264,
+    "unresolved_unjudged": 3724
   },
   "cobra": {
     "by_rule": {
@@ -1157,8 +1156,7 @@
     "missed": 1359,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 1,
-      "no_call_site": 5,
-      "unresolved:attribute_call": 10,
+      "unresolved:attribute_call": 15,
       "unresolved:attribute_not_typed": 10,
       "unresolved:attribute_type_not_declared": 6,
       "unresolved:base_not_resolved": 11,
@@ -1169,8 +1167,8 @@
     "precision": 1.0,
     "recall": 0.3063,
     "unjudged": 2,
-    "unresolved_expected": 1360,
-    "unresolved_unjudged": 2002
+    "unresolved_expected": 1365,
+    "unresolved_unjudged": 2086
   },
   "ky": {
     "by_rule": {
