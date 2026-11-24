@@ -583,6 +583,97 @@ class MessagingContractTests(unittest.TestCase):
         )
         self.assertEqual(counts, {"contract_links": 2})
 
+    def test_code_in_no_package_counts_in_its_build_context_units(self):
+        from deepthought.analysis_tools.components import bind_contract_users
+        from deepthought.analysis_tools.contracts import NodeData, RelationshipData
+
+        def component(kind, manifest, name, root=None):
+            properties = {
+                "qualified_name": "r::%s::%s::%s::component" % (manifest, kind, name),
+                "repo_url": "r",
+                "kind": kind,
+                "manifest": manifest,
+                "name": name,
+            }
+            if root is not None:
+                properties["root"] = root
+            return NodeData(["Component"], properties)
+
+        def symbol(name, path):
+            return NodeData(
+                ["Function", "Symbol"],
+                {"qualified_name": "r::" + name, "repo_url": "r", "file_path": path},
+            )
+
+        def edge(kind, source, contract):
+            return RelationshipData(
+                kind,
+                ["Symbol"],
+                {"qualified_name": "r::" + source, "repo_url": "r"},
+                ["GrpcMethod", "Contract"],
+                {"qualified_name": "r::" + contract, "repo_url": "r"},
+                {
+                    "evidence_type": "pattern_matched",
+                    "rule_id": "service-contracts.grpc-stub-call",
+                },
+            )
+
+        nodes = [
+            component("go_module", "checkout/go.mod", "checkout"),
+            # The email service has no package manifest; two manifests
+            # deploy its build context, and one workload builds nothing here.
+            component("k8s_workload", "k8s/email.yaml", "Deployment/email", "email"),
+            component(
+                "k8s_workload", "kustomize/email.yaml", "Deployment/email", "email"
+            ),
+            component("k8s_workload", "k8s/redis.yaml", "Deployment/redis"),
+            component("compose_service", "compose.yaml", "recs", "recs"),
+            symbol("send", "email/server.py"),
+            symbol("self", "email/client.py"),
+            symbol("order", "checkout/main.go"),
+            symbol("recommend", "recs/server.py"),
+        ]
+        relationships = [
+            edge("HANDLES", "send", "Email/Send"),
+            edge("REQUESTS", "order", "Email/Send"),
+            edge("REQUESTS", "self", "Email/Send"),
+            edge("REQUESTS", "recommend", "Email/Send"),
+        ]
+        edges, counts = bind_contract_users(nodes, relationships, "r")
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"].split("::")[1],
+                    r.target_match["qualified_name"].split("::")[1],
+                    r.properties["rule_id"],
+                )
+                for r in edges
+            ],
+            [
+                (
+                    "checkout/go.mod",
+                    "k8s/email.yaml",
+                    "components.contract-consumer-build-context",
+                ),
+                (
+                    "checkout/go.mod",
+                    "kustomize/email.yaml",
+                    "components.contract-consumer-build-context",
+                ),
+                (
+                    "compose.yaml",
+                    "k8s/email.yaml",
+                    "components.contract-consumer-build-context",
+                ),
+                (
+                    "compose.yaml",
+                    "kustomize/email.yaml",
+                    "components.contract-consumer-build-context",
+                ),
+            ],
+        )
+        self.assertEqual(counts, {"contract_links": 4})
+
 
 @unittest.skipUnless(YAML, "Provision PyYAML")
 class ComposeTests(unittest.TestCase):

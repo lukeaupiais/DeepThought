@@ -63,7 +63,7 @@ class RegistryTests(unittest.TestCase):
         )
         self.assertEqual(
             metadata[1].supported_languages,
-            {"go", "java", "javascript", "python", "typescript"},
+            {"csharp", "go", "java", "javascript", "php", "python", "typescript"},
         )
         self.assertEqual(metadata[1].capabilities, {ToolCapability.DEPENDENCY_ANALYSIS})
         metadata = metadata[2:]
@@ -72,6 +72,7 @@ class RegistryTests(unittest.TestCase):
             {
                 "c",
                 "cpp",
+                "csharp",
                 "go",
                 "java",
                 "javascript",

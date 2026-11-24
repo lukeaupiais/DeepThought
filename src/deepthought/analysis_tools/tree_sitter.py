@@ -333,6 +333,11 @@ _CALL_RULE_TEXT = {
     "applied) or, failing that, 'export * from'; each step is followed to the "
     "module that declares it. Default exports are not followed, and a name "
     "several star exports give is ambiguous.",
+    call_rules.CALL_JS_STATIC_METHOD: "A JavaScript or TypeScript callee "
+    "'C.m' whose C is the class declared where the call's scopes see C, or "
+    "the one class a named import binds to C (followed as for an imported "
+    "name), and m a method that class declares 'static'. Static methods it "
+    "inherits are not followed.",
     call_rules.CALL_PYTHON_TYPED_RECEIVER: "A Python 'x.m()' where x is a "
     "parameter annotated with a repository class, or a local whose one "
     "binding calls or annotates that class, links to m declared on the "
@@ -483,6 +488,7 @@ class TreeSitterTool(AnalysisTool):
             supported_languages={
                 "c",
                 "cpp",
+                "csharp",
                 "go",
                 "java",
                 "javascript",

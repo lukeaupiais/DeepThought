@@ -158,13 +158,14 @@ arbitrary object gets no edge.
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
-| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
+| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
-| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. `default`, `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
+| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
+| `tree-sitter.js-call-static-method` | JavaScript/TypeScript: `C.m()` to the method `m` that the class `C` declares `static` (`Definition.static`), as ky's `Ky.create(...)` and `NonError.wrap(...)`. `C` is the class declared where the call's scopes see `C` (`CallSite.binding` records that declaration for `x.m` calls too), or the one class a named or default import binds to `C`, followed as for `call-imported-name`. A static method `C` inherits is not followed (`static_not_declared`), and a name a scope binds to anything else (a parameter, `const C = other`) leaves the call `attribute_call` |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
@@ -412,6 +413,25 @@ api-gateway to customers-service and genai-service to vets-service, and both
 match the calling code (`CustomersServiceClient` and
 `VectorStoreController`).
 
+Code in no package (a Python service with only `requirements.txt`, a C# or
+Gradle service) counts in the Compose services and Kubernetes workloads
+whose build context, the Compose `build` or Skaffold artifact context, is
+deepest above it (`components.contract-consumer-build-context`). Copies of
+one build context deployed by several manifests are one service and never
+use each other. On GoogleCloudPlatform/microservices-demo `c7cb6d5` this
+adds 5 component pairs to the 8 between its Go and Node packages:
+loadgenerator to frontend (Locust HTTP), recommendationservice to
+productcatalogservice, checkoutservice to emailservice, and frontend to
+adservice and recommendationservice. Each one matches a gRPC stub or HTTP
+call in the consuming service. `get_component_impact` from
+productcatalogservice now lists the recommendationservice workload, and
+from the emailservice workload it lists checkoutservice. Every edge on
+those paths carries a rule ID. `get_impact` already crossed the same
+contracts at declaration level: from currencyservice's Node `convert`
+handler it reaches the `CurrencyService/Convert` method, then the Go
+`convertCurrency` callers in checkoutservice and frontend and their own
+callers.
+
 The same comparison tool checks REQUIRES against `cargo metadata
 --all-features` resolve graphs, `go mod edit -json` replacements and a Yarn
 Berry `yarn.lock`: every resolved link must be one the build tool made, and
@@ -555,6 +575,11 @@ analyzed twice by default. Declarations, call sites and call rules are the same
 as for TypeScript. ES module `import ... from` and `export ... from` statements
 are import facts. CommonJS `require()` and dynamic `import()` are not, so a
 CommonJS module has declarations and calls but no IMPORTS edges.
+
+A variable declared with an arrow function or an anonymous function
+expression (`const walk = function* () {}`) is a `Function` declaration with
+the variable's name, so calls inside it belong to it. A named function
+expression keeps no declaration of its own.
 
 The original import processor returned `<specifier>.ts` for every relative
 JavaScript or TypeScript specifier without checking that the file existed. Here
@@ -1618,6 +1643,30 @@ guzzle's `src/Handler/StreamHandler.php` imports `Openssl\Session`, which the
 repository declares only in a test file (the real class comes from an
 extension), and it is linked there.
 
+## C#
+
+C# is an opt-in language (`--language csharp`, the `csharp` extra with
+tree-sitter-c-sharp 0.24.0). Declarations only so far
+(`syntax.extract_csharp`): classes, structs, interfaces, records and enums,
+and their methods and constructors. Symbols join the namespace (a braced
+`namespace A.B { }`, or a file-scoped `namespace A.B;` for the declarations
+after it) and the enclosing types with `.`, without type parameters. A
+declaration starts at its first attribute, as a Java declaration starts at
+its first annotation. Local functions, lambdas, properties, operators,
+delegates and enum members are not recorded; imports and calls are not read
+yet.
+
+`tools/compare_csharp_declarations.py` checks this against an independent walk of the same trees (each declaration's
+namespace and types read from its ancestors rather than the extractor's
+scope stack, and declarations inside bodies dropped), and a lexical count of
+type keywords with comments and strings removed:
+
+| Corpus | Files | Declarations | Differences | Types: lexical / extracted |
+|---|---|---|---|---|
+| dotnet-architecture/eShopOnWeb `4da8212` | 254 | 724 | 0 | 255 / 257 (the 2 are generic interfaces with a `where` clause the keyword count misses) |
+| jasontaylordev/CleanArchitecture `f7f9771` | 110 | 357 | 0 | 124 / 124 (2 files have grammar errors) |
+| GoogleCloudPlatform/microservices-demo `src/cartservice` | 9 | 40 | 0 | 8 / 8 |
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
@@ -1928,6 +1977,50 @@ routes registered in code are not followed.
 Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
+
+#### Apache HttpClient and fields set by constructors
+
+Java code that builds a request with Apache HttpClient (`new HttpGet(url)`,
+`new HttpPost(url)`, ... from `org.apache.http.client.methods` or the 5.x
+`org.apache.hc.client5.http.classic.methods`) is a request with that
+method, placed on the `new` (`service_contracts.spring`). The URL is folded
+as for RestTemplate, and one more kind of name is folded for every Java
+client: a String field with no initializer and no annotation that only
+constructors assign, each time from one of their parameters
+(`this.baseUrl = baseUrl;`). Its values are that argument of every `new` of
+the class in the repository with as many arguments, folded in the file that
+writes it (`java_constructions`). With none, or when one `new` passes wholly unknown text, or when another assignment (a literal in a second constructor, a setter) sets the field, it is unknown: the request is unresolved rather than linked through the values the other constructions give. robot-shop's
+shipping service builds `new CartHelper(CART_URL)` with
+`String.format("http://%s/shipping/", ...)`, so `new HttpPost(baseUrl + id)`
+is `POST http://{?}/shipping/{?}` and meets the cart service's route.
+
+### PHP: Symfony routes and curl
+
+PHP files are read for routes and requests (`service_contracts.php`):
+
+- **Routes.** A method carries a `@Route` annotation in its docblock or a
+  `#[Route]` attribute, where `Route` is imported from
+  `Symfony\Component\Routing\Annotation` or `...\Attribute`. The path is
+  the first argument or `path`, joined with the class's own `Route`; the
+  methods are `methods` (any method without it). A path that is not a
+  literal is unread. Routes in YAML, XML or PHP config files, and a
+  kernel-level prefix, are not read (rule `service-contracts.symfony-route`).
+- **Requests.** `curl_init($url)` is a request placed on that call. The URL
+  is folded in its function: literals, `"...$x..."` (variables are unknown
+  text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once
+  before the use; properties are unknown. The method is GET, or what
+  `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
+  with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
+  other value makes it unknown. A handle whose URL is set with
+  `CURLOPT_URL`, Guzzle and Symfony HttpClient are not read yet.
+
+robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
+`PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
+web front end and load generator reach ratings through the nginx
+`/api/ratings/` location. Its curl call to `sprintf('%s/product/%s', ...)`
+meets the catalogue's `GET /product/:sku`. With the Java change above, the
+corpus scores 42 of 42 labelled call sites and 17 of 17 service pairs, none
+wrong (37 and 14 before).
 
 ### NestJS controllers
 
@@ -2363,8 +2456,15 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-go-register-constructor` | `pb.RegisterXServer(s, f(...))` (or a name bound once to that call), where `f` is declared in one file of the same package directory and its only result is `T` or `*T` for a struct type `T` of that package; the methods of `T` as above |
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
+  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class. C# clients are not read yet |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
   | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
+
+  C# servers, against a lexical reference (classes written `: ....X.XBase`,
+  their `override` methods named as an rpc of X in the repository's protos):
+  grpc/grpc-dotnet `7c1a477` `examples` 49 of 49 handlers, none extra;
+  online-boutique's cartservice 3 of 3, which takes its labelled servers to
+  20 of 20 and service pairs to 14 of 14.
 
 - **Clients.** `service-contracts.grpc-stub-call` links the calling
   declaration (or the file) by `REQUESTS` when a method is called on a stub of
@@ -3005,7 +3105,20 @@ within a namespace. A module whose Spring configuration
 `spring.datasource.url` uses that URL as its namespace, so services that
 point at the same persistent database share its tables. Otherwise, and for
 in-memory URLs (`:mem:`, `:memory:`), which give each process its own
-database, the namespace is the nearest package. One service's private
+database, a file whose deepest enclosing Compose build context is built
+by services that name exactly one database in their `environment` uses that
+database as its namespace: a connection URL (`jdbc:` dropped) whose host is a
+service of the same Compose file running a database image (`postgres`,
+`postgis`, `timescaledb`, `mysql`, `mariadb`, `percona-server`, `mongo`,
+`cockroach`, `libsql-server`), keyed by the Compose file's directory, that
+service and the URL's database. On openstatus (3836510) this puts the Go
+`private-location` service's SQL (`DB_URL=http://libsql:8080`) on the same
+`monitor`, `private_location` and `private_location_to_monitor` tables as the
+TypeScript Drizzle schema the `server`, `dashboard` and `workflows` services
+use (`DATABASE_URL=http://libsql:8080`); before, it read tables of its own
+`go.mod`. `env_file`, interpolated values, host/port/name variables split
+across several keys and URLs fixed in code are not read. Otherwise the
+namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and
 environment variables are not resolved, and migrations kept in a separate
 package from their entities meet them only through a shared datasource URL.

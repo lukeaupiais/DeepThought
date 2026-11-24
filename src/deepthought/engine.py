@@ -30,6 +30,7 @@ from .syntax import (
     extract,
     extract_c,
     extract_cpp,
+    extract_csharp,
     extract_php,
     extract_ruby,
     extract_call_sites,
@@ -494,6 +495,12 @@ def analyze_repository(
                     # Ruby: declarations only so far.
                     definitions.extend(
                         extract_ruby(tree, content, repository_id, relative)
+                    )
+                    continue
+                if language == "csharp":
+                    # C#: declarations only so far.
+                    definitions.extend(
+                        extract_csharp(tree, content, repository_id, relative)
                     )
                     continue
                 if language == "php":
