@@ -332,3 +332,54 @@ if __name__ == "__main__":
         self.assertEqual((plain["extra"], plain["unjudged"]), (1, 0))
         report, _ = impact_truth.score(result, truth, indexed={"m.py"})
         self.assertEqual((report["extra"], report["unjudged"]), (0, 1))
+
+
+@unittest.skipUnless(shutil.which("go"), "needs the go toolchain")
+class InterfaceDispatchTests(unittest.TestCase):
+    def test_interface_methods_map_to_their_implementations(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        files = {
+            "go.mod": "module example.com/m\n\ngo 1.21\n",
+            "r.go": (
+                "package m\n"
+                "\n"
+                "type Router interface {\n"
+                "\tMount(p string)\n"
+                "}\n"
+                "\n"
+                "type Mux struct{}\n"
+                "\n"
+                "func (m *Mux) Mount(p string) {}\n"
+                "\n"
+                'func use(r Router) { r.Mount("/") }\n'
+            ),
+            # Another package of the module implements it too.
+            "sub/s.go": (
+                "package sub\n\ntype Sub struct{}\n\nfunc (Sub) Mount(p string) {}\n"
+            ),
+            # A file another platform builds is not read.
+            "r_other.go": "//go:build plan9\n\npackage m\n\nfunc (m *Mux) Mount() {}\n",
+            # Directories the go tool ignores are skipped.
+            "_examples/e.go": "package e\n\ntype E struct{}\n\nfunc (E) Mount(p string) {}\n",
+        }
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text, "utf-8")
+        completed = subprocess.run(
+            ["go", "run", str(ROOT / "tools/go_interface_dispatch.go"), str(root)],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, "GOFLAGS": "-mod=mod", "GOWORK": "off"},
+        )
+        self.assertEqual(
+            completed.stdout.splitlines(),
+            ["r.go\t4\tr.go\t9", "r.go\t4\tsub/s.go\t5"],
+        )
+        path = root / "dispatch.tsv"
+        path.write_text(completed.stdout, "utf-8")
+        self.assertEqual(
+            impact_truth.read_dispatch(path),
+            {("r.go", 4): {("r.go", 9), ("sub/s.go", 5)}},
+        )

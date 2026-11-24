@@ -84,7 +84,7 @@
       "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
       "imports_granularity": "directory",
       "impact": "impact/cobra.tsv",
-      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv"
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && go run tools/go_interface_dispatch.go . > dispatch.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv --dispatch dispatch.tsv"
     },
     {
       "name": "chi",
@@ -104,7 +104,7 @@
       "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
       "imports_granularity": "directory",
       "impact": "impact/chi.tsv",
-      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/chi.tsv HISTORY --language go --revision c64ed7d6635f33a8b2feaff7dcfa55677023ac7d --spans spans.tsv"
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && go run tools/go_interface_dispatch.go . > dispatch.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/chi.tsv HISTORY --language go --revision c64ed7d6635f33a8b2feaff7dcfa55677023ac7d --spans spans.tsv --dispatch dispatch.tsv"
     },
     {
       "name": "anyhow",
