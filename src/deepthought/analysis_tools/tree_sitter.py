@@ -293,6 +293,12 @@ _CALL_RULE_TEXT = {
     "or as 'module.name', names a module that does not declare the name but "
     "binds it with exactly one 'from M import name'; that import is followed, "
     "step by step, to the module that declares it at top level.",
+    call_rules.CALL_JS_REEXPORT: "A JavaScript or TypeScript callee bound by "
+    "an import, bare or as 'module.name', names a module that does not "
+    "declare the name but re-exports it with 'export { name } from' (aliases "
+    "applied) or, failing that, 'export * from'; each step is followed to the "
+    "module that declares it. Default exports are not followed, and a name "
+    "several star exports give is ambiguous.",
     call_rules.CALL_PYTHON_TYPED_RECEIVER: "A Python 'x.m()' where x is a "
     "parameter annotated with a repository class, or a local whose one "
     "binding calls or annotates that class, links to m declared on the "
