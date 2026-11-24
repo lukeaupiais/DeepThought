@@ -48,8 +48,10 @@ languages = [
   "tomli==2.2.1; python_version < '3.11'",
   # Manifest formats the components tool reads.
   "pyyaml==6.0.3",
-  # protoc, which reads .proto files for gRPC contracts.
+  # protoc, which reads .proto files for gRPC contracts, and the
+  # google/api protos that HTTP annotations import.
   "grpcio-tools==1.85.4",
+  "googleapis-common-protos==1.76.0",
   # The GraphQL parser for schemas and operations in contracts.
   "graphql-core==3.2.14",
 ]
@@ -58,7 +60,7 @@ components = ["tomli==2.2.1; python_version < '3.11'", "pyyaml==6.0.3"]
 # Kept so existing `[scip]` installs keep working; protobuf is now a core dependency.
 scip = ["protobuf==7.35.1"]
 # protoc (with the well-known types) for .proto files in gRPC contracts.
-grpc = ["grpcio-tools==1.85.4"]
+grpc = ["grpcio-tools==1.85.4", "googleapis-common-protos==1.76.0"]
 # graphql-core parses GraphQL schemas and operations for contracts.
 graphql = ["graphql-core==3.2.14"]
 
