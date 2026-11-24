@@ -1318,7 +1318,7 @@ def extract_javascript(context, nest=None, axios_imports=None):
     if context.language == "typescript" and any(
         m.startswith(_NEST + ".") for m in modules.values()
     ):
-        extract_nest(context, modules, nest or (None, None))
+        extract_nest(context, modules, nest or (None, None, None))
     express_names = {n for n, m in modules.items() if m == "express"}
     router_constructors = {n for n, m in modules.items() if m == "express.Router"}
 
@@ -1529,10 +1529,69 @@ def _nest_paths(context, node):
     return [context.folder.evaluate(node)]
 
 
+def _nest_versions(folder, node, content):
+    """The versions a Nest version value names: a string, an array of them,
+    or VERSION_NEUTRAL (None: no version); None when it is not one of
+    these."""
+    items = (
+        [c for c in node.named_children if c.type != "comment"]
+        if node.type == "array"
+        else [node]
+    )
+    found = []
+    for item in items:
+        if text(item, content).rpartition(".")[2] == "VERSION_NEUTRAL":
+            found.append(None)
+            continue
+        value = folder.evaluate(item)
+        if PLACEHOLDER in value or not value:
+            return None
+        found.append(value)
+    return tuple(found) or None
+
+
+def _nest_versioning(folder, positional, content):
+    """("versioning", (versions change the path, URI prefix, default
+    versions)) of an ``enableVersioning(options)`` call whose options are
+    literal, else ("unread", "versioning"). URI versioning puts
+    ``{prefix}{version}`` before the controller path (prefix "v" unless
+    given, none for ``prefix: false``); header, media type and custom
+    versioning leave the path alone."""
+    unread = ("unread", "versioning")
+    if len(positional) != 1 or positional[0].type != "object":
+        return unread
+    if any(c.type == "spread_element" for c in positional[0].named_children):
+        return unread
+    options = _js_object(positional[0], content)
+    kind = text(options["type"], content) if "type" in options else ""
+    member = kind.rpartition(".")[2]
+    if not kind.startswith("VersioningType.") or member not in (
+        "URI",
+        "HEADER",
+        "MEDIA_TYPE",
+        "CUSTOM",
+    ):
+        return unread
+    prefix = "v"
+    if "prefix" in options:
+        written = text(options["prefix"], content)
+        prefix = "" if written == "false" else folder.evaluate(options["prefix"])
+        if PLACEHOLDER in prefix:
+            return unread
+    defaults = (None,)
+    if "defaultVersion" in options:
+        defaults = _nest_versions(folder, options["defaultVersion"], content)
+        if defaults is None:
+            return unread
+    return "versioning", (member == "URI", prefix, defaults)
+
+
 def nest_settings(tree, content, language):
     """Application-wide NestJS settings a file makes: ("prefix", text) for
-    ``x.setGlobalPrefix("text")``, and ("unread", reason) for a prefix that
-    is not one literal argument, ``enableVersioning`` or ``RouterModule``."""
+    ``x.setGlobalPrefix("text")``, ("versioning", ...) for a literal
+    ``enableVersioning`` (``_nest_versioning``), and ("unread", reason) for a
+    prefix that is not one literal argument, versioning options that are
+    not literal, or ``RouterModule``."""
     folder = Folder(language, tree.root_node, content)
     found = []
     for node in _walk(tree.root_node):
@@ -1558,7 +1617,7 @@ def nest_settings(tree, content, language):
             else:
                 found.append(("prefix", value))
         elif name == "enableVersioning":
-            found.append(("unread", "versioning"))
+            found.append(_nest_versioning(folder, positional, content))
         elif owner == "RouterModule":
             found.append(("unread", "router_module"))
     return found
@@ -1567,10 +1626,13 @@ def nest_settings(tree, content, language):
 def extract_nest(context, modules, nest):
     """Routes of NestJS controllers: a class decorated ``@Controller(path)``
     whose methods carry ``@Get(path)`` and the like, all from
-    @nestjs/common; ``nest`` is (global prefix, unread reason) of the
-    application this file belongs to."""
+    @nestjs/common; ``nest`` is (global prefix, unread reason, versioning)
+    of the application this file belongs to. A controller's ``version``
+    option, or a method's ``@Version``, is read only when the application
+    enables versioning with literal options; then a route without one takes
+    the default version."""
     content = context.content
-    prefix, reason = nest
+    prefix, reason, versioning = nest
     for node in _walk(context.root):
         if node.type != "class_declaration":
             continue
@@ -1589,11 +1651,20 @@ def extract_nest(context, modules, nest):
         decorator, arguments = controller
         line = decorator.start_point.row + 1
         first = arguments[0] if arguments else None
+        class_versions = versioning[2] if versioning is not None else (None,)
         if first is not None and first.type == "object":
             options = _js_object(first, content)
             if "version" in options:
-                context.unread.append(Unread(context.file, line, "route", "version"))
-                continue
+                class_versions = (
+                    _nest_versions(context.folder, options["version"], content)
+                    if versioning is not None
+                    else None
+                )
+                if class_versions is None:
+                    context.unread.append(
+                        Unread(context.file, line, "route", "version")
+                    )
+                    continue
             first = options.get("path")
         bases = _nest_paths(context, first)
         body = node.child_by_field_name("body")
@@ -1611,16 +1682,35 @@ def extract_nest(context, modules, nest):
             handler = context.definition_of(member) or context.named_function(
                 f"{class_name}.{method_name}"
             )
+            versions = class_versions
             for item in decorators:
                 name, args = _nest_decorator(item, modules, content)
                 if name == "Version":
-                    context.unread.append(
-                        Unread(
-                            context.file, item.start_point.row + 1, "route", "version"
-                        )
+                    versions = (
+                        _nest_versions(context.folder, args[0], content)
+                        if versioning is not None and len(args) == 1
+                        else None
                     )
-                    break
+                    if versions is None:
+                        context.unread.append(
+                            Unread(
+                                context.file,
+                                item.start_point.row + 1,
+                                "route",
+                                "version",
+                            )
+                        )
+                        break
             else:
+                uri, version_prefix = (
+                    versioning[:2] if versioning is not None else (False, "")
+                )
+                segments = sorted(
+                    {
+                        version_prefix + v if uri and v is not None else ""
+                        for v in versions
+                    }
+                )
                 for item in decorators:
                     name, args = _nest_decorator(item, modules, content)
                     if name not in _NEST_VERBS:
@@ -1634,16 +1724,19 @@ def extract_nest(context, modules, nest):
                         continue
                     for base in bases:
                         for path in _nest_paths(context, args[0] if args else None):
-                            full = _nest_path(join_paths(prefix or "", base, path))
-                            if PLACEHOLDER in base or PLACEHOLDER in path:
-                                full = PLACEHOLDER
-                            context.route(
-                                item,
-                                [_NEST_VERBS[name]],
-                                full,
-                                "nestjs",
-                                handler,
-                            )
+                            for segment in segments:
+                                full = _nest_path(
+                                    join_paths(prefix or "", segment, base, path)
+                                )
+                                if PLACEHOLDER in base or PLACEHOLDER in path:
+                                    full = PLACEHOLDER
+                                context.route(
+                                    item,
+                                    [_NEST_VERBS[name]],
+                                    full,
+                                    "nestjs",
+                                    handler,
+                                )
 
 
 # -- Go -----------------------------------------------------------------------

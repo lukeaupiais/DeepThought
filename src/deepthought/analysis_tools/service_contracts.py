@@ -1683,12 +1683,19 @@ def _nest_applications(root, sources):
     for package, facts in settings.items():
         reasons = sorted({v for k, v in facts if k == "unread"})
         prefixes = {v for k, v in facts if k == "prefix"}
+        versionings = {v for k, v in facts if k == "versioning"}
         if reasons:
-            found[package] = (None, reasons[0])
+            found[package] = (None, reasons[0], None)
         elif len(prefixes) > 1:
-            found[package] = (None, "global_prefix_ambiguous")
+            found[package] = (None, "global_prefix_ambiguous", None)
+        elif len(versionings) > 1:
+            found[package] = (None, "versioning_ambiguous", None)
         else:
-            found[package] = (next(iter(prefixes), None), None)
+            found[package] = (
+                next(iter(prefixes), None),
+                None,
+                next(iter(versionings), None),
+            )
     return found
 
 
