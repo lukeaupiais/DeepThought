@@ -396,6 +396,13 @@ _CALL_RULE_TEXT = {
     "type T (written where that method is declared) denotes a type by Java's "
     "lookup order; for 'new T(...).name', T as written. T declares or inherits "
     "the method, chosen among overloads as other Java calls are.",
+    call_rules.JAVA_STATIC_FIELD_RECEIVER: "In a Java call 'T.F.name' where no "
+    "variable or field named by the first name of T can be in scope (none "
+    "declared around the call, and no type around it may inherit one), T "
+    "denotes a type by Java's lookup order that declares the static field or "
+    "enum constant F, whose declaration writes a class type U (an enum "
+    "constant: its enum); U declares or inherits the method, chosen among "
+    "overloads as other Java calls are.",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
     call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "

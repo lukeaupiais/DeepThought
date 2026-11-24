@@ -769,6 +769,7 @@ every link is `name_matched`:
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 | `tree-sitter.java-call-chained-receiver` | `e.m()` where `e` is itself a call (`a.b().m()`, `T.f().m()`, `f().m()`) whose link reaches a method declaring a class return type `T`, or `new T(...)`: `m` declared on `T` or inherited through its declared bases, overloads chosen as for other Java calls; a type-parameter or primitive return leaves it unresolved |
+| `tree-sitter.java-call-static-field-receiver` | `T.F.m()` where no variable or field named like `T`'s first name can be in scope (none declared around the call, no type around it that may inherit one) and the type `T` declares the static field or enum constant `F` with a written class type `U`: `m` declared on `U` or inherited through its declared bases |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -982,6 +983,11 @@ follow the linked method's declared return type
 raised confirmed links from 9,342 to 10,457 of 11,050 with none
 contradicted; 22 of its links land where javac bound no call, mostly in the
 proto tests, whose receivers involve classes built from `.proto` files.
+Calls on a type's static field or enum constant
+(`DefaultDateTypeAdapter.DateType.DATE.createAdapterFactory(...)`,
+`JsonElementTypeAdapter.ADAPTER.read(...)`) follow the field's written type
+(`tree-sitter.java-call-static-field-receiver`): 50 more confirmed links on
+gson (10,517 of 11,050), none contradicted.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that

@@ -397,6 +397,10 @@ class CallSite:
     # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
     # line, end column) of ``e``. None elsewhere.
     receiver_call: tuple[int, int, int, int] | None = None
+    # Java calls ``X.f.m()`` (three or more names): True when no variable or
+    # field named ``X`` can be in scope, so ``X`` names a type or package.
+    # None elsewhere.
+    type_qualified: bool | None = None
 
     def __post_init__(self):
         if self.binding is not None and (
@@ -486,6 +490,8 @@ class CallSite:
             raise ValueError("receiver_steps must be nonempty strings after a type")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
+        if self.type_qualified not in (None, True):
+            raise ValueError("type_qualified must be True or None")
         if self.argument_types is not None and (
             type(self.argument_types) is not tuple
             or len(self.argument_types) != self.arguments
@@ -851,6 +857,8 @@ class AnalysisResult:
                 del item["argument_calls"]
             if item["receiver_call"] is None:
                 del item["receiver_call"]
+            if item["type_qualified"] is None:
+                del item["type_qualified"]
             if item["argument_fields"] is None:
                 del item["argument_fields"]
         for item in data["imports"]:
