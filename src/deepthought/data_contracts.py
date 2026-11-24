@@ -537,6 +537,143 @@ def _candidates(written, imports, package):
     return (own, *(f"{w}.{written}" for w in sorted(imports.wildcards)))
 
 
+# EntityManager methods that write (persist, merge, remove) or read (find,
+# getReference) an entity's table.
+ENTITY_MANAGER_WRITES = {"persist", "merge", "remove"}
+ENTITY_MANAGER_READS = {"find", "getReference"}
+_JAVA_SCOPES = ("method_declaration", "constructor_declaration", "lambda_expression")
+
+
+@dataclass(frozen=True)
+class EntityUse:
+    """An EntityManager call on an entity whose type the code declares."""
+
+    file: str
+    owner_id: str | None
+    entity: str  # the type as written
+    candidates: tuple[str, ...]
+    writes: bool
+    line: int
+    column: int
+
+
+def _declared_types(scope, content):
+    """{name: written type} of the parameters and locals declared once in a
+    method, constructor or lambda (nested lambdas excluded)."""
+    found = {}
+    stack = [scope]
+    while stack:
+        node = stack.pop()
+        if node.type in ("formal_parameter", "local_variable_declaration"):
+            written = _type_name(node.child_by_field_name("type"), content)
+            names = (
+                [node.child_by_field_name("name")]
+                if node.type == "formal_parameter"
+                else [
+                    d.child_by_field_name("name")
+                    for d in node.children_by_field_name("declarator")
+                ]
+            )
+            for name in names:
+                if name is not None:
+                    found.setdefault(_text(name, content), []).append(written)
+        if node is not scope and node.type in _JAVA_SCOPES:
+            continue
+        stack.extend(node.named_children)
+    # A name declared twice is known to be local but of no single type.
+    return {n: t[0] if len(t) == 1 else None for n, t in found.items()}
+
+
+def _field_types(body, content):
+    """{name: written type} of the fields a class body declares once."""
+    found = {}
+    for node in body.named_children if body is not None else ():
+        if node.type != "field_declaration":
+            continue
+        written = _type_name(node.child_by_field_name("type"), content)
+        for declarator in node.children_by_field_name("declarator"):
+            name = _text(declarator.child_by_field_name("name"), content)
+            found.setdefault(name, []).append(written)
+    return {n: t[0] for n, t in found.items() if len(t) == 1 and t[0]}
+
+
+def _variable_type(node, scope, body, content):
+    """The declared type of ``name`` (a parameter or local of the scope, else
+    a field) or ``this.name`` (a field), or None."""
+    if node is None:
+        return None
+    if node.type == "identifier":
+        variable = _text(node, content)
+        local = _declared_types(scope, content) if scope is not None else {}
+        if variable in local:
+            return local[variable]
+        return _field_types(body, content).get(variable)
+    if (
+        node.type == "field_access"
+        and _text(node.child_by_field_name("object"), content) == "this"
+    ):
+        return _field_types(body, content).get(
+            _text(node.child_by_field_name("field"), content)
+        )
+    return None
+
+
+def extract_entity_manager(tree, content, file, definitions):
+    """EntityManager ``persist``/``merge``/``remove`` (WRITES) of a parameter,
+    local or field whose declared type is a class, and ``find``/
+    ``getReference`` (READS) of a class literal, in a file importing
+    jakarta.persistence or javax.persistence."""
+    root = tree.root_node
+    imports = _Imports(root, content)
+    if not any(_imports_package(imports, p) for p in _PERSISTENCE):
+        return []
+    package = _package(root, content)
+    found = []
+    # (node, enclosing scope, enclosing class body)
+    stack = [(root, None, None)]
+    while stack:
+        node, scope, body = stack.pop()
+        if node.type in _JAVA_SCOPES:
+            scope = node
+        elif node.type in (
+            "class_declaration",
+            "enum_declaration",
+            "record_declaration",
+        ):
+            body = node.child_by_field_name("body")
+        stack.extend((c, scope, body) for c in reversed(node.named_children))
+        if node.type != "method_invocation":
+            continue
+        name = _text(node.child_by_field_name("name"), content)
+        if name not in ENTITY_MANAGER_WRITES | ENTITY_MANAGER_READS:
+            continue
+        first = _first_argument(node)
+        if first is None or _variable_type(
+            node.child_by_field_name("object"), scope, body, content
+        ) not in ("EntityManager", *(f"{p}.EntityManager" for p in _PERSISTENCE)):
+            continue
+        written = None
+        if name in ENTITY_MANAGER_READS:
+            if first.type == "class_literal":
+                written = _type_name(first.named_children[0], content)
+        else:
+            written = _variable_type(first, scope, body, content)
+        if not written:
+            continue
+        found.append(
+            EntityUse(
+                file,
+                _innermost(definitions, file, node),
+                written,
+                _candidates(written, imports, package),
+                name in ENTITY_MANAGER_WRITES,
+                node.start_point.row + 1,
+                node.start_point.column,
+            )
+        )
+    return found
+
+
 # Django ---------------------------------------------------------------------
 
 _SPRING_JDBC = "org.springframework.jdbc"

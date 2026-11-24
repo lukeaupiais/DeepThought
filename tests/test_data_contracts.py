@@ -624,6 +624,61 @@ class JavaSqlTests(unittest.TestCase):
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
 
 
+ENTITY_MANAGER = {
+    "pom.xml": "<project><artifactId>shop</artifactId></project>",
+    "src/main/java/shop/Owner.java": JAVA_SQL["src/main/java/shop/Owner.java"],
+    "src/main/java/shop/OwnerStore.java": """package shop;
+import java.util.List;
+import jakarta.persistence.EntityManager;
+public class OwnerStore {
+    private EntityManager em;
+    private Owner current;
+    private List<Owner> recent;
+    void save(Owner owner) {
+        if (owner.id == null) { em.persist(owner); } else { this.em.merge(owner); }
+    }
+    Owner load(int id) { return em.find(Owner.class, id); }
+    void forgetCurrent() { em.remove(this.current); }
+    void forgetRecent(Owner owner) { recent.remove(owner); }
+    void unknown(Object thing) { em.remove(thing); }
+}
+""",
+}
+
+
+@unittest.skipUnless(JAVA, "Install the java grammar")
+class EntityManagerTests(unittest.TestCase):
+    def test_calls_on_declared_entities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, ENTITY_MANAGER)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["java"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.properties["line"],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.properties["rule_id"] == "data-contracts.jpa-entity-manager"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "OwnerStore.load", 11, "owners"),
+                ("WRITES", "OwnerStore.forgetCurrent", 12, "owners"),
+                ("WRITES", "OwnerStore.save", 9, "owners"),
+                ("WRITES", "OwnerStore.save", 9, "owners"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["entity_manager_resolution"],
+            {"linked": 4, "not_an_entity": 1},
+        )
+
+
 PYTHON_SQL = {
     "pyproject.toml": '[project]\nname = "jobs"\n',
     "jobs/store.py": """import sqlite3
