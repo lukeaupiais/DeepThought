@@ -839,30 +839,38 @@ line); a `new` binds the class it creates.
 
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
-| google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
-| apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
-| google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
-| junit-team/junit5 | 18,630 / 19,306 | 8 | 668 | 9,343 | 6,233 |
+| google/gson | 7,275 / 7,278 | 0 | 3 | 2,167 | 124 |
+| apache/commons-lang | 23,855 / 25,038 | 0 | 1,183 | 11,306 | 380 |
+| google/guava | 55,803 / 55,972 | 2 | 167 | 65,153 | 3,439 |
+| junit-team/junit5 | 22,595 / 23,271 | 8 | 668 | 9,624 | 1,987 |
 
-Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
-36,756) and methods inherited from library types (`unbound_name`). Most of guava's
-ambiguous calls are test roots calling a type that both `guava/src` and
-`android/guava/src` declare. Five ambiguous calls (one in commons-lang, four
-in guava) leave out javac's method: an inherited overload, or a GWT
-super-source file javac binds elsewhere. javac binds none
-for 1,183 commons-lang links because those test calls pass lambdas to
+`tree-sitter.java-call-typed-receiver` accounts for 3,123, 5,057, 7,280 and
+3,649 of the confirmed links, and none of its links is contradicted. Most
+missed calls are calls on expressions or on variables whose declaration
+writes no usable type (`attribute_call`: 117, 378, 3,028 and 1,958).
+Calls through a typed variable become ambiguous where the hierarchy has
+several methods that only types can choose between, and where a type is
+declared in both `guava/src` and `android/guava/src`; most of guava's
+ambiguous calls are of that second kind. A few ambiguous calls leave out
+javac's method: an inherited overload, a GWT super-source file javac binds
+elsewhere, or a method whose own type parameter javac infers. javac binds
+none for 1,183 commons-lang links because those test calls pass lambdas to
 JUnit-typed parameters, and JUnit is not on javac's class path; the links go
-to the statically imported `LangAssertions` methods of the same name. The 37
-contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
-mostly overloads with the same arity elsewhere in the hierarchy that fit the
-argument types better (`putBytes`, `hashBytes`, `append`), which a count of
-arguments cannot tell apart. junit5's 8 contradictions are the same case
-(`ReflectionUtils.getFullyQualifiedMethodName`), and javac binds none for 657
-of its links for the same reason as in commons-lang: the statically imported
-`PreconditionAssertions` methods take lambdas typed by libraries that are
-not on javac's class path. junit5 indents with tabs; the oracle counts a tab
-as one column, as the analysis does, rather than expanding it to the next
-tab stop as javac's `LineMap.getColumnNumber` would.
+to the statically imported `LangAssertions` methods of the same name.
+junit5's 657 links to its statically imported `PreconditionAssertions`
+methods are the same case. 74 guava links of the new rule are to repository
+methods javac leaves unbound; they were sampled, not checked one by one.
+Deciding overrides by parameter types (above) removes the commons-lang
+contradictions (`Range.fit(T)` and `LongRange.fit(long)`) and 33 of
+guava's (`putBytes`, `hashBytes`, `append`). The two left in guava link
+`getUninterruptibly` in `AggregateFuture` to a private method of its
+superclass `AbstractFuture`, which Java does not inherit, instead of the
+statically imported `Uninterruptibles.getUninterruptibly`; method access
+is not read yet. junit5's 8 (`getFullyQualifiedMethodName`) pick a method
+by name and arity where javac picks another of the same arity by argument
+types. junit5 indents with tabs; the oracle counts a tab as one
+column, as the analysis does, rather than expanding it to the next tab stop
+as javac's `LineMap.getColumnNumber` would.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
