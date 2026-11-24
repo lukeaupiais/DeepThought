@@ -3668,6 +3668,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name-types` | resolved | the Go type checker finds a `TableName()` method of the type with one return of a constant string (a literal, a named constant, a constant expression), in a module whose `go.mod` requires `gorm.io/gorm` or `github.com/jinzhu/gorm` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local assigned exactly once (not reassigned, address-taken or a range variable), `+` joins (other operands unfixed) or sqlx's `Rebind`; the SQL starts with a reading or writing verb |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
 | File -[:DECLARES]-> DbTable | `data-contracts.laravel-migration-table` | resolved | `Schema::create('name', ...)` or the target of `Schema::rename(..., 'name')` (`Illuminate\Support\Facades\Schema`) with a fixed string, in PHP outside `test/`, `tests/` and `spec/` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-table-name` | pattern_matched | an Eloquent model (a class whose `extends` chain, resolved through `namespace` and `use` statements, reaches `Illuminate\Database\Eloquent\Model` or `Illuminate\Foundation\Auth\User`) with a fixed `protected $table`, its own or the nearest ancestor's in the repository |
@@ -3907,6 +3909,52 @@ table names. A single-line `grep` for a query method followed by SQL finds
 that name no table (`SELECT 'null' AS raw`), and 6 pass the text through a
 local alias of `Rebind` (`r := db.Rebind`), which is not followed. The tool
 also reads the statements that span lines.
+
+**Go facts from the type checker.** Go SQL calls and GORM table names are read from the Go type checker first.
+`src/deepthought/gofacts/main.go` type-checks every package of each Go
+module from source with the standard library's `go/types`, and prints the
+method calls (the package declaring each method, the packages of its
+result types, the string value of its first arguments) and the `TableName`
+methods returning a constant. It is built once per toolchain into
+`~/.cache/deepthought` (or `DEEPTHOUGHT_CACHE`) with the `go` on `PATH` (or
+`DEEPTHOUGHT_GO`). It builds and runs nothing of the analyzed repository and
+reads dependencies only from the module cache: `GOPROXY=off`,
+`-mod=readonly`, `GOTOOLCHAIN=local`, `GOWORK=off`. A dependency that is not
+in the cache (run `go mod download` first), or language features newer than
+the toolchain, leave some calls untyped, and the package is reported as
+partly checked.
+
+The tree-sitter rules (`go-sql`, `gorm-table-name`) read only what the type
+checker could not: files of no module, or with no Go toolchain, and calls
+it could not type in partly checked packages. `TableName` string literals
+in files importing a SQL package are still read everywhere. The
+`go_type_facts` metric counts modules, checked, partly checked and
+unchecked files (with the reason: `go_not_installed`, `no_go_module`,
+`gofacts_build_failed`, `gofacts_failed`, `gofacts_timeout`,
+`not_checked` for files excluded by build constraints or not parsed).
+
+Why not hand rules: the misses were name resolution, which the compiler
+does exactly. A file that runs SQL through a field typed in another file
+imports no SQL package (miniflux's storage, sqlc's `DBTX`), SQL text sits in
+constants and locals, and `TableName` returns constants. `go/ssa` def-use
+chains were considered for locals; a local assigned once with a constant (or
+`+` join) is folded from `go/types` constant values instead, which needs no
+module outside the standard library.
+
+Measured on four Go apps outside the corpora (Go 1.24.7, dependencies
+downloaded), against the tree-sitter rules alone; no link was lost:
+
+| App | SQL statements | Files with READS/WRITES | GORM `TableName` links |
+|---|---|---|---|
+| miniflux/v2 | 42 → 128 | 8 → 15 | 0 → 0 |
+| techschool/simplebank (sqlc) | 0 → 20 | 0 → 6 | 0 → 0 |
+| flipped-aurora/gin-vue-admin | 2 → 2 | 2 → 30 | 2 → 23 |
+| gothinkster/golang-gin-realworld-example-app | unchanged | unchanged | unchanged |
+
+miniflux requires Go 1.26, so 237 of its files are partly checked under Go
+1.24 and keep the tree-sitter rule at their untyped calls. gin-vue-admin's
+new `TableName` links let 247 GORM calls through the existing `gorm-call`
+rule. jmoiron/sqlx is unchanged: its statements are all in test files.
 
 On gothinkster/golang-gin-realworld-example-app the tool maps its 7 GORM
 models (`user_models`, `follow_models`, `article_models`, ...) and links 32

@@ -19,6 +19,7 @@ import re
 import time
 
 from .._version import __version__
+from .. import go_facts as gofacts
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
@@ -26,6 +27,9 @@ from ..data_contracts import (
     extract_ddl,
     extract_entity_manager,
     extract_go_sql,
+    go_sql_from_facts,
+    GORM_MODULES,
+    GoTableName,
     extract_gorm,
     gorm_table_name,
     extract_django,
@@ -423,6 +427,15 @@ SQL_RULES = {
             "not checked.",
         ),
         (
+            "go-sql-types",
+            "The Go type checker (go/types) resolves the call to a "
+            "database/sql, sqlx, pgx, GORM (Raw, Exec) or bun query method, "
+            "or to an interface method returning one of their types (sqlc's "
+            "DBTX), and computes the SQL argument's text (constants, locals "
+            "assigned once, + joins with text the code does not fix); the "
+            "SQL names this table.",
+        ),
+        (
             "mybatis-annotation",
             "The mapper method has a MyBatis @Select, @Insert, @Update or "
             "@Delete (org.apache.ibatis.annotations) whose SQL names this "
@@ -488,6 +501,16 @@ GORM_CALL_RULE = register_rule(
         "model argument is a GORM model: &T{}, T{}, []T{}, new(T), "
         "make([]T, n) or a parameter or local of the function declared with "
         "such a type. The receiver is not checked to be a *gorm.DB.",
+    )
+)
+GORM_TABLE_TYPES_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-table-name-types",
+        "resolved",
+        "The Go type checker (go/types) finds a TableName() method of the "
+        "type, with no parameters and one return of a constant string, in a "
+        "module whose go.mod requires GORM: GORM's Tabler interface names "
+        "the type's table.",
     )
 )
 PRISMA_MODEL_RULE = register_rule(
@@ -1291,11 +1314,39 @@ class DataContractTool(AnalysisTool):
                     mapped.get(mapping.entity)
                 )
         sql_counts = {"statements": 0, "not_fixed": 0, "unknown_entity": 0}
-        go_names, go_uses = [], []
+        # Go: the type checker's facts. The tree-sitter rules read SQL calls
+        # only in files it did not check and at calls it could not type, and
+        # TableName literals in files importing a SQL package everywhere.
+        facts = gofacts.collect(
+            root,
+            [file for file, _, _ in go_trees if file.endswith(".go")],
+            [
+                c.manifest.rpartition("/")[0]
+                for c in scan.components
+                if c.kind == "go_module"
+            ],
+        )
+        typed = {(c.file, c.line, c.column) for c in facts.calls}
+        go_names = [
+            GoTableName(
+                item.file,
+                item.type_name,
+                table_key(item.table.rpartition(".")[2]),
+                item.line,
+                item.column,
+            )
+            for item in facts.table_names
+            if facts.requires_module(item.file, GORM_MODULES)
+        ]
+        named = {(n.file, n.line) for n in go_names}
+        go_uses = go_sql_from_facts(facts.calls, result.definitions)
         for file, content, tree in go_trees:
             found = extract_go_sql(tree, content, file, result.definitions)
-            go_names.extend(found[0])
-            go_uses.extend(found[1])
+            go_names.extend(n for n in found[0] if (n.file, n.line) not in named)
+            if file not in facts.checked or file in facts.partial:
+                go_uses.extend(
+                    u for u in found[1] if (u.file, u.line, u.column) not in typed
+                )
         php_found = [
             (file, extract_php_eloquent(tree, content, file, result.definitions))
             for file, content, tree in php_trees
@@ -1437,7 +1488,9 @@ class DataContractTool(AnalysisTool):
                 "MAPS_TO",
                 symbol(declared.id),
                 target,
-                GORM_TABLE_RULE,
+                GORM_TABLE_TYPES_RULE
+                if (item.file, item.line) in named
+                else GORM_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
         # A configured NamingStrategy changes every default name.
@@ -2370,6 +2423,14 @@ class DataContractTool(AnalysisTool):
                     "sql_text": sql_counts,
                     "mybatis_mapper_statements": mybatis_counts,
                     "entity_manager_resolution": entity_counts,
+                    "go_type_facts": {
+                        "modules": dict(Counter(facts.modules.values())),
+                        "files_checked": len(facts.checked) - len(facts.partial),
+                        "files_partly_checked": len(facts.partial),
+                        "files_not_checked": dict(Counter(facts.uncovered.values())),
+                        "calls": len(facts.calls),
+                        "table_names": len(facts.table_names),
+                    },
                     "gorm_table_names": gorm_counts,
                     "gorm_default_table_names": gorm_defaults,
                     "gorm_access_resolution": gorm_access,

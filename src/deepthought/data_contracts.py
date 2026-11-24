@@ -2163,6 +2163,61 @@ def extract_go_sql(tree, content, file, definitions):
     return names, uses
 
 
+GORM_MODULES = ("gorm.io/gorm", "github.com/jinzhu/gorm")
+
+
+def _sql_package(path):
+    return any(path == g or path.startswith(g + "/") for g in GO_SQL_PACKAGES)
+
+
+def _owner_at(definitions, file, line, column):
+    """The innermost declaration of ``file`` holding (line, column)."""
+    best = None
+    for d in definitions:
+        if d.file == file and (d.line, d.column) <= (line, column) <= (
+            d.end_line,
+            d.end_column,
+        ):
+            size = (d.end_line - d.line, d.end_column - d.column)
+            if best is None or size < best[0]:
+                best = (size, d.id)
+    return best[1] if best else None
+
+
+def go_sql_from_facts(calls, definitions):
+    """SQL uses of Go calls the type checker resolved (``go_facts``): a
+    method of GO_SQL_METHODS declared in a Go SQL package, or returning one
+    of its types (an interface such as sqlc's DBTX), passed SQL text that
+    go/types computes (constants, locals assigned once, ``+`` joins)."""
+    uses = []
+    for call in calls:
+        if call.method not in GO_SQL_METHODS or not (
+            _sql_package(call.declared) or any(map(_sql_package, call.results))
+        ):
+            continue
+        text = next((t for t in call.texts[:3] if t is not None), None)
+        if text is None:
+            continue
+        words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+        if not words or words[0].lower() not in SQL_VERBS:
+            continue
+        statement = statement_tables(text)
+        if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+            statement = None
+        uses.append(
+            SqlUse(
+                call.file,
+                _owner_at(definitions, call.file, call.line, call.column),
+                "go-sql-types",
+                False,
+                statement,
+                call.line,
+                call.column,
+            )
+        )
+    return uses
+
+
 # Ruby on Rails: ActiveRecord models and db/schema.rb -------------------------
 
 
