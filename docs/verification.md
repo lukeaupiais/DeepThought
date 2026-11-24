@@ -731,6 +731,35 @@ extra. A write labels its target as WRITES and every other table it names as
 READS. The engine was developed against both apps, so they are regression
 gates, not held-out checks.
 
+### SQL statements
+
+The manifest entry `sql-statements-sqlc-endtoend` scores the engine's SQL
+reader (`deepthought.data_contracts.statement_tables`) statement by statement,
+with no workspace to fetch. Its labels come from the database engines' own
+parsers, not from the reader under test. `tools/sql_statement_truth.py
+SQLC_TESTDATA` reads sqlc's end-to-end cases (`internal/endtoend/testdata` at
+sqlc 3ad8b20), which pair a schema with named queries for one engine:
+
+- PostgreSQL queries are parsed by libpg_query (through pglast). Every
+  RangeVar is a table, and the relation of INSERT, UPDATE, DELETE and MERGE
+  and the relations of TRUNCATE are written. A name the statement's WITH
+  clause defines and a `FOR UPDATE OF` name are not tables. DDL and utility
+  statements are not labelled.
+- SQLite queries are prepared, with `EXPLAIN`, against an in-memory database
+  built from the case's schema, under an authorizer that SQLite calls for
+  each table it reads or writes. A query that names a view is skipped, since
+  SQLite reports the view's base tables.
+
+sqlc's macros (`sqlc.arg`, `sqlc.narg`, `sqlc.slice`, `@name`, `sqlc.embed`)
+are rewritten to plain parameters first. Names are compared unquoted, in lower
+case, without their schema; system catalogs are left out, and a written table
+is not also listed as read. Cases sqlc expects to fail are skipped, as are
+queries the engine's parser rejects. A statement is *found* when the reader
+gives exactly the labelled reads and writes, *missed* when it gives none, and
+*wrong* otherwise. SQLite's planner drops a LEFT JOIN table no column uses,
+so its authorizer never reports it; for SQLite a read the labels do not name
+is not judged. pglast is needed only to relabel, not to score.
+
 ### Knex query-builder tables
 
 Knex names a table as a string argument of its query builder.

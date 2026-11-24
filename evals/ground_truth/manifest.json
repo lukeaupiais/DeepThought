@@ -612,6 +612,15 @@
       "language": "go-sql",
       "labels": "tables/miniflux-storage.json",
       "oracle": "hand-read sample of 30 storage call sites"
+    },
+    {
+      "name": "sql-statements-sqlc-endtoend",
+      "url": "https://github.com/sqlc-dev/sqlc",
+      "commit": "3ad8b20fb02b5bea81591b673da0758b8685d951",
+      "license": "MIT",
+      "language": "sql-statements",
+      "labels": "sql/sqlc-endtoend.json",
+      "oracle": "libpg_query (pglast 8.9) for PostgreSQL, SQLite's authorizer for SQLite: tools/sql_statement_truth.py over internal/endtoend/testdata"
     }
   ]
 }
