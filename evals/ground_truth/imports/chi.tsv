@@ -1,0 +1,379 @@
+# file	line	name	target_file	target_line	kind
+# indexed	chain.go
+# indexed	chi.go
+# indexed	context.go
+# indexed	context_test.go
+# indexed	middleware/basic_auth.go
+# indexed	middleware/basic_auth_test.go
+# indexed	middleware/clean_path.go
+# indexed	middleware/clean_path_test.go
+# indexed	middleware/client_ip.go
+# indexed	middleware/client_ip_bench_test.go
+# indexed	middleware/client_ip_example_test.go
+# indexed	middleware/client_ip_test.go
+# indexed	middleware/compress.go
+# indexed	middleware/compress_test.go
+# indexed	middleware/content_charset.go
+# indexed	middleware/content_charset_test.go
+# indexed	middleware/content_encoding.go
+# indexed	middleware/content_encoding_test.go
+# indexed	middleware/content_type.go
+# indexed	middleware/content_type_test.go
+# indexed	middleware/deprecation.go
+# indexed	middleware/deprecation_test.go
+# indexed	middleware/get_head.go
+# indexed	middleware/get_head_test.go
+# indexed	middleware/heartbeat.go
+# indexed	middleware/heartbeat_test.go
+# indexed	middleware/logger.go
+# indexed	middleware/logger_test.go
+# indexed	middleware/maybe.go
+# indexed	middleware/maybe_test.go
+# indexed	middleware/middleware.go
+# indexed	middleware/middleware_test.go
+# indexed	middleware/nocache.go
+# indexed	middleware/page_route.go
+# indexed	middleware/path_rewrite.go
+# indexed	middleware/path_rewrite_test.go
+# indexed	middleware/profiler.go
+# indexed	middleware/realip.go
+# indexed	middleware/realip_test.go
+# indexed	middleware/recoverer.go
+# indexed	middleware/recoverer_test.go
+# indexed	middleware/request_id.go
+# indexed	middleware/request_id_test.go
+# indexed	middleware/request_size.go
+# indexed	middleware/request_size_test.go
+# indexed	middleware/route_headers.go
+# indexed	middleware/route_headers_test.go
+# indexed	middleware/strip.go
+# indexed	middleware/strip_test.go
+# indexed	middleware/sunset.go
+# indexed	middleware/sunset_test.go
+# indexed	middleware/supress_notfound.go
+# indexed	middleware/supress_notfound_test.go
+# indexed	middleware/terminal.go
+# indexed	middleware/terminal_test.go
+# indexed	middleware/throttle.go
+# indexed	middleware/throttle_test.go
+# indexed	middleware/timeout.go
+# indexed	middleware/url_format.go
+# indexed	middleware/url_format_test.go
+# indexed	middleware/value.go
+# indexed	middleware/value_test.go
+# indexed	middleware/wrap_writer.go
+# indexed	middleware/wrap_writer_readfrom_test.go
+# indexed	middleware/wrap_writer_test.go
+# indexed	mux.go
+# indexed	mux_test.go
+# indexed	path_value_test.go
+# indexed	pattern_test.go
+# indexed	tree.go
+# indexed	tree_test.go
+chain.go	3	import	-	0	external
+chi.go	59	import	-	0	external
+context.go	4	import	-	0	external
+context.go	5	import	-	0	external
+context.go	6	import	-	0	external
+context.go	7	import	-	0	external
+context_test.go	4	import	-	0	external
+context_test.go	5	import	-	0	external
+middleware/basic_auth.go	4	import	-	0	external
+middleware/basic_auth.go	5	import	-	0	external
+middleware/basic_auth.go	6	import	-	0	external
+middleware/basic_auth_test.go	4	import	-	0	external
+middleware/basic_auth_test.go	5	import	-	0	external
+middleware/basic_auth_test.go	6	import	-	0	external
+middleware/basic_auth_test.go	8	import	.	0	module
+middleware/clean_path.go	4	import	-	0	external
+middleware/clean_path.go	5	import	-	0	external
+middleware/clean_path.go	7	import	.	0	module
+middleware/clean_path_test.go	4	import	-	0	external
+middleware/clean_path_test.go	5	import	-	0	external
+middleware/clean_path_test.go	6	import	-	0	external
+middleware/clean_path_test.go	8	import	.	0	module
+middleware/client_ip.go	4	import	-	0	external
+middleware/client_ip.go	5	import	-	0	external
+middleware/client_ip.go	6	import	-	0	external
+middleware/client_ip.go	7	import	-	0	external
+middleware/client_ip.go	8	import	-	0	external
+middleware/client_ip.go	9	import	-	0	external
+middleware/client_ip_bench_test.go	4	import	-	0	external
+middleware/client_ip_bench_test.go	5	import	-	0	external
+middleware/client_ip_bench_test.go	6	import	-	0	external
+middleware/client_ip_example_test.go	4	import	-	0	external
+middleware/client_ip_example_test.go	5	import	-	0	external
+middleware/client_ip_example_test.go	6	import	-	0	external
+middleware/client_ip_example_test.go	8	import	.	0	module
+middleware/client_ip_example_test.go	9	import	middleware	0	module
+middleware/client_ip_test.go	4	import	-	0	external
+middleware/client_ip_test.go	5	import	-	0	external
+middleware/client_ip_test.go	6	import	-	0	external
+middleware/client_ip_test.go	7	import	-	0	external
+middleware/client_ip_test.go	9	import	.	0	module
+middleware/compress.go	4	import	-	0	external
+middleware/compress.go	5	import	-	0	external
+middleware/compress.go	6	import	-	0	external
+middleware/compress.go	7	import	-	0	external
+middleware/compress.go	8	import	-	0	external
+middleware/compress.go	9	import	-	0	external
+middleware/compress.go	10	import	-	0	external
+middleware/compress.go	11	import	-	0	external
+middleware/compress.go	12	import	-	0	external
+middleware/compress.go	13	import	-	0	external
+middleware/compress_test.go	4	import	-	0	external
+middleware/compress_test.go	5	import	-	0	external
+middleware/compress_test.go	6	import	-	0	external
+middleware/compress_test.go	7	import	-	0	external
+middleware/compress_test.go	8	import	-	0	external
+middleware/compress_test.go	9	import	-	0	external
+middleware/compress_test.go	10	import	-	0	external
+middleware/compress_test.go	11	import	-	0	external
+middleware/compress_test.go	13	import	.	0	module
+middleware/content_charset.go	4	import	-	0	external
+middleware/content_charset.go	5	import	-	0	external
+middleware/content_charset.go	6	import	-	0	external
+middleware/content_charset.go	7	import	-	0	external
+middleware/content_charset_test.go	4	import	-	0	external
+middleware/content_charset_test.go	5	import	-	0	external
+middleware/content_charset_test.go	6	import	-	0	external
+middleware/content_charset_test.go	7	import	-	0	external
+middleware/content_charset_test.go	8	import	-	0	external
+middleware/content_charset_test.go	10	import	.	0	module
+middleware/content_encoding.go	4	import	-	0	external
+middleware/content_encoding.go	5	import	-	0	external
+middleware/content_encoding_test.go	4	import	-	0	external
+middleware/content_encoding_test.go	5	import	-	0	external
+middleware/content_encoding_test.go	6	import	-	0	external
+middleware/content_encoding_test.go	7	import	-	0	external
+middleware/content_encoding_test.go	9	import	.	0	module
+middleware/content_type.go	4	import	-	0	external
+middleware/content_type.go	5	import	-	0	external
+middleware/content_type_test.go	4	import	-	0	external
+middleware/content_type_test.go	5	import	-	0	external
+middleware/content_type_test.go	6	import	-	0	external
+middleware/content_type_test.go	7	import	-	0	external
+middleware/content_type_test.go	9	import	.	0	module
+middleware/deprecation.go	4	import	-	0	external
+middleware/deprecation.go	5	import	-	0	external
+middleware/deprecation.go	6	import	-	0	external
+middleware/deprecation_test.go	4	import	-	0	external
+middleware/deprecation_test.go	5	import	-	0	external
+middleware/deprecation_test.go	6	import	-	0	external
+middleware/deprecation_test.go	7	import	-	0	external
+middleware/deprecation_test.go	9	import	.	0	module
+middleware/get_head.go	4	import	-	0	external
+middleware/get_head.go	6	import	.	0	module
+middleware/get_head_test.go	4	import	-	0	external
+middleware/get_head_test.go	5	import	-	0	external
+middleware/get_head_test.go	6	import	-	0	external
+middleware/get_head_test.go	8	import	.	0	module
+middleware/heartbeat.go	4	import	-	0	external
+middleware/heartbeat.go	5	import	-	0	external
+middleware/heartbeat_test.go	4	import	-	0	external
+middleware/heartbeat_test.go	5	import	-	0	external
+middleware/heartbeat_test.go	6	import	-	0	external
+middleware/heartbeat_test.go	8	import	.	0	module
+middleware/logger.go	4	import	-	0	external
+middleware/logger.go	5	import	-	0	external
+middleware/logger.go	6	import	-	0	external
+middleware/logger.go	7	import	-	0	external
+middleware/logger.go	8	import	-	0	external
+middleware/logger.go	9	import	-	0	external
+middleware/logger.go	10	import	-	0	external
+middleware/logger_test.go	4	import	-	0	external
+middleware/logger_test.go	5	import	-	0	external
+middleware/logger_test.go	6	import	-	0	external
+middleware/logger_test.go	7	import	-	0	external
+middleware/logger_test.go	8	import	-	0	external
+middleware/logger_test.go	9	import	-	0	external
+middleware/logger_test.go	10	import	-	0	external
+middleware/maybe.go	3	import	-	0	external
+middleware/maybe_test.go	4	import	-	0	external
+middleware/maybe_test.go	5	import	-	0	external
+middleware/maybe_test.go	6	import	-	0	external
+middleware/middleware.go	3	import	-	0	external
+middleware/middleware_test.go	4	import	-	0	external
+middleware/middleware_test.go	5	import	-	0	external
+middleware/middleware_test.go	6	import	-	0	external
+middleware/middleware_test.go	7	import	-	0	external
+middleware/middleware_test.go	8	import	-	0	external
+middleware/middleware_test.go	9	import	-	0	external
+middleware/middleware_test.go	10	import	-	0	external
+middleware/middleware_test.go	11	import	-	0	external
+middleware/middleware_test.go	12	import	-	0	external
+middleware/middleware_test.go	13	import	-	0	external
+middleware/middleware_test.go	15	import	.	0	module
+middleware/nocache.go	7	import	-	0	external
+middleware/nocache.go	8	import	-	0	external
+middleware/page_route.go	4	import	-	0	external
+middleware/page_route.go	5	import	-	0	external
+middleware/path_rewrite.go	4	import	-	0	external
+middleware/path_rewrite.go	5	import	-	0	external
+middleware/path_rewrite_test.go	4	import	-	0	external
+middleware/path_rewrite_test.go	5	import	-	0	external
+middleware/path_rewrite_test.go	6	import	-	0	external
+middleware/path_rewrite_test.go	8	import	.	0	module
+middleware/profiler.go	6	import	-	0	external
+middleware/profiler.go	7	import	-	0	external
+middleware/profiler.go	8	import	-	0	external
+middleware/profiler.go	10	import	.	0	module
+middleware/realip.go	7	import	-	0	external
+middleware/realip.go	8	import	-	0	external
+middleware/realip.go	9	import	-	0	external
+middleware/realip_test.go	4	import	-	0	external
+middleware/realip_test.go	5	import	-	0	external
+middleware/realip_test.go	6	import	-	0	external
+middleware/realip_test.go	8	import	.	0	module
+middleware/recoverer.go	7	import	-	0	external
+middleware/recoverer.go	8	import	-	0	external
+middleware/recoverer.go	9	import	-	0	external
+middleware/recoverer.go	10	import	-	0	external
+middleware/recoverer.go	11	import	-	0	external
+middleware/recoverer.go	12	import	-	0	external
+middleware/recoverer.go	13	import	-	0	external
+middleware/recoverer.go	14	import	-	0	external
+middleware/recoverer_test.go	4	import	-	0	external
+middleware/recoverer_test.go	5	import	-	0	external
+middleware/recoverer_test.go	6	import	-	0	external
+middleware/recoverer_test.go	7	import	-	0	external
+middleware/recoverer_test.go	8	import	-	0	external
+middleware/recoverer_test.go	10	import	.	0	module
+middleware/request_id.go	7	import	-	0	external
+middleware/request_id.go	8	import	-	0	external
+middleware/request_id.go	9	import	-	0	external
+middleware/request_id.go	10	import	-	0	external
+middleware/request_id.go	11	import	-	0	external
+middleware/request_id.go	12	import	-	0	external
+middleware/request_id.go	13	import	-	0	external
+middleware/request_id.go	14	import	-	0	external
+middleware/request_id_test.go	4	import	-	0	external
+middleware/request_id_test.go	5	import	-	0	external
+middleware/request_id_test.go	6	import	-	0	external
+middleware/request_id_test.go	7	import	-	0	external
+middleware/request_id_test.go	9	import	.	0	module
+middleware/request_size.go	4	import	-	0	external
+middleware/request_size_test.go	4	import	-	0	external
+middleware/request_size_test.go	5	import	-	0	external
+middleware/request_size_test.go	6	import	-	0	external
+middleware/request_size_test.go	7	import	-	0	external
+middleware/request_size_test.go	8	import	-	0	external
+middleware/request_size_test.go	9	import	-	0	external
+middleware/request_size_test.go	11	import	.	0	module
+middleware/route_headers.go	4	import	-	0	external
+middleware/route_headers.go	5	import	-	0	external
+middleware/route_headers_test.go	4	import	-	0	external
+middleware/route_headers_test.go	5	import	-	0	external
+middleware/route_headers_test.go	6	import	-	0	external
+middleware/route_headers_test.go	7	import	-	0	external
+middleware/strip.go	4	import	-	0	external
+middleware/strip.go	5	import	-	0	external
+middleware/strip.go	6	import	-	0	external
+middleware/strip.go	8	import	.	0	module
+middleware/strip_test.go	4	import	-	0	external
+middleware/strip_test.go	5	import	-	0	external
+middleware/strip_test.go	6	import	-	0	external
+middleware/strip_test.go	7	import	-	0	external
+middleware/strip_test.go	8	import	-	0	external
+middleware/strip_test.go	10	import	.	0	module
+middleware/sunset.go	4	import	-	0	external
+middleware/sunset.go	5	import	-	0	external
+middleware/sunset_test.go	4	import	-	0	external
+middleware/sunset_test.go	5	import	-	0	external
+middleware/sunset_test.go	6	import	-	0	external
+middleware/sunset_test.go	7	import	-	0	external
+middleware/sunset_test.go	9	import	.	0	module
+middleware/supress_notfound.go	4	import	-	0	external
+middleware/supress_notfound.go	6	import	.	0	module
+middleware/supress_notfound_test.go	4	import	-	0	external
+middleware/supress_notfound_test.go	5	import	-	0	external
+middleware/supress_notfound_test.go	6	import	-	0	external
+middleware/supress_notfound_test.go	7	import	-	0	external
+middleware/supress_notfound_test.go	9	import	.	0	module
+middleware/terminal.go	7	import	-	0	external
+middleware/terminal.go	8	import	-	0	external
+middleware/terminal.go	9	import	-	0	external
+middleware/terminal_test.go	4	import	-	0	external
+middleware/terminal_test.go	5	import	-	0	external
+middleware/throttle.go	4	import	-	0	external
+middleware/throttle.go	5	import	-	0	external
+middleware/throttle.go	6	import	-	0	external
+middleware/throttle_test.go	4	import	-	0	external
+middleware/throttle_test.go	5	import	-	0	external
+middleware/throttle_test.go	6	import	-	0	external
+middleware/throttle_test.go	7	import	-	0	external
+middleware/throttle_test.go	8	import	-	0	external
+middleware/throttle_test.go	9	import	-	0	external
+middleware/throttle_test.go	10	import	-	0	external
+middleware/throttle_test.go	12	import	.	0	module
+middleware/timeout.go	4	import	-	0	external
+middleware/timeout.go	5	import	-	0	external
+middleware/timeout.go	6	import	-	0	external
+middleware/url_format.go	4	import	-	0	external
+middleware/url_format.go	5	import	-	0	external
+middleware/url_format.go	6	import	-	0	external
+middleware/url_format.go	8	import	.	0	module
+middleware/url_format_test.go	4	import	-	0	external
+middleware/url_format_test.go	5	import	-	0	external
+middleware/url_format_test.go	6	import	-	0	external
+middleware/url_format_test.go	8	import	.	0	module
+middleware/value.go	4	import	-	0	external
+middleware/value.go	5	import	-	0	external
+middleware/value_test.go	4	import	-	0	external
+middleware/value_test.go	5	import	-	0	external
+middleware/value_test.go	6	import	-	0	external
+middleware/value_test.go	8	import	.	0	module
+middleware/wrap_writer.go	7	import	-	0	external
+middleware/wrap_writer.go	8	import	-	0	external
+middleware/wrap_writer.go	9	import	-	0	external
+middleware/wrap_writer.go	10	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	4	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	5	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	6	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	7	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	8	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	9	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	10	import	-	0	external
+middleware/wrap_writer_readfrom_test.go	12	import	middleware	0	module
+middleware/wrap_writer_test.go	4	import	-	0	external
+middleware/wrap_writer_test.go	5	import	-	0	external
+middleware/wrap_writer_test.go	6	import	-	0	external
+middleware/wrap_writer_test.go	7	import	-	0	external
+middleware/wrap_writer_test.go	8	import	-	0	external
+middleware/wrap_writer_test.go	9	import	-	0	external
+mux.go	4	import	-	0	external
+mux.go	5	import	-	0	external
+mux.go	6	import	-	0	external
+mux.go	7	import	-	0	external
+mux.go	8	import	-	0	external
+mux_test.go	4	import	-	0	external
+mux_test.go	5	import	-	0	external
+mux_test.go	6	import	-	0	external
+mux_test.go	7	import	-	0	external
+mux_test.go	8	import	-	0	external
+mux_test.go	9	import	-	0	external
+mux_test.go	10	import	-	0	external
+mux_test.go	11	import	-	0	external
+mux_test.go	12	import	-	0	external
+mux_test.go	13	import	-	0	external
+path_value_test.go	4	import	-	0	external
+path_value_test.go	5	import	-	0	external
+path_value_test.go	6	import	-	0	external
+path_value_test.go	7	import	-	0	external
+pattern_test.go	4	import	-	0	external
+pattern_test.go	5	import	-	0	external
+pattern_test.go	6	import	-	0	external
+tree.go	8	import	-	0	external
+tree.go	9	import	-	0	external
+tree.go	10	import	-	0	external
+tree.go	11	import	-	0	external
+tree.go	12	import	-	0	external
+tree.go	13	import	-	0	external
+tree.go	14	import	-	0	external
+tree.go	15	import	-	0	external
+tree_test.go	4	import	-	0	external
+tree_test.go	5	import	-	0	external
+tree_test.go	6	import	-	0	external
+tree_test.go	7	import	-	0	external
+tree_test.go	8	import	-	0	external
+tree_test.go	9	import	-	0	external

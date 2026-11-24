@@ -147,12 +147,13 @@ Baseline (calls):
 
 | Corpus | Language | Expected | Confirmed | Contradicted | Precision | Recall |
 |---|---|---|---|---|---|---|
-| click | python | 3,313 | 927 | 1 | 0.9989 | 0.2756 |
-| ky | typescript | 143 | 225 | 0 | 1.0 | 0.2587 |
-| cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
+| click | python | 3,313 | 2,878 | 0 | 1.0 | 0.8639 |
+| ky | typescript | 143 | 322 | 0 | 1.0 | 0.9371 |
+| cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
+| chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,050 | 4,331 | 0 | 1.0 | 0.3854 |
+| gson | java | 11,050 | 7,726 | 0 | 1.0 | 0.6907 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -196,6 +197,7 @@ outside the repository. Recall is over import lines with a repository target.
 | click | 331 | 331 | 0 | 1.0 | 1.0 |
 | ky | 98 | 98 | 0 | 1.0 | 1.0 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
+| chi | 31 | 31 | 0 | 1.0 | 1.0 |
 
 Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
 tests are outside its TypeScript project, so the index does not cover them.
@@ -545,6 +547,17 @@ cases, impact 0.164 recall at 0.444 precision against search 0.370 at 0.202;
 ripgrep 78 cases, impact 0.054 at 0.381 against search 0.331 at 0.090. A full
 run takes about six minutes.
 
+The second entry ("Java typed receivers and chi corpus, 2026-11-24") follows
+Go receiver types (#112), Python local bindings (#134) and Java typed
+receivers (#128), and adds chi.
+Impact recall rose where calls on receivers now resolve: cobra 0.024 to 0.214
+(precision 0.160 to 0.193, 2.63 files per case), click 0.020 to 0.048 (0.263
+to 0.095), gson 0.036 to 0.071 (0.084 to 0.049, 6.0 files per case). chi has
+57 cases: impact 0.148 at 0.264 against search 0.141 at 0.346. Impact now
+recalls more co-edited files than text search on cobra, chi and gson, at
+lower precision on chi and gson. Entries recorded before a corpus was pinned
+leave it out; the latest entry covers every corpus.
+
 ### Impact ground truth
 
 The replay scores impact against co-edits, which also measures whether
@@ -580,12 +593,20 @@ declaration already spans: a function `run` is not merged with a method
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
-| gson | 164 | 5052 | 152 | 0 | 0.030 | 1.0 |
+| chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
+| gson | 164 | 5052 | 2612 | 0 | 0.517 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
 Recall falls with depth because each missing link cuts off everything behind
 it.
+Outside Python, a call on a callable's name line belongs to it: Go's
+`func (ns nodes) Sort() { sort.Sort(ns); ns.tailSort() }` calls `tailSort`
+from `Sort`. Python keeps that line for the enclosing function, because it
+holds decorators and default values, so a Python one-line body is not judged.
+chi is pinned with `_examples/` excluded, since the Go toolchain and scip-go
+ignore directories that start with `_`. Without the exclusion, the engine's
+callers there would count as extra with nothing to judge them by.
 A decorator call runs where the decorated function is declared, not in its
 body. scip-python's range for a function starts at its first decorator, so
 the lines from there to the `def` line belong to the enclosing function: a
