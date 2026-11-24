@@ -77,6 +77,11 @@ def _score_sites(predicted, labelled, corpus, tolerance):
     true_positive, false_positive, neutral = [], [], []
     dont_care = corpus.get("dont_care_call_sites", [])
     for item in sorted(predicted, key=lambda i: (i["file"], i["line"], i["route"])):
+        if item.get("same_service"):
+            # Labels are links between services; one within a service is
+            # neither confirmed nor contradicted.
+            neutral.append(item)
+            continue
         best = None
         for index, link in enumerate(labelled):
             if index in used or not _near(
@@ -248,8 +253,7 @@ def _message_pairs(endpoints, roots):
                 sender,
                 receiver,
             )
-            if key in seen or (sender is not None and sender == receiver):
-                # The corpora label links between services, not within one.
+            if key in seen:
                 continue
             seen.add(key)
             pairs.append(
@@ -263,6 +267,9 @@ def _message_pairs(endpoints, roots):
                     "server_line": consumer.line,
                     "route": f"{endpoint.broker} {endpoint.destination}",
                     "rule_id": endpoint.client,
+                    # The corpora label links between services: a link within
+                    # one service is neutral.
+                    "same_service": sender is not None and sender == receiver,
                 }
             )
     return pairs
