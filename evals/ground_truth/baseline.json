@@ -517,7 +517,7 @@
       "graphql": {
         "expected": 7,
         "extra": 0,
-        "found": 0
+        "found": 7
       }
     },
     "routes-nestjs-prisma-starter": {
