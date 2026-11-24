@@ -469,6 +469,13 @@ GRPC_SERVER_RULES = {
             "server.addService(pkg.X.service, {key: handler}) maps the rpc "
             "named by key to a function or method declared in the same file.",
         ),
+        (
+            grpc_contracts.NODE_STATIC_ADD_SERVICE,
+            "server.addService(m.XService, {key: handler}), where m is a "
+            "grpc-tools *_grpc_pb module (or XService is imported from one), "
+            "maps the rpc named by key to a function or method declared in the "
+            "same file.",
+        ),
     )
 }
 GRAPHQL_RESOLVER_RULES = {
@@ -519,7 +526,8 @@ GRPC_CALL_RULE = register_rule(
         "pattern_matched",
         "A method is called on a stub of service X built by its generated "
         "factory (NewXClient, XStub, XGrpc.newStub/newBlockingStub/"
-        "newFutureStub, new pkg.X), directly or through a name bound in the "
+        "newFutureStub, new pkg.X, or new m.XClient for a grpc-tools *_grpc_pb "
+        "module m), directly or through a name bound in the "
         "same file only to stubs of X; X is declared by exactly one proto "
         "package and the method names one of its rpcs. The channel's target "
         "address is not read.",
