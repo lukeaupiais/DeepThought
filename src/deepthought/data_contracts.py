@@ -5866,6 +5866,42 @@ def extract_mongoose(tree, content, file, definitions):
         if source == "mongoose"
     }
     connections = set()  # bindings of mongoose.createConnection() / useDb()
+    # A parameter typed as the mongoose module is mongoose itself:
+    # ``typeof import('mongoose')``, ``typeof mongoose`` or ``Mongoose``.
+    # Bindings are per file, so a name some other parameter or variable
+    # of the file also declares is left out.
+    typed, other = set(), set()
+    for parameter in [
+        *_descendants(root, "required_parameter"),
+        *_descendants(root, "optional_parameter"),
+    ]:
+        name = parameter.child_by_field_name("pattern")
+        if name is None or name.type != "identifier":
+            continue
+        annotation = parameter.child_by_field_name("type")
+        kind = annotation.named_children[0] if annotation is not None else None
+        text = _text(kind, content).replace(" ", "") if kind is not None else ""
+        if (
+            text in ('typeofimport("mongoose")', "typeofimport('mongoose')")
+            or (
+                text.startswith("typeof")
+                and mongoose.get(text[len("typeof") :]) in ("default", "*")
+            )
+            or (
+                kind is not None
+                and kind.type == "type_identifier"
+                and mongoose.get(text) == "Mongoose"
+            )
+        ):
+            typed.add(_text(name, content))
+        else:
+            other.add(_text(name, content))
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        if target is not None and target.type == "identifier":
+            other.add(_text(target, content))
+    for name in typed - other:
+        mongoose.setdefault(name, "default")
     if mongoose:
         namespaces = {k for k, v in mongoose.items() if v in ("default", "*")}
         for declarator in _descendants(root, "variable_declarator"):
@@ -5912,10 +5948,14 @@ def extract_mongoose(tree, content, file, definitions):
         return mongoose.get(text) in ("default", "*") or text in connections
 
     def is_schema(node):
+        """``new Schema(...)``, or ``Schema(...)``, which Mongoose's Schema
+        constructor turns into the same ``new`` call."""
         node = _unwrap(node)
-        if node is None or node.type != "new_expression":
+        if node is None or node.type not in ("new_expression", "call_expression"):
             return False
-        constructor = node.child_by_field_name("constructor")
+        constructor = node.child_by_field_name(
+            "constructor" if node.type == "new_expression" else "function"
+        )
         if constructor is None:
             return False
         if constructor.type == "identifier":
@@ -6158,7 +6198,19 @@ def extract_mongoose(tree, content, file, definitions):
             return None
         collection = None
         if method == "model" and len(args) >= 3:
-            collection = _script_string(args[2], content) or UNKNOWN
+            collection = _script_string(args[2], content)
+            if collection is None and args[2].type == "identifier":
+                # A constant of the file: ``const COLLECTION = 'x'``.
+                values = constants.get(_text(args[2], content), [])
+                declaration = values[0].parent.parent if values[0] else None
+                if (
+                    len(values) == 1
+                    and declaration is not None
+                    and declaration.type == "lexical_declaration"
+                    and _text(declaration, content).startswith("const")
+                ):
+                    collection = _script_string(values[0], content)
+            collection = collection or UNKNOWN
         where = node.child_by_field_name("function")
         where = where.child_by_field_name("property") or where
         models.append(
@@ -6229,6 +6281,10 @@ def extract_mongoose(tree, content, file, definitions):
             found = as_model(declarator.child_by_field_name("value"))
             if found is not None:
                 local_models.setdefault(_text(target, content), found)
+        # Any other declaration: a model returned by a factory function,
+        # as LibreChat's ``createUserModel(mongoose)``, or made for effect.
+        for call in _descendants(root, "call_expression"):
+            as_model(call)
     injected = {}  # {class node id: {property: model name}}
     if nest:
         for call in _descendants(root, "call_expression"):

@@ -2468,6 +2468,59 @@ class MongooseTests(unittest.TestCase):
         self.assertEqual(mongoose_majors(["latest"]), {5, 6, 7})
         self.assertEqual(mongoose_majors([]), {5, 6, 7})
 
+    def test_factories_typed_receivers_and_schema_without_new(self):
+        files = {
+            "models.ts": """import mongoose, { Mongoose } from 'mongoose';
+const COLLECTION = 'conformances';
+let renamed = 'a';
+const plain = mongoose.Schema({}, { collection: 'plain_items' });
+export const Plain = mongoose.model('Plain', plain);
+export function createUser(m: typeof import('mongoose')) {
+  return m.models.User || m.model('User', new m.Schema({}));
+}
+export function createTeam(mg: typeof mongoose) {
+  return mg.model('Team', plain);
+}
+export const providers = [
+  { useFactory: (db: Mongoose) => db.model('Cat', new mongoose.Schema({})) },
+];
+let Kept;
+Kept = mongoose.model('Kept', new mongoose.Schema({}), COLLECTION);
+export const Varied = mongoose.model('Varied', plain, renamed);
+// A name typed as mongoose in one function and not in another is left out.
+export function shadowed(x: typeof mongoose) {
+  return x.model('Shadowed', plain);
+}
+export function notMongoose(x: typeof Other) {
+  return x.model('Other', plain);
+}
+""",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        rows = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type == "MAPS_TO"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("createTeam", "plain_items", "mongoose-collection"),
+                ("createUser", "users", "mongoose-default-collection"),
+                ("file", "cats", "mongoose-default-collection"),
+                ("file", "conformances", "mongoose-collection"),
+                ("file", "plain_items", "mongoose-collection"),
+            ],
+        )
+
     def test_models_collections_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, MONGOOSE)
