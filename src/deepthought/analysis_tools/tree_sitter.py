@@ -396,6 +396,16 @@ _CALL_RULE_TEXT = {
     "type T (written where that method is declared) denotes a type by Java's "
     "lookup order; for 'new T(...).name', T as written. T declares or inherits "
     "the method, chosen among overloads as other Java calls are.",
+    call_rules.PYTHON_CALL_ATTRIBUTE_RECEIVER: "In a Python call "
+    "'x.a.name' (any number of attributes), x is the first parameter of an "
+    "instance method directly in a class body, not rebound (the class around "
+    "it), or has a class as for 'x.name' with a typed receiver; each "
+    "attribute's class is the one the first class declaring that name in the "
+    "method resolution order gives it: its annotation in the class body or "
+    "on 'self.a: T = ...', or else, when every assignment its instance "
+    "methods make is 'self.a = p' from a parameter 'p: T', 'self.a = T(...)' "
+    "or None, and the class assigns it nothing else, that one T; the last "
+    "class declares or inherits the method through its declared bases.",
     call_rules.PYTHON_CALL_RESULT_RECEIVER: "In a Python call 'x.name' where "
     "the one binding of the local x in its function is 'x = f(...)' (x is no "
     "parameter and the function imports nothing), the call f(...) links to a "

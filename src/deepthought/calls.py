@@ -40,6 +40,7 @@ CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 PYTHON_CALL_SUPER = "tree-sitter.python-call-super"
 PYTHON_CALL_RESULT_RECEIVER = "tree-sitter.python-call-result-receiver"
 PYTHON_CALL_SELF_INHERITED = "tree-sitter.python-call-self-inherited"
+PYTHON_CALL_ATTRIBUTE_RECEIVER = "tree-sitter.python-call-attribute-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
 JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
@@ -1980,6 +1981,40 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             return [], str(error)
         return found, "not_declared_on_type"
 
+    def python_field(cls, name):
+        """``(classes, reason)``: the class the instance attribute ``name``
+        of a Python class holds, by the first class in its method
+        resolution order that declares the attribute (``fields``) or
+        anything else of that name. A base that names no repository class
+        may declare it, so the lookup stops there."""
+        python_method(cls, name)  # loads the bases
+        seen = set()
+
+        def walk(current):
+            if current.id in seen:
+                raise LookupError("diamond")
+            seen.add(current.id)
+            fields = dict(current.fields or ())
+            if name in fields:
+                return python_class(
+                    current.file, current.symbol.split("."), fields[name]
+                ), "attribute_type_not_declared"
+            if by_symbol.get((current.file, f"{current.symbol}.{name}")):
+                return [], "attribute_not_typed"
+            for _, base in python_bases.get(current.id, ()):
+                if base.status != "linked":
+                    raise LookupError("base_not_resolved")
+                found = walk(by_id[base.target_id])
+                if found is not None:
+                    return found
+            return None
+
+        try:
+            found = walk(cls)
+        except LookupError as error:
+            return [], str(error)
+        return found if found is not None else ([], "attribute_not_typed")
+
     def python_super(site, scope, name):
         """``super().m()`` in a method of the Python class ``C`` around it:
         the method ``m`` the bases of ``C`` declare or inherit, in the
@@ -2124,6 +2159,48 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(rust.call(site))
             continue
         parts = site.callee.split(".")
+        if site.receiver_steps and languages.get(site.file) == "python":
+            # `self.a.m()` or `x.a.m()`: from the method's class or `x`'s
+            # annotated class, each attribute's declared or inferred class.
+            if site.receiver_type == "self":
+                classes = next(
+                    (
+                        found
+                        for depth in range(len(scope) - 1, 0, -1)
+                        if (
+                            found := [
+                                d
+                                for d in by_symbol.get(
+                                    (site.file, ".".join(scope[:depth])), ()
+                                )
+                                if d.kind == "Class"
+                            ]
+                        )
+                    ),
+                    [],
+                )
+                reason = "outside_class"
+            else:
+                classes = python_class(site.file, scope[:-1], site.receiver_type)
+                reason = "receiver_type_not_declared"
+            for step in site.receiver_steps:
+                if len(classes) != 1:
+                    break
+                classes, reason = python_field(classes[0], step)
+            if len(classes) != 1:
+                resolutions.append(
+                    CallResolution(
+                        site.id,
+                        "unresolved" if not classes else "ambiguous",
+                        reason=reason if not classes else "multiple_declarations",
+                    )
+                )
+                continue
+            methods, reason = python_method(classes[0], parts[-1])
+            resolutions.append(
+                _pick(site.id, methods, PYTHON_CALL_ATTRIBUTE_RECEIVER, reason)
+            )
+            continue
         classes = (
             python_class(site.file, scope[:-1], site.receiver_type)
             if site.receiver_type is not None and languages.get(site.file) == "python"
