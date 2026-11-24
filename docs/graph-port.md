@@ -2473,7 +2473,39 @@ that imports `amqplib` or `amqplib/callback_api`, of one of these kinds:
 - the parameter of its `.then`.
 
 A channel passed in from another file is not read. A kafkajs topic given as
-a regular expression is `consume:topic_pattern`.
+a regular expression is `consume:topic_pattern`. A `Kafka` may also be a
+name typed `Kafka` (a parameter `kafka: Kafka`, say).
+
+#### Topics passed to a wrapper function
+
+Services often wrap a kafkajs send or subscribe in a function that takes the
+topic as a parameter (`publishEvent(topic, payload)`), so the topic is fixed
+only where the function is called (`script_constants.ScriptCalls`,
+`messaging._destinations`). When the topic at a kafkajs site is a parameter
+of the module-level function around it (a `function` declaration, or a
+top-level `const` whose value is the function) that the function never
+assigns again, the site takes, instead, each value a call of that function
+passes:
+
+- **Calls.** Calls in the function's own module, and in modules that import
+  it by name (`import { publishEvent as send } from './broker'`) or as a
+  namespace (`ns.publishEvent(...)`), resolved as for constants across
+  modules. A local name that shadows the function is not a call of it. A
+  function reached any other way (a default-exported object's member, a
+  value passed around) is not followed.
+- **Values.** Each argument is folded in the calling module, with its own
+  constants. One site is added per distinct value, with `argument_from`
+  listing the calls (`file:line`) that pass it, and rule
+  `service-contracts.destination-argument` (the site's own rule is kept as
+  `site_rule`). A call passing unknown text adds an unread site; a function
+  that no call reaches keeps its site unread as before.
+
+| Repository | Wrapper calls | Outcome |
+|---|---|---|
+| 19EB/microservices-base-kafka `9facb7f` (labelled corpus) | 6 `KafkaPublish(kafka, 'x-topic', ...)` in 3 services | 6 of 6 labelled links, none wrong (none before) |
+| simbolmina/nodejs-microservices-demo `7734f36` | 8 `publishEvent('...')` in the same module | 6 topics read from the 8 calls, all correct. A 9th call through a default-imported object passes a parameter, so it would be unknown anyway |
+| Rabin18Glan/gantabya `f90b2bc` | 2 `produceEvent('trip-events', ...)` in a controller | The send takes `trip-events` and meets the consumer |
+| Yash-op7/Distributed-Payments-Processing-System `8e4a6f5` | the only call is commented out | Unread, as before |
 
 The Go Kafka clients are read in files that import them. A producer or
 consumer is placed where the literal or call is written, which is not always
@@ -2921,7 +2953,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.doctrine-default-table` | name_matched | a Doctrine entity without a `Table` name: its short class name under the configured naming strategy, read from the `naming_strategy` of the Symfony `doctrine` configuration or a bootstrap's `setNamingStrategy(new UnderscoreNamingStrategy(...))`. The default strategy keeps the name (`BlogPost`), `underscore` snake-cases it (`blog_post`), number aware (`oauth2_client`) with `underscore_number_aware` or from ORM 3, whose version comes from `composer.lock`, else `composer.json`. A custom strategy, or a `loadClassMetadata` listener that calls `setPrimaryTable`/`setTableName`, leaves the repository's Doctrine tables unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-call` | pattern_matched | READS: a repository's own `createQueryBuilder` and finders (the repository's entity from `parent::__construct($registry, X::class)` or the entity's `repositoryClass`), finders (`find`, `findBy`, `findOneBy`, `findAll`, `count`, `matching`, magic `findByX`) on a property or parameter typed with the repository class, unless the repository declares that method, `getRepository(X::class)` finders, `find(X::class, ...)` and query builder `from(X::class, ...)`. WRITES: `update(X::class, ...)`, `delete(X::class, ...)`, and `persist`/`remove` of a variable typed with the entity (a parameter, a property, or `new X()` in the method) |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-dql` | pattern_matched | DQL passed to `createQuery` or `setDQL`, read as PHP text is (literals, heredocs, `.` joins, local variables) with `X::class` parts resolved: the entities its FROM and JOIN clauses name are read, the target of UPDATE or DELETE is written. Names are fully qualified or `Bundle:Entity` aliases, which resolve through the bundle class of that name in the repository (`AppBundle:Post` is `App\Entity\Post` when `AppBundle` is in `App`); association joins (`JOIN p.tags t`) are not followed |
-| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file or imported from a repository file, and `Object.assign`/lodash merges. NestJS models are read too: `MongooseModule.forFeature([{name, schema, collection}])` declares a model, and a schema made by `SchemaFactory.createForClass(C)` takes the `collection` of `C`'s `@Schema(options)`. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, the `model` import of mongoose, or a parameter typed `typeof import('mongoose')`, `typeof mongoose` or `Mongoose` whose name no other parameter or variable of the file declares; declared anywhere, including a factory's `return`) with a fixed `collection` argument (a literal or a `const` of the file), or whose schema (`new Schema(fields, options)` or `Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file or imported from a repository file, and `Object.assign`/lodash merges. NestJS models are read too: `MongooseModule.forFeature([{name, schema, collection}])` declares a model, and a schema made by `SchemaFactory.createForClass(C)` takes the `collection` of `C`'s `@Schema(options)`. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
@@ -3185,6 +3217,14 @@ through `PartKeeprPartBundle:Part`-style aliases. Entities whose type is not
 declared where they are persisted, PHP and YAML mapping drivers and custom
 repository base classes are not read yet. Symfony's `Tests/` directories
 are skipped with the other PHP test trees.
+
+The verification suite's Mongoose corpora score every model with no wrong
+or extra collection: electerious/Ackee 6 of 6, node-express-boilerplate 2
+of 2 (`mongoose.Schema(...)` without `new`) and LibreChat 69 of 69 (models
+returned by factories that take mongoose as a typed parameter). On nest's
+samples the only new edge is the `cats` collection of the
+`useFactory: (mongoose: Mongoose) => mongoose.model('Cat', CatSchema)`
+provider, and novu, mx-space, habitica and builderbook give the same edges.
 
 On HabitRPG/habitica `02edf1a` all 18 `mongoose.model` models and the 4
 `Task` discriminators are mapped, and the default names of the 7 that the

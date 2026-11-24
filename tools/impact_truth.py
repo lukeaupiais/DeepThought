@@ -219,22 +219,34 @@ def callables(index, source=None, spans=None):
     return found, aliases
 
 
-def call_graph(nodes, calls, aliases=None, name_line_inside=False):
+def call_graph(nodes, calls, aliases=None, name_line_inside=False, regions=()):
     """{callee: {callers}} over oracle nodes, from call-truth positions.
 
     ``name_line_inside``: a call on a callable's name line belongs to it
     (Go, Rust, Java, TypeScript: a one-line body such as
     ``func (ns nodes) Sort() { sort.Sort(ns); ns.tailSort() }``). In Python
     that line holds decorators and default values, which run where the
-    function is declared, so it belongs to the enclosing callable."""
+    function is declared, so it belongs to the enclosing callable.
+
+    ``regions``: (file, owner line, first, last) code outside any callable
+    that runs as part of an owner, such as a Java field initializer, which
+    runs when its class is constructed. A call there belongs to the owner,
+    unless a callable inside the region (an anonymous class's method) holds
+    it. Owners are callers only, never targets or seeds."""
     by_file = defaultdict(list)
     for (file, line), (_, first, last) in nodes.items():
-        by_file[file].append((last - first, line, first, last))
+        by_file[file].append((last - first, line, first, last, False))
+    for file, owner, first, last in regions:
+        by_file[file].append((last - first, owner, first, last, True))
     for spans in by_file.values():
         spans.sort()
 
     def caller(file, line):
-        for _, name_line, first, last in by_file.get(file, ()):
+        for _, name_line, first, last, region in by_file.get(file, ()):
+            if region:
+                if first <= line <= last:
+                    return (file, name_line)
+                continue
             # Decorators (above the name line, though scip-python's range
             # starts at the first one) and the definition line itself run
             # where the declaration is, not in its body.
@@ -314,6 +326,17 @@ def seeds(nodes, repo, language, revision, commits, aliases=None):
     return sorted(chosen)
 
 
+def read_initializers(path):
+    """{(file, owner line, first, last): owner name} from tools/
+    JavaMethodSpans.java --initializers."""
+    regions = {}
+    for text in Path(path).read_text("utf-8").splitlines():
+        if text and not text.startswith("#"):
+            file, line, first, last, name = text.split("\t")
+            regions[(file, int(line), int(first), int(last))] = name
+    return regions
+
+
 def read_spans(path):
     """Function spans from a language's own parser, as ``callables`` takes
     them: ``{(file, name_line): (first, last)}``, or with a fifth (name)
@@ -340,6 +363,7 @@ def derive(
     spans=None,
     extra_calls=(),
     possible_calls=(),
+    initializers=None,
 ):
     from ground_truth import read_truth
 
@@ -355,7 +379,12 @@ def derive(
     for path in extra_calls:
         for site, targets in read_truth(path)[0].items():
             positions.setdefault(site, set()).update(targets)
-    incoming = call_graph(nodes, positions, aliases, language != "python")
+    # Java field initializers and initializer blocks: their calls belong to
+    # the class (tools/JavaMethodSpans.java --initializers).
+    owners = {(f, ln): name for (f, ln, _, _), name in (initializers or {}).items()}
+    regions = list(initializers or {})
+    names = {key: value[0] for key, value in nodes.items()} | owners
+    incoming = call_graph(nodes, positions, aliases, language != "python", regions)
     # Calls the oracle cannot rule on (javac's error recovery), bound to every
     # target they could take: a dependent reached only through one of them
     # is neither expected nor wrong.
@@ -364,7 +393,7 @@ def derive(
         for site, targets in read_truth(path)[0].items():
             possible.setdefault(site, set()).update(targets)
     widened = (
-        call_graph(nodes, possible, aliases, language != "python")
+        call_graph(nodes, possible, aliases, language != "python", regions)
         if possible_calls
         else incoming
     )
@@ -372,9 +401,7 @@ def derive(
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
         reached = reach(incoming, seed, max_depth)
         for (file, line), depth in sorted(reached.items()):
-            rows.append(
-                (*seed, nodes[seed][0], file, line, nodes[(file, line)][0], depth)
-            )
+            rows.append((*seed, nodes[seed][0], file, line, names[(file, line)], depth))
         for node in sorted(set(reach(widened, seed, max_depth)) - set(reached)):
             unjudged.append((*seed, *node))
     return rows, aliases, nodes, unjudged
@@ -645,6 +672,12 @@ def main(argv=None):
         help="edges the oracle cannot rule on (derive-java --recovered): "
         "dependents reached only through them are listed as unjudged",
     )
+    derive_cmd.add_argument(
+        "--initializers",
+        type=Path,
+        help="code outside callables that runs as part of a class "
+        "(JavaMethodSpans.java --initializers): its calls belong to the class",
+    )
     args = parser.parse_args(argv)
     rows, aliases, nodes, unjudged = derive(
         None if args.index == "-" else Path(args.index),
@@ -657,6 +690,7 @@ def main(argv=None):
         read_spans(args.spans) if args.spans else None,
         args.extra_calls,
         args.possible_calls,
+        read_initializers(args.initializers) if args.initializers else None,
     )
     # scip-typescript gives a function inside another a local symbol, so
     # the truth lists every node to tell those apart from unlisted ones.

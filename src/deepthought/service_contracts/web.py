@@ -380,7 +380,8 @@ def _js_modules(root, content):
 
 
 def _js_object(node, content):
-    """{key: value node} of an object literal."""
+    """{key: value node} of an object literal; a shorthand property's value
+    is its own node."""
     found = {}
     if node is None or node.type != "object":
         return found
@@ -389,6 +390,9 @@ def _js_object(node, content):
             key = pair.child_by_field_name("key")
             name = text(key, content).strip("'\"")
             found[name] = pair.child_by_field_name("value")
+        elif pair.type == "shorthand_property_identifier":
+            # {topic} is {topic: topic}: the node folds as the name.
+            found[text(pair, content)] = pair
     return found
 
 

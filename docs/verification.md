@@ -361,7 +361,7 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | ewolff microservice-kafka | messaging | 2 / 2 / 2 | 2 / 2 / 2 |
 | piggymetrics | http | 3 / 3 / 3 | 3 / 3 / 3 |
 | spring-petclinic-microservices | http | 1 / 1 / 14 | 1 / 1 / 3 |
-| online-boutique | grpc | 20 / 21 / 20 | 12 / 12 / 14 |
+| online-boutique | grpc | 20 / 20 / 20 | 12 / 12 / 14 |
 | online-boutique | http | 9 / 9 / 9 | 1 / 1 / 1 |
 | robot-shop | http | 4 / 4 / 42 | 3 / 3 / 17 |
 | robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
@@ -369,6 +369,9 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | apollo spotify-showcase | graphql | 46 / 46 / 46 | 2 / 2 / 2 |
 | packt Chapter07 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
 | packt Chapter23 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
+| grpc-go route_guide | grpc | 4 / 4 / 4 | 1 / 1 / 1 |
+| grpc-java route_guide | grpc | 4 / 4 / 4 | 1 / 1 / 1 |
+| grpc-node route_guide | grpc | 10 / 10 / 10 | 1 / 1 / 1 |
 
 Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
@@ -439,6 +442,26 @@ topic. The six labelled links run from that shared `send` line, with the
 other service's `subscribe`. Main reads all three subscriptions but none of
 the sends, because the topic is a parameter fixed only at the wrapper's
 callers. So it links 0 of 6, with no false positives.
+
+grpc's route_guide example has one rpc of each streaming kind (`GetFeature`
+unary, `ListFeatures` server, `RecordRoute` client, `RouteChat` bidi). Its
+Go, Java and Node copies are labelled by hand in `build_grpc_route_guide.py`,
+from the code and the .proto, without the gRPC readers' code or tests (#162,
+#164). Each corpus is rooted at the example (`root` in the manifest); other
+examples in the same directory and protoc output are don't-care. Java's client
+and server share a package, so a service's root may be one file. Node has two
+copies, `static_codegen` (protoc output required as `services`) and
+`dynamic_codegen` (proto-loader): both clients dial the same address, so each
+copy's client file belongs to one client service and each server file to one
+server service.
+
+For gRPC the gate also scores two levels besides call sites and pairs:
+`servers` (labelled server lines with a `HANDLES` edge for the contract) and
+`streaming` (labelled rpcs whose `GrpcMethod` carries the labelled kind; a
+different kind is wrong, none is unread). Main reads every link, server and
+kind in all three: Go 4/4, Java 4/4, Node 10/10, streaming 4/4 each. Online
+Boutique's servers are 15 of 20: the 5 misses are the C# cartservice, whose
+servers are not read (C# is not a contract language yet).
 
 ### Routes and GraphQL fields
 
@@ -764,7 +787,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 3513 | 2 | 0.695 | 0.999 |
+| gson | 164 | 5070 | 3515 | 0 | 0.693 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -827,8 +850,13 @@ dependent on such a row counts as unjudged, not extra; 238 rows cover gson's
 proto tests, and 4 engine dependents land on them: the test methods at
 `LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, as dependents of
 `Gson.toJson(Object, Type)` and `JsonElement.newJsonStringBuilder()`.
-gson's 2 extras are real calls that the truth has no edge for: field
-initializers, `miniGson.getAdapter(...)` at `StreamingTypeAdaptersTest.java:43`
-and `gson.getAdapter(Object.class)` at `ObjectTypeAdapterTest.java:33`, which
-are in no method or constructor span, so their classes are not dependents in
-the truth.
+A field initializer or initializer block runs when its class is constructed
+or loaded, and is in no method or constructor span. `JavaMethodSpans.java
+--initializers` lists them, and impact_truth.py (`--initializers`) makes the
+class the caller of their calls, unless a method inside them (an anonymous
+class's) holds the call. A class is only ever a caller: never a seed or a
+target. This adds 18 dependents to gson's truth, such as `miniGson.getAdapter(...)`
+at `StreamingTypeAdaptersTest.java:43` making the class a dependent of
+`Gson.getAdapter`. The engine reads that one already, and
+`gson.getAdapter(Object.class)` at `ObjectTypeAdapterTest.java:33`; they were
+gson's last extras.

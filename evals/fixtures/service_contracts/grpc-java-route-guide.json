@@ -1,0 +1,229 @@
+{
+  "corpus": "grpc-java-route-guide",
+  "repo": "https://github.com/grpc/grpc-java",
+  "commit": "63363339259696a63ef0b33387e01b5520c5c700",
+  "license": "Apache-2.0",
+  "languages": [
+    "Java"
+  ],
+  "sources": [
+    "manual reading of examples/src/main (routeguide and proto) at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "route-guide-client",
+      "root": "java/io/grpc/examples/routeguide/RouteGuideClient.java"
+    },
+    {
+      "name": "route-guide-server",
+      "root": "java/io/grpc/examples/routeguide/RouteGuideServer.java"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 4,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "route-guide-client",
+        "route-guide-server",
+        "grpc"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/GetFeature",
+      "client": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideClient.java",
+        "line": 67
+      },
+      "server": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideServer.java",
+        "line": 137
+      },
+      "evidence": "feature = blockingStub.getFeature(request); -> routeguide.RouteGuide/GetFeature (rpc GetFeature(Point) returns (Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "unary",
+      "contract_def": {
+        "file": "proto/route_guide.proto",
+        "line": 31
+      },
+      "id": "grpc-java-route-guide#1"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/ListFeatures",
+      "client": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideClient.java",
+        "line": 104
+      },
+      "server": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideServer.java",
+        "line": 149
+      },
+      "evidence": "features = blockingStub.listFeatures(request); -> routeguide.RouteGuide/ListFeatures (rpc ListFeatures(Rectangle) returns (stream Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "server",
+      "contract_def": {
+        "file": "proto/route_guide.proto",
+        "line": 39
+      },
+      "id": "grpc-java-route-guide#2"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RecordRoute",
+      "client": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideClient.java",
+        "line": 155
+      },
+      "server": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideServer.java",
+        "line": 177
+      },
+      "evidence": "asyncStub.recordRoute(responseObserver); -> routeguide.RouteGuide/RecordRoute (rpc RecordRoute(stream Point) returns (RouteSummary) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "client",
+      "contract_def": {
+        "file": "proto/route_guide.proto",
+        "line": 45
+      },
+      "id": "grpc-java-route-guide#3"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RouteChat",
+      "client": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideClient.java",
+        "line": 194
+      },
+      "server": {
+        "file": "java/io/grpc/examples/routeguide/RouteGuideServer.java",
+        "line": 223
+      },
+      "evidence": "asyncStub.routeChat(new StreamObserver<RouteNote>() { -> routeguide.RouteGuide/RouteChat (rpc RouteChat(stream RouteNote) returns (stream RouteNote) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "bidi",
+      "contract_def": {
+        "file": "proto/route_guide.proto",
+        "line": 51
+      },
+      "id": "grpc-java-route-guide#4"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "java/io/grpc/examples/advanced",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/cancellation",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/customloadbalance",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/deadline",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/errordetails",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/errorhandling",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/experimental",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/grpcproxy",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/header",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/healthservice",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/hedging",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/helloworld",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/keepalive",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/loadbalance",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/manualflowcontrol",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/multiplex",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/nameresolve",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/preserialized",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/retrying",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "java/io/grpc/examples/waitforready",
+      "reason": "another example, not labelled"
+    }
+  ],
+  "notes": [
+    "Paths are relative to the corpus root, examples/src/main. The client and the server are files of one package, so each service's root is its file.",
+    "Stubs come from RouteGuideGrpc.newBlockingStub(channel) (getFeature, listFeatures) and RouteGuideGrpc.newStub(channel) (recordRoute, routeChat). The server is RouteGuideService extends RouteGuideGrpc.RouteGuideImplBase, added with serverBuilder.addService(new RouteGuideService(features)).",
+    "Every other example package under java/io/grpc/examples is don't-care: those examples are not labelled here."
+  ],
+  "root": "examples/src/main"
+}

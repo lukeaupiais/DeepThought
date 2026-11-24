@@ -1,0 +1,444 @@
+{
+  "corpus": "grpc-node-route-guide",
+  "repo": "https://github.com/grpc/grpc-node",
+  "commit": "ca7f83f719ba1e69ee9b832b84d5375de15eeca6",
+  "license": "Apache-2.0",
+  "languages": [
+    "JavaScript (Node, @grpc/grpc-js)"
+  ],
+  "sources": [
+    "manual reading of examples/routeguide and examples/protos at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "route-guide-client",
+      "root": "routeguide/static_codegen/route_guide_client.js"
+    },
+    {
+      "name": "route-guide-client",
+      "root": "routeguide/dynamic_codegen/route_guide_client.js"
+    },
+    {
+      "name": "route-guide-server",
+      "root": "routeguide/static_codegen/route_guide_server.js"
+    },
+    {
+      "name": "route-guide-server",
+      "root": "routeguide/dynamic_codegen/route_guide_server.js"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 10,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "route-guide-client",
+        "route-guide-server",
+        "grpc"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/GetFeature",
+      "client": {
+        "file": "routeguide/static_codegen/route_guide_client.js",
+        "line": 63
+      },
+      "server": {
+        "file": "routeguide/static_codegen/route_guide_server.js",
+        "line": 71
+      },
+      "evidence": "client.getFeature(point1 -> routeguide.RouteGuide/GetFeature (rpc GetFeature(Point) returns (Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "unary",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 32
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/static_codegen/route_guide_server.js",
+          "line": 212
+        }
+      ],
+      "codegen": "static",
+      "id": "grpc-node-route-guide#1"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/GetFeature",
+      "client": {
+        "file": "routeguide/static_codegen/route_guide_client.js",
+        "line": 64
+      },
+      "server": {
+        "file": "routeguide/static_codegen/route_guide_server.js",
+        "line": 71
+      },
+      "evidence": "client.getFeature(point2 -> routeguide.RouteGuide/GetFeature (rpc GetFeature(Point) returns (Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "unary",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 32
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/static_codegen/route_guide_server.js",
+          "line": 212
+        }
+      ],
+      "codegen": "static",
+      "id": "grpc-node-route-guide#2"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/ListFeatures",
+      "client": {
+        "file": "routeguide/static_codegen/route_guide_client.js",
+        "line": 84
+      },
+      "server": {
+        "file": "routeguide/static_codegen/route_guide_server.js",
+        "line": 81
+      },
+      "evidence": "client.listFeatures( -> routeguide.RouteGuide/ListFeatures (rpc ListFeatures(Rectangle) returns (stream Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "server",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 40
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/static_codegen/route_guide_server.js",
+          "line": 213
+        }
+      ],
+      "codegen": "static",
+      "id": "grpc-node-route-guide#3"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RecordRoute",
+      "client": {
+        "file": "routeguide/static_codegen/route_guide_client.js",
+        "line": 120
+      },
+      "server": {
+        "file": "routeguide/static_codegen/route_guide_server.js",
+        "line": 137
+      },
+      "evidence": "client.recordRoute( -> routeguide.RouteGuide/RecordRoute (rpc RecordRoute(stream Point) returns (RouteSummary) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "client",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 46
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/static_codegen/route_guide_server.js",
+          "line": 214
+        }
+      ],
+      "codegen": "static",
+      "id": "grpc-node-route-guide#4"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RouteChat",
+      "client": {
+        "file": "routeguide/static_codegen/route_guide_client.js",
+        "line": 166
+      },
+      "server": {
+        "file": "routeguide/static_codegen/route_guide_server.js",
+        "line": 184
+      },
+      "evidence": "client.routeChat( -> routeguide.RouteGuide/RouteChat (rpc RouteChat(stream RouteNote) returns (stream RouteNote) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "bidi",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 52
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/static_codegen/route_guide_server.js",
+          "line": 215
+        }
+      ],
+      "codegen": "static",
+      "id": "grpc-node-route-guide#5"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/GetFeature",
+      "client": {
+        "file": "routeguide/dynamic_codegen/route_guide_client.js",
+        "line": 73
+      },
+      "server": {
+        "file": "routeguide/dynamic_codegen/route_guide_server.js",
+        "line": 81
+      },
+      "evidence": "client.getFeature(point1 -> routeguide.RouteGuide/GetFeature (rpc GetFeature(Point) returns (Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "unary",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 32
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/dynamic_codegen/route_guide_server.js",
+          "line": 222
+        }
+      ],
+      "codegen": "dynamic",
+      "id": "grpc-node-route-guide#6"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/GetFeature",
+      "client": {
+        "file": "routeguide/dynamic_codegen/route_guide_client.js",
+        "line": 74
+      },
+      "server": {
+        "file": "routeguide/dynamic_codegen/route_guide_server.js",
+        "line": 81
+      },
+      "evidence": "client.getFeature(point2 -> routeguide.RouteGuide/GetFeature (rpc GetFeature(Point) returns (Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "unary",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 32
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/dynamic_codegen/route_guide_server.js",
+          "line": 222
+        }
+      ],
+      "codegen": "dynamic",
+      "id": "grpc-node-route-guide#7"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/ListFeatures",
+      "client": {
+        "file": "routeguide/dynamic_codegen/route_guide_client.js",
+        "line": 95
+      },
+      "server": {
+        "file": "routeguide/dynamic_codegen/route_guide_server.js",
+        "line": 91
+      },
+      "evidence": "client.listFeatures( -> routeguide.RouteGuide/ListFeatures (rpc ListFeatures(Rectangle) returns (stream Feature) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "server",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 40
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/dynamic_codegen/route_guide_server.js",
+          "line": 223
+        }
+      ],
+      "codegen": "dynamic",
+      "id": "grpc-node-route-guide#8"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RecordRoute",
+      "client": {
+        "file": "routeguide/dynamic_codegen/route_guide_client.js",
+        "line": 122
+      },
+      "server": {
+        "file": "routeguide/dynamic_codegen/route_guide_server.js",
+        "line": 147
+      },
+      "evidence": "client.recordRoute( -> routeguide.RouteGuide/RecordRoute (rpc RecordRoute(stream Point) returns (RouteSummary) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "client",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 46
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/dynamic_codegen/route_guide_server.js",
+          "line": 224
+        }
+      ],
+      "codegen": "dynamic",
+      "id": "grpc-node-route-guide#9"
+    },
+    {
+      "kind": "grpc",
+      "from_service": "route-guide-client",
+      "to_service": "route-guide-server",
+      "contract": "routeguide.RouteGuide/RouteChat",
+      "client": {
+        "file": "routeguide/dynamic_codegen/route_guide_client.js",
+        "line": 173
+      },
+      "server": {
+        "file": "routeguide/dynamic_codegen/route_guide_server.js",
+        "line": 194
+      },
+      "evidence": "client.routeChat( -> routeguide.RouteGuide/RouteChat (rpc RouteChat(stream RouteNote) returns (stream RouteNote) {})",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "streaming": "bidi",
+      "contract_def": {
+        "file": "protos/route_guide.proto",
+        "line": 52
+      },
+      "server_alternatives": [
+        {
+          "file": "routeguide/dynamic_codegen/route_guide_server.js",
+          "line": 225
+        }
+      ],
+      "codegen": "dynamic",
+      "id": "grpc-node-route-guide#10"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "routeguide/static_codegen/route_guide_grpc_pb.js",
+      "reason": "protoc output: stubs and messages, not callers"
+    },
+    {
+      "file": "routeguide/static_codegen/route_guide_pb.js",
+      "reason": "protoc output: stubs and messages, not callers"
+    },
+    {
+      "file": "cancellation",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "data",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "deadline",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "debugging",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "encryption",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "error_details",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "error_handling",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "health_check",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "helloworld",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "interceptors",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "keepalive",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "load_balancing",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "metadata",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "reflection",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "retry",
+      "reason": "another example, not labelled"
+    },
+    {
+      "file": "xds",
+      "reason": "another example, not labelled"
+    }
+  ],
+  "notes": [
+    "Paths are relative to the corpus root, examples. Two copies of one example: dynamic_codegen loads ../../protos/route_guide.proto with @grpc/proto-loader (new routeguide.RouteGuide(...), addService(routeguide.RouteGuide.service, ...)); static_codegen requires protoc output (new services.RouteGuideClient(...), addService(services.RouteGuideService, ...)).",
+    "Both clients dial localhost:50051 and either server listens there, so the two copies are one client service and one server service; each service lists both files.",
+    "client is the line of client.<rpc>(...); runGetFeature calls getFeature twice. server is the handler function's declaration; server_alternatives is its entry in the addService map.",
+    "static_codegen/route_guide_grpc_pb.js and route_guide_pb.js are protoc output: don't-care. Every other example directory is don't-care: not labelled here."
+  ],
+  "root": "examples"
+}

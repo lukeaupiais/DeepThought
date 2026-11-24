@@ -7,11 +7,23 @@
 // (tools/JavaCallTruth.java) rather than a SCIP index.
 //
 // Usage: java tools/JavaMethodSpans.java ROOT > spans.tsv
+//
+// With --initializers it writes, instead, one row per field initializer and
+// initializer block of a named class: the file, the line of the class's name,
+// the member's first and last line, and the class's name. That code runs when
+// the class is constructed or loaded, so impact_truth.py makes the class the
+// caller of the calls in it (javac compiles instance initializers into every
+// constructor, and a class without one has no other callable to hold them).
+//
+// Usage: java tools/JavaMethodSpans.java ROOT --initializers > init.tsv
 
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.LineMap;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.SourcePositions;
 import com.sun.source.util.TreePathScanner;
@@ -32,6 +44,7 @@ import javax.tools.ToolProvider;
 public class JavaMethodSpans {
     public static void main(String[] args) throws Exception {
         Path root = Path.of(args[0]).toAbsolutePath().normalize();
+        boolean initializers = args.length > 1 && args[1].equals("--initializers");
         List<Path> paths;
         try (Stream<Path> walk = Files.walk(root)) {
             paths = walk.filter(p -> p.toString().endsWith(".java"))
@@ -53,7 +66,23 @@ public class JavaMethodSpans {
             new TreePathScanner<Void, Void>() {
                 @Override
                 public Void visitClass(ClassTree tree, Void unused) {
-                    classes.push(tree.getSimpleName().toString());
+                    String name = tree.getSimpleName().toString();
+                    if (initializers && !name.isEmpty()) {
+                        int nameLine = nameLine(tree, name);
+                        for (Tree member : tree.getMembers()) {
+                            boolean runs = member instanceof BlockTree
+                                    || (member instanceof VariableTree v
+                                            && v.getInitializer() != null);
+                            long start = positions.getStartPosition(unit, member);
+                            long end = positions.getEndPosition(unit, member);
+                            if (runs && start >= 0 && end >= 0) {
+                                rows.add(file + "\t" + nameLine + "\t"
+                                        + lines.getLineNumber(start) + "\t"
+                                        + lines.getLineNumber(end) + "\t" + name);
+                            }
+                        }
+                    }
+                    classes.push(name);
                     try {
                         return super.visitClass(tree, unused);
                     } finally {
@@ -61,8 +90,27 @@ public class JavaMethodSpans {
                     }
                 }
 
+                // The line of the class's name: javac's position for a class
+                // is its keyword, so look for the name from there.
+                private int nameLine(ClassTree tree, String name) {
+                    int from = ((com.sun.tools.javac.tree.JCTree) tree).pos;
+                    String source;
+                    try {
+                        source = unit.getSourceFile().getCharContent(true).toString();
+                    } catch (java.io.IOException e) {
+                        throw new java.io.UncheckedIOException(e);
+                    }
+                    java.util.regex.Matcher matcher = java.util.regex.Pattern
+                            .compile("\\b" + java.util.regex.Pattern.quote(name) + "\\b")
+                            .matcher(source);
+                    return (int) lines.getLineNumber(matcher.find(from) ? matcher.start() : from);
+                }
+
                 @Override
                 public Void visitMethod(MethodTree tree, Void unused) {
+                    if (initializers) {
+                        return super.visitMethod(tree, unused);
+                    }
                     long start = positions.getStartPosition(unit, tree);
                     long end = positions.getEndPosition(unit, tree);
                     int nameAt = ((com.sun.tools.javac.tree.JCTree) tree).pos;
@@ -78,7 +126,9 @@ public class JavaMethodSpans {
             }.scan(unit, null);
         }
         Collections.sort(rows);
-        System.out.println("# file\tname_line\tfirst_line\tlast_line\tname");
+        System.out.println(initializers
+                ? "# file\tclass_name_line\tfirst_line\tlast_line\tclass"
+                : "# file\tname_line\tfirst_line\tlast_line\tname");
         rows.forEach(System.out::println);
     }
 }
