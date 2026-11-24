@@ -1674,8 +1674,8 @@ Gradle builds and generated clients are not read yet.
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The
 37th, `failingRequest`, has no implementing controller and is reported as
-not handled. The project's own MockMvc tests request 34 distinct method and
-path pairs under `/api`, and every one is among the 36 routes.
+not handled. The project's own MockMvc tests request 36 distinct method and
+path pairs under `/api`, and they are exactly the 36 routes.
 
 ### gRPC
 
