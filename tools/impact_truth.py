@@ -31,7 +31,9 @@ Usage:
       [--spans SPANS_TSV] > impact.tsv
 
 For Go, scip-go records no definition spans; pass the output of
-``go run tools/go_function_spans.go WORKSPACE`` as ``--spans``.
+``go run tools/go_function_spans.go WORKSPACE`` as ``--spans``. For Java,
+whose call truth comes from javac, there is no index: pass ``-`` as INDEX and
+the output of ``java tools/JavaMethodSpans.java WORKSPACE`` as ``--spans``.
 """
 
 import argparse
@@ -249,21 +251,30 @@ def seeds(nodes, repo, language, revision, commits, aliases=None):
 
 
 def read_spans(path):
-    """tools/go_function_spans.go output as ``callables`` takes it."""
+    """Function spans from a language's own parser, as ``callables`` takes
+    them: ``{(file, name_line): (first, last)}``, or with a fifth (name)
+    column ``{(file, name_line): (name, first, last)}`` (tools/
+    go_function_spans.go writes four columns, tools/JavaMethodSpans.java
+    five)."""
     spans = {}
     for text in Path(path).read_text("utf-8").splitlines():
         if text and not text.startswith("#"):
-            file, line, first, last = text.split("\t")
-            spans[(file, int(line))] = (int(first), int(last))
+            file, line, first, last, *name = text.split("\t")
+            value = (int(first), int(last))
+            spans[(file, int(line))] = (name[0], *value) if name else value
     return spans
 
 
 def derive(index, calls, repo, language, revision, commits=30, max_depth=3, spans=None):
     from ground_truth import read_truth
 
-    nodes, aliases = callables(
-        index, lambda file: git(repo, "show", f"{revision}:{file}"), spans
-    )
+    if index is None:
+        # No index (javac truth): the callables are the parser's spans.
+        nodes, aliases = dict(spans), {}
+    else:
+        nodes, aliases = callables(
+            index, lambda file: git(repo, "show", f"{revision}:{file}"), spans
+        )
     positions, _ = read_truth(calls)
     incoming = call_graph(nodes, positions, aliases)
     rows = []
@@ -401,7 +412,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     derive_cmd = commands.add_parser("derive")
-    derive_cmd.add_argument("index", type=Path)
+    derive_cmd.add_argument("index", help="SCIP index, or - with named --spans")
     derive_cmd.add_argument("calls", type=Path)
     derive_cmd.add_argument("history", type=Path)
     derive_cmd.add_argument("--language", required=True)
@@ -413,7 +424,7 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     rows, aliases = derive(
-        args.index,
+        None if args.index == "-" else Path(args.index),
         args.calls,
         args.history,
         args.language,
