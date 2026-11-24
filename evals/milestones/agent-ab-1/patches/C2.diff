@@ -1,0 +1,55 @@
+--- a/source/core/Ky.ts
++++ b/source/core/Ky.ts
+@@ -803,7 +803,7 @@
+ 			});
+ 
+ 			// Only overwrite if the hook returns a valid Error, including one from another realm.
+-			if (isError(hookResult)) {
++			if (isError(hookResult, true)) {
+ 				processedError = hookResult;
+ 			}
+ 		}
+@@ -1175,7 +1175,7 @@
+ 				this.#throwIfAbortedByUser();
+ 
+ 				// Preserve the original request error path (`throw error`) so beforeError hooks can still run. `isError` rather than `instanceof`, so a cross-realm error is recognised the same way `#throwProcessedError` does.
+-				if (isError(hookError) && hookError !== error) {
++				if (isError(hookError, true) && hookError !== error) {
+ 					this.#beforeRetryHookErrors.add(hookError);
+ 				}
+ 
+--- a/source/errors/NonError.ts
++++ b/source/errors/NonError.ts
+@@ -10,7 +10,7 @@
+ 	Returns the value as-is when it is an `Error`, including one from another realm, and otherwise wraps it in a `NonError`.
+ 	*/
+ 	static wrap(value: unknown): Error {
+-		return isError(value) ? value : new NonError(value);
++		return isError(value, true) ? value : new NonError(value);
+ 	}
+ 
+ 	override name = 'NonError';
+--- a/source/utils/is-network-error.ts
++++ b/source/utils/is-network-error.ts
+@@ -14,7 +14,7 @@
+ 
+ export default function isRawNetworkError(error: unknown): error is TypeError {
+ 	const isValid = error
+-		&& isError(error)
++		&& isError(error, true)
+ 		&& error.name === 'TypeError'
+ 		&& typeof error.message === 'string';
+ 
+--- a/source/utils/is.ts
++++ b/source/utils/is.ts
+@@ -10,8 +10,8 @@
+ const objectToString = Object.prototype.toString;
+ 
+ // An `Error` from another realm (an iframe, a worker, a `vm` context, or a duplicated dependency) fails `instanceof`, so the internal brand is checked as well, the same way the request and response checks do. `instanceof` stays first because it also accepts `DOMException`, which an `AbortSignal` reason is, and that does not carry the `[object Error]` brand.
+-export const isError = (value: unknown): value is Error =>
+-	value instanceof Error || objectToString.call(value) === '[object Error]';
++export const isError = (value: unknown, crossRealm: boolean): value is Error =>
++	value instanceof Error || (crossRealm && objectToString.call(value) === '[object Error]');
+ 
+ // A `Request` from another realm, such as one a hook built in an iframe, is accepted through its internal brand.
+ export const isRequest = (value: unknown): value is Request =>

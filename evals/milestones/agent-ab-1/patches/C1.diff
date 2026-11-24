@@ -1,0 +1,86 @@
+--- a/command.go
++++ b/command.go
+@@ -913,7 +913,7 @@
+ 
+ 	// initialize help and version flag at the last point possible to allow for user
+ 	// overriding
+-	c.InitDefaultHelpFlag()
++	c.InitHelpFlag()
+ 	c.InitDefaultVersionFlag()
+ 
+ 	err = c.ParseFlags(a)
+@@ -926,7 +926,7 @@
+ 	helpVal, err := c.Flags().GetBool(helpFlagName)
+ 	if err != nil {
+ 		// should be impossible to get here as we always declare a help
+-		// flag in InitDefaultHelpFlag()
++		// flag in InitHelpFlag()
+ 		c.Println("\"help\" flag declared as non-bool. Please correct your code")
+ 		return err
+ 	}
+@@ -1213,10 +1213,10 @@
+ 	}
+ }
+ 
+-// InitDefaultHelpFlag adds default help flag to c.
++// InitHelpFlag adds default help flag to c.
+ // It is called automatically by executing the c or by calling help and usage.
+ // If c already has help flag, it will do nothing.
+-func (c *Command) InitDefaultHelpFlag() {
++func (c *Command) InitHelpFlag() {
+ 	c.mergePersistentFlags()
+ 	if c.Flags().Lookup(helpFlagName) == nil {
+ 		usage := "help for "
+@@ -1301,7 +1301,7 @@
+ 						cmd.ctx = c.ctx
+ 					}
+ 
+-					cmd.InitDefaultHelpFlag()    // make possible 'help' flag to be shown
++					cmd.InitHelpFlag()    // make possible 'help' flag to be shown
+ 					cmd.InitDefaultVersionFlag() // make possible 'version' flag to be shown
+ 					CheckErr(cmd.Help())
+ 				}
+--- a/completions.go
++++ b/completions.go
+@@ -354,7 +354,7 @@
+ 	// has not disabled flag parsing; if flag parsing is disabled, it is up to the
+ 	// finalCmd itself to handle the completion of *all* flags.
+ 	if !finalCmd.DisableFlagParsing {
+-		finalCmd.InitDefaultHelpFlag()
++		finalCmd.InitHelpFlag()
+ 		finalCmd.InitDefaultVersionFlag()
+ 	}
+ 
+--- a/doc/md_docs.go
++++ b/doc/md_docs.go
+@@ -56,7 +56,7 @@
+ // GenMarkdownCustom creates custom markdown output.
+ func GenMarkdownCustom(cmd *cobra.Command, w io.Writer, linkHandler func(string) string) error {
+ 	cmd.InitDefaultHelpCmd()
+-	cmd.InitDefaultHelpFlag()
++	cmd.InitHelpFlag()
+ 
+ 	buf := new(bytes.Buffer)
+ 	name := cmd.CommandPath()
+--- a/doc/rest_docs.go
++++ b/doc/rest_docs.go
+@@ -61,7 +61,7 @@
+ // GenReSTCustom creates custom reStructured Text output.
+ func GenReSTCustom(cmd *cobra.Command, w io.Writer, linkHandler func(string, string) string) error {
+ 	cmd.InitDefaultHelpCmd()
+-	cmd.InitDefaultHelpFlag()
++	cmd.InitHelpFlag()
+ 
+ 	buf := new(bytes.Buffer)
+ 	name := cmd.CommandPath()
+--- a/doc/yaml_docs.go
++++ b/doc/yaml_docs.go
+@@ -92,7 +92,7 @@
+ // GenYamlCustom creates custom yaml output.
+ func GenYamlCustom(cmd *cobra.Command, w io.Writer, linkHandler func(string) string) error {
+ 	cmd.InitDefaultHelpCmd()
+-	cmd.InitDefaultHelpFlag()
++	cmd.InitHelpFlag()
+ 
+ 	yamlDoc := cmdDoc{}
+ 	yamlDoc.Name = cmd.CommandPath()

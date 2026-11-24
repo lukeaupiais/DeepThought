@@ -265,7 +265,10 @@ def _validate_facts(scenario):
             raise ValueError("exact-fact-v1: duplicate key")
         keys.add(row["key"])
         values = row["value"] if isinstance(row["value"], list) else [row["value"]]
-        for value in values:
+        optional = row.get("optional", [])
+        if not isinstance(optional, list) or (optional and values is not row["value"]):
+            raise ValueError("exact-fact-v1: optional values need a list fact")
+        for value in values + optional:
             _normal(value)
 
 
@@ -296,6 +299,8 @@ def _score_facts(scenario, answer):
         except (ValueError, TypeError):
             invalid.append(f"facts.{key} has an unsupported value")
             continue
+        # Values the truth marks optional are neither right nor wrong.
+        got -= {_normal(v) for v in row.get("optional", [])} - expected
         answered_units += len(got)
         correct += len(expected & got)
         if got != expected:

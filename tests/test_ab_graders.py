@@ -177,7 +177,29 @@ FACTS = scenario(
 )
 
 
+LISTED = scenario(
+    "exact-fact-v1",
+    [{"role": "fact", "key": "names", "value": ["a", "b"], "optional": ["c"]}],
+)
+
+
 class ExactFactTests(unittest.TestCase):
+    def test_optional_values_are_neither_right_nor_wrong(self):
+        result = grade(LISTED, {"facts": {"names": ["a", "b", "c"]}})
+        self.assertTrue(result["quality_pass"])
+        self.assertEqual(result["wrong_claims"], 0)
+        self.assertTrue(grade(LISTED, {"facts": {"names": ["a", "b"]}})["quality_pass"])
+        short = grade(LISTED, {"facts": {"names": ["a", "c"]}})
+        self.assertFalse(short["quality_pass"])
+        with self.assertRaises(ValueError):
+            grade(
+                scenario(
+                    "exact-fact-v1",
+                    [{"role": "fact", "key": "n", "value": 1, "optional": [2]}],
+                ),
+                {},
+            )
+
     def test_exact_facts_pass_up_to_case_and_spacing(self):
         result = grade(
             FACTS,

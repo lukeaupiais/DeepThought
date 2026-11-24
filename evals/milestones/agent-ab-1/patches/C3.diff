@@ -1,0 +1,33 @@
+--- a/cart/server.js
++++ b/cart/server.js
+@@ -359,7 +359,7 @@
+ 
+ function getProduct(sku) {
+     return new Promise((resolve, reject) => {
+-        request('http://' + catalogueHost + ':8080/product/' + sku, (err, res, body) => {
++        request('http://' + catalogueHost + ':8080/products/item/' + sku, (err, res, body) => {
+             if(err) {
+                 reject(err);
+             } else if(res.statusCode != 200) {
+--- a/catalogue/server.js
++++ b/catalogue/server.js
+@@ -79,7 +79,7 @@
+ });
+ 
+ // product by SKU
+-app.get('/product/:sku', (req, res) => {
++app.get('/products/item/:sku', (req, res) => {
+     if(mongoConnected) {
+         // optionally slow this down
+         const delay = process.env.GO_SLOW || 0;
+--- a/web/static/js/controller.js
++++ b/web/static/js/controller.js
+@@ -241,7 +241,7 @@
+ 
+         function loadProduct(sku) {
+             $http({
+-                url: '/api/catalogue/product/' + sku,
++                url: '/api/catalogue/products/item/' + sku,
+                 method: 'GET'
+             }).then((res) => {
+                 $scope.data.product = res.data;
