@@ -73,6 +73,7 @@ from ..service_contracts.csharp_http import (
     typed_client_registrations,
 )
 from ..service_contracts.laravel import extract_laravel, route_loaders
+from ..service_contracts.nextjs import extract_nextjs, next_projects, route_of
 from ..service_contracts.php import (
     extract_php,
     php_wrapper_facts,
@@ -258,6 +259,18 @@ ROUTE_RULES = {
             "github.com/labstack/echo declares this path; Group prefixes are "
             "joined, and a group passed in adds an unknown base assumed to "
             "add no segments.",
+        )
+    ),
+    "nextjs": register_rule(
+        EvidenceRule(
+            "service-contracts.nextjs-route",
+            "pattern_matched",
+            "A file under pages/api (any method, handled by its default "
+            "export) or an app/**/route.{js,ts} file (one route per exported "
+            "HTTP verb) of a package depending on next declares this path, "
+            "from its directories: [x] is a variable, [...x] and [[...x]] "
+            "the rest of the path, route groups and parallel slots add no "
+            "segment, and a literal basePath in next.config prefixes it.",
         )
     ),
     "spring-websocket": register_rule(
@@ -1280,10 +1293,24 @@ _MANIFESTS = (
 )
 
 
-def _projects(root):
+def _projects(root, sources=()):
     """file -> the nearest directory above it with a build manifest (or a
-    .csproj), "." when there is none."""
+    .csproj); None when there is none, or when it is a Go module holding
+    more than one ``package main`` directory (several programs, so which
+    one a file belongs to is not known)."""
     cache = {}
+    programs = {
+        PurePosixPath(c.file).parent
+        for c, content, _ in sources
+        if c.language == "go" and re.search(rb"^package main\b", content, re.M)
+    }
+
+    def several_programs(key, directory):
+        if not (directory / "go.mod").is_file():
+            return False
+        base = PurePosixPath(key)
+        inside = [p for p in programs if key == "." or p == base or base in p.parents]
+        return len(inside) > 1
 
     def project(file):
         path = PurePosixPath(file).parent
@@ -1298,10 +1325,10 @@ def _projects(root):
             if any((directory / m).is_file() for m in _MANIFESTS) or any(
                 directory.glob("*.csproj")
             ):
-                found = key
+                found = None if several_programs(key, directory) else key
                 break
             if path == path.parent:
-                found = "."
+                found = None
                 break
             path = path.parent
         for key in seen:
@@ -1871,6 +1898,14 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
+        next_apps = next_projects(
+            root,
+            [
+                c.file
+                for c, _, _ in sources
+                if c.language in ("javascript", "typescript")
+            ],
+        )
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
@@ -1979,6 +2014,19 @@ class ServiceContractTool(AnalysisTool):
                         else None
                     ),
                 )
+            if coverage.language in ("javascript", "typescript") and next_apps:
+                next_route = route_of(coverage.file, next_apps)
+                if next_route is not None:
+                    found[0].extend(
+                        extract_nextjs(
+                            tree,
+                            content,
+                            repo_url,
+                            coverage.file,
+                            result.definitions,
+                            next_route,
+                        )
+                    )
             routes.extend(found[0])
             requests.extend(found[1])
             unread.extend(found[2])
@@ -2133,7 +2181,7 @@ class ServiceContractTool(AnalysisTool):
         deployments = Deployments(deployed_units(root))
         routes, requests = _deployed(root, deployments, routes, requests)
         resolutions = contract_rules.resolve_requests(
-            routes, requests, gateways, deployments.hosts(), _projects(root)
+            routes, requests, gateways, deployments.hosts(), _projects(root, sources)
         )
         self.last_facts = (result, routes, requests, unread, resolutions)
         grpc = grpc_contracts.collect(

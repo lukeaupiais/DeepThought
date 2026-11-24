@@ -1288,7 +1288,7 @@ class JavaTests(unittest.TestCase):
             '    a.add("n=" + i);',  # 24: concatenation is a String
             "    a.add(s + o);",  # 25: so with a String variable
             "    a.add(i + 1);",  # 26: arithmetic on ints is an int
-            "    a.add(xs);",  # 27: an array has no type here
+            "    a.add(xs);",  # 27: an array is none of these
             "    a.add(v);",  # 28: var without new
             "    for (int k = 0; k < 2; k++) { a.n(k); }",  # 29
             "    for (long e : new long[] {1}) { a.n(e); }",  # 30
@@ -1330,6 +1330,53 @@ class JavaTests(unittest.TestCase):
         self.assertEqual(types[(24, "a.add")], ("String",))
         self.assertEqual(types[(26, "a.add")], ("int",))
         receiver = next(s for s in sites.values() if s.line == 32)
+        self.assertIsNone(receiver.receiver_type)
+
+    def test_array_variables_select_overloads(self):
+        lines = [
+            "package p;",  # 1
+            "class Elem {}",
+            "class Api<T> {",
+            "  void r(Object x) {}",  # 4
+            "  void r(Elem x) {}",  # 5
+            "  void q(Elem[] x) {}",  # 6
+            "  void q(String[] x) {}",  # 7
+            "}",
+            "class Main<T> {",
+            "  Elem[] field;",  # 10
+            "  void m(Api<T> a, int[] ints, Elem[][] grid, T[] ts) {",
+            "    Elem[] elems = null;",
+            "    a.r(ints);",  # 13: an array is an Object, no Elem
+            "    a.r(elems);",  # 14
+            "    a.r(field);",  # 15: a field
+            "    a.r(grid);",  # 16
+            "    a.q(elems);",  # 17: element types decide
+            "    a.q(ts);",  # 18: a type parameter's array: not known
+            "    a.r(ts);",  # 19: not recorded either
+            "    elems.clone();",  # 20: an array is no receiver type
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].line: (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee.startswith("a.")
+        }
+        self.assertEqual(
+            found, {13: 4, 14: 4, 15: 4, 16: 4, 17: 6, 18: [6, 7], 19: [4, 5]}
+        )
+        types = {s.line: s.argument_types for s in sites.values()}
+        self.assertEqual(types[13], ("int[]",))
+        self.assertEqual(types[16], ("Elem[][]",))
+        self.assertIsNone(types[18])
+        receiver = next(s for s in sites.values() if s.line == 20)
         self.assertIsNone(receiver.receiver_type)
 
     def test_jdk_types_are_no_repository_subtypes(self):
@@ -1868,10 +1915,13 @@ class JavaTests(unittest.TestCase):
             ("int[]", "long[]", 1, False),
             ("Sub[]", "Base[]", 1, True),
             # Any array is an Object; one of more dimensions than a
-            # parameter's array may still be one, but never a primitive.
+            # parameter's array may still be one, but never a primitive,
+            # nor a class or interface but Cloneable and Serializable (JLS
+            # 4.10.3).
             ("Sub[][]", "Object", 1, True),
             ("Sub[][]", "Object[]", 1, None),
-            ("Sub[]", "Base", 1, None),
+            ("Sub[]", "Base", 1, False),
+            ("Sub[]", "Serializable", 1, True),
             ("Sub[]", "int", 1, False),
             # Unboxing, then widening, in phase 2 only; an unknown class or
             # one with unread bases may unbox to nothing known.
