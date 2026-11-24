@@ -2274,6 +2274,23 @@ all have the configured destination. The other 5 are unread, not wrong:
 Samples without a `spring.application.name` are not services here and give
 nothing.
 
+A `StreamBridge.send(binding, ...)` whose binding is a parameter of a
+`private` method takes the literal value of the argument that each direct
+call in the file passes (`m(...)` or `this.m(...)`, inside lambdas too). The
+send site gets one binding per distinct value, and a caller's own parameter
+is followed the same way, at most three methods deep. The binding stays
+`binding_not_literal` when the method:
+- is not private;
+- assigns the parameter, or declares a local that shadows it;
+- is used as a method reference;
+- has an overload of another arity;
+- is never called;
+- gets any argument that is not literal.
+
+On the Packt chapters this resolves product-composite's `sendMessage("products-out-0", ...)`
+helper. With the Compose identity below, `contracts-packt-chapter07` and
+`contracts-packt-chapter23` each score 3/3 labelled links with no false ones.
+
 #### Services that Compose builds
 
 A Compose service whose `build` context is a module's directory runs that
