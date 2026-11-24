@@ -1896,10 +1896,21 @@ the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
 (external targets the earlier environment left unresolved).
 
+The `scip` AnalysisTool reads these indexes, one per indexer, into one
+snapshot (`deepthought-graph index WORKSPACE --tool scip --scip-index
+DIR/scip-python.scip --scip-index DIR/scip-go.scip`; SDK
+`ScipAnalysisTool(root, index_paths=[...])`). Each index is checked against its
+receipt before and after reading, each File node records its language, and two
+indexes that cover the same file are refused. Documents outside the workspace
+(scip-go's generated test mains in the Go build cache) are dropped before the
+index is written. The TypeScript v1 index from `index-typescript` still reads
+as before.
+
 ## SCIP references
 
-The `scip` AnalysisTool stores compiler-backed references from a
-scip-typescript index. It never runs the indexer itself.
+The `scip` AnalysisTool stores compiler-backed references from SCIP indexes
+(see [SCIP indexers](#scip-indexers) for Python, JavaScript and Go). It never
+runs an indexer itself.
 `deepthought index-typescript WORKSPACE --node NODE --indexer SCIP_TYPESCRIPT_MAIN`
 runs a provisioned scip-typescript 0.6.0 and writes `index.scip` with a
 `index.scip.sources.json` receipt: the index digest plus the sha256 of every

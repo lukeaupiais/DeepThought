@@ -29,7 +29,7 @@ FAKE = textwrap.dedent(
     for path in reversed(os.environ["FAKE_DOCUMENTS"].split(",")):
         document = index.documents.add()
         document.relative_path = path
-        for line in (3, 1, 2):
+        for line in (0,):
             occurrence = document.occurrences.add()
             occurrence.range.extend([line, 0, 1])
             occurrence.symbol = "local " + str(line)
@@ -159,6 +159,51 @@ class IndexersTest(unittest.TestCase):
             return indexers.canonical_bytes(index)
 
         self.assertEqual(build(["a.go", "b.go"]), build(["b.go", "a.go"]))
+
+    def test_scip_tool_composes_indexes_of_several_languages(self):
+        import asyncio
+
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        (self.root / "go.mod").write_text("module example.com/m\n")
+        (self.root / "main.go").write_text("package main\n\nfunc main() {}\n")
+        self.fake("scip-python")
+        self.fake("scip-go")
+        self.out.mkdir()
+        python = indexers.run_indexer(
+            indexers.INDEXERS["scip-python"],
+            self.root,
+            self.out / "py.scip",
+            environ=self.environ(FAKE_DOCUMENTS="src/pkg/a.py,src/pkg/b.py"),
+        )
+        go = indexers.run_indexer(
+            indexers.INDEXERS["scip-go"],
+            self.root,
+            self.out / "go.scip",
+            environ=self.environ(
+                FAKE_NAME="scip-go", FAKE_VERSION="0.1.26", FAKE_DOCUMENTS="main.go"
+            ),
+        )
+        self.assertEqual((python.status, go.status), ("indexed", "indexed"))
+        tool = ScipAnalysisTool(self.root, index_paths=[python.index, go.index])
+        output = asyncio.run(tool.analyze("repo"))
+        self.assertEqual(output.metadata.languages_processed, ["go", "python"])
+        languages = {
+            n.properties["path"]: n.properties["language"]
+            for n in output.nodes
+            if "File" in n.labels
+        }
+        self.assertEqual(
+            languages,
+            {"main.go": "go", "src/pkg/a.py": "python", "src/pkg/b.py": "python"},
+        )
+        producers = [
+            item["producer"]["name"]
+            for item in output.metadata.custom_metrics["indexes"]
+        ]
+        self.assertEqual(producers, ["scip-python", "scip-go"])
+        only_go = asyncio.run(tool.analyze("repo", languages={"go"}))
+        self.assertEqual(only_go.metadata.files_processed, 1)
 
     def test_cli_exits_nonzero_when_files_are_uncovered(self):
         env = {**os.environ, "PYTHONPATH": str(SRC), "PATH": ""}

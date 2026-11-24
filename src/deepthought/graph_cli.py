@@ -86,7 +86,9 @@ def parser():
     index.add_argument(
         "--scip-index",
         type=Path,
-        help="Source-bound SCIP index for --tool scip, default workspace/index.scip",
+        action="append",
+        help="Source-bound SCIP index for --tool scip, default workspace/index.scip; "
+        "repeat for one index per indexer (deepthought index-scip writes them)",
     )
     index.add_argument(
         "--previous-artifact",
@@ -305,7 +307,7 @@ async def execute(args):
                     name,
                     args.workspace,
                     **(
-                        {"index_path": args.scip_index}
+                        {"index_paths": args.scip_index}
                         if name == "scip" and args.scip_index is not None
                         else {"max_files": args.max_files}
                         if name == "data-contracts" and args.max_files is not None
