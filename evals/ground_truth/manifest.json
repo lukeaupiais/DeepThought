@@ -214,6 +214,13 @@
       "commit": "225e5a906865df237a681c1ad228a3ecf2909326",
       "license": "MIT",
       "labels": "routes/nestjs-prisma-starter.json"
+    },
+    {
+      "name": "routes-howtographql-graphql-js",
+      "url": "https://github.com/howtographql/graphql-js",
+      "commit": "e0a3a21dbf8e594226250b04fdc0a5776493e64d",
+      "license": "MIT (package.json)",
+      "labels": "routes/howtographql-graphql-js.json"
     }
   ]
 }

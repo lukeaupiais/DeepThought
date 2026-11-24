@@ -302,12 +302,16 @@ the code does not produce:
 |---|---|---|---|---|
 | nestjs-realworld-example-app (NestJS HTTP) | the RealWorld backend API spec | 19 | 19 | 0 |
 | nestjs-prisma-starter (NestJS GraphQL, code-first) | its committed generated `schema.graphql` | 13 | 13 | 0 |
+| howtographql/graphql-js (Apollo, resolver modules) | schema and resolver modules read by hand | 7 | 0 | 0 |
 
 An HTTP route matches on method and path, with `{var}` for any parameter; the
 global prefix (`setGlobalPrefix('api')`) has to be applied to match. A
 GraphQL root field counts only when a resolver `HANDLES` it. Routes the app
 declares beyond the spec (`GET /api`, `DELETE /api/users/{var}`, checked in
-its controllers) are listed as neutral. The gate fails on fewer found, more
+its controllers) are listed as neutral. graphql-js joins resolver modules
+(`module.exports = { feed }`) into its map by name, which the engine does
+not follow yet; `Query.info` is declared with no resolver, so a link to it
+would count as extra. The gate fails on fewer found, more
 extra, or changed labels.
 
 ## Metamorphic checks
