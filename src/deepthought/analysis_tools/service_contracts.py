@@ -234,6 +234,21 @@ MESSAGE_RULES = {
         "exchange keyed with the queue name, or a bindQueue of that queue in "
         "the same file." + _SAME_NAME,
     ),
+    ("nestjs-microservices", "consume"): _message_rule(
+        "service-contracts.nestjs-message-pattern",
+        "A method of a class decorated @Controller (@nestjs/common) carries "
+        "@MessagePattern(pattern) or @EventPattern(pattern) from "
+        "@nestjs/microservices; the destination is message: or event: and "
+        "the pattern as Nest's transformPatternToRoute writes it (object keys "
+        "sorted)." + _SAME_NAME,
+    ),
+    ("nestjs-microservices", "publish"): _message_rule(
+        "service-contracts.nestjs-client-send",
+        "send(pattern, ...) (a message) or emit(pattern, ...) (an event) on a "
+        "name declared in the file only with a ClientProxy type from "
+        "@nestjs/microservices (ClientProxy, ClientKafka, ClientRMQ and the "
+        "like) names this pattern." + _SAME_NAME,
+    ),
     ("kafkajs", "publish"): _message_rule(
         "service-contracts.kafkajs-send",
         "send({topic}) or sendBatch({topicMessages: [{topic}]}) on a name that "
