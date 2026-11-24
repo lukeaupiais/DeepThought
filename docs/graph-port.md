@@ -2127,8 +2127,51 @@ queue to it with `#`, so both sides meet at `destination/#`. Rules are
 Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
 `binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
 both) and `destination_not_literal` (a placeholder in the configured
-destination). The functional style (`Consumer`/`Supplier`/`Function` beans
-named by `spring.cloud.function.definition`) is not read yet.
+destination).
+
+The functional style is read too. A `@Bean` method (from
+`org.springframework.context.annotation`) that returns a
+`java.util.function` type is a binding site:
+
+- `Consumer<T>` consumes `<bean>-in-0`, and `BiConsumer` also consumes
+  `<bean>-in-1`;
+- `Supplier<T>` publishes `<bean>-out-0`;
+- `Function<T, R>` does both, and `BiFunction` consumes two inputs.
+
+The bean is the method name, or the literal `name`/`value` of `@Bean`. It is
+bound in a service that runs it when the service's
+`spring.cloud.function.definition` (or the older
+`spring.cloud.stream.function.definition`) lists it. Without that key, it
+is bound only when it is the service's only functional bean, as Spring
+Cloud Stream does. `spring.cloud.stream.function.bindings.<binding>` renames
+a binding before its destination is looked up as above. Rules are
+`service-contracts.spring-cloud-function-input` and `-output`. Further
+unread reasons:
+
+- `function_not_bound`: not in the definition, or one of several beans
+  without one;
+- `function_composed`: part of a composition such as `a|b`;
+- `function_outputs`: a `KStream[]` result, whose branch bindings are not
+  read;
+- `function_curried`: a function returning a function;
+- `function_definition_not_literal`, and `bean_name` for a `@Bean` name
+  that is not a literal.
+
+A functional bean in a module without a stream binder binds nothing and is
+not counted. One with both binders is `binder_unknown`.
+
+Checked on `spring-cloud/spring-cloud-stream-samples` (commit `2ff1168`):
+I labelled by hand every binding of the nine function-based applications
+that name a service (`spring.application.name`), 24 in all. The 16 read
+all have the configured destination. The other 8 are unread, not wrong:
+
+- the three branch outputs of `kafka-streams-branching`, one
+  `function_outputs` fact;
+- the five bindings of `kafka-streams-to-rabbitmq`, which uses both
+  binders, `binder_unknown`.
+
+Samples without a `spring.application.name` are not services here and give
+nothing.
 
 ### Validation
 
@@ -2219,13 +2262,17 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package; GORM's default pluralized names are not computed |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
+| File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and relative imports, aliases, re-exports and `export *` included, while a package import, a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
@@ -2254,7 +2301,8 @@ arguments, comments and string literals are skipped, and a name holding text
 the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
-Test sources (`src/test/`, and for Ruby `test/` and `spec/`) are skipped.
+Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
+`spec/`) are skipped.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2355,12 +2403,39 @@ tool takes every line `grep` finds, plus the calls split over lines
 underscore and table-name cases of Rails' own `inflector_test_cases.rb`
 (8.0.2).
 
+On openstatusHQ/openstatus `3836510`, a Drizzle monorepo with its schema in
+`packages/db` and its queries across `apps/` and `packages/`, the tool reads
+all 62 table declarations that `grep` for `= *Table(` finds and links 2,917
+query-builder calls. A single-line `grep` for those methods with a table
+variable name finds 2,888 lines; the tool takes all but 24: 16 are in
+`src/test/` directories, which are skipped as test sources, 6 are in a test
+file that tree-sitter-typescript does not parse
+(`original<typeof import(...)>()`), and 2 name a table through
+`await import(...)`. Of the 53 calls `grep` misses, 30 put the table on the
+next line and 23 use an imported alias (`page as pageTable`). On
+jackblatch/OneStopShop `31208da` the tool reads all 6 tables and its 59
+calls are exactly the lines `grep` finds.
+
 On jmoiron/sqlx the Go rule reads 166 statements, every one with fixed
 table names. A single-line `grep` for a query method followed by SQL finds
 25 lines the tool links no table from: 7 are in comments, 12 are statements
 that name no table (`SELECT 'null' AS raw`), and 6 pass the text through a
 local alias of `Rebind` (`r := db.Rebind`), which is not followed. The tool
 also reads the statements that span lines.
+
+On gothinkster/golang-gin-realworld-example-app the tool maps its 7 GORM
+models (`user_models`, `follow_models`, `article_models`, ...) and links 32
+calls. The default-name port gives GORM's own result for all 1,786 struct
+and word names tried (the type names of several Go corpora and GORM itself,
+and the camel-cased words of Rails' inflector cases), checked against
+`schema.NamingStrategy{}.TableName` of gorm.io/gorm 1.25.12. A single-line
+`grep` for the GORM methods outside tests finds 36 lines: the tool links
+every one except two `Save(data)` calls whose argument is an
+`interface{}`, two `Association` chains (`Replace`, and a `Find` into a
+struct field) and `query := db.Model(...)`, whose chain continues in
+another statement. Four grep lines are calls the tool reports at the line
+where their chain starts, and it also links one chain that `grep` misses
+because it spans lines.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create

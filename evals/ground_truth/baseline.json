@@ -511,19 +511,19 @@
         },
         "2": {
           "confirmed": 51,
-          "expected": 2118
+          "expected": 2119
         },
         "3": {
           "confirmed": 10,
-          "expected": 2060
+          "expected": 2198
         }
       },
       "confirmed": 152,
-      "expected": 4987,
+      "expected": 5126,
       "extra": 0,
-      "missed": 4835,
+      "missed": 4974,
       "precision": 1.0,
-      "recall": 0.0305,
+      "recall": 0.0297,
       "seeds": 164,
       "seeds_undeclared": 0
     },
@@ -683,5 +683,28 @@
     "unjudged": 2,
     "unresolved_expected": 2438,
     "unresolved_unjudged": 4406
+  },
+  "routes": {
+    "routes-howtographql-graphql-js": {
+      "graphql": {
+        "expected": 7,
+        "extra": 0,
+        "found": 7
+      }
+    },
+    "routes-nestjs-prisma-starter": {
+      "graphql": {
+        "expected": 13,
+        "extra": 0,
+        "found": 13
+      }
+    },
+    "routes-realworld-nestjs": {
+      "http": {
+        "expected": 19,
+        "extra": 0,
+        "found": 19
+      }
+    }
   }
 }

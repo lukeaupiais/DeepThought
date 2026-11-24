@@ -311,6 +311,29 @@ field's declaration. The fullstack tutorial's `start/` client, whose own
 server declares nothing, must not link to `final/server`; since #121 a
 client only matches the server scopes nearest to it.
 
+### Routes and GraphQL fields
+
+The contract corpora score links between services, so a route the engine
+stops reading only shows up there if some labelled client calls it. The
+manifest's `routes` corpora score the server side directly, against labels
+the code does not produce:
+
+| Corpus | Oracle | Expected | Found | Extra |
+|---|---|---|---|---|
+| nestjs-realworld-example-app (NestJS HTTP) | the RealWorld backend API spec | 19 | 19 | 0 |
+| nestjs-prisma-starter (NestJS GraphQL, code-first) | its committed generated `schema.graphql` | 13 | 13 | 0 |
+| howtographql/graphql-js (Apollo, resolver modules) | schema and resolver modules read by hand | 7 | 7 | 0 |
+
+An HTTP route matches on method and path, with `{var}` for any parameter; the
+global prefix (`setGlobalPrefix('api')`) has to be applied to match. A
+GraphQL root field counts only when a resolver `HANDLES` it. Routes the app
+declares beyond the spec (`GET /api`, `DELETE /api/users/{var}`, checked in
+its controllers) are listed as neutral. graphql-js joins resolver modules
+(`module.exports = { feed }`) into its map by name, which the engine
+follows since #105; `Query.info` is declared with no resolver, so a link to
+it would count as extra. The gate fails on fewer found, more
+extra, or changed labels.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly
@@ -472,7 +495,7 @@ declaration already spans: a function `run` is not merged with a method
 | click | 144 | 1151 | 123 | 0 | 0.107 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 119 | 0 | 0.068 | 1.0 |
-| gson | 164 | 4987 | 152 | 0 | 0.030 | 1.0 |
+| gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -487,5 +510,9 @@ low recall is mostly method calls on a receiver, such as `c.ExecuteC()` in
 `Execute`, left unresolved. gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
-index); most of its misses are calls on a `Gson` instance, such as
-`gson.toJson(...)` in the tests.
+index). The call truth leaves out `this(...)` and `super(...)`, which name
+no declaration, but a constructor that delegates depends on the one it
+calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
+`derive-java --chains` lists them and they join the impact graph as
+`--extra-calls`. Most of gson's misses are calls on a `Gson` instance, such
+as `gson.toJson(...)` in the tests.

@@ -19,12 +19,17 @@ import time
 
 from .._version import __version__
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
+from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
     app_config_label,
     extract_ddl,
     extract_entity_manager,
     extract_go_sql,
+    extract_gorm,
+    gorm_table_name,
     extract_django,
+    extract_drizzle,
+    resolve_script_module,
     extract_java,
     extract_java_sql,
     extract_prisma_client,
@@ -114,6 +119,30 @@ REPOSITORY_RULE = register_rule(
 )
 
 
+DRIZZLE_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-table",
+        "pattern_matched",
+        "A variable holds a Drizzle table: pgTable, mysqlTable, sqliteTable "
+        "or singlestoreTable imported from drizzle-orm's core module, a "
+        "schema's .table, or a *TableCreator whose function wraps the name "
+        "in fixed text, called with this literal name.",
+    )
+)
+DRIZZLE_QUERY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-query",
+        "pattern_matched",
+        "A query-builder call names the variable of a Drizzle table: from "
+        "and the joins read, insert, update and delete write; "
+        "db.query.<name>.findMany/findFirst reads. The variable is found "
+        "through the file's declarations and relative imports, re-exports "
+        "and export * included; a package import or a query key resolves "
+        "to the one table variable of that name in the caller's namespace, "
+        "else in the repository. The receiver is not checked to be a "
+        "Drizzle database.",
+    )
+)
 RAILS_SCHEMA_RULE = register_rule(
     EvidenceRule(
         "data-contracts.rails-schema-table",
@@ -309,6 +338,32 @@ GORM_TABLE_RULE = register_rule(
         "The type, in a file importing a Go SQL package, has a TableName() "
         "method that returns this table name as a string literal (GORM's "
         "Tabler interface).",
+    )
+)
+GORM_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-default-table-name",
+        "name_matched",
+        "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
+        "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
+        "without a TableName method, and this table is GORM's default name: "
+        "NamingStrategy's snake case of the type name, pluralized by "
+        "jinzhu/inflection 1.0.0 (UserModel is user_models). A repository "
+        "that configures a NamingStrategy gets no default names.",
+    )
+)
+GORM_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-call",
+        "pattern_matched",
+        "A First, Last, Take, Find, FirstOrInit (READS), Create, Save, "
+        "Delete (WRITES) or FirstOrCreate "
+        "call, or a Model call chained with a reading (Find, Count, Pluck, "
+        "Scan, ...) or writing (Update, Updates, Delete, ...) method before any "
+        "Association, whose "
+        "model argument is a GORM model: &T{}, T{}, []T{}, new(T), "
+        "make([]T, n) or a parameter or local of the function declared with "
+        "such a type. The receiver is not checked to be a *gorm.DB.",
     )
 )
 PRISMA_MODEL_RULE = register_rule(
@@ -521,6 +576,8 @@ class DataContractTool(AnalysisTool):
         trees, python_trees, script_trees, go_trees, ruby_trees = [], [], [], [], []
         for file, language, content in sources:
             if language == "ruby" and _is_ruby_test(file):
+                continue
+            if language == "go" and file.endswith("_test.go"):
                 continue
             suffix = ".tsx" if file.endswith(".tsx") else ""
             if (language, suffix) not in parsers:
@@ -889,28 +946,105 @@ class DataContractTool(AnalysisTool):
                     SQL_RULES["jpa-entity-manager"],
                     {"entity": entity, "line": use.line, "column": use.column},
                 )
-        # GORM TableName methods: the type is declared in the same package.
+        # GORM models: TableName methods, default names and the calls.
+        gorm_models, gorm_uses, gorm_naming = [], [], False
+        for file, content, tree in go_trees:
+            found = extract_gorm(tree, content, file, result.definitions)
+            gorm_models.extend(found[0])
+            gorm_uses.extend(found[1])
+            gorm_naming = gorm_naming or found[2]
+        go_types = {}
+        for d in result.definitions:
+            if d.file.endswith(".go"):
+                key = (d.file.rpartition("/")[0], d.symbol)
+                go_types.setdefault(key, []).append(d)
+
+        def owner(file, type_name):
+            """The one declaration of the type in the file's package."""
+            found = go_types.get((file.rpartition("/")[0], type_name), [])
+            return found[0] if len(found) == 1 else None
+
         gorm_counts = {"linked": 0, "type_not_found": 0}
+        gorm_targets = {}
         for item in go_names:
-            package = item.file.rpartition("/")[0]
-            owners = [
-                d
-                for d in result.definitions
-                if d.symbol == item.type_name
-                and d.file.rpartition("/")[0] == package
-                and d.file.endswith(".go")
-            ]
-            if len(owners) != 1:
+            declared = owner(item.file, item.type_name)
+            if declared is None:
                 gorm_counts["type_not_found"] += 1
                 continue
             gorm_counts["linked"] += 1
+            target = table(item.file, item.table)
+            gorm_targets[(item.file.rpartition("/")[0], item.type_name)] = target
             link(
                 "MAPS_TO",
-                symbol(owners[0].id),
-                table(item.file, item.table),
+                symbol(declared.id),
+                target,
                 GORM_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
+        # A configured NamingStrategy changes every default name.
+        gorm_defaults = 0
+        for model in sorted(
+            [] if gorm_naming else gorm_models,
+            key=lambda m: (m.file, m.line, m.column),
+        ):
+            key = (model.file.rpartition("/")[0], model.type_name)
+            if key in gorm_targets:
+                continue
+            declared = owner(model.file, model.type_name)
+            if declared is None:
+                continue
+            gorm_defaults += 1
+            target = table(declared.file, gorm_table_name(model.type_name))
+            gorm_targets[key] = target
+            link(
+                "MAPS_TO",
+                symbol(declared.id),
+                target,
+                GORM_DEFAULT_RULE,
+                {"line": declared.line, "column": declared.column},
+            )
+        modules = sorted(
+            (
+                (c.name, c.manifest.rpartition("/")[0])
+                for c in scan.components
+                if c.kind == "go_module" and c.name
+            ),
+            key=lambda m: -len(m[0]),
+        )
+
+        def package_directory(import_path):
+            for module, directory in modules:
+                if import_path == module or import_path.startswith(module + "/"):
+                    rest = import_path[len(module) :].strip("/")
+                    return "/".join(p for p in (directory, rest) if p)
+            return None
+
+        gorm_access = {"linked": 0, "not_a_model": 0}
+        for use in gorm_uses:
+            directory = (
+                use.file.rpartition("/")[0]
+                if use.model.package is None
+                else package_directory(use.model.package)
+            )
+            target = gorm_targets.get((directory, use.model.name))
+            if target is None:
+                gorm_access["not_a_model"] += 1
+                continue
+            gorm_access["linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        target,
+                        GORM_CALL_RULE,
+                        {
+                            "model": use.model.name,
+                            "line": use.line,
+                            "column": use.column,
+                        },
+                    )
         # Prisma models and the client calls that use them.
         prisma_targets = {}
         for model in sorted(prisma, key=lambda m: (m.file, m.line)):
@@ -983,6 +1117,96 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        # Drizzle tables and the query-builder calls that name them.
+        drizzle_tables, drizzle_uses, script_modules = {}, [], {}
+        for file, content, tree in script_trees:
+            found = extract_drizzle(tree, content, file, result.definitions)
+            for item in found[0]:
+                drizzle_tables.setdefault(file, {}).setdefault(
+                    item.variable, []
+                ).append(item)
+            drizzle_uses.extend(found[1])
+            script_modules[file] = found[2]
+        source_files = {c.file for c in result.coverage}
+        by_variable = {}
+        drizzle_counts = {"tables": 0, "not_fixed": 0}
+        for file in sorted(drizzle_tables):
+            for variable, items in sorted(drizzle_tables[file].items()):
+                for item in items:
+                    if item.table == PLACEHOLDER:
+                        drizzle_counts["not_fixed"] += 1
+                        continue
+                    drizzle_counts["tables"] += 1
+                    target = table(file, item.table)
+                    link(
+                        "DECLARES",
+                        code(file, None),
+                        target,
+                        DRIZZLE_TABLE_RULE,
+                        {
+                            "line": item.line,
+                            "column": item.column,
+                            "variable": variable,
+                        },
+                    )
+                if len(items) == 1 and items[0].table != PLACEHOLDER:
+                    by_variable.setdefault(variable, set()).add(
+                        (scope(file), table(file, items[0].table))
+                    )
+
+        def exported_table(file, name, seen=()):
+            """The tables a module exports under a name, following
+            re-exports and ``export *``."""
+            if file is None or (file, name) in seen:
+                return set()
+            seen = (*seen, (file, name))
+            items = drizzle_tables.get(file, {}).get(name)
+            if items:
+                return (
+                    {table(file, items[0].table)}
+                    if len(items) == 1 and items[0].table != PLACEHOLDER
+                    else {None}
+                )
+            module = script_modules.get(file)
+            if module is None:
+                return set()
+            if name in module.re_exports:
+                source, original = module.re_exports[name]
+                return exported_table(
+                    resolve_script_module(file, source, source_files), original, seen
+                )
+            found = set()
+            for source in module.star_exports:
+                found |= exported_table(
+                    resolve_script_module(file, source, source_files), name, seen
+                )
+            return found
+
+        drizzle_access = {"linked": 0, "not_a_table": 0}
+        for use in drizzle_uses:
+            ref = use.ref
+            if ref.how == "local":
+                targets = exported_table(use.file, ref.name)
+            elif ref.how == "import" and ref.module.startswith("."):
+                targets = exported_table(
+                    resolve_script_module(use.file, ref.module, source_files), ref.name
+                )
+            else:
+                targets = _nearest(by_variable.get(ref.name, set()), scope(use.file))
+            if len(targets) != 1 or None in targets:
+                drizzle_access["not_a_table"] += 1
+                continue
+            drizzle_access["linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        next(iter(targets)),
+                        DRIZZLE_QUERY_RULE,
+                        {"variable": ref.name, "line": use.line, "column": use.column},
+                    )
         # Rails: db/schema.rb tables, ActiveRecord models and their calls.
         ruby_classes, ruby_prefixes, ruby_accesses = [], {}, []
         rails_overridden = False
@@ -1109,9 +1333,13 @@ class DataContractTool(AnalysisTool):
                     "sql_text": sql_counts,
                     "entity_manager_resolution": entity_counts,
                     "gorm_table_names": gorm_counts,
+                    "gorm_default_table_names": gorm_defaults,
+                    "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
                     "orm_access_resolution": orm_counts,
+                    "drizzle_tables": drizzle_counts,
+                    "drizzle_access_resolution": drizzle_access,
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,

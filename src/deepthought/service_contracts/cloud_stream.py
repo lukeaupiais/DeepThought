@@ -7,7 +7,15 @@ Java:
   names a binding (``Sink.INPUT`` and ``Processor.INPUT`` are ``input``);
 - publish: ``send(...)`` on ``x.output()`` where ``x`` is declared only as
   ``Source`` or ``Processor``, or on a name assigned only such a call, a
-  ``@SendTo`` on a listener, and ``StreamBridge.send("binding", ...)``.
+  ``@SendTo`` on a listener, and ``StreamBridge.send("binding", ...)``;
+- functions: a ``@Bean`` method returning a ``java.util.function``
+  ``Consumer`` or ``BiConsumer`` (consumes ``<bean>-in-0``, and
+  ``<bean>-in-1``), ``Supplier`` (publishes ``<bean>-out-0``), or
+  ``Function`` or ``BiFunction`` (both). A function returning a ``KStream[]``
+  (Kafka Streams branches) or another function (currying) is unread. The bean is bound where the
+  service's ``spring.cloud.function.definition`` lists it, or, without
+  that key, when it is the service's only such bean; a binding renamed by
+  ``spring.cloud.stream.function.bindings.<binding>`` takes that name.
 
 A binding is bound in each service that runs the code: the file's own build
 module when it names a service, else every module of the repository whose
@@ -41,6 +49,17 @@ _STREAM = ("org.springframework.cloud.stream.annotation",)
 _MESSAGING = ("org.springframework.messaging.handler.annotation",)
 
 
+# (inputs, outputs) of each functional type.
+_FUNCTIONS = {
+    "Consumer": (1, 0),
+    "BiConsumer": (2, 0),
+    "Supplier": (0, 1),
+    "Function": (1, 1),
+    "BiFunction": (2, 1),
+}
+_CONTEXT = ("org.springframework.context.annotation",)
+
+
 @dataclass(frozen=True)
 class StreamSite:
     file: str
@@ -49,6 +68,9 @@ class StreamSite:
     declaration_id: str | None
     role: str  # publish | consume
     binding: str
+    # The bean of a functional binding (a Consumer, Function or Supplier
+    # @Bean): bound only where the service's function definition names it.
+    function: str | None = None
 
 
 def _binding(values, node, content):
@@ -58,6 +80,26 @@ def _binding(values, node, content):
     if written in _FRAMEWORK_CONSTANTS:
         return _FRAMEWORK_CONSTANTS[written]
     return values.evaluate(node)
+
+
+def _function_type(node, content, imports):
+    """(name, type arguments) when ``node`` is one of the java.util.function
+    types of ``_FUNCTIONS`` with type arguments, else None."""
+    if node is None or node.type != "generic_type":
+        return None
+    base = node.named_children[0] if node.named_children else None
+    arguments = next(
+        (c for c in node.named_children if c.type == "type_arguments"), None
+    )
+    if base is None or arguments is None:
+        return None
+    written = text(base, content)
+    name = written.rpartition(".")[2]
+    if name not in _FUNCTIONS:
+        return None
+    if imports.spring_name(written, ("java.util.function",)) != name:
+        return None
+    return name, [c for c in arguments.named_children if c.type != "block_comment"]
 
 
 def extract_stream(tree, content, file, definitions, constants=None):
@@ -128,6 +170,56 @@ def extract_stream(tree, content, file, definitions, constants=None):
                 )
             )
             annotations = _annotations(node, content)
+            for written, annotation in annotations:
+                if imports.spring_name(written, _CONTEXT) != "Bean":
+                    continue
+                found = _function_type(
+                    node.child_by_field_name("type"), content, imports
+                )
+                if found is None:
+                    break
+                kind, types = found
+                inputs, outputs = _FUNCTIONS[kind]
+                line = annotation.start_point.row + 1
+                role = "consume" if inputs else "publish"
+                if outputs and _function_type(types[-1], content, imports):
+                    # A curried function: its inputs are not these alone.
+                    unread.append(MessageUnread(file, line, role, "function_curried"))
+                    break
+                arguments = _arguments(annotation)
+                named = arguments.get("name", arguments.get("value"))
+                if named is None:
+                    bean = text(node.child_by_field_name("name"), content)
+                elif named.type == "string_literal":
+                    bean = values.evaluate(named)
+                else:
+                    unread.append(MessageUnread(file, line, role, "bean_name"))
+                    break
+                bindings = [("consume", f"{bean}-in-{i}") for i in range(inputs)]
+                if (
+                    outputs
+                    and types[-1].type == "array_type"
+                    and text(types[-1], content).startswith("KStream")
+                ):
+                    # Kafka Streams branches: one output binding per element.
+                    unread.append(
+                        MessageUnread(file, line, "publish", "function_outputs")
+                    )
+                elif outputs:
+                    bindings.append(("publish", f"{bean}-out-0"))
+                for role, binding in bindings:
+                    sites.append(
+                        StreamSite(
+                            file,
+                            line,
+                            annotation.start_point.column,
+                            handler,
+                            role,
+                            binding,
+                            bean,
+                        )
+                    )
+                break
             listens = False
             for written, annotation in annotations:
                 if imports.spring_name(written, _STREAM) == "StreamListener":
@@ -232,6 +324,11 @@ class MavenModules:
 
     def binder(self, module):
         """kafka, amqp or None, from the module and its repository dependencies."""
+        found = self.binders(module)
+        return next(iter(found)) if len(found) == 1 else None
+
+    def binders(self, module):
+        """The binders (kafka, amqp) of the module and its dependencies."""
         found = set()
         modules = [module] + [
             m
@@ -250,4 +347,4 @@ class MavenModules:
                     found.add("kafka")
                 elif artifact == "spring-cloud-starter-stream-rabbit":
                     found.add("amqp")
-        return next(iter(found)) if len(found) == 1 else None
+        return found

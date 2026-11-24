@@ -2773,3 +2773,799 @@ def apply_rails_inflections(tree, content, inflections):
 
     visit(tree.root_node)
     return supported
+
+
+# GORM (gorm.io/gorm 1.25, schema.NamingStrategy) default table names --------
+
+# github.com/jinzhu/inflection v1.0.0, the version GORM requires.
+_GO_PLURALS = (
+    ("([a-z])$", "${1}s"),
+    ("s$", "s"),
+    ("^(ax|test)is$", "${1}es"),
+    ("(octop|vir)us$", "${1}i"),
+    ("(octop|vir)i$", "${1}i"),
+    ("(alias|status)$", "${1}es"),
+    ("(bu)s$", "${1}ses"),
+    ("(buffal|tomat)o$", "${1}oes"),
+    ("([ti])um$", "${1}a"),
+    ("([ti])a$", "${1}a"),
+    ("sis$", "ses"),
+    ("(?:([^f])fe|([lr])f)$", "${1}${2}ves"),
+    ("(hive)$", "${1}s"),
+    ("([^aeiouy]|qu)y$", "${1}ies"),
+    ("(x|ch|ss|sh)$", "${1}es"),
+    ("(matr|vert|ind)(?:ix|ex)$", "${1}ices"),
+    ("^(m|l)ouse$", "${1}ice"),
+    ("^(m|l)ice$", "${1}ice"),
+    ("^(ox)$", "${1}en"),
+    ("^(oxen)$", "${1}"),
+    ("(quiz)$", "${1}zes"),
+)
+_GO_IRREGULARS = (
+    ("person", "people"),
+    ("man", "men"),
+    ("child", "children"),
+    ("sex", "sexes"),
+    ("move", "moves"),
+    ("mombie", "mombies"),
+)
+_GO_UNCOUNTABLES = (
+    "equipment",
+    "information",
+    "rice",
+    "money",
+    "species",
+    "series",
+    "fish",
+    "sheep",
+    "jeans",
+    "police",
+)
+
+
+def _go_replacement(template):
+    return re.sub(r"\$\{(\d+)\}", r"\\g<\1>", template)
+
+
+def _go_title(word):
+    # strings.Title: upper-cases the first letter of each word.
+    return re.sub(r"(?:^|(?<=[^A-Za-z0-9_]))[a-z]", lambda m: m.group(0).upper(), word)
+
+
+def _compile_go_plurals():
+    """inflection's compile(): uncountables, then irregulars (upper case,
+    title case, as written), then the plural rules last-defined first, each
+    upper-cased, as written and case-insensitive."""
+    rules = [
+        (re.compile(f"^(?i:({u}))$"), _go_replacement("${1}")) for u in _GO_UNCOUNTABLES
+    ]
+    for singular, plural in _GO_IRREGULARS:
+        rules += [
+            (re.compile(singular.upper() + "$"), plural.upper()),
+            (re.compile(_go_title(singular) + "$"), _go_title(plural)),
+            (re.compile(singular + "$"), plural),
+        ]
+    for find, template in reversed(_GO_PLURALS):
+        rules += [
+            (re.compile(find.upper()), _go_replacement(template.upper())),
+            (re.compile(find), _go_replacement(template)),
+            (re.compile(f"(?i:{find})"), _go_replacement(template)),
+        ]
+    return rules
+
+
+_GO_PLURAL_RULES = _compile_go_plurals()
+
+
+def go_inflection_plural(word):
+    """jinzhu/inflection's ``Plural``: the first rule that matches replaces
+    all its matches."""
+    for rule, replacement in _GO_PLURAL_RULES:
+        if rule.search(word):
+            return rule.sub(replacement, word)
+    return word
+
+
+_GORM_INITIALISMS = (
+    "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS",
+    "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SSH",
+    "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF",
+    "XSS",
+)  # fmt: skip
+
+
+def gorm_db_name(name):
+    """GORM's ``NamingStrategy.toDBName`` with the default options: common
+    initialisms title-cased (first in list order at each position, as
+    ``strings.Replacer`` does), then snake case."""
+    if not name:
+        return ""
+    out, i = [], 0
+    while i < len(name):
+        for initialism in _GORM_INITIALISMS:
+            if name.startswith(initialism, i):
+                out.append(initialism[0] + initialism[1:].lower())
+                i += len(initialism)
+                break
+        else:
+            out.append(name[i])
+            i += 1
+    value = "".join(out)
+    upper = [c.isascii() and c.isupper() for c in value]
+    digit = [c.isascii() and c.isdigit() for c in value]
+    buffer, last, current = [], False, upper[0]
+    for i, v in enumerate(value[:-1]):
+        following, number = upper[i + 1], digit[i + 1]
+        if current:
+            if not (last and (following or number)) and (
+                i > 0 and value[i - 1] != "_" and value[i + 1] != "_"
+            ):
+                buffer.append("_")
+            buffer.append(v.lower())
+        else:
+            buffer.append(v)
+        last, current = current, following
+    if current:
+        if not last and len(value) > 1:
+            buffer.append("_")
+        buffer.append(value[-1].lower())
+    else:
+        buffer.append(value[-1])
+    return "".join(buffer)
+
+
+def gorm_table_name(type_name):
+    """GORM's default table name of a model type: ``inflection.Plural`` of
+    its snake-case name (``UserModel`` is ``user_models``)."""
+    return go_inflection_plural(gorm_db_name(type_name))
+
+
+@dataclass(frozen=True)
+class GoType:
+    """A Go type as written: its package (the import path of a qualified
+    name, None for the file's own package) and name, without pointers,
+    slices and arrays."""
+
+    package: str | None
+    name: str
+
+
+@dataclass(frozen=True)
+class GormModel:
+    file: str
+    type_name: str
+    how: str  # "embeds" (gorm.Model) or "migrated" (AutoMigrate) or "model"
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class GormUse:
+    file: str
+    caller_id: str | None
+    model: GoType
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+GORM_READS = {"First", "Last", "Take", "Find", "FindInBatches", "FirstOrInit"}
+GORM_WRITES = {"Create", "CreateInBatches", "Save", "Delete"}
+GORM_READ_WRITES = {"FirstOrCreate"}
+# Methods after Model(&T{}) in a chain that read or write T's table.
+GORM_CHAIN_READS = GORM_READS | {"Count", "Pluck", "Scan", "Row", "Rows"}
+GORM_CHAIN_WRITES = GORM_WRITES | {
+    "Update",
+    "Updates",
+    "UpdateColumn",
+    "UpdateColumns",
+}
+
+
+def _go_import_names(root, content):
+    """{name used in the file: import path} of the file's imports."""
+    names = {}
+    for spec in _descendants(root, "import_spec"):
+        if spec.parent is None or not any(
+            a.type == "import_declaration" for a in _ancestors(spec)
+        ):
+            continue
+        path = _go_string(spec.child_by_field_name("path"), content)
+        if not path:
+            continue
+        alias = spec.child_by_field_name("name")
+        if alias is not None:
+            name = _text(alias, content)
+            if name in ("_", "."):
+                continue
+        else:
+            name = path.rstrip("/").rpartition("/")[2]
+            # gopkg.in/yaml.v3 and example.com/x/v2 are used by their name.
+            if re.fullmatch(r"v\d+", name) and "/" in path:
+                name = path.rstrip("/").rsplit("/", 2)[-2]
+            name = re.sub(r"\.v\d+$", "", name)
+        names[name] = path
+    return names
+
+
+def _ancestors(node):
+    node = node.parent
+    while node is not None:
+        yield node
+        node = node.parent
+
+
+def _go_type(node, content, imports):
+    while node is not None and node.type in (
+        "pointer_type",
+        "slice_type",
+        "array_type",
+        "parenthesized_type",
+    ):
+        node = node.child_by_field_name("element") or (
+            node.named_children[-1] if node.named_children else None
+        )
+    if node is None:
+        return None
+    if node.type == "type_identifier":
+        return GoType(None, _text(node, content))
+    if node.type == "qualified_type":
+        package = imports.get(_text(node.child_by_field_name("package"), content))
+        name = node.child_by_field_name("name")
+        if package is None or name is None:
+            return None
+        return GoType(package, _text(name, content))
+    return None
+
+
+def _go_value_type(node, content, imports, variables):
+    """The type of ``&T{}``, ``T{}``, ``[]T{}``, ``new(T)``,
+    ``make([]T, n)`` or a variable of the function declared with one."""
+    if node is None:
+        return None
+    if node.type == "unary_expression" and _text(
+        node.child_by_field_name("operator"), content
+    ) in ("&", "*"):
+        return _go_value_type(
+            node.child_by_field_name("operand"), content, imports, variables
+        )
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _go_value_type(node.named_children[0], content, imports, variables)
+    if node.type == "composite_literal":
+        return _go_type(node.child_by_field_name("type"), content, imports)
+    if node.type == "call_expression":
+        function = _text(node.child_by_field_name("function"), content)
+        arguments = node.child_by_field_name("arguments")
+        first = (
+            arguments.named_children[0]
+            if arguments and arguments.named_children
+            else None
+        )
+        if function in ("new", "make") and first is not None:
+            return _go_type(first, content, imports)
+        return None
+    if node.type == "identifier":
+        return variables.get(_text(node, content))
+    return None
+
+
+def _go_variables(function, content, imports):
+    """{name: type} of a function's parameters and of the locals it
+    declares with a type or a typed value; a name declared twice with
+    different types gives none."""
+    found = {}
+
+    def add(name, kind):
+        if kind is None:
+            return
+        if name in found and found[name] != kind:
+            found[name] = None
+        else:
+            found.setdefault(name, kind)
+
+    for node in _descendants(function, "parameter_declaration"):
+        kind = _go_type(node.child_by_field_name("type"), content, imports)
+        for child in node.named_children:
+            if child.type == "identifier":
+                add(_text(child, content), kind)
+    for node in _descendants(function, "var_spec"):
+        written = node.child_by_field_name("type")
+        values = node.child_by_field_name("value")
+        names = [c for c in node.named_children if c.type == "identifier"]
+        if written is not None:
+            kind = _go_type(written, content, imports)
+            for name in names:
+                add(_text(name, content), kind)
+        elif values is not None and len(values.named_children) == len(names):
+            for name, value in zip(names, values.named_children):
+                add(_text(name, content), _go_value_type(value, content, imports, {}))
+    for node in _descendants(function, "short_var_declaration"):
+        left = node.child_by_field_name("left")
+        right = node.child_by_field_name("right")
+        if left is None or right is None:
+            continue
+        if len(left.named_children) == len(right.named_children):
+            for name, value in zip(left.named_children, right.named_children):
+                if name.type == "identifier":
+                    add(
+                        _text(name, content),
+                        _go_value_type(value, content, imports, {}),
+                    )
+    return {k: v for k, v in found.items() if v is not None}
+
+
+def extract_gorm(tree, content, file, definitions):
+    """(models, uses, naming) of one Go file. In a file importing
+    gorm.io/gorm: structs that embed ``gorm.Model``, types passed to
+    ``AutoMigrate`` or ``Model``, and whether the file configures a
+    ``NamingStrategy``. In any file: the GORM-named calls whose model
+    argument has a known type (the caller keeps those of GORM models)."""
+    root = tree.root_node
+    imports = _go_import_names(root, content)
+    gorm = {n for n, p in imports.items() if p == "gorm.io/gorm"}
+    models, uses = [], []
+    naming = any(
+        _text(k, content) == "NamingStrategy"
+        for k in _descendants(root, "keyed_element")
+        for k in k.named_children[:1]
+    )
+    for spec in _descendants(root, "type_spec"):
+        body = spec.child_by_field_name("type")
+        if body is None or body.type != "struct_type":
+            continue
+        for field in _descendants(body, "field_declaration"):
+            if field.parent is None or field.parent.parent != body:
+                continue
+            written = field.child_by_field_name("type")
+            if (
+                field.child_by_field_name("name") is None
+                and written is not None
+                and written.type == "qualified_type"
+                and _text(written.child_by_field_name("package"), content) in gorm
+                and _text(written.child_by_field_name("name"), content) == "Model"
+            ):
+                name = spec.child_by_field_name("name")
+                models.append(
+                    GormModel(
+                        file,
+                        _text(name, content),
+                        "embeds",
+                        name.start_point.row + 1,
+                        name.start_point.column,
+                    )
+                )
+    scopes = {}
+
+    def variables(node):
+        function = next(
+            (
+                a
+                for a in _ancestors(node)
+                if a.type
+                in ("function_declaration", "method_declaration", "func_literal")
+            ),
+            None,
+        )
+        if function is None:
+            return {}
+        if function.id not in scopes:
+            # A closure sees its enclosing functions' variables too.
+            outer = variables(function)
+            scopes[function.id] = {**outer, **_go_variables(function, content, imports)}
+        return scopes[function.id]
+
+    for call in _descendants(root, "call_expression"):
+        function = call.child_by_field_name("function")
+        if function is None or function.type != "selector_expression":
+            continue
+        method = _text(function.child_by_field_name("field"), content)
+        arguments = call.child_by_field_name("arguments")
+        values = arguments.named_children if arguments is not None else []
+        if method == "AutoMigrate" and gorm:
+            for value in values:
+                kind = _go_value_type(value, content, imports, {})
+                if kind is not None and kind.package is None:
+                    models.append(
+                        GormModel(
+                            file,
+                            kind.name,
+                            "migrated",
+                            value.start_point.row + 1,
+                            value.start_point.column,
+                        )
+                    )
+            continue
+        if method == "Model":
+            kind = (
+                _go_value_type(values[0], content, imports, variables(call))
+                if values
+                else None
+            )
+            if kind is None:
+                continue
+            chain = []
+            node = call
+            while (
+                node.parent is not None
+                and node.parent.type == "selector_expression"
+                and node.parent.parent is not None
+                and node.parent.parent.type == "call_expression"
+            ):
+                link = _text(node.parent.child_by_field_name("field"), content)
+                if link == "Association":
+                    break
+                chain.append(link)
+                node = node.parent.parent
+            reads = any(m in GORM_CHAIN_READS | GORM_READ_WRITES for m in chain)
+            writes = any(m in GORM_CHAIN_WRITES | GORM_READ_WRITES for m in chain)
+            if kind.package is None and gorm:
+                models.append(
+                    GormModel(
+                        file,
+                        kind.name,
+                        "model",
+                        call.start_point.row + 1,
+                        call.start_point.column,
+                    )
+                )
+        elif method in GORM_READS | GORM_WRITES | GORM_READ_WRITES:
+            kind = (
+                _go_value_type(values[0], content, imports, variables(call))
+                if values
+                else None
+            )
+            if kind is None:
+                continue
+            reads = method in GORM_READS | GORM_READ_WRITES
+            writes = method in GORM_WRITES | GORM_READ_WRITES
+        else:
+            continue
+        if reads or writes:
+            uses.append(
+                GormUse(
+                    file,
+                    _innermost(definitions, file, call),
+                    kind,
+                    reads,
+                    writes,
+                    call.start_point.row + 1,
+                    call.start_point.column,
+                )
+            )
+    return models, uses, naming
+
+
+# Drizzle ORM (TypeScript and JavaScript) -------------------------------------
+
+DRIZZLE_CORES = {
+    "drizzle-orm/pg-core": ("pgTable", "pgTableCreator", "pgSchema"),
+    "drizzle-orm/mysql-core": ("mysqlTable", "mysqlTableCreator", "mysqlSchema"),
+    "drizzle-orm/sqlite-core": ("sqliteTable", "sqliteTableCreator", None),
+    "drizzle-orm/singlestore-core": (
+        "singlestoreTable",
+        "singlestoreTableCreator",
+        "singlestoreSchema",
+    ),
+}
+DRIZZLE_READS = {"from", "innerJoin", "leftJoin", "rightJoin", "fullJoin", "crossJoin"}
+DRIZZLE_WRITES = {"insert", "update", "delete"}
+DRIZZLE_QUERY_READS = {"findMany", "findFirst"}
+
+
+@dataclass(frozen=True)
+class DrizzleTable:
+    """A table a Drizzle constructor declares and the variable that holds
+    it; ``table`` is PLACEHOLDER when the name is not fixed."""
+
+    file: str
+    variable: str
+    table: str
+    exported: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class DrizzleRef:
+    """How a use names a table: a variable of the file ("local"), an import
+    (``module`` and the exported ``name``), a property of an imported object
+    (``schema.users``, "member") or a relational query key
+    (``db.query.<name>``, "query")."""
+
+    how: str  # "local", "import", "member" or "query"
+    name: str
+    module: str | None
+
+
+@dataclass(frozen=True)
+class DrizzleUse:
+    file: str
+    caller_id: str | None
+    ref: DrizzleRef
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class ScriptModule:
+    """A file's module links: named imports {local: (module, name)},
+    namespace imports {local: module}, ``export * from`` modules and named
+    re-exports {exported: (module, name)}."""
+
+    imports: dict
+    namespaces: dict
+    star_exports: tuple
+    re_exports: dict
+
+
+def script_module(root, content):
+    imports, namespaces, stars, re_exports = {}, {}, [], {}
+    for node in root.named_children:
+        source = _script_string(node.child_by_field_name("source"), content)
+        if source is None:
+            continue
+        if node.type == "import_statement":
+            for clause in node.named_children:
+                if clause.type != "import_clause":
+                    continue
+                for part in clause.named_children:
+                    if part.type == "namespace_import":
+                        names = [
+                            c for c in part.named_children if c.type == "identifier"
+                        ]
+                        if names:
+                            namespaces[_text(names[0], content)] = source
+                    elif part.type == "named_imports":
+                        for spec in part.named_children:
+                            if spec.type != "import_specifier":
+                                continue
+                            name = _text(spec.child_by_field_name("name"), content)
+                            alias = spec.child_by_field_name("alias")
+                            local = _text(alias, content) if alias is not None else name
+                            imports[local] = (source, name)
+        elif node.type == "export_statement":
+            clause = next(
+                (c for c in node.named_children if c.type == "export_clause"), None
+            )
+            if clause is None:
+                if not any(c.type == "namespace_export" for c in node.named_children):
+                    stars.append(source)
+                continue
+            for spec in clause.named_children:
+                if spec.type != "export_specifier":
+                    continue
+                name = _text(spec.child_by_field_name("name"), content)
+                alias = spec.child_by_field_name("alias")
+                re_exports[_text(alias, content) if alias is not None else name] = (
+                    source,
+                    name,
+                )
+    return ScriptModule(imports, namespaces, tuple(stars), re_exports)
+
+
+def _drizzle_constructors(module, content, root):
+    """{local callee: ("table", None) | ("creator", None) | ("schema", None)}
+    for the Drizzle core functions the file imports."""
+    found = {}
+    for local, (source, name) in module.imports.items():
+        names = DRIZZLE_CORES.get(source)
+        if names is None:
+            continue
+        for kind, expected in zip(("table", "creator", "schema"), names):
+            if expected is not None and name == expected:
+                found[local] = kind
+    return found
+
+
+def _drizzle_creator(node, content):
+    """The (prefix, suffix) of ``pgTableCreator((name) => `p_${name}`)``,
+    or None when the arrow function does more than wrap its parameter."""
+    if node is None or node.type != "arrow_function":
+        return None
+    parameter = node.child_by_field_name("parameter")
+    if parameter is None:
+        parameters = node.child_by_field_name("parameters")
+        names = [
+            c
+            for c in (parameters.named_children if parameters else ())
+            if c.type in ("identifier", "required_parameter")
+        ]
+        if len(names) != 1:
+            return None
+        parameter = names[0]
+        if parameter.type == "required_parameter":
+            parameter = parameter.child_by_field_name("pattern")
+    name = _text(parameter, content)
+    body = node.child_by_field_name("body")
+    if body is None or body.type != "template_string":
+        return None
+    parts, seen = [], 0
+    for child in body.named_children:
+        if child.type == "string_fragment":
+            parts.append(_text(child, content))
+        elif child.type == "template_substitution":
+            inner = child.named_children
+            if len(inner) != 1 or _text(inner[0], content) != name or seen:
+                return None
+            seen += 1
+            parts.append(None)
+        else:
+            return None
+    if seen != 1:
+        return None
+    index = parts.index(None)
+    return "".join(parts[:index]), "".join(parts[index + 1 :])
+
+
+def extract_drizzle(tree, content, file, definitions):
+    """(tables, uses) of one TypeScript or JavaScript file: variables
+    holding a Drizzle table (``pgTable("name", ...)``, a schema's
+    ``.table``, a ``*TableCreator`` that wraps the name in fixed text), and
+    query-builder calls (``from``, joins, ``insert``, ``update``,
+    ``delete``) or relational queries (``db.query.x.findMany``) naming a
+    table by a variable."""
+    root = tree.root_node
+    module = script_module(root, content)
+    constructors = _drizzle_constructors(module, content, root)
+    tables, uses = [], []
+    creators, schemas = {}, {}
+    declarators = list(_descendants(root, "variable_declarator"))
+    for declarator in declarators:
+        value = declarator.child_by_field_name("value")
+        name_node = declarator.child_by_field_name("name")
+        if value is None or name_node is None or value.type != "call_expression":
+            continue
+        callee, receiver, args = _call_parts(value, content)
+        if receiver is None and constructors.get(callee) == "creator":
+            wrap = _drizzle_creator(args[0] if args else None, content)
+            creators[_text(name_node, content)] = wrap
+        elif receiver is None and constructors.get(callee) == "schema":
+            schemas[_text(name_node, content)] = True
+    for declarator in declarators:
+        value = declarator.child_by_field_name("value")
+        name_node = declarator.child_by_field_name("name")
+        if value is None or name_node is None or name_node.type != "identifier":
+            continue
+        if value.type != "call_expression":
+            continue
+        callee, receiver, args = _call_parts(value, content)
+        if receiver is None and constructors.get(callee) == "table":
+            wrap = ("", "")
+        elif receiver is None and callee in creators:
+            wrap = creators[callee]
+        elif (
+            receiver is not None
+            and callee == "table"
+            and (
+                (receiver.type == "identifier" and _text(receiver, content) in schemas)
+                or (
+                    receiver.type == "call_expression"
+                    and constructors.get(_call_parts(receiver, content)[0]) == "schema"
+                )
+            )
+        ):
+            wrap = ("", "")
+        else:
+            continue
+        written = _script_string(args[0], content) if args else None
+        table = (
+            PLACEHOLDER
+            if written is None or wrap is None
+            else table_key(wrap[0] + written + wrap[1])
+        )
+        statement = next(
+            (
+                a
+                for a in _ancestors(declarator)
+                if a.type in ("lexical_declaration", "variable_declaration")
+            ),
+            None,
+        )
+        exported = (
+            statement is not None
+            and statement.parent is not None
+            and (statement.parent.type == "export_statement")
+        )
+        tables.append(
+            DrizzleTable(
+                file,
+                _text(name_node, content),
+                table,
+                exported,
+                name_node.start_point.row + 1,
+                name_node.start_point.column,
+            )
+        )
+    local = {t.variable for t in tables}
+
+    def reference(node):
+        if node is None:
+            return None
+        if node.type == "identifier":
+            name = _text(node, content)
+            if name in local:
+                return DrizzleRef("local", name, None)
+            if name in module.imports:
+                source, imported = module.imports[name]
+                return DrizzleRef("import", imported, source)
+            return None
+        if node.type == "member_expression":
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "identifier":
+                prop = _text(node.child_by_field_name("property"), content)
+                source = module.namespaces.get(_text(target, content))
+                if source is not None:
+                    return DrizzleRef("import", prop, source)
+                if _text(target, content) in module.imports:
+                    # An imported object of tables (``export * as schema``).
+                    return DrizzleRef("member", prop, None)
+        return None
+
+    for call in _descendants(root, "call_expression"):
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None:
+            continue
+        if method in DRIZZLE_READS | DRIZZLE_WRITES:
+            ref = reference(args[0] if args else None)
+            if ref is None:
+                continue
+            reads, writes = method in DRIZZLE_READS, method in DRIZZLE_WRITES
+        elif method in DRIZZLE_QUERY_READS and receiver.type == "member_expression":
+            query = receiver.child_by_field_name("object")
+            if (
+                query is None
+                or query.type != "member_expression"
+                or _text(query.child_by_field_name("property"), content) != "query"
+            ):
+                continue
+            ref = DrizzleRef(
+                "query", _text(receiver.child_by_field_name("property"), content), None
+            )
+            reads, writes = True, False
+        else:
+            continue
+        where = call.child_by_field_name("function").child_by_field_name("property")
+        uses.append(
+            DrizzleUse(
+                file,
+                _innermost(definitions, file, call),
+                ref,
+                reads,
+                writes,
+                # The method's own line: a chain starts lines earlier.
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+    return tables, uses, module
+
+
+_SCRIPT_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+
+
+def resolve_script_module(file, source, files):
+    """The repository file a relative module specifier names from ``file``:
+    the path itself, with a script suffix, a ``.js`` written for its
+    ``.ts`` source, or its directory's index file; None for packages."""
+    if not source.startswith("."):
+        return None
+    base = file.rpartition("/")[0]
+    parts = [p for p in base.split("/") if p]
+    for part in source.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+        else:
+            parts.append(part)
+    path = "/".join(parts)
+    stem = re.sub(r"\.(?:m|c)?js$|\.jsx$", "", path)
+    candidates = [path, *(path + s for s in _SCRIPT_SUFFIXES)]
+    candidates += [stem + s for s in _SCRIPT_SUFFIXES]
+    candidates += [f"{path}/index{s}" for s in _SCRIPT_SUFFIXES]
+    return next((c for c in candidates if c in files), None)
