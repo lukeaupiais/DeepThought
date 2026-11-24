@@ -76,6 +76,8 @@ class _Context:
         self.language = language
         self.folder = Folder(language, self.root, content, externals)
         self.calls_of = None
+        # Python: {router name: full prefixes} of the file's mounted routers.
+        self.mounts = {}
         file_definitions = [d for d in definitions if d.file == file]
         self.spans = {
             (d.line, d.column, d.end_line, d.end_column): d for d in file_definitions
@@ -216,12 +218,17 @@ def _python_imports(root, content):
                     )
         elif node.type == "import_from_statement":
             module = text(node.child_by_field_name("module_name"), content)
+            # ``from . import x`` names ``.x``, not ``..x``.
+            joint = "" if module.strip(".") == "" else "."
             for child in node.children_by_field_name("name"):
                 if child.type == "dotted_name":
-                    names[text(child, content)] = f"{module}.{text(child, content)}"
+                    names[text(child, content)] = (
+                        f"{module}{joint}{text(child, content)}"
+                    )
                 elif child.type == "aliased_import":
                     names[text(child.child_by_field_name("alias"), content)] = (
-                        f"{module}.{text(child.child_by_field_name('name'), content)}"
+                        f"{module}{joint}"
+                        f"{text(child.child_by_field_name('name'), content)}"
                     )
     return names
 
@@ -234,6 +241,175 @@ def _python_origin(function, imports, content):
     if origin is None:
         return None
     return origin + ("." + rest if rest else "")
+
+
+# Mounting one router in another: (framework, keyword giving the prefix).
+_PY_MOUNTS = {
+    "include_router": ("fastapi", "prefix"),
+    "register_blueprint": ("flask", "url_prefix"),
+}
+
+
+def python_routers(tree, content):
+    """Routers of one Python file and the routers it mounts, for composing
+    route prefixes across files (``compose_python_prefixes``).
+
+    Returns (routers, mounts, imports). ``routers`` maps each name bound
+    exactly once in the file to a Flask/FastAPI application, ``Blueprint``
+    or ``APIRouter`` to (framework, its own prefix). ``mounts`` lists
+    (parent name, child, prefix or None) for each
+    ``parent.include_router(child, prefix=...)`` and
+    ``parent.register_blueprint(child, url_prefix=...)`` whose parent is a
+    name and whose child is a name or ``name.attribute``; the child is the
+    dotted origin through the file's imports, or the local name. ``imports``
+    maps the file's imported names to their origins."""
+    root = tree.root_node
+    folder = Folder("python", root, content)
+    imports = _python_imports(root, content)
+    bound, routers, mounts = {}, {}, []
+    for node in _walk(root):
+        if node.type == "assignment":
+            left = node.child_by_field_name("left")
+            if left is not None and left.type == "identifier":
+                bound.setdefault(text(left, content), []).append(
+                    node.child_by_field_name("right")
+                )
+        elif node.type == "call":
+            function = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            if function is None or function.type != "attribute" or arguments is None:
+                continue
+            mount = _PY_MOUNTS.get(
+                text(function.child_by_field_name("attribute"), content)
+            )
+            parent = function.child_by_field_name("object")
+            if mount is None or parent.type != "identifier":
+                continue
+            keywords, positional = _keyword_arguments(arguments, content)
+            child = (
+                positional[0]
+                if positional
+                else keywords.get("router", keywords.get("blueprint"))
+            )
+            if child is None or child.type not in ("identifier", "attribute"):
+                continue
+            written = text(child, content)
+            head, dot, rest = written.partition(".")
+            if dot and head not in imports:
+                continue
+            origin = imports[head] + dot + rest if head in imports else written
+            prefix = keywords.get(mount[1])
+            mounts.append(
+                (
+                    text(parent, content),
+                    origin,
+                    None if prefix is None else folder.evaluate(prefix),
+                )
+            )
+    for name, values in bound.items():
+        value = values[0]
+        if len(values) != 1 or value is None or value.type != "call":
+            continue
+        origin = _python_origin(value.child_by_field_name("function"), imports, content)
+        module, _, constructor = (origin or "").rpartition(".")
+        framework = _PY_FRAMEWORKS.get((module, constructor))
+        if framework is None:
+            continue
+        keywords, _ = _keyword_arguments(
+            value.child_by_field_name("arguments"), content
+        )
+        own = ""
+        if _PY_PREFIX.get(constructor) in keywords:
+            own = folder.evaluate(keywords[_PY_PREFIX[constructor]])
+        routers[name] = (framework, own)
+    return routers, mounts, imports
+
+
+def _python_module_file(file, module, files):
+    """The analysed file a dotted ``module`` imported from ``file`` names:
+    relative to the file's package for leading dots, else under the nearest
+    enclosing directory that holds it."""
+    dots = len(module) - len(module.lstrip("."))
+    parts = [p for p in module[dots:].split(".") if p]
+    directory = file.rpartition("/")[0]
+    if dots:
+        for _ in range(dots - 1):
+            if not directory:
+                return None
+            directory = directory.rpartition("/")[0]
+        bases = [directory]
+    else:
+        bases = []
+        while True:
+            bases.append(directory)
+            if not directory:
+                break
+            directory = directory.rpartition("/")[0]
+    for base in bases:
+        path = "/".join(([base] if base else []) + parts)
+        for candidate in (path + "/__init__.py", path + ".py"):
+            if candidate in files:
+                return candidate
+    return None
+
+
+def compose_python_prefixes(found):
+    """Full route prefixes of mounted Python routers.
+
+    ``found`` maps each Python file to its ``python_routers`` result. Returns
+    {(file, router name): sorted full prefixes} for each router mounted in
+    another: FastAPI joins the parent's prefix, the ``include_router`` prefix
+    and the router's own; Flask joins the parent's prefix and the
+    ``register_blueprint`` ``url_prefix``, which replaces the blueprint's own.
+    A mount whose parent is not a known router counts as mounted at the root.
+    Routers that are never mounted are left out, and keep their own prefix."""
+    files = set(found)
+
+    def resolve(file, origin, depth=0):
+        """(file, name) of the router a child origin names, following one
+        re-export per step."""
+        if depth > 4:
+            return None
+        if "." not in origin.lstrip(".") and not origin.startswith("."):
+            return (file, origin) if origin in found[file][0] else None
+        dots = len(origin) - len(origin.lstrip("."))
+        parts = origin[dots:].split(".")
+        module, name = "." * dots + ".".join(parts[:-1]), parts[-1]
+        target = _python_module_file(file, module, files)
+        if target is None:
+            return None
+        routers, _, imports = found[target]
+        if name in routers:
+            return (target, name)
+        if name in imports:
+            return resolve(target, imports[name], depth + 1)
+        return None
+
+    parents = {}
+    for file, (routers, mounts, _) in found.items():
+        for parent, origin, prefix in mounts:
+            child = resolve(file, origin)
+            if child is None:
+                continue
+            framework = found[child[0]][0][child[1]][0]
+            key = (file, parent) if parent in routers else None
+            parents.setdefault(child, []).append((key, framework, prefix))
+
+    def full(key, active):
+        own = found[key[0]][0][key[1]][1]
+        if key not in parents or key in active:
+            return {own}
+        prefixes = set()
+        for parent, framework, prefix in parents[key]:
+            outer = full(parent, active | {key}) if parent is not None else {""}
+            if framework == "flask":
+                tail = own if prefix is None else prefix
+            else:
+                tail = (prefix or "") + own
+            prefixes.update(o.rstrip("/") + tail for o in outer)
+        return prefixes
+
+    return {key: sorted(full(key, frozenset())) for key in parents}
 
 
 def extract_python(context):
@@ -257,10 +433,13 @@ def extract_python(context):
         keywords, _ = _keyword_arguments(
             value.child_by_field_name("arguments"), content
         )
+        mounted = context.mounts.get(text(owner, content))
+        if mounted is not None:
+            return framework, mounted
         prefix = ""
         if _PY_PREFIX.get(constructor) in keywords:
             prefix = context.folder.evaluate(keywords[_PY_PREFIX[constructor]])
-        return framework, prefix
+        return framework, [prefix]
 
     def session(value):
         """(client, base URL: "" for none, else text) when ``value`` makes a
@@ -369,7 +548,7 @@ def extract_python(context):
                 app = app_of(function.child_by_field_name("object"))
                 if app is None:
                     continue
-                framework, prefix = app
+                framework, prefixes = app
                 keywords, positional = _keyword_arguments(
                     call.child_by_field_name("arguments"), content
                 )
@@ -401,10 +580,11 @@ def extract_python(context):
                         methods = [m.upper() for m in methods]
                 else:
                     continue
-                path = _python_path(
-                    prefix + context.folder.evaluate(path_node), framework
-                )
-                context.route(call, methods, path, framework, handler)
+                for prefix in prefixes:
+                    path = _python_path(
+                        prefix + context.folder.evaluate(path_node), framework
+                    )
+                    context.route(call, methods, path, framework, handler)
         elif node.type == "call":
             function = node.child_by_field_name("function")
             if function.type != "attribute":
@@ -1191,6 +1371,7 @@ def extract_web(
     nest=None,
     externals=None,
     calls_of=None,
+    mounts=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -1198,11 +1379,14 @@ def extract_web(
     a TypeScript file belongs to; ``externals`` the values of names the file
     imports or has defined (``script_constants``); ``calls_of(name)`` the
     calls of its module-level function ``name`` with their arguments, for
-    JavaScript/TypeScript requests built from that function's parameters."""
+    JavaScript/TypeScript requests built from that function's parameters;
+    ``mounts`` the full prefixes of a Python file's mounted routers by name
+    (``compose_python_prefixes``)."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
     context.calls_of = calls_of
+    context.mounts = mounts or {}
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
