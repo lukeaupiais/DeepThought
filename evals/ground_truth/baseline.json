@@ -703,7 +703,7 @@
     "unresolved_unjudged": 8034
   },
   "ky": {
-    "ambiguous_unjudged": 484,
+    "ambiguous_unjudged": 481,
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 105,
@@ -711,7 +711,7 @@
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 120,
-        "not_indexed": 522,
+        "not_indexed": 525,
         "unjudged": 1
       },
       "tree-sitter.call-self-method": {
@@ -774,7 +774,7 @@
       "unresolved:attribute_call": 4,
       "unresolved:unsupported_binding": 5
     },
-    "not_indexed": 845,
+    "not_indexed": 848,
     "precision": 1.0,
     "recall": 0.9371,
     "unjudged": 1,
@@ -783,16 +783,14 @@
   },
   "preact": {
     "ambiguous_no_candidates": 38,
-    "ambiguous_unjudged": 42,
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 1293,
         "not_indexed": 2
       },
       "tree-sitter.call-lexical-name": {
-        "confirmed": 737,
-        "contradicted": 6,
-        "not_indexed": 49,
+        "confirmed": 778,
+        "not_indexed": 46,
         "unjudged": 1
       },
       "tree-sitter.call-self-method": {
@@ -803,8 +801,8 @@
         "confirmed": 20
       }
     },
-    "confirmed": 2051,
-    "contradicted": 6,
+    "confirmed": 2092,
+    "contradicted": 0,
     "expected": 3884,
     "impact": {
       "by_depth": {
@@ -848,12 +846,12 @@
       "unresolved:imported_name_not_declared": 2792,
       "unresolved:unbound_name": 4
     },
-    "not_indexed": 59,
-    "precision": 0.9971,
+    "not_indexed": 56,
+    "precision": 1.0,
     "recall": 0.2685,
     "unjudged": 1,
     "unresolved_expected": 2804,
-    "unresolved_unjudged": 10952
+    "unresolved_unjudged": 10962
   },
   "ripgrep": {
     "ambiguous_includes": 18,
