@@ -272,16 +272,31 @@ def derive(index, calls, repo, language, revision, commits=30, max_depth=3, span
             rows.append(
                 (*seed, nodes[seed][0], file, line, nodes[(file, line)][0], depth)
             )
-    return rows
+    return rows, aliases
 
 
-def write(rows, stream):
+def write(rows, stream, aliases=None):
     print(HEADER, file=stream)
+    # A def the index gives another's symbol: an overload, or a redefinition
+    # of the same name in one scope. The scorer counts the engine's
+    # declaration there as the node it is folded into.
+    for (file, line), (_, canonical) in sorted((aliases or {}).items()):
+        print(f"# alias\t{file}\t{line}\t{canonical}", file=stream)
     for seed_file, seed_line, seed_name, file, line, name, depth in rows:
         print(
             f"{seed_file}\t{seed_line}\t{seed_name}\t{file}\t{line}\t{name}\t{depth}",
             file=stream,
         )
+
+
+def read_aliases(path):
+    """{(file, line): canonical line} from a truth file's ``# alias`` rows."""
+    aliases = {}
+    for text in Path(path).read_text("utf-8").splitlines():
+        if text.startswith("# alias\t"):
+            _, file, line, canonical = text.split("\t")
+            aliases[(file, int(line))] = int(canonical)
+    return aliases
 
 
 def read(path):
@@ -294,7 +309,7 @@ def read(path):
     return dict(truth)
 
 
-def score(result, truth, max_depth=3, examples=10):
+def score(result, truth, max_depth=3, examples=10, aliases=None):
     """Engine dependents of each seed against the oracle's.
 
     *confirmed*: an engine dependent the oracle also reaches; *extra*: one
@@ -318,6 +333,15 @@ def score(result, truth, max_depth=3, examples=10):
         name = re.split(r"::|\.", d.symbol)[-1].lstrip("#")
         candidates = named.get((d.file, name), ())
         lines = [n for n in candidates if d.line <= n <= d.end_line]
+        folded = [
+            canonical
+            for (file, line), canonical in (aliases or {}).items()
+            if file == d.file
+            and d.line <= line <= d.end_line
+            and canonical in candidates
+        ]
+        if not lines and folded:
+            lines = folded
         if not lines and len(candidates) == 1:
             # The one oracle node of that name in the file: an overload
             # the oracle folds into its first declaration.
@@ -388,7 +412,7 @@ def main(argv=None):
         "--spans", type=Path, help="function spans for an index without them"
     )
     args = parser.parse_args(argv)
-    rows = derive(
+    rows, aliases = derive(
         args.index,
         args.calls,
         args.history,
@@ -398,7 +422,7 @@ def main(argv=None):
         args.max_depth,
         read_spans(args.spans) if args.spans else None,
     )
-    write(rows, sys.stdout)
+    write(rows, sys.stdout, aliases)
     return 0
 
 

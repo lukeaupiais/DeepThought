@@ -113,11 +113,11 @@ class ImpactTruthTests(unittest.TestCase):
         self.addCleanup(self.calls.unlink)
 
     def derive(self):
-        rows = impact_truth.derive(
+        rows, aliases = impact_truth.derive(
             self.index, self.calls, self.repo, "python", "HEAD", commits=5
         )
         stream = io.StringIO()
-        impact_truth.write(rows, stream)
+        impact_truth.write(rows, stream, aliases)
         path = self.repo.parent / f"{self.repo.name}.impact.tsv"
         path.write_text(stream.getvalue(), "utf-8")
         self.addCleanup(path.unlink)
