@@ -218,6 +218,40 @@ MESSAGE_RULES = {
         "this destination: the default exchange keyed with the queue name, or "
         "a queue_bind of that queue in the same file." + _SAME_NAME,
     ),
+    ("kafka-go", "publish"): _message_rule(
+        "service-contracts.kafka-go-writer",
+        "A segmentio/kafka-go Writer, WriterConfig or Message literal written "
+        "with Topic names this topic; the producer is where the literal is "
+        "written." + _SAME_NAME,
+    ),
+    ("kafka-go", "consume"): _message_rule(
+        "service-contracts.kafka-go-reader",
+        "A segmentio/kafka-go ReaderConfig literal written with Topic or "
+        "GroupTopics names this topic; the consumer is where the literal is "
+        "written." + _SAME_NAME,
+    ),
+    ("sarama", "publish"): _message_rule(
+        "service-contracts.sarama-producer-message",
+        "A sarama ProducerMessage literal written with Topic names this "
+        "topic." + _SAME_NAME,
+    ),
+    ("sarama", "consume"): _message_rule(
+        "service-contracts.sarama-consume",
+        "ConsumePartition(topic, ...) or a consumer group's Consume(ctx, "
+        "[]string{...}, handler), in a file importing sarama, names this "
+        "topic." + _SAME_NAME,
+    ),
+    ("confluent-kafka-go", "publish"): _message_rule(
+        "service-contracts.confluent-kafka-go-produce",
+        "A confluent-kafka-go TopicPartition literal written with Topic names "
+        "this topic." + _SAME_NAME,
+    ),
+    ("confluent-kafka-go", "consume"): _message_rule(
+        "service-contracts.confluent-kafka-go-subscribe",
+        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), in a "
+        "file importing confluent-kafka-go, names this topic; a topic "
+        "starting with ^ is a pattern and is not read." + _SAME_NAME,
+    ),
     ("go-amqp", "publish"): _message_rule(
         "service-contracts.go-amqp-publish",
         "Publish in a file importing an amqp client package names this exchange "
