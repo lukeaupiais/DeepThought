@@ -1,11 +1,14 @@
-"""C declarations (opt-in language)."""
+"""C declarations and calls (opt-in language)."""
 
+import dataclasses
 import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
 
 from deepthought import analyze_repository
+from deepthought.calls import C_CALL_EXTERNAL, C_CALL_STATIC, resolve_calls
+from deepthought.models import AnalysisResult
 from deepthought.syntax import declaration_sources, make_parser
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -193,3 +196,90 @@ class CTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(READY, "C grammar is not installed")
+class CCallTests(unittest.TestCase):
+    def test_calls_bind_as_the_linker_binds_them(self):
+        result = analyze(
+            {
+                "lib.c": (
+                    "static int helper(int);\n"
+                    "int helper(int x) { return x; }\n"
+                    "int api(void) { return helper(1) + shared(); }\n"
+                    "static int only_here(void) { return 0; }\n"
+                    "int twice(void) { return 0; }\n"  # 5
+                ),
+                "main.c": (
+                    "int helper(int x) { return x + 1; }\n"
+                    "int shared(void) { return 2; }\n"
+                    "int (*hook)(void) = 0;\n"
+                    "#define MAC(x) (x)\n"
+                    "int main(int argc, char **argv) {\n"  # 5
+                    "    int (*local)(void) = 0;\n"
+                    '    api(); helper(2); only_here(); printf("");\n'
+                    "    hook(); local(); MAC(1); twice();\n"
+                    "    s.f(); (api)(); argc;\n"
+                    "#ifdef X\n"  # 10
+                    "    api();\n"
+                    "#endif\n"
+                    "    return 0;\n"
+                    "}\n"
+                    "int run(int (*cb)(void)) { return cb() + local() + cpp(); }\n"  # 15
+                ),
+                "other.c": "int twice(void) { return 1; }\n",
+                "other.cpp": "int cpp() { return 1; }\n",
+            },
+            ("c", "cpp"),
+        )
+        names = {d.id: (d.file, d.symbol) for d in result.definitions}
+        sites = {c.id: c for c in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].line, sites[r.call_id].column): (
+                sites[r.call_id].callee,
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        self.maxDiff = None
+        self.assertEqual(
+            found,
+            {
+                # Internal linkage: a later definition without `static` too.
+                ("lib.c", 3, 23): ("helper", ("lib.c", "helper"), C_CALL_STATIC),
+                ("lib.c", 3, 35): ("shared", ("main.c", "shared"), C_CALL_EXTERNAL),
+                # The one external definition; a static one elsewhere is not.
+                ("main.c", 7, 4): ("api", ("lib.c", "api"), C_CALL_EXTERNAL),
+                ("main.c", 7, 11): ("helper", ("main.c", "helper"), C_CALL_EXTERNAL),
+                ("main.c", 7, 22): ("only_here", None, "not_defined"),
+                ("main.c", 7, 35): ("printf", None, "not_defined"),
+                # Variables and macros of that name; two definitions.
+                ("main.c", 8, 4): ("hook", None, "local_binding"),
+                ("main.c", 8, 12): ("local", None, "local_binding"),
+                ("main.c", 8, 21): ("MAC", None, "macro"),
+                ("main.c", 8, 29): ("twice", None, "multiple_declarations"),
+                # Every preprocessor branch.
+                ("main.c", 11, 4): ("api", ("lib.c", "api"), C_CALL_EXTERNAL),
+                # A parameter; another function's local; a C++ function.
+                ("main.c", 15, 34): ("cb", None, "local_binding"),
+                ("main.c", 15, 41): ("local", None, "not_defined"),
+                ("main.c", 15, 51): ("cpp", None, "not_defined"),
+            },
+        )
+        callers = {
+            (c.file, c.line, c.column): names[c.caller_id] for c in result.call_sites
+        }
+        self.assertEqual(callers[("main.c", 7, 4)], ("main.c", "main"))
+        flags = {
+            (d.file, d.symbol, d.line): (d.static, d.prototype)
+            for d in result.definitions
+            if d.kind == "Function"
+        }
+        self.assertEqual(flags[("lib.c", "helper", 1)], (True, True))
+        self.assertEqual(flags[("lib.c", "helper", 2)], (None, None))
+        self.assertEqual(flags[("lib.c", "only_here", 4)], (True, None))
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        self.assertNotIn('"prototype": null', result.to_json())
+        with self.assertRaises(ValueError):
+            dataclasses.replace(result.definitions[0], prototype=False)

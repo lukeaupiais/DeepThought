@@ -1485,8 +1485,34 @@ those declared inside a struct's members, which C does not scope), typedef
 names (`TypeAlias`) and macros (`Macro`, wherever they are defined, since a
 macro holds for the rest of the file). Names are not qualified. Variables,
 enumerators, fields, forward declarations, unnamed types and types and
-prototypes declared in a function body are not declarations. Imports, calls
-and other facts are not recorded for C yet.
+prototypes declared in a function body are not declarations. A function
+declared `static` records `Definition.static`, and a prototype (a function
+declared without a body) records `Definition.prototype`. Imports and other
+facts are not recorded for C yet.
+
+### C calls
+
+Each call `f(...)` whose callee is a plain name is a call site, in every
+preprocessor branch, its caller the function definition around it. Calls
+through a field, a pointer expression or a parenthesized callee are not call
+sites. `CallSite.shadowed` is True when the function's parameters or the
+declarations in its body declare the name (a pointer to a function, or a
+prototype written in the body), or when a declaration at file scope declares
+it as a variable. A call is resolved as the linker binds it:
+
+- `tree-sitter.c-call-static` when the calling file declares a function `f`
+  `static` (a prototype or a definition): the definition of `f` in that file,
+  since a later definition without `static` has internal linkage too;
+- `tree-sitter.c-call-external` otherwise: the one definition of `f` without
+  `static` among the repository's C files.
+
+Both are `resolved`. Two definitions (one per program, such as a test's
+`setUp`, or one per platform) are `ambiguous` (`multiple_declarations`), and
+none (a C library function) is `not_defined`. A shadowed name is
+`local_binding`, and a name any C file defines as a macro is `macro`, since
+the macro may expand the call away. Includes are not read: a `static inline`
+function defined in a header and called from a file that includes it is
+`not_defined`.
 
 Four shapes the grammar gives to code it does not fully read are read
 deterministically. A function declared after a macro the grammar does not

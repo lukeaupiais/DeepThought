@@ -57,6 +57,8 @@ RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
 RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
 RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
 RUST_CALL_RESULT_RECEIVER = "tree-sitter.rust-call-result-receiver"
+C_CALL_STATIC = "tree-sitter.c-call-static"
+C_CALL_EXTERNAL = "tree-sitter.c-call-external"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1656,6 +1658,51 @@ class _RustPaths:
         return CallResolution(item_id, status, reason=reason)
 
 
+class _CCalls:
+    """C calls of a plain name, read as the linker binds them: a function
+    with internal linkage in the calling file, else the one definition with
+    external linkage among the repository's C files."""
+
+    def __init__(self, result, languages):
+        self.macros = set()
+        self.internal = defaultdict(list)
+        self.static_names = defaultdict(set)
+        self.external = defaultdict(list)
+        for d in result.definitions:
+            if languages.get(d.file) != "c":
+                continue
+            if d.kind == "Macro":
+                self.macros.add(d.symbol)
+            elif d.kind == "Function":
+                if d.static:
+                    self.static_names[d.file].add(d.symbol)
+                if not d.prototype:
+                    self.internal[(d.file, d.symbol)].append(d)
+        for (file, name), found in self.internal.items():
+            if name not in self.static_names[file]:
+                self.external[name].extend(found)
+
+    def call(self, site):
+        name = site.callee
+        if site.shadowed:
+            # A parameter, local or file-scope variable of that name.
+            return CallResolution(site.id, "unresolved", reason="local_binding")
+        if name in self.macros:
+            # A macro of that name may expand the call away.
+            return CallResolution(site.id, "unresolved", reason="macro")
+        if name in self.static_names[site.file]:
+            # Internal linkage: a later definition without `static` has it too.
+            return _pick(
+                site.id,
+                self.internal.get((site.file, name), ()),
+                C_CALL_STATIC,
+                "not_defined",
+            )
+        return _pick(
+            site.id, self.external.get(name, ()), C_CALL_EXTERNAL, "not_defined"
+        )
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
@@ -1678,6 +1725,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         if any(item.language == "rust" for item in result.coverage)
         else None
     )
+    c_calls = _CCalls(result, languages)
 
     defaults = defaultdict(list)
     for d in result.definitions:
@@ -2108,6 +2156,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             continue
         if languages.get(site.file) == "rust":
             resolutions.append(rust.call(site))
+            continue
+        if languages.get(site.file) == "c":
+            resolutions.append(c_calls.call(site))
             continue
         parts = site.callee.split(".")
         classes = (
