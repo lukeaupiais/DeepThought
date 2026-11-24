@@ -277,51 +277,53 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 				}
 			}
 		}
-		assigned := assignments(fn.Body, info)
-		ast.Inspect(fn.Body, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			selection := info.Selections[selector]
-			if selection == nil || selection.Kind() != types.MethodVal {
-				return true
-			}
-			f, line, column := where(call.Pos())
-			out := fact{Kind: "call", File: f, Line: line, Column: column, Method: selector.Sel.Name, Receiver: named(selection.Recv())}
-			if pkg := selection.Obj().Pkg(); pkg != nil {
-				out.Declared = pkg.Path()
-			}
-			results := selection.Obj().Type().(*types.Signature).Results()
-			for i := 0; i < results.Len(); i++ {
-				if t := named(results.At(i).Type()); t != nil {
-					out.Results = append(out.Results, t.Package)
-				}
-			}
-			for i, arg := range call.Args {
-				if i == 3 {
-					break
-				}
-				a := argument{Type: named(info.TypeOf(arg))}
-				if text, ok := stringValue(arg, info, assigned); ok {
-					a.Text = &text
-				}
-				out.Arguments = append(out.Arguments, a)
-			}
-			emit(out)
-			return true
-		})
 	}
+	// Calls anywhere in the file: functions, and func literals in package
+	// variables (a migration table).
+	assigned := assignments(file, info)
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		selection := info.Selections[selector]
+		if selection == nil || selection.Kind() != types.MethodVal {
+			return true
+		}
+		f, line, column := where(call.Pos())
+		out := fact{Kind: "call", File: f, Line: line, Column: column, Method: selector.Sel.Name, Receiver: named(selection.Recv())}
+		if pkg := selection.Obj().Pkg(); pkg != nil {
+			out.Declared = pkg.Path()
+		}
+		results := selection.Obj().Type().(*types.Signature).Results()
+		for i := 0; i < results.Len(); i++ {
+			if t := named(results.At(i).Type()); t != nil {
+				out.Results = append(out.Results, t.Package)
+			}
+		}
+		for i, arg := range call.Args {
+			if i == 3 {
+				break
+			}
+			a := argument{Type: named(info.TypeOf(arg))}
+			if text, ok := stringValue(arg, info, assigned); ok {
+				a.Text = &text
+			}
+			out.Arguments = append(out.Arguments, a)
+		}
+		emit(out)
+		return true
+	})
 }
 
-// assignments maps each local variable of a function to the one expression
+// assignments maps each local variable of a file's functions to the one expression
 // assigned to it, or to nil when it is assigned more than once, assigned
 // without one expression of its own, or has its address taken.
-func assignments(body *ast.BlockStmt, info *types.Info) map[*types.Var]ast.Expr {
+func assignments(body ast.Node, info *types.Info) map[*types.Var]ast.Expr {
 	found := map[*types.Var]ast.Expr{}
 	seen := map[*types.Var]int{}
 	set := func(id *ast.Ident, value ast.Expr) {
@@ -330,8 +332,8 @@ func assignments(body *ast.BlockStmt, info *types.Info) map[*types.Var]ast.Expr 
 			obj = info.Uses[id]
 		}
 		v, ok := obj.(*types.Var)
-		if !ok {
-			return
+		if !ok || v.Parent() == nil || v.Pkg() == nil || v.Parent() == v.Pkg().Scope() {
+			return // a field, or a package variable other files may assign
 		}
 		seen[v]++
 		if seen[v] == 1 {

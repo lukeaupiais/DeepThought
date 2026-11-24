@@ -1236,6 +1236,19 @@ type User struct{ ID int }
 
 func (User) TableName() string { return usersTable }
 """,
+    "store/migrations.go": """package store
+
+import "database/sql"
+
+// Calls in func literals of a package variable are read too.
+var migrations = []func(tx *sql.Tx) error{
+\tfunc(tx *sql.Tx) error {
+\t\tquery := "INSERT INTO schema_version VALUES (1)"
+\t\t_, err := tx.Exec(query)
+\t\treturn err
+\t},
+}
+""",
     "web/search.go": """package web
 
 import "net/url"
@@ -1273,16 +1286,17 @@ class GoTypeFactsTests(unittest.TestCase):
                 ("READS", "Queries.GetAccount", "accounts", "go-sql-types"),
                 ("WRITES", "Purge", "tokens", "go-sql-types"),
                 ("WRITES", "Queries.Archive", "archive", "go-sql-types"),
+                ("WRITES", "store/migrations.go", "schema_version", "go-sql-types"),
             ],
         )
         metrics = output.metadata.custom_metrics
         # Twice's query is assigned twice: its text is not fixed.
         self.assertEqual(
             metrics["sql_text"],
-            {"statements": 3, "not_fixed": 0, "unknown_entity": 0},
+            {"statements": 4, "not_fixed": 0, "unknown_entity": 0},
         )
         self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
-        self.assertEqual(metrics["go_type_facts"]["files_checked"], 4)
+        self.assertEqual(metrics["go_type_facts"]["files_checked"], 5)
 
     def test_same_calls_without_go(self):
         # Without go/types none of these is read: the files that run SQL do

@@ -3941,20 +3941,25 @@ chains were considered for locals; a local assigned once with a constant (or
 `+` join) is folded from `go/types` constant values instead, which needs no
 module outside the standard library.
 
-Measured on four Go apps outside the corpora (Go 1.24.7, dependencies
-downloaded), against the tree-sitter rules alone; no link was lost:
+Measured on four Go apps outside the corpora (Go 1.26.10, dependencies
+downloaded, every package fully checked), against the tree-sitter rules
+alone; no link was lost:
 
 | App | SQL statements | Files with READS/WRITES | GORM `TableName` links |
 |---|---|---|---|
-| miniflux/v2 | 42 → 128 | 8 → 15 | 0 → 0 |
+| miniflux/v2 | 42 → 132 | 8 → 15 | 0 → 0 |
 | techschool/simplebank (sqlc) | 0 → 20 | 0 → 6 | 0 → 0 |
-| flipped-aurora/gin-vue-admin | 2 → 2 | 2 → 30 | 2 → 23 |
+| flipped-aurora/gin-vue-admin | 2 → 19 | 2 → 35 | 2 → 23 |
 | gothinkster/golang-gin-realworld-example-app | unchanged | unchanged | unchanged |
 
-miniflux requires Go 1.26, so 237 of its files are partly checked under Go
-1.24 and keep the tree-sitter rule at their untyped calls. gin-vue-admin's
-new `TableName` links let 247 GORM calls through the existing `gorm-call`
-rule. jmoiron/sqlx is unchanged: its statements are all in test files.
+Calls are read anywhere in a file, including the func literals of a
+package variable (miniflux's migrations). Under Go 1.24 miniflux and
+gin-vue-admin, which require Go 1.26, are mostly partly checked and keep
+the tree-sitter rule at their untyped calls. gin-vue-admin's new
+`TableName` links let 247 GORM calls through the existing `gorm-call` rule;
+its other models get no default name, since it configures a
+`NamingStrategy`. jmoiron/sqlx is unchanged: its statements are all in test
+files.
 
 On gothinkster/golang-gin-realworld-example-app the tool maps its 7 GORM
 models (`user_models`, `follow_models`, `article_models`, ...) and links 32
