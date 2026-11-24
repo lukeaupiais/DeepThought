@@ -192,9 +192,10 @@ def java_source_roots(workspace):
     return sorted(roots)
 
 
-def derive_java(workspace, java="java", bases=False):
-    """Expected calls (or, with ``bases``, declared supertypes) from javac,
-    attributing one source root at a time."""
+def derive_java(workspace, java="java", bases=False, chains=False):
+    """Expected calls (or, with ``bases``, declared supertypes; with
+    ``chains``, explicit constructor invocations) from javac, attributing one
+    source root at a time."""
     workspace = Path(workspace).resolve()
     roots = java_source_roots(workspace)
     oracle = Path(__file__).with_name("JavaCallTruth.java")
@@ -212,6 +213,7 @@ def derive_java(workspace, java="java", bases=False):
                 "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
                 str(oracle),
                 *(["--bases"] if bases else []),
+                *(["--chains"] if chains else []),
                 str(workspace),
                 root,
                 *others,
@@ -1248,6 +1250,9 @@ def main(argv=None):
     j.add_argument("workspace", type=Path)
     j.add_argument("--java", default="java")
     j.add_argument("--bases", action="store_true")
+    j.add_argument(
+        "--chains", action="store_true", help="this(...) and super(...) only"
+    )
     s = sub.add_parser("score")
     s.add_argument("workspace", type=Path)
     s.add_argument("truth", type=Path)
@@ -1273,7 +1278,10 @@ def main(argv=None):
         )
         return 0
     if args.command == "derive-java":
-        write_truth(*derive_java(args.workspace, args.java, args.bases), sys.stdout)
+        write_truth(
+            *derive_java(args.workspace, args.java, args.bases, args.chains),
+            sys.stdout,
+        )
         return 0
     if args.command == "score":
         report, samples = score(
