@@ -228,6 +228,34 @@ class Folder:
                 return None
             scope = self._scope_of(scope)
 
+    def parameter(self, node):
+        """(function, index) when the JavaScript/TypeScript identifier
+        ``node`` names a parameter of its function that nothing in the
+        function assigns again, else None."""
+        if self.language not in ("javascript", "typescript"):
+            return None
+        name = text(node, self.content)
+        scope = self._scope_of(node)
+        if scope is self.root:
+            return None
+        bindings = self._collect(scope).get(name)
+        if not bindings or len(bindings) != 1:
+            return None
+        if bindings[0][0].type != "formal_parameters":
+            return None
+        positional = [p for p in bindings[0][0].named_children if p.type != "comment"]
+        for index, parameter in enumerate(positional):
+            target = parameter.child_by_field_name("pattern") or parameter
+            if target.type == "assignment_pattern":
+                target = target.child_by_field_name("left")
+            if (
+                target is not None
+                and target.type == "identifier"
+                and (text(target, self.content) == name)
+            ):
+                return scope, index
+        return None
+
     def _name(self, node, depth):
         found = self.binding(node)
         if found is None:
@@ -531,7 +559,7 @@ class Folder:
                 if node.named_children
                 else PLACEHOLDER
             )
-        if kind == "identifier":
+        if kind in ("identifier", "shorthand_property_identifier"):
             return self._name(node, depth)
         if self.language == "python":
             if kind == "string":
