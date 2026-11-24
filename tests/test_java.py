@@ -844,6 +844,64 @@ class JavaTests(unittest.TestCase):
         self.assertEqual(found[(10, "Kinds.BOX.open")], unresolved)
         self.assertEqual(found[(11, "Kinds.BOX.open")], unresolved)
 
+    def test_calls_on_variables_captured_by_classes_that_inherit(self):
+        files = {
+            "src/p/Box.java": (
+                "package p;\n"
+                "class Box { void open() {} }\n"
+                "abstract class Task { abstract void run(); }\n"
+                "abstract class Holder { Box box; abstract void run(); }\n"
+                "abstract class Deep extends Holder {}\n"
+                "interface Named { Box box = null; void run(); }\n"
+                "enum Mode { A { void f(Box box) {} }; }\n"
+            ),
+            "src/p/Main.java": (
+                "package p;\n"
+                "import java.util.ArrayList;\n"
+                "class Main {\n"
+                "  void m(Box box, Object o) {\n"
+                "    new Task() { void run() { box.open(); } };\n"  # 5
+                "    new Holder() { void run() { box.open(); } };\n"  # 6
+                "    new Deep() { void run() { box.open(); } };\n"  # 7
+                "    new Named() { public void run() { box.open(); } };\n"  # 8
+                "    new ArrayList<Box>() { void run() { box.open(); } };\n"  # 9
+                "    class Local extends Task { void run() { box.open(); } }\n"
+                "    if (o instanceof Box box2) {\n"
+                "      new Task() { void run() { box2.open(); } };\n"  # 12
+                "    }\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/p/Main.java"
+        }
+        typed = ("Box.open", JAVA_TYPED_RECEIVER)
+        hidden = (None, "receiver_may_be_inherited_field")
+        self.assertEqual(found[(5, "box.open")], typed)
+        self.assertEqual(found[(10, "box.open")], typed)
+        # A base declares a field `box`, or its interface a constant.
+        self.assertEqual(found[(6, "box.open")], hidden)
+        self.assertEqual(found[(7, "box.open")], hidden)
+        self.assertEqual(found[(8, "box.open")], hidden)
+        # A base outside the repository may declare one.
+        self.assertEqual(found[(9, "box.open")], hidden)
+        # A pattern variable: its scope follows control flow.
+        self.assertEqual(found[(12, "box2.open")], (None, "attribute_call"))
+        properties = {d.symbol: d.properties for d in result.definitions}
+        self.assertEqual(properties["Holder"], ("box",))
+        self.assertEqual(properties["Named"], ("box",))
+        self.assertEqual(properties["Mode"], ("A",))
+        self.assertIsNone(properties["Task"])
+
     def test_calls_on_variables_whose_declaration_writes_the_type(self):
         files = {
             "src/p/Foo.java": (
@@ -942,8 +1000,6 @@ class JavaTests(unittest.TestCase):
             (28, "hidden.go"),
             (29, "g.go"),
             (30, "q.go"),
-            # A class with a superclass may inherit a field of that name.
-            (34, "field.go"),
             # Pattern variables: their scope follows control flow.
             (37, "field.open"),
             (38, "field.open"),
@@ -955,15 +1011,20 @@ class JavaTests(unittest.TestCase):
             (46, "this.field.go"),
             # An enum constant hides the outer field.
             (47, "field.go"),
-            # An anonymous class, a type with superinterfaces and an enum
-            # constant's body may each inherit a field of that name.
-            (32, "x.go"),
-            (48, "field.go"),
-            (49, "field.go"),
-            (50, "field.go"),
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(found[(line, callee)], (None, "attribute_call"))
+        # A class whose repository bases declare no field of that name, and
+        # an enum constant's body whose enum declares none.
+        self.assertEqual(found[(34, "field.go")], typed)
+        self.assertEqual(found[(50, "field.go")], typed)
+        # An anonymous class and types with superinterfaces outside the
+        # repository may each inherit a field of that name.
+        for line, callee in ((32, "x.go"), (48, "field.go"), (49, "field.go")):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[(line, callee)], (None, "receiver_may_be_inherited_field")
+                )
 
     def test_a_comment_between_type_parameters_is_not_a_type_variable(self):
         # TypeScript methods share Java's formal_parameters node type, and

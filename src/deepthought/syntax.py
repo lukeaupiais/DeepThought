@@ -275,6 +275,9 @@ def extract(
                 statics = _java_static_fields(node, content)
                 if statics:
                     arity = {"fields": statics}
+                declared = _java_field_names(node, content)
+                if declared:
+                    arity = {**(arity or {}), "properties": declared}
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -3034,6 +3037,35 @@ def _java_argument_type(node, content, cache):
     return None
 
 
+def _java_field_names(node, content):
+    """Names of every field a Java type declaration declares: its fields and
+    constants (static, private or not), enum constants and record
+    components. None when there is none."""
+    found = []
+    parameters = node.child_by_field_name("parameters")
+    if node.type == "record_declaration" and parameters is not None:
+        for component in parameters.named_children:
+            name = component.child_by_field_name("name")
+            if name is not None:
+                found.append(_text(name, content))
+    body = node.child_by_field_name("body")
+    members = list(body.named_children) if body is not None else []
+    for member in list(members):
+        if member.type == "enum_body_declarations":
+            members.extend(member.named_children)
+    for member in members:
+        if member.type == "enum_constant":
+            name = member.child_by_field_name("name")
+            if name is not None:
+                found.append(_text(name, content))
+        elif member.type in {"field_declaration", "constant_declaration"}:
+            for declarator in member.children_by_field_name("declarator"):
+                name = declarator.child_by_field_name("name")
+                if name is not None:
+                    found.append(_text(name, content))
+    return tuple(dict.fromkeys(found)) or None
+
+
 def _java_static_fields(node, content):
     """(name, type) for each static field of a Java type declaration whose
     type ``_java_declared_type`` writes (an interface's fields are static,
@@ -3389,6 +3421,20 @@ def _java_may_inherit_fields(owner):
     ) or any(c.type == "extends_interfaces" for c in owner.named_children)
 
 
+def _java_receiver(node, content, callee, cache):
+    """``receiver_type`` of a Java call, and ``receiver_inherits`` when the
+    variable's declaration is outside a type around the call that may
+    inherit a field of that name."""
+    written = _java_receiver_type(node, content, callee, cache)
+    if written is not None:
+        return {"receiver_type": written}
+    crossed = []
+    written = _java_receiver_type(node, content, callee, cache, crossed=crossed)
+    if written is None or not crossed:
+        return {"receiver_type": None}
+    return {"receiver_type": written, "receiver_inherits": True}
+
+
 def _java_names_no_variable(node, content, callee):
     """For a Java call ``X.f.m()``: True when no variable or field named
     ``X`` can be in scope at the call, so that ``X`` names a type or
@@ -3435,12 +3481,14 @@ def _java_binds_pattern(node, name, content):
     return False
 
 
-def _java_receiver_type(node, content, callee, cache, primitives=False):
+def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=None):
     """For a Java call ``x.m()`` or ``this.x.m()``, the type that the
     declaration of the variable or field ``x`` in scope writes (``Foo``,
     ``Map.Entry``); None when no such declaration is in scope or it writes
     no class type (``var`` without ``new``, a lambda's inferred parameter,
-    an array, a primitive, a type parameter)."""
+    an array, a primitive, a type parameter). A type between the call and
+    that declaration that may inherit a field ``x`` gives None, unless
+    ``crossed`` is a list: then each such type's body is appended to it."""
     parts = callee.split(".")
     if len(parts) == 2:
         name, fields_only = parts[0], False
@@ -3450,28 +3498,42 @@ def _java_receiver_type(node, content, callee, cache, primitives=False):
         return None
     before = (node.start_point.row, node.start_point.column)
     found, method = None, None
+    # Methods around the call inside the types it crosses: a pattern there
+    # may bind the name too.
+    outer = []
     ancestor = node.parent
     while ancestor is not None:
         body = ancestor.type in _JAVA_CLASS_BODIES
+        if (
+            found is None
+            and crossed
+            and ancestor.type in _JAVA_METHODS
+            and ancestor is not method
+        ):
+            outer.append(ancestor)
         if found is None and (body or not fields_only):
             here = _java_declared_here(ancestor, name, content, before)
             if here:
                 found = here
             elif body:
                 owner = ancestor.parent
-                if fields_only or _java_may_inherit_fields(owner):
-                    # `this.x` names a field of the innermost class; and a
-                    # field a type inherits may be the one named.
+                if fields_only:
+                    # `this.x` names a field of the innermost class.
                     return None
+                if _java_may_inherit_fields(owner):
+                    # A field a type inherits may be the one named.
+                    if crossed is None:
+                        return None
+                    crossed.append(ancestor)
         if ancestor.type in _JAVA_METHODS and method is None:
             method = ancestor
         ancestor = ancestor.parent
     if not found or found[0] is None:
         return None
-    if method is not None:
-        key = ("patterns", method.id, name)
+    for around in [method, *outer] if method is not None else outer:
+        key = ("patterns", around.id, name)
         if key not in cache:
-            cache[key] = _java_binds_pattern(method, name, content)
+            cache[key] = _java_binds_pattern(around, name, content)
         if cache[key]:
             return None
     written = found[0]
@@ -4233,9 +4295,7 @@ def extract_call_sites(
                         ),
                         **(
                             {
-                                "receiver_type": _java_receiver_type(
-                                    node, content, callee, receivers
-                                ),
+                                **_java_receiver(node, content, callee, receivers),
                                 "type_qualified": _java_names_no_variable(
                                     node, content, callee
                                 ),

@@ -708,6 +708,51 @@ class _JavaScope:
         specs = self.single.get((file, written.split(".")[0]))
         return bool(specs) and all(spec.startswith("java.") for spec in specs)
 
+    def may_inherit_field(self, site, scope, name):
+        """Whether a type around a Java call (a named type its caller is
+        declared in, or an anonymous class or enum constant body) may
+        inherit a field ``name``: a base declares one, or a base is not a
+        repository type whose own bases are all known."""
+        if site.caller_id is None or not scope:
+            return True
+        around = []
+        for depth in range(len(scope), 0, -1):
+            prefix = ".".join(scope[:depth])
+            around.extend(
+                (d.file, d.symbol) for d in self._defs(site.file, prefix, _JAVA_TYPES)
+            )
+        seen = set()
+        for written, written_scope, _, _ in site.anonymous or ():
+            outer = written_scope.split(".") if written_scope else []
+            types = self.type(site.file, outer, written)
+            if not types or self._declares_field(types, name, seen):
+                return True
+        return any(
+            self._bases_declare_field(file, symbol, name, seen)
+            for file, symbol in around
+        )
+
+    def _declares_field(self, types, name, seen):
+        return any(
+            name in (t.properties or ())
+            or self._bases_declare_field(t.file, t.symbol, name, seen)
+            for t in types
+        )
+
+    def _bases_declare_field(self, file, symbol, name, seen):
+        """Whether the bases of a type may give it a field ``name``."""
+        if (file, symbol) in seen:
+            return False
+        seen.add((file, symbol))
+        if file not in self.roots:
+            return True  # its bases are not recorded
+        outer = symbol.split(".")[:-1]
+        for base in self.bases.get((file, symbol), ()):
+            types = self.type(file, outer, base)
+            if not types or self._declares_field(types, name, seen):
+                return True
+        return False
+
     def static_field(self, file, scope, written, name):
         """(type, (file, scope) it is written in) of the static field
         ``name`` that the type name ``written`` declares, seen from a file
@@ -1022,6 +1067,10 @@ class _JavaScope:
             )
         if site.receiver_type is not None:
             # A variable or field whose declaration writes its type.
+            if site.receiver_inherits and self.may_inherit_field(site, scope, head):
+                return CallResolution(
+                    site.id, "unresolved", reason="receiver_may_be_inherited_field"
+                )
             owners = self.type(file, scope, site.receiver_type)
             if not owners:
                 return CallResolution(
