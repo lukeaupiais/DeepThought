@@ -14,12 +14,20 @@ local variables assigned once). The method is GET, or the literal
 ``CURLOPT_CUSTOMREQUEST`` (POST for ``CURLOPT_POST``) that a
 ``curl_setopt``/``curl_setopt_array`` in the same function sets; any other
 setting of either leaves the method unknown.
+
+Also Guzzle and Laravel HTTP client requests (``_client_requests``): verb
+methods and ``request($method, $url)`` on a ``GuzzleHttp\\Client`` (a local
+variable or ``$this`` property set once to ``new Client([...])``, or typed
+as the client or its interface), with a literal ``base_uri`` resolved as
+Guzzle does (RFC 3986); and ``Http::...->get($url)`` chains on Laravel's
+``Http`` facade, under a literal ``baseUrl(...)``.
 """
 
 import re
 
 from ..syntax import identifier
 from .http import ANY_METHOD, PLACEHOLDER, join_paths
+from .laravel import _array, _chain, _uses
 from .model import HttpRequest, HttpRoute, Unread
 
 _ROUTE_PACKAGES = (
@@ -264,8 +272,227 @@ def _curl_method(function, variable, content, folder):
     return method
 
 
-def extract_php(tree, content, repository_id, file, definitions):
-    """Routes, requests and unread sites of one PHP file."""
+# Client types and the client their requests are made with.
+_CLIENT_TYPES = {
+    "GuzzleHttp\\Client": "guzzle",
+    "GuzzleHttp\\ClientInterface": "guzzle",
+    "Symfony\\Contracts\\HttpClient\\HttpClientInterface": "symfony-http",
+}
+_SYMFONY_FACTORY = "Symfony\\Component\\HttpClient\\HttpClient"
+_HTTP_FACADE = "Illuminate\\Support\\Facades\\Http"
+_CLIENT_VERBS = {
+    m.lower(): m for m in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+}
+_SCHEME = re.compile(r"(?i)^[a-z][a-z0-9+.-]*://")
+
+
+def _resolve_reference(base, url):
+    """``url`` resolved against a literal absolute ``base`` (RFC 3986, as
+    Guzzle does); ``url`` as written when ``base`` is not one."""
+    match = _SCHEME.match(base)
+    if match is None or _SCHEME.match(url):
+        return url
+    if not url:
+        return base
+    origin = base[: match.end()] + base[match.end() :].partition("/")[0]
+    if url.startswith("/"):
+        return origin + url
+    rest = base[len(origin) :]
+    return origin + rest.rpartition("/")[0] + "/" + url
+
+
+def _appended(base, url):
+    """Laravel's ``baseUrl``: the URL appended to the base unless absolute;
+    as written when the base is not a literal absolute URL."""
+    if _SCHEME.match(base) is None or _SCHEME.match(url):
+        return url
+    return base.rstrip("/") + "/" + url.lstrip("/")
+
+
+def _enclosing(node, kinds):
+    while node is not None and node.type not in kinds:
+        node = node.parent
+    return node
+
+
+def _client_requests(root, content, folder, laravel):
+    """(call node, client, method or None, URL) of each Guzzle, Symfony or
+    Laravel HTTP client request in the file."""
+    uses, _ = _uses(root, content)
+
+    def qualified(written):
+        written = written.lstrip("\\")
+        head, _, rest = written.partition("\\")
+        return uses[head] + ("\\" + rest if rest else "") if head in uses else written
+
+    def client_type(node):
+        """The client a type names, else None."""
+        return _CLIENT_TYPES.get(qualified(_text(node, content))) if node else None
+
+    def creation(node):
+        """(client, base URL: "" for none) of ``new GuzzleHttp\\Client([...])``,
+        ``HttpClient::create([...])`` or ``HttpClient::createForBaseUri(...)``,
+        else None."""
+        if node is None:
+            return None
+        if node.type == "object_creation_expression":
+            named = [
+                c for c in node.named_children if c.type in ("name", "qualified_name")
+            ]
+            if not named or qualified(_text(named[0], content)) != "GuzzleHttp\\Client":
+                return None
+            client = "guzzle"
+            holder = next(
+                (c for c in node.named_children if c.type == "arguments"), None
+            )
+        elif node.type == "scoped_call_expression":
+            scope = node.child_by_field_name("scope")
+            name = _text(node.child_by_field_name("name"), content)
+            if qualified(_text(scope, content)) != _SYMFONY_FACTORY or name not in (
+                "create",
+                "createForBaseUri",
+            ):
+                return None
+            client = "symfony-http"
+            holder = node.child_by_field_name("arguments")
+        else:
+            return None
+        arguments = [
+            c.named_children[-1]
+            for c in (holder.named_children if holder is not None else ())
+            if c.type == "argument" and c.named_children
+        ]
+        if not arguments:
+            return client, ""
+        if node.type == "scoped_call_expression" and name == "createForBaseUri":
+            return client, folder.evaluate(arguments[0])
+        keyed, _ = _array(arguments[0], content)
+        return client, folder.evaluate(keyed["base_uri"]) if "base_uri" in keyed else ""
+
+    def typed(parameter_or_property):
+        return client_type(parameter_or_property.child_by_field_name("type"))
+
+    def receiver(node):
+        """(client, base URL: "" when it has none or it is not known) of the
+        client object ``node`` names, else None."""
+        written = _text(node, content)
+        if node.type == "variable_name":
+            scope = _enclosing(
+                node,
+                ("method_declaration", "function_definition", "anonymous_function"),
+            )
+            if scope is None:
+                return None
+            assigned = [
+                c.child_by_field_name("right")
+                for c in _walk(scope)
+                if c.type == "assignment_expression"
+                and _text(c.child_by_field_name("left"), content) == written
+            ]
+            if len(assigned) == 1 and creation(assigned[0]) is not None:
+                return creation(assigned[0])
+            parameters = scope.child_by_field_name("parameters")
+            for parameter in (
+                parameters.named_children if parameters is not None else ()
+            ):
+                name = parameter.child_by_field_name("name")
+                if (
+                    name is not None
+                    and _text(name, content) == written
+                    and typed(parameter)
+                ):
+                    return (typed(parameter), "") if not assigned else None
+            return None
+        if node.type == "member_access_expression" and written.startswith("$this->"):
+            name = written[len("$this->") :]
+            cls = _enclosing(node, ("class_declaration",))
+            if cls is None or not name.isidentifier():
+                return None
+            assigned = [
+                c.child_by_field_name("right")
+                for c in _walk(cls)
+                if c.type == "assignment_expression"
+                and _text(c.child_by_field_name("left"), content) == written
+            ]
+            if len(assigned) == 1 and creation(assigned[0]) is not None:
+                return creation(assigned[0])
+            for candidate in _walk(cls):
+                if candidate.type == "property_declaration" and typed(candidate):
+                    if any(
+                        e.named_children
+                        and _text(e.named_children[0], content) == "$" + name
+                        for e in candidate.named_children
+                        if e.type == "property_element"
+                    ):
+                        return typed(candidate), ""
+                if candidate.type == "property_promotion_parameter" and typed(
+                    candidate
+                ):
+                    variable = candidate.child_by_field_name("name")
+                    if variable is not None and _text(variable, content) == "$" + name:
+                        return typed(candidate), ""
+        return None
+
+    facades = {name for name, full in uses.items() if full == _HTTP_FACADE}
+    if laravel and "Http" not in uses:
+        facades.add("Http")
+    found = []
+    for node in _walk(root):
+        if node.type not in ("member_call_expression", "scoped_call_expression"):
+            continue
+        name_node = node.child_by_field_name("name")
+        if name_node is None or name_node.type != "name":
+            continue
+        verb = _text(name_node, content)
+        stem = verb[: -len("Async")] if verb.endswith("Async") else verb
+        if stem not in _CLIENT_VERBS and stem not in ("request", "send"):
+            continue
+        arguments = node.child_by_field_name("arguments")
+        values = [
+            a.named_children[-1]
+            for a in (arguments.named_children if arguments is not None else ())
+            if a.type == "argument" and a.named_children
+        ]
+        two = stem in ("request", "send")
+        if len(values) < (2 if two else 1):
+            continue
+        method_node, url_node = (values[0], values[1]) if two else (None, values[0])
+        method = _CLIENT_VERBS.get(stem)
+        if two:
+            written = folder.evaluate(method_node).upper()
+            method = written if written in _CLIENT_VERBS.values() else None
+        url = folder.evaluate(url_node)
+        chain = _chain(node, content)
+        if chain is not None and chain[0][0] == "facade" and chain[0][1] in facades:
+            if stem == "request" or verb.endswith("Async"):
+                continue
+            base = ""
+            for link, call in chain[1][:-1]:
+                if link == "baseUrl":
+                    link_arguments = call.child_by_field_name("arguments")
+                    link_values = [
+                        a.named_children[-1]
+                        for a in link_arguments.named_children
+                        if a.type == "argument" and a.named_children
+                    ]
+                    base = folder.evaluate(link_values[0]) if link_values else ""
+            found.append((node, "laravel-http", method, _appended(base, url)))
+            continue
+        if stem == "send" or node.type != "member_call_expression":
+            continue
+        target = receiver(node.child_by_field_name("object"))
+        if target is None:
+            continue
+        client, base = target
+        if client == "symfony-http" and stem != "request":
+            continue  # its only request method
+        found.append((node, client, method, _resolve_reference(base, url)))
+    return found
+
+
+def extract_php(tree, content, repository_id, file, definitions, *, laravel=False):
+    """Routes, requests and unread sites of one PHP file; ``laravel`` when
+    the file belongs to a Laravel project (``Http`` may be unqualified)."""
     root = tree.root_node
     folder = _Folder(content)
     file_definitions = [d for d in definitions if d.file == file]
@@ -397,4 +624,21 @@ def extract_php(tree, content, repository_id, file, definitions):
                 client="php-curl",
             )
         )
+    if b"Client" in content or b"Http" in content:
+        for node, client, method, url in _client_requests(
+            root, content, folder, laravel
+        ):
+            line = node.start_point.row + 1
+            requests.append(
+                HttpRequest(
+                    id=make_id("HttpRequest", f"{client} {line}"),
+                    file=file,
+                    line=line,
+                    column=node.start_point.column,
+                    caller_id=caller(node),
+                    method=method,
+                    url=url,
+                    client=client,
+                )
+            )
     return routes, requests, unread

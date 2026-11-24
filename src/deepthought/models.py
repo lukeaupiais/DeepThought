@@ -351,8 +351,10 @@ class CallSite:
     # where the declaration of ``x`` the call sees writes a type annotation
     # ``T`` or ``T<...>``, or initializes ``x`` with ``new T(...)``: ``T``;
     # or ``"this"`` for ``this`` in an instance method or field of a class
-    # declaration (``this.a.m()``, ``const y = this; y.m()``). None
-    # elsewhere.
+    # declaration (``this.a.m()``, ``const y = this; y.m()``). Rust calls
+    # ``x.m()``: the type path, joined by ``::``, that the innermost
+    # declaration of the local ``x`` writes (a parameter or ``let`` that
+    # binds ``x`` alone), or ``Self``. None elsewhere.
     receiver_type: str | None = None
     # JavaScript and TypeScript, with a ``receiver_type`` other than
     # ``"this"``: the start (line, column) of the declaration of ``T`` seen

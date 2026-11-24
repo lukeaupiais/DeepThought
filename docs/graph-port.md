@@ -1286,16 +1286,28 @@ Calls of functions declared in impls read the impl facts (see "Rust impls"):
   implements that the impl does not override;
 - `tree-sitter.rust-call-self-method` when `self.m()` is written in an impl
   (read as `Self::m`), or in a trait body, where it names the trait's own
-  method `m` (supertraits are not read).
+  method `m` (supertraits are not read);
+- `tree-sitter.rust-call-typed-receiver` when `x.m()` is called on a local
+  whose innermost declaration is a parameter (of a function or closure) or a
+  `let` that binds `x` alone and writes a type: `A`, `m::A`, `A<T>`, `&A`,
+  `&mut A` or `Self` (`CallSite.receiver_type`). The type is read as a call's
+  path is, from the call (`Self` is the type of the impl around it), and `m`
+  is looked up as for `Type::m`. A later untyped `let`, a pattern (`let (a,
+  b)`, `W(a)`), `if let`, `while let`, `for` and match arms that may bind `x`
+  give no type, nor do raw pointers, trait objects, `impl Trait` and a name
+  the generic items around the call declare as a type parameter. A type with
+  no impl declaring `m` (a derived, `Deref` or blanket-impl method) is
+  `associated_item`, and one that names no workspace type is
+  `receiver_type_unknown`.
 
-All four are `resolved`: Rust has no overloading, so a path names one
+All five are `resolved`: Rust has no overloading, so a path names one
 declaration in each configuration. A function declared once per `#[cfg]`, or
 by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
 alias are keyed by the alias, since the aliased type is not read: a call
 through an alias is `type_alias`, and so is a call that would otherwise take
 a trait's function when an impl for some alias declares the same name. Other
-outcomes: `method_call` (a receiver other than `self`: receiver types are not
-inferred), `associated_item` (a name inside a type that no impl declares, such
+outcomes: `method_call` (a receiver other than `self` whose declaration
+writes no type: receiver types are not inferred), `associated_item` (a name inside a type that no impl declares, such
 as an enum variant or a derived method), `unbound_name` (a single
 name with no declaration or use in scope: the prelude, such as `Some`, or a
 local closure), `external_crate` (the first name is not in scope and names no
@@ -2152,7 +2164,32 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
-  `CURLOPT_URL`, Guzzle and Symfony HttpClient are not read yet.
+  `CURLOPT_URL` is not read yet.
+- **Guzzle and Laravel HTTP client requests** (clients `guzzle`,
+  `laravel-http`). Guzzle: `get`, `post`, `put`, `patch`, `delete`, `head`,
+  `options` (and their `...Async` forms) and `request($method, $url)` on a
+  `GuzzleHttp\Client`, where the receiver is a local variable assigned
+  once in its function to `new Client([...])`, a `$this->x` property
+  assigned once in its class to one, or a parameter, property or promoted
+  constructor parameter typed `Client` or `ClientInterface`. A literal
+  `base_uri` is resolved as Guzzle does (RFC 3986: a rooted path replaces
+  the base path, a relative one joins the base's directory); an absolute
+  URL, or a base that is not literal, leaves the URL as written. Laravel:
+  `Http::get(...)`, ... and `Http::send($method, $url)`, also at the end of
+  a chain (`Http::withToken(...)->get(...)`), on the facade imported from
+  `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
+  a literal `baseUrl(...)` in the chain is prepended. A method that is not
+  a literal is unknown; a dynamic method name (`->$method(...)`) is not
+  read.
+- **Symfony HttpClient requests** (client `symfony-http`).
+  `request($method, $url)`, its only request method, on a client that is a
+  parameter, property or promoted constructor parameter typed
+  `Symfony\Contracts\HttpClient\HttpClientInterface`, or a local variable
+  or `$this->x` property assigned once to `HttpClient::create([...])` or
+  `HttpClient::createForBaseUri($base)`. A literal base (`base_uri`, or the
+  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). Scoped
+  clients configured in `framework.yaml` are not read: they reach code as an
+  injected interface, so their URLs stay as written.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
