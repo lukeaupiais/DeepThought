@@ -1278,16 +1278,28 @@ Calls of functions declared in impls read the impl facts (see "Rust impls"):
   implements that the impl does not override;
 - `tree-sitter.rust-call-self-method` when `self.m()` is written in an impl
   (read as `Self::m`), or in a trait body, where it names the trait's own
-  method `m` (supertraits are not read).
+  method `m` (supertraits are not read);
+- `tree-sitter.rust-call-typed-receiver` when `x.m()` is called on a local
+  whose innermost declaration is a parameter (of a function or closure) or a
+  `let` that binds `x` alone and writes a type: `A`, `m::A`, `A<T>`, `&A`,
+  `&mut A` or `Self` (`CallSite.receiver_type`). The type is read as a call's
+  path is, from the call (`Self` is the type of the impl around it), and `m`
+  is looked up as for `Type::m`. A later untyped `let`, a pattern (`let (a,
+  b)`, `W(a)`), `if let`, `while let`, `for` and match arms that may bind `x`
+  give no type, nor do raw pointers, trait objects, `impl Trait` and a name
+  the generic items around the call declare as a type parameter. A type with
+  no impl declaring `m` (a derived, `Deref` or blanket-impl method) is
+  `associated_item`, and one that names no workspace type is
+  `receiver_type_unknown`.
 
-All four are `resolved`: Rust has no overloading, so a path names one
+All five are `resolved`: Rust has no overloading, so a path names one
 declaration in each configuration. A function declared once per `#[cfg]`, or
 by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
 alias are keyed by the alias, since the aliased type is not read: a call
 through an alias is `type_alias`, and so is a call that would otherwise take
 a trait's function when an impl for some alias declares the same name. Other
-outcomes: `method_call` (a receiver other than `self`: receiver types are not
-inferred), `associated_item` (a name inside a type that no impl declares, such
+outcomes: `method_call` (a receiver other than `self` whose declaration
+writes no type: receiver types are not inferred), `associated_item` (a name inside a type that no impl declares, such
 as an enum variant or a derived method), `unbound_name` (a single
 name with no declaration or use in scope: the prelude, such as `Some`, or a
 local closure), `external_crate` (the first name is not in scope and names no

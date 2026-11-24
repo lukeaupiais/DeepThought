@@ -48,6 +48,7 @@ RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
 RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
 RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
+RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1281,6 +1282,8 @@ class _RustPaths:
                     RUST_CALL_SELF_METHOD,
                     "method_call",
                 )
+            if site.receiver_type is not None:
+                return self._typed_method(site, name)
             item = self._innermost_impl(site) if receiver == "self" else None
             kind = self.impl_type(item) if item is not None else None
             if kind is None or kind.status != "linked":
@@ -1318,6 +1321,26 @@ class _RustPaths:
         return self._associated(
             site, [owner.target_id], segments[-1], RUST_CALL_ASSOCIATED
         )
+
+    def _typed_method(self, site, name):
+        """``x.m()`` where the declaration of ``x`` writes a type: ``m`` as
+        ``Type::m`` names it, read from the call; ``Self`` is the type of the
+        impl around the call."""
+        if site.receiver_type == "Self":
+            item = self._innermost_impl(site)
+            owner = self.impl_type(item) if item is not None else None
+        else:
+            owner = self.resolve(
+                site.id,
+                site,
+                site.receiver_type.split("::"),
+                _RUST_TYPES,
+                RUST_IMPL_TYPE,
+                RUST_IMPL_TYPE,
+            )
+        if owner is None or owner.status != "linked":
+            return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
+        return self._associated(site, [owner.target_id], name, RUST_CALL_TYPED_RECEIVER)
 
     def resolve(self, item_id, site, segments, kinds, local_rule, path_rule):
         """The declaration of ``kinds`` a path written at ``site`` (a fact with

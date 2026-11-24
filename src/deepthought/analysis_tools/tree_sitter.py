@@ -452,6 +452,10 @@ CALL_RULES.update(
             call_rules.RUST_CALL_SELF_METHOD: "A Rust 'self.m()' in an impl "
             "names 'm' as 'Self::m' does; in a trait body, the trait's own "
             "method 'm'.",
+            call_rules.RUST_CALL_TYPED_RECEIVER: "A Rust 'x.m()' where the "
+            "innermost declaration of the local x (a parameter or 'let' that "
+            "binds x alone) writes a type 'A', '&A', 'm::A<T>' or 'Self' names "
+            "'m' as 'A::m' does, read from the call.",
         }.items()
     }
 )
