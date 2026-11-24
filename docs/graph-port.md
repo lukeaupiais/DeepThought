@@ -2025,7 +2025,7 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --language python --language typescript --language go --snapshot
+tree-sitter --tool data-contracts --language java --language python --language typescript --language go --language ruby --snapshot
 REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
@@ -2058,6 +2058,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
+| File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed with the innermost enclosing module's or class's literal `table_name_prefix`, or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.active-record-call` | pattern_matched | `Model.<method>` with an ActiveRecord query (`where`, `find`, `pluck`, `count`, ...) or persistence method (`create`, `insert_all`, `update_all`, `destroy_all`, ...), `Model` resolved by Ruby's lexical constant lookup (`Module.nesting`, then the top level) to a model of the repository; instance methods, associations and scopes are not read |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -2081,7 +2085,22 @@ arguments, comments and string literals are skipped, and a name holding text
 the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
-Test sources (`src/test/`) are skipped.
+Test sources (`src/test/`, and for Ruby `test/` and `spec/`) are skipped.
+
+ActiveRecord models are the classes whose superclass chain reaches
+`ActiveRecord::Base` through classes of the repository; the superclass and
+`Model.method` constants resolve the way Ruby looks constants up, so in
+`class Admin::Panel` the name `User` is `Admin::Panel::User` or `::User`,
+never `Admin::User`. A class reopened in several files is one class, and is
+left out when its declarations disagree on the superclass or table name.
+Abstract classes (`self.abstract_class = true`, `primary_abstract_class`)
+give no table. A model whose name the code does not fix is left out and
+counted under `active_record_unresolved`: a `table_name` that is not a
+literal, `table_name_prefix`/`table_name_suffix`/`pluralize_table_names`
+assigned on its chain, or an application whose `config/` sets those or
+changes inflection in a way that is not read (regular expression rules,
+`clear`). Rails apps have no package manifest that the components scan
+reads, so their tables share the nearest enclosing package's namespace.
 
 `get_impact` goes forwards over WRITES and backwards over READS, so a change
 to a repository that writes a table reaches the repositories that read it.
@@ -2141,6 +2160,31 @@ hits it does not take are not Prisma Client calls (`db.orm.public.User`,
 or a property that names no model). On nestjs/nest's `sample/` apps it maps
 both TypeORM entities (`user`, `photo`) and links both
 `@InjectRepository` services and the 5 Prisma calls of the GraphQL sample.
+
+On three Rails applications, every table that the tool names for a model is
+one that the application's schema file declares, except models of tables
+that no longer exist:
+
+| Corpus | Models | In the schema | Not in the schema | Calls linked / not a model |
+|---|---|---|---|---|
+| lobsters/lobsters `d23941f` | 42 | 42 | 0 | 324 / 5 |
+| rubygems/rubygems.org `6f51e32` | 45 | 45 | 0 | 167 / 9 |
+| mastodon/mastodon `fe9d150` | 276 | 272 | 4 | 970 / 43 |
+
+Mastodon's 4 are two `StreamEntry` classes declared inside old migrations
+and a CLI maintenance task's `AccountIdentityProof`, whose tables later
+migrations dropped, and a migration helper mapped to
+`information_schema.role_table_grants`. rubygems.org's acronyms (`GitHub`,
+`OIDC`) and module prefixes give `admin_github_users` and
+`oidc_trusted_publisher_github_actions`; without the acronyms they would be
+`git_hub`. The schema tables no model maps are gems' own tables
+(Solid Queue, GoodJob, Doorkeeper, Blazer, Flipper), join tables and tables
+whose model was removed. Against a single-line `grep` for
+`Model.method` with the mapped class names, outside `test/` and `spec/`, the
+tool takes every line `grep` finds, plus the calls split over lines
+(`Account\n  .where(...)`). The inflector reproduces all 181 singular/plural,
+underscore and table-name cases of Rails' own `inflector_test_cases.rb`
+(8.0.2).
 
 On jmoiron/sqlx the Go rule reads 166 statements, every one with fixed
 table names. A single-line `grep` for a query method followed by SQL finds
