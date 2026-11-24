@@ -20,7 +20,7 @@
     },
     "confirmed": 223,
     "contradicted": 0,
-    "expected": 444,
+    "expected": 442,
     "impact": {
       "by_depth": {
         "1": {
@@ -43,11 +43,12 @@
       "precision": 0.9151,
       "recall": 0.5673,
       "seeds": 45,
-      "seeds_undeclared": 0
+      "seeds_undeclared": 0,
+      "unjudged": 0
     },
-    "missed": 226,
+    "missed": 224,
     "missed_by_engine_outcome": {
-      "no_call_site": 154,
+      "no_call_site": 152,
       "unresolved:associated_item": 3,
       "unresolved:external_crate": 3,
       "unresolved:method_call": 65,
@@ -55,7 +56,7 @@
     },
     "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.491,
+    "recall": 0.4932,
     "unjudged": 12,
     "unresolved_expected": 76,
     "unresolved_unjudged": 363
@@ -1191,7 +1192,7 @@
     },
     "confirmed": 3346,
     "contradicted": 0,
-    "expected": 11676,
+    "expected": 11415,
     "impact": {
       "by_depth": {
         "1": {
@@ -1214,12 +1215,13 @@
       "precision": 0.9978,
       "recall": 0.238,
       "seeds": 277,
-      "seeds_undeclared": 84
+      "seeds_undeclared": 84,
+      "unjudged": 0
     },
-    "missed": 8331,
+    "missed": 8070,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_declarations": 17,
-      "no_call_site": 5944,
+      "no_call_site": 5683,
       "unresolved:associated_item": 191,
       "unresolved:external_crate": 13,
       "unresolved:method_call": 2152,
@@ -1228,7 +1230,7 @@
     },
     "not_indexed": 4,
     "precision": 1.0,
-    "recall": 0.2865,
+    "recall": 0.293,
     "unjudged": 2,
     "unresolved_expected": 2438,
     "unresolved_unjudged": 4406
