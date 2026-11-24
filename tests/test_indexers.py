@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -228,6 +229,102 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(result.returncode, 3, result.stderr)
         self.assertIn("indexer_not_installed", result.stderr)
         self.assertEqual(json.loads(result.stdout)["uncovered"], 2)
+
+    def index_args(self, **values):
+        from argparse import Namespace
+
+        return Namespace(
+            **{
+                "workspace": self.root,
+                "language": ["python"],
+                "include": None,
+                "exclude": None,
+                "repository_id": "repo",
+                "allow_uncovered": False,
+                **values,
+            }
+        )
+
+    def test_default_index_fails_naming_each_uncovered_file(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        from deepthought.graph_cli import index_scip
+
+        self.fake("scip-python")
+        stderr = StringIO()
+        old = os.environ.copy()
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update(self.environ())
+        with (
+            redirect_stderr(stderr),
+            self.assertRaisesRegex(ValueError, "1 source files have no SCIP index"),
+        ):
+            index_scip(self.index_args(), self.out)
+        self.assertIn("src/pkg/b.py: no SCIP index (not_in_index)", stderr.getvalue())
+        with redirect_stderr(StringIO()):
+            report, indexes = index_scip(
+                self.index_args(allow_uncovered=True), self.out
+            )
+        self.assertEqual(report["uncovered"], 1)
+        self.assertEqual([i.coverage[0].file for i, _ in indexes], ["src/pkg/a.py"])
+        # Files the run does not analyze are not counted.
+        with redirect_stderr(StringIO()):
+            report, _ = index_scip(self.index_args(include=["src/pkg/a.py"]), self.out)
+        self.assertEqual(report["uncovered"], 0)
+        # A run over languages no indexer serves indexes nothing.
+        self.assertEqual(
+            index_scip(self.index_args(language=["rust"]), self.out), (None, [])
+        )
+
+
+@unittest.skipUnless(
+    indexers.locate(indexers.INDEXERS["scip-python"])
+    and importlib.util.find_spec("tree_sitter_python"),
+    "Install scip-python and the python extra",
+)
+class DefaultIndexTest(unittest.TestCase):
+    def test_tree_sitter_calls_come_from_the_pinned_indexer(self):
+        import asyncio
+        from argparse import Namespace
+
+        from deepthought.analysis_tools.tree_sitter import TreeSitterTool
+        from deepthought.graph_cli import index_scip
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / "work"
+            (root / "pkg").mkdir(parents=True)
+            (root / "pkg" / "__init__.py").write_text("")
+            (root / "pkg" / "a.py").write_text("def helper():\n    return 1\n")
+            (root / "pkg" / "b.py").write_text(
+                "from pkg.a import helper as h\n\n\ndef run():\n    return h()\n"
+            )
+            args = Namespace(
+                workspace=root,
+                language=["python"],
+                include=None,
+                exclude=None,
+                repository_id="repo",
+                allow_uncovered=False,
+            )
+            report, scip_indexes = index_scip(args, Path(scratch) / "out")
+            self.assertEqual(report["uncovered"], 0)
+            output = asyncio.run(
+                TreeSitterTool(root).analyze(
+                    "repo", languages={"python"}, scip_indexes=scip_indexes
+                )
+            )
+        calls = [r for r in output.relationships if r.type == "CALLS"]
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(
+            calls[0]
+            .target_match["qualified_name"]
+            .startswith("repo::pkg/a.py::helper::")
+        )
+        self.assertEqual(calls[0].properties["producer"], "scip-python@0.6.8")
+        self.assertEqual(
+            calls[0].properties["receipt"], report["runs"][0]["receipt_sha256"]
+        )
 
 
 if __name__ == "__main__":

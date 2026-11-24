@@ -193,6 +193,7 @@ class CommitLinkedSnapshotTests(unittest.TestCase):
         return self.command(
             "index",
             str(self.root),
+            "--allow-uncovered",
             "--repository-id",
             self.repository_id,
             "--language",

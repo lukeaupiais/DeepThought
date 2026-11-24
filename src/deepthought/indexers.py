@@ -569,6 +569,26 @@ def index_workspace(
     }
 
 
+def ingest_indexed(report, repository_id):
+    """The indexes an ``index_workspace`` report produced, ingested and each
+    paired with its receipt digest: the ``scip_indexes`` TreeSitterTool binds
+    call sites with."""
+    from .scip import ingest_scip
+
+    return [
+        (
+            ingest_scip(
+                run["index"],
+                repository_id=repository_id,
+                default_position_encoding=run["position_encoding"],
+            ),
+            run["receipt_sha256"],
+        )
+        for run in report["runs"]
+        if run["status"] == "indexed"
+    ]
+
+
 def requirements(environ=None):
     """Each pinned indexer, its version and whether it is installed here."""
     return [

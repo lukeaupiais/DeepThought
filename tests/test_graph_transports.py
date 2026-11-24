@@ -56,6 +56,7 @@ class GraphTransportIntegrationTests(unittest.TestCase):
         imported = self.command(
             "index",
             str(SOURCE),
+            "--allow-uncovered",
             "--repository-id",
             self.repo,
             "--language",
