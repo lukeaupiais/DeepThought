@@ -23,6 +23,7 @@ from ..data_contracts import (
     extract_ddl,
     extract_django,
     extract_java,
+    extract_java_sql,
     extract_sqlalchemy,
     resolve_django,
 )
@@ -180,6 +181,38 @@ SA_STATEMENT_RULE = register_rule(
         "class name.",
     )
 )
+
+SQL_RULES = {
+    how: register_rule(EvidenceRule(f"data-contracts.{how}", "pattern_matched", text))
+    for how, text in (
+        (
+            "spring-data-query",
+            "The method has a Spring Data @Query whose text (JPQL, or SQL "
+            "with nativeQuery = true) names this table after FROM, JOIN, "
+            "INTO, UPDATE or DELETE FROM; JPQL entity names resolve to the "
+            "one entity of the repository with that name.",
+        ),
+        (
+            "jpa-query",
+            "The code passes JPQL (createQuery) or SQL (createNativeQuery) "
+            "naming this table or its entity, in a file importing "
+            "jakarta.persistence or javax.persistence; the receiver is not "
+            "checked to be an EntityManager.",
+        ),
+        (
+            "jdbc-sql",
+            "The code passes SQL naming this table to JdbcClient.sql or a "
+            "JdbcTemplate query, update, batchUpdate or execute method, in a "
+            "file importing org.springframework.jdbc; the receiver's type is "
+            "not checked.",
+        ),
+        (
+            "jdbc-insert-table",
+            "The code calls withTableName with this table (SimpleJdbcInsert), "
+            "in a file importing org.springframework.jdbc.",
+        ),
+    )
+}
 
 
 def _evidence(rule):
@@ -611,6 +644,42 @@ class DataContractTool(AnalysisTool):
                 SA_QUERY_RULE if access.how == "query" else SA_STATEMENT_RULE,
                 {"model": access.model, "line": access.line, "column": access.column},
             )
+        # SQL and JPQL text that Java code runs.
+        entity_tables = {}
+        for mapping in mappings:
+            if mapping.member is None and mapping.entity_name:
+                entity_tables.setdefault(mapping.entity_name, set()).add(
+                    mapped.get(mapping.entity)
+                )
+        sql_counts = {"statements": 0, "not_fixed": 0, "unknown_entity": 0}
+        for file, content, tree in trees:
+            for item in extract_java_sql(
+                tree, content, file, result.definitions, constants
+            ):
+                sql_counts["statements"] += 1
+                if item.statement is None:
+                    sql_counts["not_fixed"] += 1
+                    continue
+                for kind, names in (
+                    ("READS", item.statement.reads),
+                    ("WRITES", item.statement.writes),
+                ):
+                    for name in names:
+                        if item.jpql:
+                            targets = entity_tables.get(name, set())
+                            if len(targets) != 1 or None in targets:
+                                sql_counts["unknown_entity"] += 1
+                                continue
+                            target, extra = next(iter(targets)), {"entity": name}
+                        else:
+                            target, extra = table(item.file, name), {}
+                        link(
+                            kind,
+                            code(item.file, item.owner_id),
+                            target,
+                            SQL_RULES[item.how],
+                            {**extra, "line": item.line, "column": item.column},
+                        )
         files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
             [
@@ -667,9 +736,11 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_mappings": len(sa_mappings),
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
-                    "scope": "tables from CREATE TABLE and JPA entity mappings, "
-                    "read and written by Spring Data repositories; per nearest "
-                    "package, without datasource configuration or SQL strings",
+                    "sql_text": sql_counts,
+                    "scope": "tables from CREATE TABLE, JPA, Django and "
+                    "SQLAlchemy mappings, read and written by repositories, "
+                    "manager and session calls and the SQL text Java code runs; "
+                    "per datasource URL or nearest package",
                 },
             ),
         )

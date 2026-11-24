@@ -1822,6 +1822,10 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-statement` | pattern_matched | SQLAlchemy's `select` (READS) or `insert`, `update`, `delete` (WRITES) on a mapped class |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
+| Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -1833,7 +1837,16 @@ database, the namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and
 environment variables are not resolved, and migrations kept in a separate
 package from their entities meet them only through a shared datasource URL.
-SQL in strings, `@Query` and other persistence frameworks are not read yet.
+SQL and JPQL text is read where the code fixes it: literals, text blocks,
+concatenation and the constants and single-assignment locals that service
+contract paths are folded through. Tables are named after `FROM`, `JOIN`,
+`USING`, `INSERT`/`MERGE`/`REPLACE INTO`, a statement's `UPDATE`, `DELETE
+FROM` and `TRUNCATE`; the targets of the last five are written and the rest
+read. Common table expressions, functions in `FROM`, `FROM` inside function
+arguments, comments and string literals are skipped, and a name holding text
+the code does not fix is dropped. SQL built at run time, `EntityManager`
+`persist`/`merge`/`remove`, named queries and other persistence frameworks
+are not read yet.
 Test sources (`src/test/`) are skipped.
 
 `get_impact` goes forwards over WRITES and backwards over READS, so a change
@@ -1847,6 +1860,17 @@ services. All 6 entities map to a table that their own service's DDL
 declares, with no unmatched mapping. Vet's `@JoinTable` maps
 `vet_specialties`, so all 7 declared tables are mapped. All 4 repositories
 resolve to their entity.
+
+On spring-framework-petclinic, which implements its repositories three
+times (JDBC, JPA and Spring Data JPA), the tool reads all 24 statements that
+`grep` finds (13 `JdbcClient.sql`, 5 `createQuery`, 3 `@Query` and 3
+`withTableName` calls) with no unfixed text and no unknown entity. Each
+links to the tables its text names: for instance the JDBC
+`loadPetsAndVisits` reads `pets` and `visits`, the owner and pet `save`
+methods write their tables, and the constructors that set up a
+`SimpleJdbcInsert` write `owners`, `pets` and `visits`. On spring-petclinic-microservices the 2 `@Query` methods of
+`PetRepository` read `types`, which its CRUD repository of pets did not
+reach.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
