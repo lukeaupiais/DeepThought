@@ -2906,21 +2906,19 @@ field, or else to the one that declares it. A `.graphql` document with
 requests gets a `File` node (language `graphql`) that the repository
 `CONTAINS` (rule `service-contracts.repository-contains-graphql`).
 
-Schemas and operations are parsed by graphql-core (`graphql-core`, the
-`graphql` extra, also in `languages`), the reference GraphQL parser for
-Python: root fields are the fields of the parsed object type definitions
-and extensions, and of the parsed operations' first selection level, with
-the lines and columns of their names. Template substitutions (`${...}`)
-are blanked before parsing. A source graphql-core does not parse, and
-every source when it is not installed, is read by the fallback reader, a
-tokenizer that skips strings, comments, arguments and directives; it gets
-no new features. On the 220 `.graphql`/`.gql` files of the validation
-repositories and corpora (the gqlgen repository, Prisma examples, the
-Apollo and howtographql corpora and others) both readers give the same
-fields, lines and unread facts; one deliberately invalid gqlgen test
-schema is left to the fallback.
+Schemas and operations are parsed by graphql-core (`graphql-core`, a
+required dependency), the reference GraphQL parser for Python, and by
+nothing else: root fields are the fields of the parsed object type
+definitions and extensions, and of the parsed operations' first selection
+level, with the lines and columns of their names. Template substitutions
+(`${...}`) are blanked before parsing. Without graphql-core the tool raises
+`GraphqlCoreMissing` instead of reading GraphQL another way; a source
+graphql-core rejects is unread.
 
 Counted as unread:
+- `graphql:schema_not_parsed` and `graphql:operation_not_parsed`: a schema
+  file or an operation document (a `.graphql` file or a `gql` template)
+  that graphql-core does not parse;
 - `graphql:schema_root_renamed`: a schema definition that names a root
   type other than `Query`, `Mutation` or `Subscription`;
 - `graphql:field_not_literal`: a resolver name that is not literal;
