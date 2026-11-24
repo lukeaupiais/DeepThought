@@ -2045,7 +2045,20 @@ Python, JavaScript/TypeScript and Go sources are read too
   `methods` is GET); Express `get`/`post`/.../`all` calls on an app or Router
   made from the `express` module and bound once; Go `HandleFunc`/`Handle` in a
   file importing `net/http` or `gorilla/mux`, with the methods of a chained
-  `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern. Flask `<id>`, Express
+  `.Methods(...)` or a Go 1.22 `"METHOD /path"` pattern; Gin and Echo
+  `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS`, `Any`,
+  `Handle`/`Add(method, path, ...)` and `Match([]string{...}, path, ...)`
+  calls (rules `gin-route`, `echo-route`) on a router known in the file: one
+  made by `gin.Default()`/`gin.New()`/`echo.New()`, a parameter, `var` or
+  struct field typed `*gin.Engine`/`*echo.Echo` (the root), a `Group(prefix,
+  ...)` of a known router (prefixes are joined), or Gin's `Use(...)`, which
+  returns its router; a local name assigned more than once is not followed.
+  A parameter typed `*gin.RouterGroup`, `gin.IRouter`, `gin.IRoutes` or
+  `*echo.Group` is a group passed in: its routes have an unknown base
+  (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
+  matches the rest of the path; the handler is the last argument in Gin and
+  the first after the path in Echo. A method that is not literal leaves the
+  route unread. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no
