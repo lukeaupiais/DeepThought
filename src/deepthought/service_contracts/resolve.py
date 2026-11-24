@@ -49,7 +49,8 @@ def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
     A request whose URL starts with unknown text (a base URL variable) is
     sent to a host configured elsewhere, so under ``http-path`` the routes
     of its own project (``project``: file -> project directory) are not
-    candidates.
+    candidates. A file whose project is not known (``project`` gives
+    None) excludes nothing.
     """
     templates = [
         (
@@ -101,9 +102,10 @@ def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
                 and request.url.startswith(PLACEHOLDER)
             ):
                 own = project(request.file)
-                candidates = [
-                    c for c in candidates if project(route_files[c[0]]) != own
-                ]
+                if own is not None:
+                    candidates = [
+                        c for c in candidates if project(route_files[c[0]]) != own
+                    ]
             rule, none_reason = HTTP_PATH, "no_route"
             service = None
         if forwarded:
