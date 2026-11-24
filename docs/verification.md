@@ -454,7 +454,8 @@ Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
 `AdServiceClient.java` inside adservice, which calls its own service.
 
-The two GraphQL corpora are labelled by graphql-core, not by hand
+The two GraphQL corpora are labelled by graphql-js, not by hand or by the
+graphql-core parser the engine uses
 (`tools/graphql_client_oracle.py`, see the fixtures README). A prediction is a
 REQUESTS edge to a GraphqlField, placed at the request line and at the
 field's declaration. The fullstack tutorial's `start/` client, whose own
