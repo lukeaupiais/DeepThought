@@ -279,6 +279,8 @@ _CLIENT_TYPES = {
     "Symfony\\Contracts\\HttpClient\\HttpClientInterface": "symfony-http",
 }
 _SYMFONY_FACTORY = "Symfony\\Component\\HttpClient\\HttpClient"
+_AUTOWIRE = "Symfony\\Component\\DependencyInjection\\Attribute\\Autowire"
+_TARGET = "Symfony\\Component\\DependencyInjection\\Attribute\\Target"
 _HTTP_FACADE = "Illuminate\\Support\\Facades\\Http"
 _CLIENT_VERBS = {
     m.lower(): m for m in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
@@ -309,15 +311,24 @@ def _appended(base, url):
     return base.rstrip("/") + "/" + url.lstrip("/")
 
 
+def symfony_argument_name(name):
+    """The argument name Symfony autowires a named service alias under
+    (``Target::parse``: ``orders.api_client`` is ``ordersApiClient``)."""
+    words = [w for w in re.split(r"[^a-zA-Z0-9\x7f-\uffff]+", name) if w]
+    joined = "".join(w[:1].upper() + w[1:] for w in words)
+    return joined[:1].lower() + joined[1:]
+
+
 def _enclosing(node, kinds):
     while node is not None and node.type not in kinds:
         node = node.parent
     return node
 
 
-def _client_requests(root, content, folder, laravel):
+def _client_requests(root, content, folder, laravel, scoped):
     """(call node, client, method or None, URL) of each Guzzle, Symfony or
-    Laravel HTTP client request in the file."""
+    Laravel HTTP client request in the file. ``scoped`` maps the argument
+    name of each Symfony scoped client to its base URL."""
     uses, _ = _uses(root, content)
 
     def qualified(written):
@@ -372,6 +383,47 @@ def _client_requests(root, content, folder, laravel):
     def typed(parameter_or_property):
         return client_type(parameter_or_property.child_by_field_name("type"))
 
+    def named_service(parameter):
+        """The service a parameter's ``#[Autowire(service: ...)]``,
+        ``#[Autowire('@...')]`` or ``#[Target(...)]`` names: a literal, else
+        PLACEHOLDER (also for any other ``#[Autowire]``); None when it has
+        none of these."""
+        attributes = parameter.child_by_field_name("attributes")
+        for attribute in _walk(attributes) if attributes is not None else ():
+            if attribute.type != "attribute" or not attribute.named_children:
+                continue
+            kind = qualified(_text(attribute.named_children[0], content))
+            holder = attribute.child_by_field_name("parameters")
+            for argument in holder.named_children if holder is not None else ():
+                if argument.type != "argument" or not argument.named_children:
+                    continue
+                label = argument.child_by_field_name("name")
+                label = _text(label, content) if label is not None else None
+                value = folder.evaluate(argument.named_children[-1])
+                if kind == _AUTOWIRE and label == "service":
+                    return value
+                if kind == _AUTOWIRE and label in (None, "value"):
+                    return value[1:] if value.startswith("@") else PLACEHOLDER
+                if kind == _TARGET and label in (None, "name"):
+                    return value
+            if kind == _AUTOWIRE:
+                return PLACEHOLDER  # wired some other way
+        return None
+
+    def injected(parameter):
+        """(client, base URL) of a typed constructor or method parameter:
+        a Symfony scoped client is autowired by its argument name, or named
+        by an attribute."""
+        client = typed(parameter)
+        if client != "symfony-http":
+            return client, ""
+        name = named_service(parameter)
+        if name is None:
+            name = _text(parameter.child_by_field_name("name"), content).lstrip("$")
+        elif PLACEHOLDER in name:
+            return client, ""
+        return client, scoped.get(symfony_argument_name(name), "")
+
     def receiver(node):
         """(client, base URL: "" when it has none or it is not known) of the
         client object ``node`` names, else None."""
@@ -401,7 +453,7 @@ def _client_requests(root, content, folder, laravel):
                     and _text(name, content) == written
                     and typed(parameter)
                 ):
-                    return (typed(parameter), "") if not assigned else None
+                    return injected(parameter) if not assigned else None
             return None
         if node.type == "member_access_expression" and written.startswith("$this->"):
             name = written[len("$this->") :]
@@ -416,6 +468,10 @@ def _client_requests(root, content, folder, laravel):
             ]
             if len(assigned) == 1 and creation(assigned[0]) is not None:
                 return creation(assigned[0])
+            if len(assigned) == 1 and assigned[0].type == "variable_name":
+                passed = receiver(assigned[0])  # say, a constructor parameter
+                if passed is not None:
+                    return passed
             for candidate in _walk(cls):
                 if candidate.type == "property_declaration" and typed(candidate):
                     if any(
@@ -430,7 +486,7 @@ def _client_requests(root, content, folder, laravel):
                 ):
                     variable = candidate.child_by_field_name("name")
                     if variable is not None and _text(variable, content) == "$" + name:
-                        return typed(candidate), ""
+                        return injected(candidate)
         return None
 
     facades = {name for name, full in uses.items() if full == _HTTP_FACADE}
@@ -490,9 +546,12 @@ def _client_requests(root, content, folder, laravel):
     return found
 
 
-def extract_php(tree, content, repository_id, file, definitions, *, laravel=False):
+def extract_php(
+    tree, content, repository_id, file, definitions, *, laravel=False, scoped=None
+):
     """Routes, requests and unread sites of one PHP file; ``laravel`` when
-    the file belongs to a Laravel project (``Http`` may be unqualified)."""
+    the file belongs to a Laravel project (``Http`` may be unqualified);
+    ``scoped`` maps Symfony scoped client argument names to base URLs."""
     root = tree.root_node
     folder = _Folder(content)
     file_definitions = [d for d in definitions if d.file == file]
@@ -626,7 +685,7 @@ def extract_php(tree, content, repository_id, file, definitions, *, laravel=Fals
         )
     if b"Client" in content or b"Http" in content:
         for node, client, method, url in _client_requests(
-            root, content, folder, laravel
+            root, content, folder, laravel, scoped or {}
         ):
             line = node.start_point.row + 1
             requests.append(
