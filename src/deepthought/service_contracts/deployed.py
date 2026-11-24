@@ -201,14 +201,87 @@ def _pairs(mapping):
     return tuple(sorted((str(k), str(v)) for k, v in mapping.items() if v is not None))
 
 
+_ASPIRE_HOST = "DistributedApplication.CreateBuilder"
+_ASPIRE_PROJECT = re.compile(
+    r"\.(AddProject|AddDotnetProject)\s*"
+    r"(?:<\s*(?:global::)?Projects\.(\w+)\s*>)?\s*\(\s*"
+    r'"([^"\\]+)"\s*(?:,\s*@?"([^"\\]+)")?\s*[,)]'
+)
+_CS_COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
+
+
+def _skipped(relative):
+    return any(p.startswith(".") or p in _SKIPPED for p in relative.parts[:-1])
+
+
+def aspire_units(root):
+    """Projects a .NET Aspire AppHost (a C# file calling
+    ``DistributedApplication.CreateBuilder``) adds by name.
+
+    ``AddProject<Projects.X>("name")`` runs the one ``.csproj`` of the
+    repository whose file name, with every character that is not a letter,
+    digit or ``_`` replaced by ``_``, is ``X``. ``AddProject("name", "path")``
+    and ``AddDotnetProject("name", "path")`` run the project at ``path`` (its
+    directory or ``.csproj``), relative to the AppHost's directory. Each
+    answers to its name; its environment is not read."""
+    projects = None
+    units = []
+    for path in sorted(root.rglob("*.cs")):
+        relative = path.relative_to(root)
+        if _skipped(relative):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if _ASPIRE_HOST not in text:
+            continue
+        text = _CS_COMMENTS.sub("", text)
+        directory = relative.parent.as_posix()
+        directory = "" if directory == "." else directory
+        for match in _ASPIRE_PROJECT.finditer(text):
+            call, generated, name, written = match.groups()
+            context = None
+            if generated is not None:
+                if call != "AddProject" or written is not None:
+                    continue
+                if projects is None:
+                    projects = {}
+                    for project in sorted(root.rglob("*.csproj")):
+                        where = project.relative_to(root)
+                        if _skipped(where):
+                            continue
+                        key = re.sub(r"\W", "_", project.stem)
+                        folder = where.parent.as_posix()
+                        projects.setdefault(key, []).append(
+                            "" if folder == "." else folder
+                        )
+                found = projects.get(generated, [])
+                if len(found) == 1:
+                    context = found[0]
+            elif written is not None:
+                target = join_directory(directory, written.replace("\\", "/"))
+                if target is not None and target.endswith(".csproj"):
+                    target = target.rpartition("/")[0]
+                if target is not None and (root / target).is_dir():
+                    context = target
+            if context is not None:
+                units.append(
+                    Deployed(
+                        f"{relative.as_posix()}:{name}", name, context, (name,), ()
+                    )
+                )
+    return units
+
+
 def deployed_units(root):
-    """Compose services and Kubernetes containers that build a directory of
-    the repository."""
+    """Compose services, Kubernetes containers and Aspire projects that
+    build a directory of the repository."""
     units = [
         Deployed(unit.label, unit.name, unit.context, (unit.name,), unit.environment)
         for unit in compose_units(root)
     ]
-    return units + kubernetes_units(root)
+    return units + kubernetes_units(root) + aspire_units(root)
 
 
 class Deployments:

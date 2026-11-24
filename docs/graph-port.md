@@ -2005,6 +2005,15 @@ their file (`service_contracts.deployed`), when those share one:
   Helm templates and manifests that are not plain YAML are not read; images
   that no Skaffold artifact builds (a registry path in a release manifest)
   place nothing.
+- A .NET Aspire AppHost (a C# file calling
+  `DistributedApplication.CreateBuilder`) names the projects it adds:
+  `AddProject<Projects.X>("name")` runs the one `.csproj` whose file name,
+  with characters other than letters, digits and `_` replaced by `_`, is
+  `X`; `AddProject("name", "path")` and `AddDotnetProject("name", "path")`
+  run the project at `path` (directory or `.csproj`, relative to the
+  AppHost's directory). Each answers to its name (`catalog-api`). Project
+  paths that are not literals, and the environment the AppHost sets, are
+  not read.
 
 A host name that deployments of two different services answer to names
 neither. A request whose literal host is one of these names has only that
