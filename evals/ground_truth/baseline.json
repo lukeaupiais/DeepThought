@@ -274,6 +274,30 @@
     "unresolved_unjudged": 1932
   },
   "contracts": {
+    "contracts-eshop-grpc": {
+      "grpc": {
+        "call_sites": {
+          "labelled_in_scope": 6,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "servers": {
+          "labelled_in_scope": 6,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "streaming": {
+          "labelled_in_scope": 3,
+          "predicted": 3,
+          "true_positive": 3
+        }
+      }
+    },
     "contracts-graphql-apollo-fullstack-tutorial": {
       "graphql": {
         "call_sites": {
