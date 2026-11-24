@@ -377,5 +377,124 @@ class NestVersioningTests(unittest.TestCase):
         )
 
 
+ROUTER_APP = """
+import { Module } from '@nestjs/common';
+import { RouterModule } from '@nestjs/core';
+import { AdminModule } from './admin.module';
+import { UsersModule } from './users.module';
+
+@Module({
+  imports: [
+    AdminModule,
+    UsersModule,
+    RouterModule.register([
+      { path: 'admin', module: AdminModule, children: [{ path: 'users', module: UsersModule }] },
+    ]),
+  ],
+  controllers: [RootController],
+})
+export class AppModule {}
+"""
+
+ROUTER_MODULES = """
+import { Module } from '@nestjs/common';
+
+@Module({ controllers: [DashboardController, SharedController] })
+export class AdminModule {}
+
+@Module({ controllers: [UsersController, SharedController] })
+export class UsersModule {}
+"""
+
+ROUTER_CONTROLLERS = """
+import { Controller, Get } from '@nestjs/common';
+
+@Controller('dashboard')
+export class DashboardController {
+  @Get()
+  show() {}
+}
+
+@Controller('list')
+export class UsersController {
+  @Get()
+  list() {}
+}
+
+@Controller()
+export class RootController {
+  @Get('health')
+  health() {}
+}
+
+@Controller('shared')
+export class SharedController {
+  @Get()
+  shared() {}
+}
+"""
+
+DYNAMIC_ROUTER = """
+import { Module } from '@nestjs/common';
+import { RouterModule } from '@nestjs/core';
+
+@Module({ imports: [RouterModule.register(routes)] })
+export class AppModule {}
+"""
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class NestRouterModuleTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        _write(
+            root,
+            {
+                "api/package.json": "{}",
+                "api/src/app.module.ts": ROUTER_APP,
+                "api/src/modules.ts": ROUTER_MODULES,
+                "api/src/controllers.ts": ROUTER_CONTROLLERS,
+                "dynamic/package.json": "{}",
+                "dynamic/src/app.module.ts": DYNAMIC_ROUTER,
+                "dynamic/src/controllers.ts": ROUTER_CONTROLLERS,
+            },
+        )
+        self.tool = ServiceContractTool(root)
+        asyncio.run(self.tool.analyze("r"))
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_routes(self):
+        _, routes, _, unread, _ = self.tool.last_facts
+        self.assertEqual(
+            sorted(
+                (r.file.partition("/")[0], r.line, r.path)
+                for r in routes
+                if r.framework == "nestjs"
+            ),
+            [
+                # A registered module's path, children joined to parents'.
+                ("api", 6, "/admin/dashboard"),
+                ("api", 12, "/admin/users/list"),
+                # A controller of a module RouterModule does not name.
+                ("api", 18, "/health"),
+            ],
+        )
+        self.assertEqual(
+            sorted((u.file.partition("/")[0], u.line, u.reason) for u in unread),
+            [
+                # Listed by two modules with different paths.
+                ("api", 22, "router_module"),
+                # Routes that are not a literal array leave the package unread.
+                ("dynamic", 6, "router_module"),
+                ("dynamic", 12, "router_module"),
+                ("dynamic", 18, "router_module"),
+                ("dynamic", 24, "router_module"),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
