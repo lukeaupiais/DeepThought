@@ -238,7 +238,7 @@ def function_name(function):
 
 
 class ScriptCalls:
-    """The values that calls of a module-level function pass to one of its
+    """The values that calls of a module-level function pass to its
     parameters: calls in the function's own module, and in modules that
     import it by name, or import the module as a namespace and call
     ``ns.name(...)``."""
@@ -283,10 +283,10 @@ class ScriptCalls:
                                 )
         return self._importers
 
-    def arguments(self, file, name, index):
-        """[(value, "file:line")] for each call of the module-level function
-        ``name`` of ``file`` that passes argument ``index``; a value is
-        folded in the calling module."""
+    def calls(self, file, name):
+        """[({index: value}, "file:line")] for each call of the module-level
+        function ``name`` of ``file``: the arguments folded in the calling
+        module (none from a spread argument on)."""
         imports = self._imports()
         callers = (
             [(file, name, True)]
@@ -336,11 +336,45 @@ class ScriptCalls:
                 positional = [
                     c for c in arguments.named_children if c.type != "comment"
                 ]
-                if any(c.type == "spread_element" for c in positional[: index + 1]):
-                    value = PLACEHOLDER
-                elif len(positional) <= index:
-                    continue
-                else:
-                    value = folder.evaluate(positional[index])
-                found.append((value, f"{caller}:{node.start_point.row + 1}"))
+                values = {}
+                for index, argument in enumerate(positional):
+                    if argument.type == "spread_element":
+                        break
+                    values[index] = folder.argument(argument)
+                found.append((values, f"{caller}:{node.start_point.row + 1}"))
         return found
+
+
+def fold_through_calls(folder, compute, calls_of, unknown=None):
+    """[(value, calls)] for the text ``compute(folder)`` gives. When it has
+    unknown text from parameters of exactly one module-level function, and
+    ``calls_of(name)`` finds calls of that function, each call gives the
+    value with its arguments in place of the parameters; ``calls`` lists the
+    calls ("file:line") that give each value. ``unknown(value)`` tells
+    whether a value is not fixed (by default: it has unknown text)."""
+    if unknown is None:
+
+        def unknown(value):
+            return PLACEHOLDER in value
+
+    folder.parameters_seen = {}
+    value = compute(folder)
+    if not unknown(value) or calls_of is None:
+        return [(value, ())]
+    if len(folder.parameters_seen) != 1:
+        return [(value, ())]
+    function = next(iter(folder.parameters_seen.values()))
+    name = function_name(function)
+    found = calls_of(text(name, folder.content)) if name is not None else None
+    if not found:
+        return [(value, ())]
+    values = {}
+    for arguments, call in found:
+        passed = compute(folder.with_arguments(function, arguments))
+        # A call that leaves the value as it was does not give it.
+        values.setdefault(passed, [])
+        if passed != value:
+            values[passed].append(call)
+    return [
+        (v, tuple(sorted(values[v]))) for v in sorted(values, key=lambda v: repr(v))
+    ]

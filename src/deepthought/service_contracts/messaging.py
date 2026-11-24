@@ -37,7 +37,7 @@ import re
 from ..syntax import identifier
 from .folding import Folder, text
 from .http import PLACEHOLDER
-from .script_constants import function_name
+from .script_constants import fold_through_calls
 from .stomp_clients import bound_kinds, value_kind
 from .spring import _Imports, _annotations, _arguments, _Values
 from .web import _go_imports, _js_modules, _js_object, _python_imports
@@ -95,6 +95,7 @@ class _Sites:
         )
         self.endpoints, self.unread = [], []
         self._ordinals = {}
+        self.calls_of = None
 
     def declaration(self, node, exact=False):
         start = (node.start_point.row + 1, node.start_point.column)
@@ -150,6 +151,14 @@ class _Sites:
                 argument_from=tuple(argument_from),
             )
         )
+
+    def add_folded(self, node, role, broker, compute, client, folder):
+        """Add the sites of the destination ``compute(folder)`` gives; one
+        built from parameters of the module-level function around the site
+        takes, instead, each value that calls of the function give
+        (``self.calls_of``)."""
+        for destination, calls in fold_through_calls(folder, compute, self.calls_of):
+            self.add(node, role, broker, destination, client, argument_from=calls)
 
     def consume_queue(self, node, queue, bindings, client, declaration_id=None):
         """A consumer of ``queue``: the default exchange plus its bindings."""
@@ -1006,38 +1015,15 @@ def _required_members(root, content):
     return names
 
 
-def _destinations(sites, folder, node, topic, role, broker, client, arguments_of):
-    """Add the site of a destination expression. A destination that is a
-    parameter of a module-level function takes, instead, each value that
-    calls of the function pass (``arguments_of(name, index)``)."""
-    value = PLACEHOLDER if topic is None else folder.evaluate(topic)
-    found = None
-    if (
-        PLACEHOLDER in value
-        and arguments_of is not None
-        and topic is not None
-        and topic.type in ("identifier", "shorthand_property_identifier")
-    ):
-        parameter = folder.parameter(topic)
-        name = function_name(parameter[0]) if parameter is not None else None
-        if name is not None:
-            found = arguments_of(text(name, sites.content), parameter[1])
-    if not found:
-        sites.add(node, role, broker, value, client)
-        return
-    calls = {}
-    for passed, call in found:
-        calls.setdefault(passed, []).append(call)
-    for passed in sorted(calls):
-        sites.add(
-            node, role, broker, passed, client, argument_from=sorted(calls[passed])
-        )
+def _evaluator(node):
+    """A destination computed from one expression (None: unknown)."""
+    return lambda folder: PLACEHOLDER if node is None else folder.evaluate(node)
 
 
-def extract_javascript_brokers(sites, language, arguments_of=None):
+def extract_javascript_brokers(sites, language):
     """kafkajs producers and consumers, and amqplib channels. A topic that
     is a parameter of the enclosing module-level function is read from the
-    calls of that function (``arguments_of``)."""
+    calls of that function (``sites.calls_of``)."""
     content, root = sites.content, sites.root
     modules = {**_required_members(root, content), **_js_modules(root, content)}
     kafkajs = "kafkajs" in {m.split(".")[0] for m in modules.values() if m}
@@ -1113,15 +1099,8 @@ def extract_javascript_brokers(sites, language, arguments_of=None):
                         if item.type != "comment"
                     ]
             for topic in topics:
-                _destinations(
-                    sites,
-                    folder,
-                    node,
-                    topic,
-                    "publish",
-                    "kafka",
-                    "kafkajs",
-                    arguments_of,
+                sites.add_folded(
+                    node, "publish", "kafka", _evaluator(topic), "kafkajs", folder
                 )
         elif kind == "consumer" and verb == "subscribe" and positional:
             options = _js_object(positional[0], content)
@@ -1144,23 +1123,29 @@ def extract_javascript_brokers(sites, language, arguments_of=None):
                         )
                     )
                     continue
-                _destinations(
-                    sites,
-                    folder,
-                    node,
-                    topic,
-                    "consume",
-                    "kafka",
-                    "kafkajs",
-                    arguments_of,
+                sites.add_folded(
+                    node, "consume", "kafka", _evaluator(topic), "kafkajs", folder
                 )
         elif owner in channels:
             if verb == "publish" and len(positional) >= 2:
-                exchange, key = (folder.evaluate(a) for a in positional[:2])
-                sites.add(node, "publish", "amqp", f"{exchange}/{key}", "amqplib")
+                exchange, key = positional[:2]
+                sites.add_folded(
+                    node,
+                    "publish",
+                    "amqp",
+                    lambda f, e=exchange, k=key: f"{f.evaluate(e)}/{f.evaluate(k)}",
+                    "amqplib",
+                    folder,
+                )
             elif verb == "sendToQueue" and positional:
-                queue = folder.evaluate(positional[0])
-                sites.add(node, "publish", "amqp", f"/{queue}", "amqplib")
+                sites.add_folded(
+                    node,
+                    "publish",
+                    "amqp",
+                    lambda f, q=positional[0]: f"/{f.evaluate(q)}",
+                    "amqplib",
+                    folder,
+                )
             elif verb == "consume" and positional:
                 queue = folder.evaluate(positional[0])
                 sites.consume_queue(node, queue, bindings, "amqplib")
@@ -1389,8 +1374,16 @@ def extract_nest_microservices(sites, language):
         if not arguments:
             continue
         kind = "message" if found[1] == "send" else "event"
-        route = _nest_route(arguments[0], folder, content, objects)
-        sites.add(node, "publish", "nestjs", f"{kind}:{route}", "nestjs-microservices")
+        sites.add_folded(
+            node,
+            "publish",
+            "nestjs",
+            lambda f, a=arguments[0], k=kind: (
+                f"{k}:{_nest_route(a, f, content, objects)}"
+            ),
+            "nestjs-microservices",
+            folder,
+        )
 
 
 _STOMP_VERBS = {
@@ -1451,7 +1444,7 @@ def extract_javascript(sites, language):
                 if "destination" not in found:
                     continue
                 target = found["destination"]
-            sites.add(node, role, "stomp", folder.evaluate(target), kind)
+            sites.add_folded(node, role, "stomp", _evaluator(target), kind, folder)
             continue
         if verb == "publish":
             role, topics = "publish", [positional[0]]
@@ -1493,17 +1486,18 @@ def extract_messaging(
     constants=None,
     template_exchange=None,
     application_prefixes=None,
-    arguments_of=None,
+    calls_of=None,
 ):
     """Publish and consume sites, and unread ones, of one source file.
 
     ``template_exchange`` is the exchange a Spring RabbitTemplate of the
     file's module sends to when given only a routing key, None if unknown.
-    ``arguments_of(name, index)`` gives the values calls of the file's
-    module-level function ``name`` pass as argument ``index``, with the
-    calls (JavaScript/TypeScript).
+    ``calls_of(name)`` gives the calls of the file's module-level function
+    ``name`` and their arguments (JavaScript/TypeScript), for destinations
+    built from its parameters.
     """
     sites = _Sites(tree, content, repository_id, file, definitions)
+    sites.calls_of = calls_of
     if language == "java":
         extract_java(sites, constants, template_exchange, application_prefixes)
     elif language == "python":
@@ -1514,6 +1508,6 @@ def extract_messaging(
         extract_go_kafka(sites, imports)
     elif language in ("javascript", "typescript"):
         extract_javascript(sites, language)
-        extract_javascript_brokers(sites, language, arguments_of)
+        extract_javascript_brokers(sites, language)
         extract_nest_microservices(sites, language)
     return sites.endpoints, sites.unread

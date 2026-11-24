@@ -46,6 +46,12 @@ _THIS_FUNCTIONS = (
 _JS_CLASSES = ("class_declaration", "class", "abstract_class_declaration")
 _JS_FIELDS = ("public_field_definition", "field_definition")
 _MAX_DEPTH = 8
+_MISSING = object()
+
+
+class Fields(dict):
+    """The folded properties of an object literal passed as an argument,
+    {key: text}; only literals without spreads or computed keys."""
 
 
 def text(node, content):
@@ -84,6 +90,19 @@ class Folder:
         self.externals = externals or {}
         self._bindings = {}
         self._active = set()
+        # JavaScript/TypeScript parameters: {function id: {index: value}}
+        # gives their values; a parameter without one is recorded in
+        # ``parameters_seen`` as its function node.
+        self.substitutions = {}
+        self.parameters_seen = {}
+
+    def with_arguments(self, function, values):
+        """A folder of the same file in which the parameters of ``function``
+        take ``values`` ({index: text})."""
+        folder = Folder(self.language, self.root, self.content, self.externals)
+        folder._bindings = self._bindings
+        folder.substitutions = {**self.substitutions, function.id: values}
+        return folder
 
     # -- bindings -----------------------------------------------------------
 
@@ -256,13 +275,92 @@ class Folder:
                 return scope, index
         return None
 
+    def _default(self, function, index):
+        """The default value node of parameter ``index`` of ``function``."""
+        parameters = function.child_by_field_name("parameters")
+        if parameters is None:
+            return None
+        positional = [p for p in parameters.named_children if p.type != "comment"]
+        if index >= len(positional):
+            return None
+        parameter = positional[index]
+        pattern = parameter.child_by_field_name("pattern") or parameter
+        if pattern.type == "assignment_pattern":
+            return pattern.child_by_field_name("right")
+        return parameter.child_by_field_name("value")
+
+    def _passed(self, node, depth):
+        """The value a call passes to the parameter ``node`` names: text,
+        ``Fields`` for an object literal, None when not known."""
+        parameter = self.parameter(node)
+        if parameter is None:
+            return None
+        function, index = parameter
+        if function.id not in self.substitutions:
+            self.parameters_seen[function.id] = function
+            return None
+        passed = self.substitutions[function.id]
+        if index in passed:
+            return passed[index]
+        # An argument the call leaves out takes the default.
+        default = self._default(function, index)
+        return None if default is None else self.argument(default, depth + 1)
+
+    def argument(self, node, depth=0):
+        """An argument's value: ``Fields`` for a JavaScript/TypeScript
+        object literal of fixed keys, else its text."""
+        if node is not None and node.type == "object":
+            fields = Fields()
+            for pair in node.named_children:
+                if pair.type == "comment":
+                    continue
+                if pair.type == "shorthand_property_identifier":
+                    fields[text(pair, self.content)] = self.evaluate(pair, depth)
+                    continue
+                key = (
+                    pair.child_by_field_name("key" if pair.type == "pair" else "name")
+                    if pair.type in ("pair", "method_definition")
+                    else None
+                )
+                if key is None or key.type not in (
+                    "property_identifier",
+                    "string",
+                    "number",
+                ):
+                    return PLACEHOLDER
+                name = text(key, self.content)
+                if key.type == "string":
+                    name = name[1:-1]
+                fields[name] = self.evaluate(pair.child_by_field_name("value"), depth)
+                if pair.type == "method_definition":
+                    fields[name] = PLACEHOLDER
+            return fields
+        return self.evaluate(node, depth)
+
+    def _field(self, node, depth):
+        """``param.key`` of a parameter given an object literal: its text,
+        ``_MISSING`` when the literal has no such key, None when unknown."""
+        if node.type != "member_expression":
+            return None
+        owner = node.child_by_field_name("object")
+        key = node.child_by_field_name("property")
+        if owner.type != "identifier" or key.type != "property_identifier":
+            return None
+        if self.binding(owner) is not None:
+            return None
+        fields = self._passed(owner, depth)
+        if not isinstance(fields, Fields):
+            return None
+        return fields.get(text(key, self.content), _MISSING)
+
     def _name(self, node, depth):
         found = self.binding(node)
         if found is None:
             name = text(node, self.content)
             if name in self.externals and not self._bound(node):
                 return self.externals[name]
-            return PLACEHOLDER
+            value = self._passed(node, depth)
+            return PLACEHOLDER if value is None or isinstance(value, Fields) else value
         return self._fold(found[0].id, found[1], depth)
 
     def _bound(self, node):
@@ -623,6 +721,16 @@ class Folder:
                     return self.evaluate(
                         node.child_by_field_name("left"), depth
                     ) + self.evaluate(node.child_by_field_name("right"), depth)
+                if operator is not None and operator.type in ("??", "||"):
+                    # options.key ?? fallback, with options an object literal.
+                    left = self._field(node.child_by_field_name("left"), depth)
+                    if left is _MISSING or (operator.type == "||" and left == ""):
+                        return self.evaluate(node.child_by_field_name("right"), depth)
+                    return PLACEHOLDER if left is None else left
+            if kind == "member_expression":
+                value = self._field(node, depth)
+                if value is not None:
+                    return PLACEHOLDER if value is _MISSING else value
             if (
                 kind == "member_expression"
                 and node.child_by_field_name("object").type == "this"

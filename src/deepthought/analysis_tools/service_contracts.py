@@ -479,12 +479,13 @@ REQUEST_RULES = {
 # A destination passed to the function around the site by its callers.
 ARGUMENT_RULE = _message_rule(
     "service-contracts.destination-argument",
-    "The site's destination is a parameter of the module-level function "
-    "around it, which nothing in the function assigns again, and a call of "
-    "that function (in its own module, or in a module importing it by name "
-    "through a relative path or tsconfig paths alias) passes this value, "
-    "folded in the calling module. The site itself is read by the rule in "
-    "site_rule; argument_from lists the calls." + _SAME_NAME,
+    "The site's destination is built from parameters of the module-level "
+    "function around it, which nothing in the function assigns again, and "
+    "a call of that function (in its own module, or in a module importing it "
+    "by name or as a namespace through a relative path or tsconfig paths "
+    "alias) gives this value with its arguments, folded in the calling "
+    "module, in place of the parameters. The site itself is read by the rule "
+    "in site_rule; argument_from lists the calls." + _SAME_NAME,
 )
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
@@ -1354,6 +1355,11 @@ class ServiceContractTool(AnalysisTool):
                         if scripts is not None
                         else None
                     ),
+                    calls_of=(
+                        functools.partial(calls.calls, coverage.file)
+                        if calls is not None and coverage.file in scripts.sources
+                        else None
+                    ),
                 )
             routes.extend(found[0])
             requests.extend(found[1])
@@ -1383,8 +1389,8 @@ class ServiceContractTool(AnalysisTool):
                         if coverage.language == "java"
                         else None
                     ),
-                    arguments_of=(
-                        functools.partial(calls.arguments, coverage.file)
+                    calls_of=(
+                        functools.partial(calls.calls, coverage.file)
                         if calls is not None and coverage.file in scripts.sources
                         else None
                     ),
@@ -1686,6 +1692,11 @@ class ServiceContractTool(AnalysisTool):
                         **(
                             {"url_alternatives": request.alternatives}
                             if request.alternatives > 1
+                            else {}
+                        ),
+                        **(
+                            {"argument_from": list(request.argument_from)}
+                            if request.argument_from
                             else {}
                         ),
                         **(
