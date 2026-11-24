@@ -8,7 +8,7 @@ ambiguous, with a reason, and produces no link.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import posixpath
 
 from .imports import (
@@ -23,7 +23,10 @@ CALL_LEXICAL_NAME = "tree-sitter.call-lexical-name"
 CALL_IMPORTED_NAME = "tree-sitter.call-imported-name"
 CALL_MODULE_ATTRIBUTE = "tree-sitter.call-module-attribute"
 CALL_SELF_METHOD = "tree-sitter.call-self-method"
+CALL_PRIVATE_NAME = "tree-sitter.js-call-private-name"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
+GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
+CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
 JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
@@ -55,7 +58,10 @@ class CallResolution:
 
 
 def _pick(call_id, matches, rule_id, none_reason):
-    ids = tuple(sorted(d.id for d in matches))
+    # `typing.overload` signatures declare call forms; the call runs the
+    # declaration they stand beside.
+    runs = [d for d in matches if not d.overload]
+    ids = tuple(sorted(d.id for d in (runs or matches)))
     if len(ids) == 1:
         return CallResolution(call_id, "linked", ids[0], rule_id)
     if ids:
@@ -72,6 +78,9 @@ class NameBindings:
     by_symbol: dict  # (file, symbol) -> [Definition]
     names: dict  # (file, local) -> [(imported name or None, target files)]
     modules: dict  # (file, dotted prefix) -> [target files]
+    # (file, local) -> [(imported name, target files)], for imports outside
+    # any function or class body: the module's own attributes.
+    module_level: dict = field(default_factory=dict)
 
     def top_level(self, files, name, kinds):
         return [
@@ -113,8 +122,14 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
             if link.rule_id != PYTHON_FROM_IMPORT_SUBMODULE
         )
     declared = {p.file: p.name for p in result.packages if p.kind == "package"}
+    # The bodies of each file's functions and classes.
+    bodies = defaultdict(list)
+    for d in result.definitions:
+        if d.kind in {"Function", "Method", "Class"}:
+            bodies[d.file].append(((d.line, d.column), (d.end_line, d.end_column)))
     names = defaultdict(list)
     modules = defaultdict(list)
+    module_level = defaultdict(list)
     for item in result.imports:
         targets = module_files.get(item.id, ())
         local_names = item.local_names
@@ -136,7 +151,12 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
                 names[(item.file, local)].append((None, targets))
             elif name != "*":
                 names[(item.file, local)].append((name, targets))
-    return NameBindings(by_symbol, names, modules)
+                if not any(
+                    start <= (item.line, item.column) < end
+                    for start, end in bodies[item.file]
+                ):
+                    module_level[(item.file, local)].append((name, targets))
+    return NameBindings(by_symbol, names, modules, module_level)
 
 
 def package_peers(result: AnalysisResult) -> dict:
@@ -889,6 +909,31 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         else None
     )
 
+    def exported(files, name, rule, reason):
+        """The resolution of ``name`` as an attribute of the modules in
+        ``files``: declared there at top level, or else (Python only) bound
+        there by a ``from M import name`` that is followed to M."""
+        rule_used, seen = rule, set()
+        while True:
+            declared = top_level(files, name, _CALLABLE)
+            if declared or len(files) != 1:
+                return _pick(site.id, declared, rule_used, reason)
+            (module,) = files
+            bound = bindings.module_level.get((module, name), [])
+            if (
+                languages.get(module) != "python"
+                or (module, name) in seen
+                # Exactly one import binds it, outside any function or class.
+                or not bound
+                or len(names.get((module, name), [])) != 1
+            ):
+                return _pick(site.id, declared, rule_used, reason)
+            seen.add((module, name))
+            # A module binding (`import m as name`) has no name, and nothing
+            # is declared under it.
+            name, files = bound[0]
+            rule_used = CALL_PYTHON_REEXPORT
+
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
         caller = by_id.get(site.caller_id)
@@ -933,11 +978,8 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             elif bound and bound[0][0] not in (None, "default"):
                 name, targets = bound[0]
                 resolutions.append(
-                    _pick(
-                        site.id,
-                        top_level(targets, name, _CALLABLE),
-                        CALL_IMPORTED_NAME,
-                        "imported_name_not_declared",
+                    exported(
+                        targets, name, CALL_IMPORTED_NAME, "imported_name_not_declared"
                     )
                 )
             else:
@@ -950,7 +992,29 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 )
             continue
         head, name = ".".join(parts[:-1]), parts[-1]
-        if head in {"self", "this"}:
+        if site.receiver_type is not None:
+            # Go: `x.M()` on a variable whose declaration writes its type.
+            *package, type_name = site.receiver_type.split(".")
+            if package:
+                bound = modules.get((site.file, package[0]), [])
+                files = bound[0] if bound else ()
+            else:
+                files = peers.get(site.file, (site.file,))
+            resolutions.append(
+                _pick(
+                    site.id,
+                    [
+                        d
+                        for f in files
+                        for d in by_symbol.get((f, f"{type_name}.{name}"), ())
+                        if d.kind == "Method"
+                    ],
+                    GO_CALL_TYPED_RECEIVER,
+                    "not_declared_on_type",
+                )
+            )
+            continue
+        if head in {"self", "this"} or name.startswith("#"):
             owner = next(
                 (
                     ".".join(scope[:depth])
@@ -975,7 +1039,12 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                             for d in by_symbol.get((site.file, f"{owner}.{name}"), ())
                             if d.kind in _METHOD
                         ],
-                        CALL_SELF_METHOD,
+                        # A private name (`obj.#m`) can only name a member of
+                        # a class around it, whatever `obj` is; the innermost
+                        # class is the one, unless it declares no `#m`.
+                        CALL_SELF_METHOD
+                        if head in {"self", "this"}
+                        else CALL_PRIVATE_NAME,
                         "not_declared_in_class",
                     )
                 )
@@ -983,9 +1052,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         bound = modules.get((site.file, head), [])
         if len(bound) == 1:
             resolutions.append(
-                _pick(
-                    site.id,
-                    top_level(bound[0], name, _CALLABLE),
+                exported(
+                    bound[0],
+                    name,
                     CALL_MODULE_ATTRIBUTE,
                     "module_attribute_not_declared",
                 )

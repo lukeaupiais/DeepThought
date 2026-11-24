@@ -1,0 +1,131 @@
+# file	line	name	target_file	target_line	kind
+# indexed	source/core/Ky.ts
+# indexed	source/core/constants.ts
+# indexed	source/core/retry-timing.ts
+# indexed	source/errors/ForceRetryError.ts
+# indexed	source/errors/HTTPError.ts
+# indexed	source/errors/KyError.ts
+# indexed	source/errors/NetworkError.ts
+# indexed	source/errors/NonError.ts
+# indexed	source/errors/ResponseSizeError.ts
+# indexed	source/errors/SchemaValidationError.ts
+# indexed	source/errors/TimeoutError.ts
+# indexed	source/index.ts
+# indexed	source/types/ResponsePromise.ts
+# indexed	source/types/common.ts
+# indexed	source/types/hooks.ts
+# indexed	source/types/ky.ts
+# indexed	source/types/options.ts
+# indexed	source/types/request.ts
+# indexed	source/types/response.ts
+# indexed	source/types/retry.ts
+# indexed	source/types/standard-schema.ts
+# indexed	source/utils/body.ts
+# indexed	source/utils/delay.ts
+# indexed	source/utils/is-network-error.ts
+# indexed	source/utils/is.ts
+# indexed	source/utils/merge.ts
+# indexed	source/utils/normalize.ts
+# indexed	source/utils/options.ts
+# indexed	source/utils/timeout.ts
+# indexed	source/utils/type-guards.ts
+# indexed	source/utils/types.ts
+source/core/Ky.ts	1	import	source/errors/HTTPError.ts	0	module
+source/core/Ky.ts	2	import	source/errors/NetworkError.ts	0	module
+source/core/Ky.ts	3	import	source/errors/NonError.ts	0	module
+source/core/Ky.ts	4	import	source/errors/ForceRetryError.ts	0	module
+source/core/Ky.ts	5	import	source/errors/SchemaValidationError.ts	0	module
+source/core/Ky.ts	6	import	source/errors/TimeoutError.ts	0	module
+source/core/Ky.ts	15	import	source/types/options.ts	0	module
+source/core/Ky.ts	16	import	source/types/ResponsePromise.ts	0	module
+source/core/Ky.ts	17	import	source/types/standard-schema.ts	0	module
+source/core/Ky.ts	23	import	source/utils/body.ts	0	module
+source/core/Ky.ts	32	import	source/utils/merge.ts	0	module
+source/core/Ky.ts	33	import	source/utils/normalize.ts	0	module
+source/core/Ky.ts	34	import	source/utils/timeout.ts	0	module
+source/core/Ky.ts	35	import	source/utils/delay.ts	0	module
+source/core/Ky.ts	36	import	source/utils/options.ts	0	module
+source/core/Ky.ts	37	import	source/utils/is-network-error.ts	0	module
+source/core/Ky.ts	40	import	source/utils/is.ts	0	module
+source/core/Ky.ts	43	import	source/utils/type-guards.ts	0	module
+source/core/Ky.ts	47	import	source/core/retry-timing.ts	0	module
+source/core/Ky.ts	60	import	source/core/constants.ts	0	module
+source/core/constants.ts	1	import	-	0	external
+source/core/constants.ts	2	import	source/types/options.ts	0	module
+source/errors/ForceRetryError.ts	1	import	source/core/constants.ts	0	module
+source/errors/ForceRetryError.ts	2	import	source/utils/is.ts	0	module
+source/errors/ForceRetryError.ts	3	import	source/errors/KyError.ts	0	module
+source/errors/ForceRetryError.ts	4	import	source/errors/NonError.ts	0	module
+source/errors/HTTPError.ts	1	import	source/types/options.ts	0	module
+source/errors/HTTPError.ts	2	import	source/types/request.ts	0	module
+source/errors/HTTPError.ts	3	import	source/types/response.ts	0	module
+source/errors/HTTPError.ts	4	import	source/errors/KyError.ts	0	module
+source/errors/NetworkError.ts	1	import	source/types/request.ts	0	module
+source/errors/NetworkError.ts	2	import	source/errors/KyError.ts	0	module
+source/errors/NonError.ts	1	import	source/utils/is.ts	0	module
+source/errors/ResponseSizeError.ts	1	import	source/types/request.ts	0	module
+source/errors/ResponseSizeError.ts	2	import	source/errors/KyError.ts	0	module
+source/errors/SchemaValidationError.ts	1	import	source/types/standard-schema.ts	0	module
+source/errors/TimeoutError.ts	1	import	source/types/request.ts	0	module
+source/errors/TimeoutError.ts	2	import	source/errors/KyError.ts	0	module
+source/index.ts	3	import	source/core/Ky.ts	0	module
+source/index.ts	9	import	source/core/constants.ts	0	module
+source/index.ts	10	import	source/types/ky.ts	0	module
+source/index.ts	11	import	source/types/options.ts	0	module
+source/index.ts	12	import	source/types/ResponsePromise.ts	0	module
+source/index.ts	13	import	source/utils/merge.ts	0	module
+source/index.ts	14	import	source/utils/types.ts	0	module
+source/index.ts	62	import	source/types/ky.ts	0	module
+source/index.ts	72	import	source/types/options.ts	0	module
+source/index.ts	86	import	source/types/hooks.ts	0	module
+source/index.ts	88	import	source/types/ResponsePromise.ts	0	module
+source/index.ts	93	import	source/types/standard-schema.ts	0	module
+source/index.ts	94	import	source/types/request.ts	0	module
+source/index.ts	95	import	source/types/response.ts	0	module
+source/index.ts	96	import	source/errors/KyError.ts	0	module
+source/index.ts	97	import	source/errors/HTTPError.ts	0	module
+source/index.ts	98	import	source/errors/SchemaValidationError.ts	0	module
+source/index.ts	99	import	source/errors/NetworkError.ts	0	module
+source/index.ts	100	import	source/errors/TimeoutError.ts	0	module
+source/index.ts	101	import	source/errors/ResponseSizeError.ts	0	module
+source/index.ts	102	import	source/errors/ForceRetryError.ts	0	module
+source/index.ts	110	import	source/utils/type-guards.ts	0	module
+source/index.ts	111	import	source/utils/merge.ts	0	module
+source/types/ResponsePromise.ts	6	import	source/types/response.ts	0	module
+source/types/ResponsePromise.ts	7	import	source/types/standard-schema.ts	0	module
+source/types/hooks.ts	1	import	source/core/constants.ts	0	module
+source/types/hooks.ts	2	import	source/index.ts	0	module
+source/types/hooks.ts	3	import	source/types/options.ts	0	module
+source/types/ky.ts	1	import	source/core/constants.ts	0	module
+source/types/ky.ts	2	import	source/types/options.ts	0	module
+source/types/ky.ts	3	import	source/types/ResponsePromise.ts	0	module
+source/types/options.ts	1	import	source/types/common.ts	0	module
+source/types/options.ts	2	import	source/types/hooks.ts	0	module
+source/types/options.ts	3	import	source/types/retry.ts	0	module
+source/types/options.ts	555	import	source/types/retry.ts	0	module
+source/types/retry.ts	1	import	source/types/options.ts	0	module
+source/utils/body.ts	1	import	source/types/options.ts	0	module
+source/utils/body.ts	2	import	source/core/constants.ts	0	module
+source/utils/body.ts	3	import	source/errors/ResponseSizeError.ts	0	module
+source/utils/delay.ts	3	import	source/types/options.ts	0	module
+source/utils/is-network-error.ts	2	import	source/utils/is.ts	0	module
+source/utils/merge.ts	1	import	source/types/options.ts	0	module
+source/utils/merge.ts	2	import	source/types/hooks.ts	0	module
+source/utils/merge.ts	3	import	source/core/constants.ts	0	module
+source/utils/merge.ts	4	import	source/utils/is.ts	0	module
+source/utils/normalize.ts	1	import	source/core/constants.ts	0	module
+source/utils/normalize.ts	2	import	source/types/retry.ts	0	module
+source/utils/normalize.ts	3	import	source/types/options.ts	0	module
+source/utils/normalize.ts	4	import	source/utils/is.ts	0	module
+source/utils/options.ts	1	import	source/core/constants.ts	0	module
+source/utils/options.ts	2	import	source/types/options.ts	0	module
+source/utils/options.ts	3	import	source/utils/merge.ts	0	module
+source/utils/timeout.ts	1	import	source/errors/TimeoutError.ts	0	module
+source/utils/timeout.ts	2	import	source/types/options.ts	0	module
+source/utils/timeout.ts	3	import	source/utils/body.ts	0	module
+source/utils/type-guards.ts	1	import	source/errors/KyError.ts	0	module
+source/utils/type-guards.ts	2	import	source/errors/HTTPError.ts	0	module
+source/utils/type-guards.ts	3	import	source/errors/NetworkError.ts	0	module
+source/utils/type-guards.ts	4	import	source/errors/ResponseSizeError.ts	0	module
+source/utils/type-guards.ts	5	import	source/errors/TimeoutError.ts	0	module
+source/utils/type-guards.ts	6	import	source/errors/ForceRetryError.ts	0	module

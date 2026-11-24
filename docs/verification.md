@@ -54,8 +54,19 @@ scored against a yardstick its own rules cannot move.
   (another in-repository symbol, such as `const f = () => ...`), `local` (a
   parameter, loop variable or local function, at its binding line) or
   `external` (a library or builtin). `# indexed` rows list the files the
-  oracle indexed.
+  oracle indexed. scip-python gives every later declaration of an
+  `@overload` group (the implementation too), and a redefinition of a name
+  in one scope, the first declaration's symbol, so a call to that symbol
+  lists each of those `def` lines as a target: a link to the implementation
+  confirms.
 - `baseline.json` is the current score of each corpus.
+
+When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
+writes a table of every corpus and layer (calls, inheritance, imports,
+impact, declarations, contracts) to the run's summary page, with each score
+that moved since the baseline shown with its difference. A PR that raises
+call or impact recall shows by how much there, not only that the gate
+passed.
 
 Java has no SCIP indexer in this setup, so `derive-java` takes the truth from
 javac's own attribution (`tools/JavaCallTruth.java`, JDK only): every method
@@ -160,6 +171,31 @@ selected corpus needs is not installed. Without them the engine reports files
 unavailable and gateway routes unread instead of failing, so the scores would
 drop as if it had regressed. Install the package with its `languages` extra.
 
+### Imports
+
+`derive-imports` reads an index's references to module and package symbols.
+On a line of an import statement, the rightmost module reference (the
+innermost module of a dotted path) names what the statement imports: the
+files that define it, their directories for Go packages, or `external` when
+the repository defines none. Indexer quirks are normalized: scip-python names
+a relative import's module without its package (rebuilt from the leading dots
+and the importing module) and gives some references the installed version
+instead of the commit (versions are ignored). An engine import is judged by
+the truth lines it spans: *confirmed* when it links an expected target,
+*contradicted* when it links elsewhere or links a module the oracle places
+outside the repository. Recall is over import lines with a repository target.
+
+| Corpus | Expected | Confirmed | Contradicted | Precision | Recall |
+|---|---|---|---|---|---|
+| click | 331 | 331 | 0 | 1.0 | 1.0 |
+| ky | 98 | 98 | 0 | 1.0 | 1.0 |
+| cobra | 12 | 12 | 0 | 1.0 | 1.0 |
+
+Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
+tests are outside its TypeScript project, so the index does not cover them.
+Rust is not covered: rust-analyzer references the item a `use` names, not a
+module, and the engine links items too, so it needs its own derivation.
+
 ### Inheritance
 
 `inherits/NAME.tsv` holds expected declared supertypes in the same format, keyed
@@ -215,6 +251,31 @@ kind mismatches). Its extras include member initializers read as functions
 name. cJSON's extras are three functions in a preprocessor branch clang did
 not take.
 
+### Ruby and PHP declarations
+
+The same scorer covers Ruby and PHP, with each language's own parser as the
+oracle. `tools/ruby_declaration_truth.rb` walks Ripper's syntax tree: a
+`def` in a class, module or `class << self` body is a `method`, as is any
+singleton `def x.m` (on `self` or another object); any other `def` is a
+`function`. `tools/php_declaration_truth.php` reads `token_get_all`: a named
+function in a class, interface, trait, enum or anonymous class body is a
+`method`, other named functions are `function`s, and a declaration begins at
+its first attribute or modifier. Closures, `X::class` and `use function`
+imports are not declarations. Files that do not parse (`php -l`) are left
+unindexed.
+
+| Corpus | Expected | Found | Kind mismatch | Missed | Extra |
+|---|---|---|---|---|---|
+| rack (Ruby) | 1014 | 950 | 60 | 4 | 0 |
+| Slim (PHP) | 876 | 863 | 0 | 13 | 0 |
+
+rack's kind mismatches are all singleton methods defined outside a class
+body (`def self.x` at the top of a file, `def object.close` in a test
+block), which the engine reads as functions; its misses are singleton
+methods on an instance variable or nested in another method. Slim's misses
+are the methods of anonymous classes and three functions declared inside a
+method body.
+
 ### Service contracts
 
 The `contracts` entries in the manifest gate cross-service links the same way.
@@ -236,10 +297,42 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | online-boutique | http | 9 / 9 / 9 | 1 / 1 / 1 |
 | robot-shop | http | 4 / 4 / 42 | 3 / 3 / 17 |
 | robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
+| apollo fullstack-tutorial | graphql | 7 / 7 / 7 | 1 / 1 / 1 |
+| apollo spotify-showcase | graphql | 46 / 46 / 46 | 2 / 2 / 2 |
 
 Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
 `AdServiceClient.java` inside adservice, which calls its own service.
+
+The two GraphQL corpora are labelled by graphql-core, not by hand
+(`tools/graphql_client_oracle.py`, see the fixtures README). A prediction is a
+REQUESTS edge to a GraphqlField, placed at the request line and at the
+field's declaration. The fullstack tutorial's `start/` client, whose own
+server declares nothing, must not link to `final/server`; since #121 a
+client only matches the server scopes nearest to it.
+
+### Routes and GraphQL fields
+
+The contract corpora score links between services, so a route the engine
+stops reading only shows up there if some labelled client calls it. The
+manifest's `routes` corpora score the server side directly, against labels
+the code does not produce:
+
+| Corpus | Oracle | Expected | Found | Extra |
+|---|---|---|---|---|
+| nestjs-realworld-example-app (NestJS HTTP) | the RealWorld backend API spec | 19 | 19 | 0 |
+| nestjs-prisma-starter (NestJS GraphQL, code-first) | its committed generated `schema.graphql` | 13 | 13 | 0 |
+| howtographql/graphql-js (Apollo, resolver modules) | schema and resolver modules read by hand | 7 | 7 | 0 |
+
+An HTTP route matches on method and path, with `{var}` for any parameter; the
+global prefix (`setGlobalPrefix('api')`) has to be applied to match. A
+GraphQL root field counts only when a resolver `HANDLES` it. Routes the app
+declares beyond the spec (`GET /api`, `DELETE /api/users/{var}`, checked in
+its controllers) are listed as neutral. graphql-js joins resolver modules
+(`module.exports = { feed }`) into its map by name, which the engine
+follows since #105; `Query.info` is declared with no resolver, so a link to
+it would count as extra. The gate fails on fewer found, more
+extra, or changed labels.
 
 ## Metamorphic checks
 
@@ -366,3 +459,60 @@ The first entry ("graph port, 2026-11-23") adds the Rust corpora: anyhow 41
 cases, impact 0.164 recall at 0.444 precision against search 0.370 at 0.202;
 ripgrep 78 cases, impact 0.054 at 0.381 against search 0.331 at 0.090. A full
 run takes about six minutes.
+
+### Impact ground truth
+
+The replay scores impact against co-edits, which also measures whether
+developers had to touch a dependent at all. `tools/impact_truth.py` isolates
+the first question: for declarations real commits edited, which declarations
+call them, directly or within three hops, according to the oracle?
+
+Seeds are the innermost callables that hold a line one of the replay's
+commits (the last 30 qualifying commits up to the pin) wrote and that `git
+blame` at the pin still attributes to that commit. The oracle graph comes
+from the corpus's SCIP call truth and the index's definition spans: a call
+is an edge from the innermost callable whose body holds it to each callable
+the index says it targets. Two indexer gaps are filled from the source:
+scip-python gives a span only to the first `@overload` of a function, so its
+other `def`s (implementation included) are folded into that node with spans
+found by indentation; and scip-typescript records `const f = () => ...` as a
+variable, so a variable whose initializer is a function counts as a callable.
+
+`check` runs the same reverse search over the engine's linked CALLS edges at
+the pin. An engine dependent the oracle also reaches is *confirmed*; one it
+does not reach is *extra* (a wrong link, or a caller reached through one).
+The gate fails on fewer confirmed, more extra, or changed seeds.
+
+Engine declarations are matched to oracle nodes by name and span. The truth
+file lists only seeds and their dependents, so a declaration with no node
+there falls back to the one node of its name in the file (an overload the
+oracle folds into its first declaration), but never to a node another
+declaration already spans: a function `run` is not merged with a method
+`C.run`, nor one struct's `new` with another's.
+
+| Corpus | Seeds | Oracle dependents | Confirmed | Extra | Recall | Precision |
+|---|---|---|---|---|---|---|
+| click | 144 | 1151 | 123 | 0 | 0.107 | 1.0 |
+| ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
+| cobra | 107 | 1764 | 119 | 0 | 0.068 | 1.0 |
+| gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
+| anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
+| ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
+
+Recall falls with depth because each missing link cuts off everything behind
+it (click confirms 60 of 351 direct callers, but 21 of 295 at depth 3).
+ripgrep's one extra is a caller of the `#[cfg(windows)]` `from_path`, which
+the Linux index does not analyze, and 84 of its seeds are test functions
+that macros expand to, which the engine does not declare. scip-go
+records no definition spans, so cobra's come from Go's own parser
+(`go run tools/go_function_spans.go WORKSPACE`, passed as `--spans`); its
+low recall is mostly method calls on a receiver, such as `c.ExecuteC()` in
+`Execute`, left unresolved. gson's call truth comes from javac, not an
+index, so its callables are the method and constructor spans of javac's
+parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
+index). The call truth leaves out `this(...)` and `super(...)`, which name
+no declaration, but a constructor that delegates depends on the one it
+calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
+`derive-java --chains` lists them and they join the impact graph as
+`--extra-calls`. Most of gson's misses are calls on a `Gson` instance, such
+as `gson.toJson(...)` in the tests.

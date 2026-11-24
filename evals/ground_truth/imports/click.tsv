@@ -1,0 +1,765 @@
+# file	line	name	target_file	target_line	kind
+# indexed	docs/conf.py
+# indexed	examples/aliases/aliases.py
+# indexed	examples/colors/colors.py
+# indexed	examples/completion/completion.py
+# indexed	examples/complex/complex/__init__.py
+# indexed	examples/complex/complex/cli.py
+# indexed	examples/complex/complex/commands/__init__.py
+# indexed	examples/complex/complex/commands/cmd_init.py
+# indexed	examples/complex/complex/commands/cmd_status.py
+# indexed	examples/imagepipe/imagepipe.py
+# indexed	examples/inout/inout.py
+# indexed	examples/naval/naval.py
+# indexed	examples/repo/repo.py
+# indexed	examples/termui/termui.py
+# indexed	examples/validation/validation.py
+# indexed	src/click/__init__.py
+# indexed	src/click/_compat.py
+# indexed	src/click/_termui_impl.py
+# indexed	src/click/_textwrap.py
+# indexed	src/click/_utils.py
+# indexed	src/click/_winconsole.py
+# indexed	src/click/core.py
+# indexed	src/click/decorators.py
+# indexed	src/click/exceptions.py
+# indexed	src/click/formatting.py
+# indexed	src/click/globals.py
+# indexed	src/click/parser.py
+# indexed	src/click/shell_completion.py
+# indexed	src/click/termui.py
+# indexed	src/click/testing.py
+# indexed	src/click/types.py
+# indexed	src/click/utils.py
+# indexed	tests/conftest.py
+# indexed	tests/test_abort_interrupt.py
+# indexed	tests/test_arguments.py
+# indexed	tests/test_basic.py
+# indexed	tests/test_chain.py
+# indexed	tests/test_command_decorators.py
+# indexed	tests/test_commands.py
+# indexed	tests/test_compat.py
+# indexed	tests/test_context.py
+# indexed	tests/test_custom_classes.py
+# indexed	tests/test_defaults.py
+# indexed	tests/test_deprecations.py
+# indexed	tests/test_exceptions/__init__.py
+# indexed	tests/test_exceptions/test_FileError.py
+# indexed	tests/test_formatting.py
+# indexed	tests/test_imports.py
+# indexed	tests/test_info_dict.py
+# indexed	tests/test_normalization.py
+# indexed	tests/test_options.py
+# indexed	tests/test_parser.py
+# indexed	tests/test_shell_completion.py
+# indexed	tests/test_stream_lifecycle.py
+# indexed	tests/test_termui.py
+# indexed	tests/test_testing.py
+# indexed	tests/test_types/__init__.py
+# indexed	tests/test_types/test_Choice.py
+# indexed	tests/test_types/test_File.py
+# indexed	tests/test_types/test_FloatRange.py
+# indexed	tests/test_types/test_FuncParamType.py
+# indexed	tests/test_types/test_IntRange.py
+# indexed	tests/test_types/test_ParamType.py
+# indexed	tests/test_types/test_Path.py
+# indexed	tests/test_types/test_convert_type.py
+# indexed	tests/test_utils/__init__.py
+# indexed	tests/test_utils/test_KeepOpenFile.py
+# indexed	tests/test_utils/test_LazyFile.py
+# indexed	tests/test_utils/test__detect_program_name.py
+# indexed	tests/test_utils/test__expand_args.py
+# indexed	tests/test_utils/test_confirm.py
+# indexed	tests/test_utils/test_echo.py
+# indexed	tests/test_utils/test_echo_via_pager.py
+# indexed	tests/test_utils/test_format_filename.py
+# indexed	tests/test_utils/test_make_default_short_help.py
+# indexed	tests/test_utils/test_open_file.py
+# indexed	tests/test_utils/test_prompt.py
+# indexed	tests/test_utils/test_sentinel.py
+# indexed	tests/test_utils/test_style.py
+# indexed	tests/typing/typing_aliased_group.py
+# indexed	tests/typing/typing_confirmation_option.py
+# indexed	tests/typing/typing_edit.py
+# indexed	tests/typing/typing_group_kw_options.py
+# indexed	tests/typing/typing_help_option.py
+# indexed	tests/typing/typing_options.py
+# indexed	tests/typing/typing_password_option.py
+# indexed	tests/typing/typing_path.py
+# indexed	tests/typing/typing_progressbar.py
+# indexed	tests/typing/typing_prompt.py
+# indexed	tests/typing/typing_simple_example.py
+# indexed	tests/typing/typing_version_option.py
+docs/conf.py	1	import	-	0	external
+docs/conf.py	2	import	-	0	external
+examples/aliases/aliases.py	1	import	-	0	external
+examples/aliases/aliases.py	2	import	-	0	external
+examples/aliases/aliases.py	4	import	src/click/__init__.py	0	module
+examples/colors/colors.py	1	import	src/click/__init__.py	0	module
+examples/completion/completion.py	1	import	-	0	external
+examples/completion/completion.py	3	import	src/click/__init__.py	0	module
+examples/completion/completion.py	4	import	src/click/shell_completion.py	0	module
+examples/complex/complex/cli.py	1	import	-	0	external
+examples/complex/complex/cli.py	2	import	-	0	external
+examples/complex/complex/cli.py	4	import	src/click/__init__.py	0	module
+examples/complex/complex/commands/cmd_init.py	1	import	-	0	external
+examples/complex/complex/commands/cmd_init.py	3	import	src/click/__init__.py	0	module
+examples/complex/complex/commands/cmd_status.py	1	import	-	0	external
+examples/complex/complex/commands/cmd_status.py	3	import	src/click/__init__.py	0	module
+examples/imagepipe/imagepipe.py	1	import	-	0	external
+examples/imagepipe/imagepipe.py	3	import	-	0	external
+examples/imagepipe/imagepipe.py	4	import	-	0	external
+examples/imagepipe/imagepipe.py	5	import	-	0	external
+examples/imagepipe/imagepipe.py	7	import	src/click/__init__.py	0	module
+examples/inout/inout.py	1	import	src/click/__init__.py	0	module
+examples/naval/naval.py	1	import	src/click/__init__.py	0	module
+examples/repo/repo.py	1	import	-	0	external
+examples/repo/repo.py	2	import	-	0	external
+examples/repo/repo.py	3	import	-	0	external
+examples/repo/repo.py	5	import	src/click/__init__.py	0	module
+examples/termui/termui.py	1	import	-	0	external
+examples/termui/termui.py	2	import	-	0	external
+examples/termui/termui.py	3	import	-	0	external
+examples/termui/termui.py	5	import	src/click/__init__.py	0	module
+examples/validation/validation.py	1	import	-	0	external
+examples/validation/validation.py	3	import	src/click/__init__.py	0	module
+src/click/__init__.py	8	import	-	0	external
+src/click/__init__.py	10	import	src/click/core.py	0	module
+src/click/__init__.py	11	import	src/click/core.py	0	module
+src/click/__init__.py	12	import	src/click/core.py	0	module
+src/click/__init__.py	13	import	src/click/core.py	0	module
+src/click/__init__.py	14	import	src/click/core.py	0	module
+src/click/__init__.py	15	import	src/click/core.py	0	module
+src/click/__init__.py	16	import	src/click/core.py	0	module
+src/click/__init__.py	17	import	src/click/core.py	0	module
+src/click/__init__.py	18	import	src/click/decorators.py	0	module
+src/click/__init__.py	19	import	src/click/decorators.py	0	module
+src/click/__init__.py	20	import	src/click/decorators.py	0	module
+src/click/__init__.py	21	import	src/click/decorators.py	0	module
+src/click/__init__.py	22	import	src/click/decorators.py	0	module
+src/click/__init__.py	23	import	src/click/decorators.py	0	module
+src/click/__init__.py	24	import	src/click/decorators.py	0	module
+src/click/__init__.py	25	import	src/click/decorators.py	0	module
+src/click/__init__.py	26	import	src/click/decorators.py	0	module
+src/click/__init__.py	27	import	src/click/decorators.py	0	module
+src/click/__init__.py	28	import	src/click/decorators.py	0	module
+src/click/__init__.py	29	import	src/click/decorators.py	0	module
+src/click/__init__.py	30	import	src/click/exceptions.py	0	module
+src/click/__init__.py	31	import	src/click/exceptions.py	0	module
+src/click/__init__.py	32	import	src/click/exceptions.py	0	module
+src/click/__init__.py	33	import	src/click/exceptions.py	0	module
+src/click/__init__.py	34	import	src/click/exceptions.py	0	module
+src/click/__init__.py	35	import	src/click/exceptions.py	0	module
+src/click/__init__.py	36	import	src/click/exceptions.py	0	module
+src/click/__init__.py	37	import	src/click/exceptions.py	0	module
+src/click/__init__.py	38	import	src/click/exceptions.py	0	module
+src/click/__init__.py	39	import	src/click/exceptions.py	0	module
+src/click/__init__.py	40	import	src/click/formatting.py	0	module
+src/click/__init__.py	41	import	src/click/formatting.py	0	module
+src/click/__init__.py	42	import	src/click/globals.py	0	module
+src/click/__init__.py	43	import	src/click/termui.py	0	module
+src/click/__init__.py	44	import	src/click/termui.py	0	module
+src/click/__init__.py	45	import	src/click/termui.py	0	module
+src/click/__init__.py	46	import	src/click/termui.py	0	module
+src/click/__init__.py	47	import	src/click/termui.py	0	module
+src/click/__init__.py	48	import	src/click/termui.py	0	module
+src/click/__init__.py	49	import	src/click/termui.py	0	module
+src/click/__init__.py	50	import	src/click/termui.py	0	module
+src/click/__init__.py	51	import	src/click/termui.py	0	module
+src/click/__init__.py	52	import	src/click/termui.py	0	module
+src/click/__init__.py	53	import	src/click/termui.py	0	module
+src/click/__init__.py	54	import	src/click/termui.py	0	module
+src/click/__init__.py	55	import	src/click/termui.py	0	module
+src/click/__init__.py	56	import	src/click/types.py	0	module
+src/click/__init__.py	57	import	src/click/types.py	0	module
+src/click/__init__.py	58	import	src/click/types.py	0	module
+src/click/__init__.py	59	import	src/click/types.py	0	module
+src/click/__init__.py	60	import	src/click/types.py	0	module
+src/click/__init__.py	61	import	src/click/types.py	0	module
+src/click/__init__.py	62	import	src/click/types.py	0	module
+src/click/__init__.py	63	import	src/click/types.py	0	module
+src/click/__init__.py	64	import	src/click/types.py	0	module
+src/click/__init__.py	65	import	src/click/types.py	0	module
+src/click/__init__.py	66	import	src/click/types.py	0	module
+src/click/__init__.py	67	import	src/click/types.py	0	module
+src/click/__init__.py	68	import	src/click/types.py	0	module
+src/click/__init__.py	69	import	src/click/types.py	0	module
+src/click/__init__.py	70	import	src/click/utils.py	0	module
+src/click/__init__.py	71	import	src/click/utils.py	0	module
+src/click/__init__.py	72	import	src/click/utils.py	0	module
+src/click/__init__.py	73	import	src/click/utils.py	0	module
+src/click/__init__.py	77	import	-	0	external
+src/click/__init__.py	80	import	src/click/core.py	0	module
+src/click/__init__.py	91	import	src/click/core.py	0	module
+src/click/__init__.py	102	import	src/click/parser.py	0	module
+src/click/__init__.py	113	import	-	0	external
+src/click/__init__.py	125	import	src/click/utils.py	0	module
+src/click/__init__.py	135	import	src/click/utils.py	0	module
+src/click/_compat.py	1	import	-	0	external
+src/click/_compat.py	3	import	-	0	external
+src/click/_compat.py	4	import	-	0	external
+src/click/_compat.py	5	import	-	0	external
+src/click/_compat.py	6	import	-	0	external
+src/click/_compat.py	7	import	-	0	external
+src/click/_compat.py	8	import	-	0	external
+src/click/_compat.py	9	import	-	0	external
+src/click/_compat.py	10	import	-	0	external
+src/click/_compat.py	11	import	-	0	external
+src/click/_compat.py	416	import	-	0	external
+src/click/_compat.py	417	import	-	0	external
+src/click/_compat.py	518	import	src/click/_winconsole.py	0	module
+src/click/_compat.py	521	import	-	0	external
+src/click/_termui_impl.py	7	import	-	0	external
+src/click/_termui_impl.py	9	import	-	0	external
+src/click/_termui_impl.py	10	import	-	0	external
+src/click/_termui_impl.py	11	import	-	0	external
+src/click/_termui_impl.py	12	import	-	0	external
+src/click/_termui_impl.py	13	import	-	0	external
+src/click/_termui_impl.py	14	import	-	0	external
+src/click/_termui_impl.py	15	import	-	0	external
+src/click/_termui_impl.py	16	import	-	0	external
+src/click/_termui_impl.py	17	import	-	0	external
+src/click/_termui_impl.py	18	import	-	0	external
+src/click/_termui_impl.py	19	import	-	0	external
+src/click/_termui_impl.py	20	import	-	0	external
+src/click/_termui_impl.py	22	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	23	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	24	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	25	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	26	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	27	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	28	import	src/click/_compat.py	0	module
+src/click/_termui_impl.py	29	import	src/click/exceptions.py	0	module
+src/click/_termui_impl.py	30	import	src/click/utils.py	0	module
+src/click/_termui_impl.py	90	import	-	0	external
+src/click/_termui_impl.py	264	import	-	0	external
+src/click/_termui_impl.py	436	import	-	0	external
+src/click/_termui_impl.py	558	import	-	0	external
+src/click/_termui_impl.py	644	import	-	0	external
+src/click/_termui_impl.py	645	import	-	0	external
+src/click/_termui_impl.py	704	import	-	0	external
+src/click/_termui_impl.py	713	import	-	0	external
+src/click/_termui_impl.py	714	import	-	0	external
+src/click/_termui_impl.py	750	import	-	0	external
+src/click/_termui_impl.py	798	import	-	0	external
+src/click/_termui_impl.py	801	import	-	0	external
+src/click/_termui_impl.py	860	import	-	0	external
+src/click/_termui_impl.py	879	import	-	0	external
+src/click/_termui_impl.py	932	import	-	0	external
+src/click/_termui_impl.py	933	import	-	0	external
+src/click/_textwrap.py	1	import	-	0	external
+src/click/_textwrap.py	3	import	-	0	external
+src/click/_textwrap.py	4	import	-	0	external
+src/click/_textwrap.py	5	import	-	0	external
+src/click/_textwrap.py	7	import	src/click/_compat.py	0	module
+src/click/_utils.py	1	import	-	0	external
+src/click/_utils.py	3	import	-	0	external
+src/click/_utils.py	4	import	-	0	external
+src/click/_winconsole.py	9	import	-	0	external
+src/click/_winconsole.py	11	import	-	0	external
+src/click/_winconsole.py	12	import	-	0	external
+src/click/_winconsole.py	13	import	-	0	external
+src/click/_winconsole.py	14	import	-	0	external
+src/click/_winconsole.py	15	import	-	0	external
+src/click/_winconsole.py	16	import	-	0	external
+src/click/_winconsole.py	17	import	-	0	external
+src/click/_winconsole.py	18	import	-	0	external
+src/click/_winconsole.py	19	import	-	0	external
+src/click/_winconsole.py	20	import	-	0	external
+src/click/_winconsole.py	21	import	-	0	external
+src/click/_winconsole.py	22	import	-	0	external
+src/click/_winconsole.py	23	import	-	0	external
+src/click/_winconsole.py	24	import	-	0	external
+src/click/_winconsole.py	25	import	-	0	external
+src/click/_winconsole.py	26	import	-	0	external
+src/click/_winconsole.py	27	import	-	0	external
+src/click/_winconsole.py	28	import	-	0	external
+src/click/_winconsole.py	29	import	-	0	external
+src/click/_winconsole.py	30	import	-	0	external
+src/click/_winconsole.py	31	import	-	0	external
+src/click/_winconsole.py	33	import	src/click/_compat.py	0	module
+src/click/_winconsole.py	36	import	-	0	external
+src/click/_winconsole.py	37	import	-	0	external
+src/click/_winconsole.py	38	import	-	0	external
+src/click/_winconsole.py	71	import	-	0	external
+src/click/_winconsole.py	73	import	-	0	external
+src/click/_winconsole.py	76	import	-	0	external
+src/click/core.py	1	import	-	0	external
+src/click/core.py	3	import	-	0	external
+src/click/core.py	4	import	-	0	external
+src/click/core.py	5	import	-	0	external
+src/click/core.py	6	import	-	0	external
+src/click/core.py	7	import	-	0	external
+src/click/core.py	8	import	-	0	external
+src/click/core.py	9	import	-	0	external
+src/click/core.py	10	import	-	0	external
+src/click/core.py	11	import	-	0	external
+src/click/core.py	12	import	-	0	external
+src/click/core.py	13	import	-	0	external
+src/click/core.py	14	import	-	0	external
+src/click/core.py	15	import	-	0	external
+src/click/core.py	16	import	-	0	external
+src/click/core.py	17	import	-	0	external
+src/click/core.py	18	import	-	0	external
+src/click/core.py	19	import	-	0	external
+src/click/core.py	20	import	-	0	external
+src/click/core.py	21	import	-	0	external
+src/click/core.py	22	import	-	0	external
+src/click/core.py	24	import	src/click/__init__.py	0	module
+src/click/core.py	25	import	src/click/_utils.py	0	module
+src/click/core.py	26	import	src/click/_utils.py	0	module
+src/click/core.py	27	import	src/click/exceptions.py	0	module
+src/click/core.py	28	import	src/click/exceptions.py	0	module
+src/click/core.py	29	import	src/click/exceptions.py	0	module
+src/click/core.py	30	import	src/click/exceptions.py	0	module
+src/click/core.py	31	import	src/click/exceptions.py	0	module
+src/click/core.py	32	import	src/click/exceptions.py	0	module
+src/click/core.py	33	import	src/click/exceptions.py	0	module
+src/click/core.py	34	import	src/click/exceptions.py	0	module
+src/click/core.py	35	import	src/click/formatting.py	0	module
+src/click/core.py	36	import	src/click/formatting.py	0	module
+src/click/core.py	37	import	src/click/globals.py	0	module
+src/click/core.py	38	import	src/click/globals.py	0	module
+src/click/core.py	39	import	src/click/parser.py	0	module
+src/click/core.py	40	import	src/click/parser.py	0	module
+src/click/core.py	41	import	src/click/termui.py	0	module
+src/click/core.py	42	import	src/click/termui.py	0	module
+src/click/core.py	43	import	src/click/termui.py	0	module
+src/click/core.py	44	import	src/click/utils.py	0	module
+src/click/core.py	45	import	src/click/utils.py	0	module
+src/click/core.py	46	import	src/click/utils.py	0	module
+src/click/core.py	47	import	src/click/utils.py	0	module
+src/click/core.py	48	import	src/click/utils.py	0	module
+src/click/core.py	49	import	src/click/utils.py	0	module
+src/click/core.py	52	import	src/click/shell_completion.py	0	module
+src/click/core.py	545	import	-	0	external
+src/click/core.py	1134	import	-	0	external
+src/click/core.py	1240	import	src/click/decorators.py	0	module
+src/click/core.py	1451	import	src/click/shell_completion.py	0	module
+src/click/core.py	1669	import	src/click/shell_completion.py	0	module
+src/click/core.py	1861	import	src/click/decorators.py	0	module
+src/click/core.py	1910	import	src/click/decorators.py	0	module
+src/click/core.py	2147	import	src/click/shell_completion.py	0	module
+src/click/core.py	2387	import	-	0	external
+src/click/core.py	2538	import	-	0	external
+src/click/core.py	2547	import	-	0	external
+src/click/core.py	2583	import	-	0	external
+src/click/core.py	3032	import	src/click/shell_completion.py	0	module
+src/click/core.py	3424	import	-	0	external
+src/click/core.py	3998	import	-	0	external
+src/click/decorators.py	1	import	-	0	external
+src/click/decorators.py	3	import	-	0	external
+src/click/decorators.py	4	import	-	0	external
+src/click/decorators.py	5	import	-	0	external
+src/click/decorators.py	6	import	-	0	external
+src/click/decorators.py	8	import	src/click/core.py	0	module
+src/click/decorators.py	9	import	src/click/core.py	0	module
+src/click/decorators.py	10	import	src/click/core.py	0	module
+src/click/decorators.py	11	import	src/click/core.py	0	module
+src/click/decorators.py	12	import	src/click/core.py	0	module
+src/click/decorators.py	13	import	src/click/core.py	0	module
+src/click/decorators.py	14	import	src/click/globals.py	0	module
+src/click/decorators.py	15	import	src/click/utils.py	0	module
+src/click/decorators.py	507	import	-	0	external
+src/click/exceptions.py	1	import	-	0	external
+src/click/exceptions.py	3	import	-	0	external
+src/click/exceptions.py	4	import	-	0	external
+src/click/exceptions.py	5	import	-	0	external
+src/click/exceptions.py	6	import	-	0	external
+src/click/exceptions.py	8	import	src/click/_compat.py	0	module
+src/click/exceptions.py	9	import	src/click/globals.py	0	module
+src/click/exceptions.py	10	import	src/click/utils.py	0	module
+src/click/exceptions.py	11	import	src/click/utils.py	0	module
+src/click/exceptions.py	14	import	src/click/core.py	0	module
+src/click/exceptions.py	15	import	src/click/core.py	0	module
+src/click/exceptions.py	16	import	src/click/core.py	0	module
+src/click/exceptions.py	255	import	-	0	external
+src/click/exceptions.py	291	import	-	0	external
+src/click/formatting.py	1	import	-	0	external
+src/click/formatting.py	3	import	-	0	external
+src/click/formatting.py	4	import	-	0	external
+src/click/formatting.py	5	import	-	0	external
+src/click/formatting.py	7	import	src/click/_compat.py	0	module
+src/click/formatting.py	8	import	src/click/parser.py	0	module
+src/click/formatting.py	67	import	src/click/_textwrap.py	0	module
+src/click/formatting.py	146	import	-	0	external
+src/click/globals.py	1	import	-	0	external
+src/click/globals.py	3	import	-	0	external
+src/click/globals.py	4	import	-	0	external
+src/click/globals.py	7	import	src/click/core.py	0	module
+src/click/parser.py	25	import	-	0	external
+src/click/parser.py	27	import	-	0	external
+src/click/parser.py	28	import	-	0	external
+src/click/parser.py	29	import	-	0	external
+src/click/parser.py	30	import	-	0	external
+src/click/parser.py	31	import	-	0	external
+src/click/parser.py	33	import	src/click/_utils.py	0	module
+src/click/parser.py	34	import	src/click/_utils.py	0	module
+src/click/parser.py	35	import	src/click/exceptions.py	0	module
+src/click/parser.py	36	import	src/click/exceptions.py	0	module
+src/click/parser.py	37	import	src/click/exceptions.py	0	module
+src/click/parser.py	38	import	src/click/exceptions.py	0	module
+src/click/parser.py	41	import	src/click/_utils.py	0	module
+src/click/parser.py	42	import	src/click/_utils.py	0	module
+src/click/parser.py	43	import	src/click/core.py	0	module
+src/click/parser.py	44	import	src/click/core.py	0	module
+src/click/parser.py	45	import	src/click/core.py	0	module
+src/click/parser.py	46	import	src/click/core.py	0	module
+src/click/parser.py	504	import	-	0	external
+src/click/parser.py	523	import	src/click/shell_completion.py	0	module
+src/click/shell_completion.py	1	import	-	0	external
+src/click/shell_completion.py	3	import	-	0	external
+src/click/shell_completion.py	4	import	-	0	external
+src/click/shell_completion.py	5	import	-	0	external
+src/click/shell_completion.py	6	import	-	0	external
+src/click/shell_completion.py	7	import	-	0	external
+src/click/shell_completion.py	9	import	src/click/core.py	0	module
+src/click/shell_completion.py	10	import	src/click/core.py	0	module
+src/click/shell_completion.py	11	import	src/click/core.py	0	module
+src/click/shell_completion.py	12	import	src/click/core.py	0	module
+src/click/shell_completion.py	13	import	src/click/core.py	0	module
+src/click/shell_completion.py	14	import	src/click/core.py	0	module
+src/click/shell_completion.py	15	import	src/click/core.py	0	module
+src/click/shell_completion.py	16	import	src/click/utils.py	0	module
+src/click/shell_completion.py	59	import	-	0	external
+src/click/shell_completion.py	396	import	-	0	external
+src/click/shell_completion.py	397	import	-	0	external
+src/click/shell_completion.py	616	import	-	0	external
+src/click/termui.py	1	import	-	0	external
+src/click/termui.py	3	import	-	0	external
+src/click/termui.py	4	import	-	0	external
+src/click/termui.py	5	import	-	0	external
+src/click/termui.py	6	import	-	0	external
+src/click/termui.py	7	import	-	0	external
+src/click/termui.py	8	import	-	0	external
+src/click/termui.py	9	import	-	0	external
+src/click/termui.py	10	import	-	0	external
+src/click/termui.py	11	import	-	0	external
+src/click/termui.py	12	import	-	0	external
+src/click/termui.py	13	import	-	0	external
+src/click/termui.py	15	import	src/click/__init__.py	0	module
+src/click/termui.py	16	import	src/click/_compat.py	0	module
+src/click/termui.py	17	import	src/click/_compat.py	0	module
+src/click/termui.py	18	import	src/click/exceptions.py	0	module
+src/click/termui.py	19	import	src/click/exceptions.py	0	module
+src/click/termui.py	20	import	src/click/globals.py	0	module
+src/click/termui.py	21	import	src/click/types.py	0	module
+src/click/termui.py	22	import	src/click/types.py	0	module
+src/click/termui.py	23	import	src/click/types.py	0	module
+src/click/termui.py	24	import	src/click/utils.py	0	module
+src/click/termui.py	25	import	src/click/utils.py	0	module
+src/click/termui.py	28	import	src/click/_termui_impl.py	0	module
+src/click/termui.py	80	import	-	0	external
+src/click/termui.py	360	import	src/click/_termui_impl.py	0	module
+src/click/termui.py	579	import	src/click/_termui_impl.py	0	module
+src/click/termui.py	909	import	src/click/_termui_impl.py	0	module
+src/click/termui.py	947	import	src/click/_termui_impl.py	0	module
+src/click/termui.py	980	import	src/click/_termui_impl.py	0	module
+src/click/termui.py	988	import	src/click/_termui_impl.py	0	module
+src/click/testing.py	1	import	-	0	external
+src/click/testing.py	3	import	-	0	external
+src/click/testing.py	4	import	-	0	external
+src/click/testing.py	5	import	-	0	external
+src/click/testing.py	6	import	-	0	external
+src/click/testing.py	7	import	-	0	external
+src/click/testing.py	8	import	-	0	external
+src/click/testing.py	9	import	-	0	external
+src/click/testing.py	10	import	-	0	external
+src/click/testing.py	11	import	-	0	external
+src/click/testing.py	12	import	-	0	external
+src/click/testing.py	14	import	src/click/__init__.py	0	module
+src/click/testing.py	15	import	src/click/__init__.py	0	module
+src/click/testing.py	16	import	src/click/__init__.py	0	module
+src/click/testing.py	17	import	src/click/__init__.py	0	module
+src/click/testing.py	18	import	src/click/_compat.py	0	module
+src/click/testing.py	21	import	-	0	external
+src/click/testing.py	23	import	src/click/core.py	0	module
+src/click/testing.py	815	import	-	0	external
+src/click/testing.py	835	import	-	0	external
+src/click/types.py	1	import	-	0	external
+src/click/types.py	3	import	-	0	external
+src/click/types.py	4	import	-	0	external
+src/click/types.py	5	import	-	0	external
+src/click/types.py	6	import	-	0	external
+src/click/types.py	7	import	-	0	external
+src/click/types.py	8	import	-	0	external
+src/click/types.py	9	import	-	0	external
+src/click/types.py	10	import	-	0	external
+src/click/types.py	11	import	-	0	external
+src/click/types.py	12	import	-	0	external
+src/click/types.py	13	import	-	0	external
+src/click/types.py	15	import	src/click/_compat.py	0	module
+src/click/types.py	16	import	src/click/_compat.py	0	module
+src/click/types.py	17	import	src/click/exceptions.py	0	module
+src/click/types.py	18	import	src/click/utils.py	0	module
+src/click/types.py	19	import	src/click/utils.py	0	module
+src/click/types.py	20	import	src/click/utils.py	0	module
+src/click/types.py	25	import	src/click/core.py	0	module
+src/click/types.py	26	import	src/click/core.py	0	module
+src/click/types.py	27	import	src/click/shell_completion.py	0	module
+src/click/types.py	488	import	src/click/shell_completion.py	0	module
+src/click/types.py	640	import	-	0	external
+src/click/types.py	1012	import	src/click/shell_completion.py	0	module
+src/click/types.py	1219	import	src/click/shell_completion.py	0	module
+src/click/utils.py	1	import	-	0	external
+src/click/utils.py	3	import	-	0	external
+src/click/utils.py	4	import	-	0	external
+src/click/utils.py	5	import	-	0	external
+src/click/utils.py	6	import	-	0	external
+src/click/utils.py	7	import	-	0	external
+src/click/utils.py	8	import	-	0	external
+src/click/utils.py	9	import	-	0	external
+src/click/utils.py	10	import	-	0	external
+src/click/utils.py	11	import	-	0	external
+src/click/utils.py	13	import	src/click/_compat.py	0	module
+src/click/utils.py	14	import	src/click/_compat.py	0	module
+src/click/utils.py	15	import	src/click/_compat.py	0	module
+src/click/utils.py	16	import	src/click/_compat.py	0	module
+src/click/utils.py	17	import	src/click/_compat.py	0	module
+src/click/utils.py	18	import	src/click/_compat.py	0	module
+src/click/utils.py	19	import	src/click/_compat.py	0	module
+src/click/utils.py	20	import	src/click/_compat.py	0	module
+src/click/utils.py	21	import	src/click/_compat.py	0	module
+src/click/utils.py	22	import	src/click/globals.py	0	module
+src/click/utils.py	93	import	-	0	external
+src/click/utils.py	161	import	src/click/exceptions.py	0	module
+src/click/utils.py	537	import	-	0	external
+src/click/utils.py	629	import	-	0	external
+src/click/utils.py	654	import	-	0	external
+tests/conftest.py	3	import	src/click/testing.py	0	module
+tests/test_abort_interrupt.py	14	import	-	0	external
+tests/test_abort_interrupt.py	18	import	src/click/__init__.py	0	module
+tests/test_arguments.py	1	import	-	0	external
+tests/test_arguments.py	2	import	-	0	external
+tests/test_arguments.py	3	import	-	0	external
+tests/test_arguments.py	4	import	-	0	external
+tests/test_arguments.py	5	import	-	0	external
+tests/test_arguments.py	8	import	-	0	external
+tests/test_arguments.py	10	import	src/click/__init__.py	0	module
+tests/test_arguments.py	11	import	src/click/_utils.py	0	module
+tests/test_basic.py	1	import	-	0	external
+tests/test_basic.py	3	import	-	0	external
+tests/test_basic.py	4	import	-	0	external
+tests/test_basic.py	8	import	src/click/__init__.py	0	module
+tests/test_basic.py	9	import	src/click/_utils.py	0	module
+tests/test_basic.py	861	import	-	0	external
+tests/test_basic.py	889	import	-	0	external
+tests/test_basic.py	916	import	-	0	external
+tests/test_chain.py	1	import	-	0	external
+tests/test_chain.py	5	import	src/click/__init__.py	0	module
+tests/test_command_decorators.py	3	import	src/click/__init__.py	0	module
+tests/test_commands.py	1	import	-	0	external
+tests/test_commands.py	5	import	src/click/__init__.py	0	module
+tests/test_commands.py	145	import	-	0	external
+tests/test_compat.py	1	import	-	0	external
+tests/test_compat.py	3	import	-	0	external
+tests/test_compat.py	4	import	-	0	external
+tests/test_compat.py	8	import	src/click/__init__.py	0	module
+tests/test_compat.py	9	import	src/click/_compat.py	0	module
+tests/test_compat.py	10	import	src/click/_compat.py	0	module
+tests/test_compat.py	11	import	src/click/_compat.py	0	module
+tests/test_context.py	1	import	-	0	external
+tests/test_context.py	2	import	-	0	external
+tests/test_context.py	3	import	-	0	external
+tests/test_context.py	4	import	-	0	external
+tests/test_context.py	8	import	src/click/__init__.py	0	module
+tests/test_context.py	9	import	src/click/__init__.py	0	module
+tests/test_context.py	10	import	src/click/__init__.py	0	module
+tests/test_context.py	11	import	src/click/__init__.py	0	module
+tests/test_context.py	12	import	src/click/core.py	0	module
+tests/test_context.py	13	import	src/click/decorators.py	0	module
+tests/test_context.py	14	import	src/click/decorators.py	0	module
+tests/test_custom_classes.py	1	import	src/click/__init__.py	0	module
+tests/test_defaults.py	1	import	-	0	external
+tests/test_defaults.py	5	import	src/click/__init__.py	0	module
+tests/test_defaults.py	6	import	src/click/__init__.py	0	module
+tests/test_defaults.py	7	import	src/click/_utils.py	0	module
+tests/test_defaults.py	8	import	src/click/core.py	0	module
+tests/test_deprecations.py	1	import	-	0	external
+tests/test_deprecations.py	2	import	-	0	external
+tests/test_deprecations.py	6	import	src/click/__init__.py	0	module
+tests/test_deprecations.py	7	import	src/click/core.py	0	module
+tests/test_deprecations.py	8	import	src/click/parser.py	0	module
+tests/test_deprecations.py	9	import	src/click/shell_completion.py	0	module
+tests/test_deprecations.py	10	import	src/click/utils.py	0	module
+tests/test_exceptions/test_FileError.py	1	import	src/click/__init__.py	0	module
+tests/test_formatting.py	1	import	-	0	external
+tests/test_formatting.py	5	import	src/click/__init__.py	0	module
+tests/test_formatting.py	6	import	src/click/_compat.py	0	module
+tests/test_imports.py	1	import	-	0	external
+tests/test_imports.py	2	import	-	0	external
+tests/test_imports.py	3	import	-	0	external
+tests/test_imports.py	5	import	src/click/_compat.py	0	module
+tests/test_info_dict.py	3	import	src/click/types.py	0	module
+tests/test_normalization.py	1	import	src/click/__init__.py	0	module
+tests/test_options.py	1	import	-	0	external
+tests/test_options.py	2	import	-	0	external
+tests/test_options.py	3	import	-	0	external
+tests/test_options.py	4	import	-	0	external
+tests/test_options.py	5	import	-	0	external
+tests/test_options.py	6	import	-	0	external
+tests/test_options.py	7	import	-	0	external
+tests/test_options.py	8	import	-	0	external
+tests/test_options.py	9	import	-	0	external
+tests/test_options.py	13	import	src/click/__init__.py	0	module
+tests/test_options.py	14	import	src/click/__init__.py	0	module
+tests/test_options.py	15	import	src/click/__init__.py	0	module
+tests/test_options.py	16	import	src/click/_utils.py	0	module
+tests/test_options.py	17	import	src/click/parser.py	0	module
+tests/test_options.py	18	import	src/click/testing.py	0	module
+tests/test_parser.py	3	import	src/click/__init__.py	0	module
+tests/test_parser.py	4	import	src/click/parser.py	0	module
+tests/test_parser.py	5	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	1	import	-	0	external
+tests/test_shell_completion.py	2	import	-	0	external
+tests/test_shell_completion.py	3	import	-	0	external
+tests/test_shell_completion.py	4	import	-	0	external
+tests/test_shell_completion.py	8	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	9	import	src/click/core.py	0	module
+tests/test_shell_completion.py	10	import	src/click/core.py	0	module
+tests/test_shell_completion.py	11	import	src/click/core.py	0	module
+tests/test_shell_completion.py	12	import	src/click/core.py	0	module
+tests/test_shell_completion.py	13	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	14	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	15	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	16	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	17	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	18	import	src/click/shell_completion.py	0	module
+tests/test_shell_completion.py	19	import	src/click/types.py	0	module
+tests/test_shell_completion.py	20	import	src/click/types.py	0	module
+tests/test_shell_completion.py	21	import	src/click/types.py	0	module
+tests/test_stream_lifecycle.py	44	import	-	0	external
+tests/test_stream_lifecycle.py	46	import	-	0	external
+tests/test_stream_lifecycle.py	47	import	-	0	external
+tests/test_stream_lifecycle.py	48	import	-	0	external
+tests/test_stream_lifecycle.py	49	import	-	0	external
+tests/test_stream_lifecycle.py	50	import	-	0	external
+tests/test_stream_lifecycle.py	51	import	-	0	external
+tests/test_stream_lifecycle.py	55	import	src/click/__init__.py	0	module
+tests/test_stream_lifecycle.py	56	import	src/click/testing.py	0	module
+tests/test_stream_lifecycle.py	57	import	src/click/testing.py	0	module
+tests/test_stream_lifecycle.py	58	import	src/click/testing.py	0	module
+tests/test_stream_lifecycle.py	59	import	src/click/testing.py	0	module
+tests/test_termui.py	1	import	-	0	external
+tests/test_termui.py	2	import	-	0	external
+tests/test_termui.py	3	import	-	0	external
+tests/test_termui.py	4	import	-	0	external
+tests/test_termui.py	5	import	-	0	external
+tests/test_termui.py	6	import	-	0	external
+tests/test_termui.py	7	import	-	0	external
+tests/test_termui.py	8	import	-	0	external
+tests/test_termui.py	9	import	-	0	external
+tests/test_termui.py	10	import	-	0	external
+tests/test_termui.py	11	import	-	0	external
+tests/test_termui.py	12	import	-	0	external
+tests/test_termui.py	13	import	-	0	external
+tests/test_termui.py	17	import	src/click/__init__.py	0	module
+tests/test_termui.py	18	import	src/click/_termui_impl.py	0	module
+tests/test_termui.py	19	import	src/click/_compat.py	0	module
+tests/test_termui.py	20	import	src/click/_termui_impl.py	0	module
+tests/test_termui.py	21	import	src/click/_utils.py	0	module
+tests/test_termui.py	22	import	src/click/exceptions.py	0	module
+tests/test_termui.py	23	import	src/click/exceptions.py	0	module
+tests/test_testing.py	1	import	-	0	external
+tests/test_testing.py	2	import	-	0	external
+tests/test_testing.py	3	import	-	0	external
+tests/test_testing.py	4	import	-	0	external
+tests/test_testing.py	5	import	-	0	external
+tests/test_testing.py	6	import	-	0	external
+tests/test_testing.py	10	import	src/click/__init__.py	0	module
+tests/test_testing.py	11	import	src/click/exceptions.py	0	module
+tests/test_testing.py	12	import	src/click/testing.py	0	module
+tests/test_testing.py	13	import	src/click/utils.py	0	module
+tests/test_testing.py	622	import	-	0	external
+tests/test_testing.py	623	import	-	0	external
+tests/test_testing.py	818	import	-	0	external
+tests/test_types/test_Choice.py	1	import	src/click/__init__.py	0	module
+tests/test_types/test_File.py	3	import	src/click/__init__.py	0	module
+tests/test_types/test_FloatRange.py	3	import	src/click/__init__.py	0	module
+tests/test_types/test_FuncParamType.py	3	import	src/click/__init__.py	0	module
+tests/test_types/test_IntRange.py	3	import	src/click/__init__.py	0	module
+tests/test_types/test_ParamType.py	1	import	-	0	external
+tests/test_types/test_ParamType.py	3	import	src/click/__init__.py	0	module
+tests/test_types/test_Path.py	1	import	-	0	external
+tests/test_types/test_Path.py	2	import	-	0	external
+tests/test_types/test_Path.py	3	import	-	0	external
+tests/test_types/test_Path.py	4	import	-	0	external
+tests/test_types/test_Path.py	5	import	-	0	external
+tests/test_types/test_Path.py	6	import	-	0	external
+tests/test_types/test_Path.py	7	import	-	0	external
+tests/test_types/test_Path.py	11	import	src/click/__init__.py	0	module
+tests/test_types/test_convert_type.py	1	import	-	0	external
+tests/test_types/test_convert_type.py	2	import	-	0	external
+tests/test_types/test_convert_type.py	6	import	src/click/__init__.py	0	module
+tests/test_utils/test_KeepOpenFile.py	1	import	src/click/__init__.py	0	module
+tests/test_utils/test_LazyFile.py	1	import	src/click/__init__.py	0	module
+tests/test_utils/test__detect_program_name.py	1	import	-	0	external
+tests/test_utils/test__detect_program_name.py	5	import	src/click/__init__.py	0	module
+tests/test_utils/test__expand_args.py	1	import	-	0	external
+tests/test_utils/test__expand_args.py	3	import	src/click/__init__.py	0	module
+tests/test_utils/test_confirm.py	1	import	src/click/__init__.py	0	module
+tests/test_utils/test_echo.py	1	import	-	0	external
+tests/test_utils/test_echo.py	2	import	-	0	external
+tests/test_utils/test_echo.py	3	import	-	0	external
+tests/test_utils/test_echo.py	7	import	src/click/_termui_impl.py	0	module
+tests/test_utils/test_echo.py	8	import	src/click/utils.py	0	module
+tests/test_utils/test_echo.py	9	import	src/click/_compat.py	0	module
+tests/test_utils/test_echo_via_pager.py	1	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	2	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	3	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	4	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	5	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	6	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	7	import	-	0	external
+tests/test_utils/test_echo_via_pager.py	11	import	src/click/__init__.py	0	module
+tests/test_utils/test_echo_via_pager.py	12	import	src/click/_compat.py	0	module
+tests/test_utils/test_format_filename.py	1	import	src/click/__init__.py	0	module
+tests/test_utils/test_make_default_short_help.py	3	import	src/click/__init__.py	0	module
+tests/test_utils/test_open_file.py	1	import	-	0	external
+tests/test_utils/test_open_file.py	2	import	-	0	external
+tests/test_utils/test_open_file.py	3	import	-	0	external
+tests/test_utils/test_open_file.py	7	import	src/click/__init__.py	0	module
+tests/test_utils/test_open_file.py	8	import	src/click/_compat.py	0	module
+tests/test_utils/test_prompt.py	1	import	-	0	external
+tests/test_utils/test_prompt.py	2	import	-	0	external
+tests/test_utils/test_prompt.py	6	import	src/click/__init__.py	0	module
+tests/test_utils/test_prompt.py	7	import	src/click/_compat.py	0	module
+tests/test_utils/test_sentinel.py	1	import	-	0	external
+tests/test_utils/test_sentinel.py	2	import	-	0	external
+tests/test_utils/test_sentinel.py	3	import	-	0	external
+tests/test_utils/test_sentinel.py	4	import	-	0	external
+tests/test_utils/test_sentinel.py	8	import	src/click/__init__.py	0	module
+tests/test_utils/test_sentinel.py	9	import	src/click/_utils.py	0	module
+tests/test_utils/test_sentinel.py	10	import	src/click/_utils.py	0	module
+tests/test_utils/test_style.py	3	import	src/click/__init__.py	0	module
+tests/typing/typing_aliased_group.py	3	import	-	0	external
+tests/typing/typing_aliased_group.py	5	import	-	0	external
+tests/typing/typing_aliased_group.py	7	import	src/click/__init__.py	0	module
+tests/typing/typing_confirmation_option.py	3	import	-	0	external
+tests/typing/typing_confirmation_option.py	5	import	src/click/__init__.py	0	module
+tests/typing/typing_edit.py	1	import	-	0	external
+tests/typing/typing_edit.py	2	import	-	0	external
+tests/typing/typing_edit.py	4	import	src/click/__init__.py	0	module
+tests/typing/typing_group_kw_options.py	1	import	-	0	external
+tests/typing/typing_group_kw_options.py	3	import	src/click/__init__.py	0	module
+tests/typing/typing_help_option.py	1	import	-	0	external
+tests/typing/typing_help_option.py	3	import	src/click/__init__.py	0	module
+tests/typing/typing_options.py	3	import	-	0	external
+tests/typing/typing_options.py	5	import	src/click/__init__.py	0	module
+tests/typing/typing_password_option.py	1	import	-	0	external
+tests/typing/typing_password_option.py	2	import	-	0	external
+tests/typing/typing_password_option.py	4	import	src/click/__init__.py	0	module
+tests/typing/typing_path.py	1	import	-	0	external
+tests/typing/typing_path.py	2	import	-	0	external
+tests/typing/typing_path.py	3	import	-	0	external
+tests/typing/typing_path.py	5	import	src/click/__init__.py	0	module
+tests/typing/typing_progressbar.py	1	import	-	0	external
+tests/typing/typing_progressbar.py	3	import	-	0	external
+tests/typing/typing_progressbar.py	5	import	src/click/__init__.py	0	module
+tests/typing/typing_progressbar.py	6	import	src/click/_termui_impl.py	0	module
+tests/typing/typing_prompt.py	1	import	-	0	external
+tests/typing/typing_prompt.py	3	import	src/click/__init__.py	0	module
+tests/typing/typing_simple_example.py	3	import	-	0	external
+tests/typing/typing_simple_example.py	5	import	src/click/__init__.py	0	module
+tests/typing/typing_version_option.py	5	import	-	0	external
+tests/typing/typing_version_option.py	7	import	src/click/__init__.py	0	module

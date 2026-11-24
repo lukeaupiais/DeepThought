@@ -1,0 +1,931 @@
+{
+ "corpus": "apollo-spotify-showcase",
+ "repo": "https://github.com/apollographql/spotify-showcase",
+ "commit": "5a9afc5c96ef5a60f07d438dab5088bf0f6d661e",
+ "license": "MIT",
+ "languages": [
+  "TypeScript (React, Apollo Client)",
+  "TypeScript (Apollo Server subgraphs)",
+  "Apollo Router (YAML)"
+ ],
+ "sources": [
+  "graphql-core parse of every gql/graphql template literal and .graphql/.gql file under the client roots, and of the server schemas; tools/graphql_client_oracle.py with the spec in evals/fixtures/service_contracts/graphql-specs.json",
+  "manual reading of docker-compose.yml, router/router.yaml and client/src/apollo at the pinned commit: the client talks to the router, which plans each root field to the subgraph that declares it"
+ ],
+ "services": [
+  {
+   "name": "playback",
+   "root": "subgraphs/playback"
+  },
+  {
+   "name": "spotify",
+   "root": "subgraphs/spotify"
+  },
+  {
+   "name": "client",
+   "root": "client/src"
+  }
+ ],
+ "summary": {
+  "graphql": {
+   "in_scope": 46,
+   "out_of_scope": 0
+  },
+  "service_pairs_in_scope": [
+   [
+    "client",
+    "playback",
+    "graphql"
+   ],
+   [
+    "client",
+    "spotify",
+    "graphql"
+   ]
+  ]
+ },
+ "links": [
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/components/ContextMenuAction/AddToPlaylist.tsx",
+    "line": 16
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation AddToPlaylistQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#1"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/components/CurrentUserMenu.tsx",
+    "line": 13
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CurrentUserQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#2"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/components/LikeControl.tsx",
+    "line": 22
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation LikeControlQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#3"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/components/LoggedInLayout.tsx",
+    "line": 84
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation SidebarQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#4"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/components/PlaybackStateSubscriber.tsx",
+    "line": 57
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation PlaybackStateSubscriberQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#5"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Subscription.playbackStateChanged",
+   "client": {
+    "file": "client/src/components/PlaybackStateSubscriber.tsx",
+    "line": 71
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 297
+   },
+   "evidence": "operation PlaybackStateSubscriberSubscription",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#6"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/components/Playbar.tsx",
+    "line": 45
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation PlaybarQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#7"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.playlist",
+   "client": {
+    "file": "client/src/components/PlaylistDetailsModal.tsx",
+    "line": 27
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 160
+   },
+   "evidence": "operation PlaylistDetailsModalQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#8"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/hooks/useSavedTracksContains.ts",
+    "line": 20
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation SavedTracksContainsQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#9"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.addItemsToPlaylist",
+   "client": {
+    "file": "client/src/mutations/useAddToPlaylistMutation.ts",
+    "line": 23
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 292
+   },
+   "evidence": "operation AddToPlaylistMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#10"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.addItemToPlaybackQueue",
+   "client": {
+    "file": "client/src/mutations/useAddToQueueMutation.ts",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 285
+   },
+   "evidence": "operation AddToQueueMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#11"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.pausePlayback",
+   "client": {
+    "file": "client/src/mutations/usePausePlaybackMutation.ts",
+    "line": 11
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 51
+   },
+   "evidence": "operation PausePlaybackMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#12"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.removeItemFromPlaylist",
+   "client": {
+    "file": "client/src/mutations/useRemoveFromPlaylistMutation.ts",
+    "line": 13
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 304
+   },
+   "evidence": "operation RemoveFromPlaylistMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#13"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.removeSavedAlbums",
+   "client": {
+    "file": "client/src/mutations/useRemoveSavedAlbumsMutation.ts",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 311
+   },
+   "evidence": "operation RemoveSavedAlbumsMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#14"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.removeSavedTracks",
+   "client": {
+    "file": "client/src/mutations/useRemoveSavedTracksMutation.ts",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 328
+   },
+   "evidence": "operation RemoveSavedTracksMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#15"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.resetFieldConfig",
+   "client": {
+    "file": "client/src/mutations/useResetFieldConfigMutation.ts",
+    "line": 12
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 333
+   },
+   "evidence": "operation ResetFieldConfigMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#16"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.resumePlayback",
+   "client": {
+    "file": "client/src/mutations/useResumePlaybackMutation.ts",
+    "line": 25
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 47
+   },
+   "evidence": "operation ResumePlaybackMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#17"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.saveAlbums",
+   "client": {
+    "file": "client/src/mutations/useSaveAlbumsMutation.ts",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 338
+   },
+   "evidence": "operation SaveAlbumsMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#18"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.saveTracks",
+   "client": {
+    "file": "client/src/mutations/useSaveTracksMutation.ts",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 353
+   },
+   "evidence": "operation SaveTracksMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#19"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.seekToPosition",
+   "client": {
+    "file": "client/src/mutations/useSeekToPositionMutation.ts",
+    "line": 11
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 62
+   },
+   "evidence": "operation SeekToPositionMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#20"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.setRepeatMode",
+   "client": {
+    "file": "client/src/mutations/useSetRepeatModeMutation.ts",
+    "line": 11
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 79
+   },
+   "evidence": "operation SetRepeatModeMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#21"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.setVolume",
+   "client": {
+    "file": "client/src/mutations/useSetVolumeMutation.ts",
+    "line": 13
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 97
+   },
+   "evidence": "operation SetVolumeMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#22"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.shufflePlayback",
+   "client": {
+    "file": "client/src/mutations/useShufflePlaybackMutation.ts",
+    "line": 11
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 110
+   },
+   "evidence": "operation ShufflePlaybackMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#23"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.skipToNext",
+   "client": {
+    "file": "client/src/mutations/useSkipToNextMutation.ts",
+    "line": 8
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 126
+   },
+   "evidence": "operation SkipToNextMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#24"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.skipToPrevious",
+   "client": {
+    "file": "client/src/mutations/useSkipToPreviousMutation.ts",
+    "line": 11
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 136
+   },
+   "evidence": "operation SkipToPreviousMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#25"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "playback",
+   "contract": "Mutation.transferPlayback",
+   "client": {
+    "file": "client/src/mutations/useTransferPlaybackMutation.ts",
+    "line": 12
+   },
+   "server": {
+    "file": "subgraphs/playback/schema.graphql",
+    "line": 141
+   },
+   "evidence": "operation TransferPlaybackMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#26"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Mutation.updateFieldConfig",
+   "client": {
+    "file": "client/src/mutations/useUpdateFieldConfigMutation.ts",
+    "line": 13
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 299
+   },
+   "evidence": "operation UpdateFieldConfigMutation",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#27"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/albums/album.tsx",
+    "line": 33
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation AlbumRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#28"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.album",
+   "client": {
+    "file": "client/src/routes/albums/album.tsx",
+    "line": 36
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 47
+   },
+   "evidence": "operation AlbumRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#29"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.artist",
+   "client": {
+    "file": "client/src/routes/artists/artist.tsx",
+    "line": 21
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 55
+   },
+   "evidence": "operation ArtistRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#30"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/albums.tsx",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionAlbumsRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#31"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/artists.tsx",
+    "line": 14
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionArtistsRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#32"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/playlists.tsx",
+    "line": 18
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionPlaylistsRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#33"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/playlists.tsx",
+    "line": 66
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionPlaylistsRoutePaginatedQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#34"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/podcasts.tsx",
+    "line": 19
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionPodcastsRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#35"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/podcasts.tsx",
+    "line": 46
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionPodcastsRoutePaginatedQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#36"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/collection/tracks.tsx",
+    "line": 40
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation CollectionTracksRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#37"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.episode",
+   "client": {
+    "file": "client/src/routes/episodes/episode.tsx",
+    "line": 15
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 71
+   },
+   "evidence": "operation EpisodeRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#38"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/index.tsx",
+    "line": 28
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation IndexRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#39"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/playlists/playlist.tsx",
+    "line": 35
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation PlaylistQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#40"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.playlist",
+   "client": {
+    "file": "client/src/routes/playlists/playlist.tsx",
+    "line": 40
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 160
+   },
+   "evidence": "operation PlaylistQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#41"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.me",
+   "client": {
+    "file": "client/src/routes/queue.tsx",
+    "line": 43
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 135
+   },
+   "evidence": "operation QueueRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#42"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.search",
+   "client": {
+    "file": "client/src/routes/search/query.tsx",
+    "line": 16
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 194
+   },
+   "evidence": "operation SearchRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#43"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.developer",
+   "client": {
+    "file": "client/src/routes/settings.tsx",
+    "line": 19
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 65
+   },
+   "evidence": "operation SettingsQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#44"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.show",
+   "client": {
+    "file": "client/src/routes/shows/show.tsx",
+    "line": 22
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 233
+   },
+   "evidence": "operation ShowRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#45"
+  },
+  {
+   "kind": "graphql",
+   "from_service": "client",
+   "to_service": "spotify",
+   "contract": "Query.track",
+   "client": {
+    "file": "client/src/routes/tracks/track.tsx",
+    "line": 18
+   },
+   "server": {
+    "file": "subgraphs/spotify/schema.graphql",
+    "line": 249
+   },
+   "evidence": "operation TrackRouteQuery",
+   "in_scope_static": true,
+   "hop": "federated_router",
+   "label_confidence": "high",
+   "id": "apollo-spotify-showcase#46"
+  }
+ ],
+ "dont_care_call_sites": [],
+ "notes": [
+  "client/schema.graphql is the client's copy of the composed supergraph schema and client/src/apollo/localSchema.graphql declares local-only fields; neither is a server. A tool that reads either as a server scope finds every field in two scopes.",
+  "client/src/apollo/persisted-query-manifest.json and client/src/types/api.ts are build outputs that restate the operations; they are not call sites.",
+  "hop=federated_router: the client sends the operation to the router (router/router.yaml), which routes the root field to its subgraph."
+ ],
+ "unmatched_clients": [],
+ "ambiguous_clients": []
+}

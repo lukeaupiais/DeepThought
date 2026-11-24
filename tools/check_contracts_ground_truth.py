@@ -275,6 +275,35 @@ def _message_pairs(endpoints, roots):
     return pairs
 
 
+def _graphql_predictions(output, roots):
+    """REQUESTS edges from client code to a GraphqlField, located at the
+    request (client) and at the field's declaration (server)."""
+    nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
+    predicted = []
+    for rel in output.relationships:
+        if rel.type != "REQUESTS" or "GraphqlField" not in rel.target_labels:
+            continue
+        source = nodes.get(rel.source_match["qualified_name"])
+        field = nodes.get(rel.target_match["qualified_name"])
+        if source is None or field is None:
+            continue
+        file = source.properties["file_path"]
+        predicted.append(
+            {
+                "kind": "graphql",
+                "from_service": _service_of(file, roots),
+                "to_service": _service_of(field.properties["file_path"], roots),
+                "file": file,
+                "line": rel.properties["line"],
+                "server_file": field.properties["file_path"],
+                "server_line": field.properties["line"],
+                "route": field.properties["name"],
+                "rule_id": rel.properties.get("rule_id"),
+            }
+        )
+    return predicted
+
+
 def score(corpus, workspace, line_tolerance=3, kind="http"):
     from deepthought.analysis_tools import ServiceContractTool
 
@@ -319,6 +348,8 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
         )
     if kind == "messaging":
         predicted = _message_pairs(tool.last_messages[0], roots)
+    if kind == "graphql":
+        predicted = _graphql_predictions(output, roots)
     labelled = [link for link in corpus["links"] if link["kind"] == kind]
     report = {
         "corpus": corpus.get("corpus"),

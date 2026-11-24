@@ -79,6 +79,19 @@ class GroundTruthTest(unittest.TestCase):
             [["main.py", 11, "Widget"], ["main.py", 15, "helper"]],
         )
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_typescript"), "TypeScript grammar"
+    )
+    def test_a_private_name_matches_the_index_name_without_its_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "a.ts").write_text(
+                "class K {\n  #run() {}\n  go() { this.#run(); }\n}\n"
+            )
+            result = ground_truth.analyze(Path(directory), ("typescript",))
+        truth = ({("a.ts", 3, "run"): {("a.ts", 2, "callable")}}, {"a.ts"})
+        report, _ = ground_truth.score(result, truth)
+        self.assertEqual((report["confirmed"], report["missed"]), (1, 0))
+
     def test_regressions_against_the_baseline(self):
         baseline = {"expected": 10, "confirmed": 8, "contradicted": 0}
         self.assertEqual(ground_truth.regressions(dict(baseline), baseline), [])
@@ -177,6 +190,33 @@ class JavaTruthTest(unittest.TestCase):
         report, _ = ground_truth.score_inherits(result, truth)
         self.assertEqual((report["confirmed"], report["recall"]), (1, 1.0))
 
+    def test_javac_binds_constructor_chains(self):
+        sources = {
+            "src/a/Base.java": "package a;\npublic class Base {\n"
+            "  public Base(int x) {}\n}\n",
+            "src/b/Square.java": "package b;\nimport a.Base;\n"
+            "public class Square extends Base {\n"
+            "  Square() { this(1); }\n"
+            "  Square(int x) { super(x); }\n"
+            "  static Square make() { return new Square(); }\n}\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in sources.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            chains, _ = ground_truth.derive_java(directory, chains=True)
+        # Only this(...) and super(...), never the `new Square()` call site.
+        self.assertEqual(
+            chains,
+            {
+                ("src/b/Square.java", 4, "this"): {
+                    ("src/b/Square.java", 5, "callable")
+                },
+                ("src/b/Square.java", 5, "super"): {("src/a/Base.java", 3, "callable")},
+            },
+        )
+
 
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter_typescript")
@@ -235,6 +275,82 @@ class AppliedTest(unittest.TestCase):
         self.assertEqual(ground_truth._slice(line, 5, 6, "utf-8"), "f")
 
 
+@unittest.skipUnless(READY, "tree-sitter and grammars are required")
+class ImportTruthTests(unittest.TestCase):
+    """Module references in a hand-built index give each import's target."""
+
+    SOURCES = {
+        "pkg/__init__.py": "",
+        "pkg/b.py": "def f():\n    return 1\n",
+        "pkg/a.py": "from .b import f\nimport os\nfrom pkg import b\nb.f()\n",
+    }
+
+    def setUp(self):
+        from deepthought._scip import scip_pb2
+
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+        for name, text in self.SOURCES.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text)
+        head = "scip-python python pkg "
+        index = scip_pb2.Index()
+
+        def document(path, *occurrences):
+            doc = index.documents.add(relative_path=path)
+            for line, column, symbol, roles in occurrences:
+                doc.occurrences.add(
+                    range=[line, column, column + 1], symbol=symbol, symbol_roles=roles
+                )
+
+        document("pkg/__init__.py", (0, 0, head + "abc `pkg`/__init__:", 1))
+        document("pkg/b.py", (0, 0, head + "abc `pkg.b`/__init__:", 1))
+        document(
+            "pkg/a.py",
+            (0, 0, head + "abc `pkg.a`/__init__:", 1),
+            # scip-python names a relative import's module without its
+            # package, and an installed package's version, not the commit.
+            (0, 5, head + "1.0 b/__init__:", 0),
+            (1, 7, "scip-python python python-stdlib 3.11 os/__init__:", 0),
+            (2, 5, head + "1.0 `pkg`/__init__:", 0),
+            (2, 16, head + "1.0 `pkg.b`/__init__:", 0),
+            # A module used in code is not an import.
+            (3, 0, head + "1.0 `pkg.b`/__init__:", 0),
+        )
+        self.index = self.root / "index.scip"
+        self.index.write_bytes(index.SerializeToString())
+
+    def test_derive_imports(self):
+        expected, indexed = ground_truth.derive_imports(self.root, self.index, "python")
+        self.assertEqual(indexed, set(self.SOURCES))
+        self.assertEqual(
+            expected,
+            {
+                ("pkg/a.py", 1, "import"): {("pkg/b.py", 0, "module")},
+                ("pkg/a.py", 2, "import"): {("-", 0, "external")},
+                ("pkg/a.py", 3, "import"): {("pkg/b.py", 0, "module")},
+            },
+        )
+
+    def test_score_imports(self):
+        truth = ground_truth.derive_imports(self.root, self.index, "python")
+        result = ground_truth.analyze(self.root, ["python"])
+        report, samples = ground_truth.score_imports(result, truth)
+        self.assertEqual(report["expected"], 2)
+        self.assertEqual(report["contradicted"], 0)
+        self.assertEqual(report["recall"], 1.0)
+        self.assertEqual(report["confirmed"], 2)
+        self.assertEqual(samples["missed"], [])
+        # A truth naming another module contradicts the engine's link.
+        wrong = (
+            {**truth[0], ("pkg/a.py", 1, "import"): {("pkg/__init__.py", 0, "module")}},
+            truth[1],
+        )
+        report, samples = ground_truth.score_imports(result, wrong)
+        self.assertEqual(report["contradicted"], 1)
+        self.assertEqual(samples["missed"], [["pkg/a.py", 1]])
+
+
 class CorpusFilesTest(unittest.TestCase):
     def test_every_corpus_is_pinned_and_has_truth_and_baseline(self):
         corpus = ROOT / "evals" / "ground_truth"
@@ -250,6 +366,15 @@ class CorpusFilesTest(unittest.TestCase):
                 for targets in expected.values()
             )
             self.assertEqual(callable_keys, baseline[entry["name"]]["expected"])
+            if "imports" in entry:
+                imports, _ = ground_truth.read_truth(corpus / entry["imports"])
+                repository = sum(
+                    any(t[2] == "module" for t in targets)
+                    for targets in imports.values()
+                )
+                self.assertEqual(
+                    repository, baseline[entry["name"]]["imports"]["expected"]
+                )
 
     def test_every_contract_corpus_matches_its_labels_and_baseline(self):
         corpus = ROOT / "evals" / "ground_truth"
@@ -334,6 +459,165 @@ class DeclarationRegressionTests(unittest.TestCase):
             self.assertEqual(
                 len(rows), baseline["declarations"][entry["name"]]["expected"]
             )
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_typescript"), "the TypeScript grammar"
+)
+class RouteTruthTests(unittest.TestCase):
+    FILES = {
+        "package.json": '{"name": "app"}',
+        "src/main.ts": (
+            "import { NestFactory } from '@nestjs/core';\n"
+            "async function boot() {\n"
+            "  const app = await NestFactory.create(AppModule);\n"
+            "  app.setGlobalPrefix('api');\n"
+            "}\n"
+        ),
+        "src/cats.controller.ts": (
+            "import { Controller, Get, Post } from '@nestjs/common';\n"
+            "@Controller('cats')\n"
+            "export class CatsController {\n"
+            "  @Get(':id')\n  one() {}\n"
+            "  @Post()\n  add() {}\n"
+            "  @Get('extra')\n  extra() {}\n"
+            "}\n"
+        ),
+        "src/schema.graphql": "type Query {\n  cat: String\n  dog: String\n}\n",
+        "src/cats.resolver.ts": (
+            "import { Query, Resolver } from '@nestjs/graphql';\n"
+            "@Resolver()\n"
+            "export class CatsResolver {\n"
+            "  @Query(() => String)\n  cat() {}\n"
+            "}\n"
+        ),
+    }
+
+    def test_routes_and_handled_fields_against_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            for name, text in self.FILES.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels = Path(tmp) / "labels.json"
+            labels.write_text(
+                json.dumps(
+                    {
+                        "http": [["GET", "/api/cats/{var}"], ["DELETE", "/api/cats"]],
+                        "neutral_http": [["GET", "/api/cats/extra"]],
+                        "graphql": ["Query.cat", "Query.dog"],
+                    }
+                ),
+                "utf-8",
+            )
+            report, samples = ground_truth.score_routes({"labels": labels}, root)
+        # POST /api/cats is read but not labelled; DELETE is labelled, not read.
+        self.assertEqual(report["http"], {"expected": 2, "found": 1, "extra": 1})
+        self.assertEqual(samples["http"]["extra"], [("POST", "/api/cats")])
+        # Query.dog is declared but has no resolver, so it is not found.
+        self.assertEqual(report["graphql"], {"expected": 2, "found": 1, "extra": 0})
+        baseline = {"http": {"expected": 2, "found": 2, "extra": 0}}
+        self.assertEqual(
+            ground_truth.route_regressions(report, baseline),
+            ["http found 2 -> 1", "http extra 0 -> 1"],
+        )
+
+
+class SummaryTests(unittest.TestCase):
+    def test_changed_scores_show_their_difference(self):
+        base = {
+            "a": {
+                "confirmed": 10,
+                "contradicted": 0,
+                "recall": 0.5,
+                "impact": {"confirmed": 4, "extra": 1, "recall": 0.2, "precision": 0.8},
+            },
+            "declarations": {"d": {"found": 5, "kind_mismatch": 1, "extra": 0}},
+        }
+        reports = {
+            "a": {
+                "confirmed": 12,
+                "contradicted": 0,
+                "recall": 0.6,
+                "impact": {
+                    "confirmed": 6,
+                    "extra": 1,
+                    "recall": 0.3,
+                    "precision": 0.8571,
+                },
+                "regressions": [],
+            },
+            "d": {
+                "declarations": {"found": 5, "kind_mismatch": 2, "extra": 0},
+                "regressions": ["kind_mismatch 1 -> 2"],
+            },
+        }
+        text = ground_truth.summary(reports, base)
+        self.assertIn(
+            "| a | calls | confirmed 12 (**+2**), contradicted 0, recall 0.6 (**+0.1**) |",
+            text,
+        )
+        self.assertIn("| a | impact | confirmed 6 (**+2**), extra 1,", text)
+        self.assertIn("| d | **regressions** | kind_mismatch 1 -> 2 |", text)
+
+    def test_route_corpora_show_each_kind(self):
+        base = {"routes": {"r": {"http": {"expected": 3, "found": 2, "extra": 0}}}}
+        reports = {
+            "r": {
+                "routes": {"http": {"expected": 3, "found": 3, "extra": 0}},
+                "regressions": [],
+            }
+        }
+        self.assertIn(
+            "| r | routes (http) | found 3 (**+1**), extra 0, expected 3 |",
+            ground_truth.summary(reports, base),
+        )
+
+
+class OverloadTargetTests(unittest.TestCase):
+    """Every declaration of an @overload group is a target of its calls."""
+
+    SOURCE = (
+        "@overload\n"
+        "def f(x: int) -> int: ...\n"
+        "@overload\n"
+        "def f(x: str) -> str: ...\n"
+        "def f(x):\n"
+        "    return x\n"
+        "f(1)\n"
+    )
+
+    def test_overloads_and_implementation_are_targets(self):
+        from deepthought._scip import scip_pb2
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        (root / "m.py").write_text(self.SOURCE)
+        symbol = "scip-python python pkg 1.0 `m`/f()."
+        index = scip_pb2.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        doc = index.documents.add(relative_path="m.py", position_encoding=1)
+        # The first stub is the definition; the others, implementation
+        # included, are references on their `def` lines; then the call.
+        for line, roles in ((1, 1), (3, 8), (4, 8), (6, 8)):
+            doc.occurrences.add(
+                range=[line, 4 if line < 6 else 0, 5 if line < 6 else 1],
+                symbol=symbol,
+                symbol_roles=roles,
+            )
+        (root / "index.scip").write_bytes(index.SerializeToString())
+        expected, _ = ground_truth.derive(root, root / "index.scip")
+        self.assertEqual(
+            expected,
+            {
+                ("m.py", 7, "f"): {
+                    ("m.py", 2, "callable"),
+                    ("m.py", 4, "callable"),
+                    ("m.py", 5, "callable"),
+                }
+            },
+        )
 
 
 class ContractRegressionTests(unittest.TestCase):

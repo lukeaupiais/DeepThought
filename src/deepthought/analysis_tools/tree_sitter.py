@@ -289,8 +289,15 @@ _CALL_RULE_TEXT = {
     call_rules.CALL_MODULE_ATTRIBUTE: "A callee 'module.name' uses a module "
     "import binding whose file declares that name at top level; a Go import "
     "without an alias binds the imported package's declared name.",
+    call_rules.CALL_PYTHON_REEXPORT: "A Python callee bound by an import, bare "
+    "or as 'module.name', names a module that does not declare the name but "
+    "binds it with exactly one 'from M import name'; that import is followed, "
+    "step by step, to the module that declares it at top level.",
     call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
     "method declared in the enclosing class body; inheritance is not followed.",
+    call_rules.CALL_PRIVATE_NAME: "A JavaScript or TypeScript 'obj.#m()' "
+    "names a private method that the innermost enclosing class declares, "
+    "whatever 'obj' is; private names are scoped to the class body.",
     call_rules.CALL_PACKAGE_NAME: "A bare callee name equals a function declared "
     "at top level by another file in the same directory with the same package "
     "clause; build constraints are not evaluated.",
@@ -316,11 +323,19 @@ CALL_RULES = {
     for rule_id, text in _CALL_RULE_TEXT.items()
 }
 # Rust has no overloading: a call path read like a use path names one
-# declaration in each configuration.
+# declaration in each configuration. A Go variable's type is the one its
+# declaration writes, and a type's own methods come before promoted ones.
 CALL_RULES.update(
     {
         rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
         for rule_id, text in {
+            call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' where x is "
+            "declared in the function around the call (a parameter, receiver, "
+            "named result, 'var x T', or 'x := T{...}', '&T{...}' or "
+            "'new(T)', the innermost declaration visible at the call) links to "
+            "the method M declared on T, in the caller's package or, for "
+            "'pkg.T', in the package the file imports as pkg; promoted methods "
+            "of embedded fields are not followed.",
             call_rules.RUST_CALL_PATH: "A Rust call's path, read from the "
             "caller's module as a use path is (through modules, uses and globs, "
             "after the uses written in the function bodies around the call), "

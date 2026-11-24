@@ -15,11 +15,17 @@
 // of a class, interface, enum or record: the type's file, name line and name,
 // then the bound supertype with kind `type` (or `external`).
 //
+// With --chains first, prints instead only the explicit constructor
+// invocations, `this(...)` and `super(...)`, bound to a constructor of the
+// repository: the row's name is `this` or `super`. Call sites leave them out
+// (they name no declaration), but a constructor that delegates depends on the
+// one it calls, which impact truth needs.
+//
 // Usage:
 //   java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED \
 //     --add-exports jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED \
 //     --add-exports jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED \
-//     tools/JavaCallTruth.java [--bases] REPOSITORY ROOT [SOURCEPATH_ROOT ...]
+//     tools/JavaCallTruth.java [--bases | --chains] REPOSITORY ROOT [SOURCEPATH_ROOT ...]
 
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -90,7 +96,8 @@ public class JavaCallTruth {
 
     public static void main(String[] arguments) throws Exception {
         boolean bases = arguments.length > 0 && arguments[0].equals("--bases");
-        String[] args = bases
+        boolean chains = arguments.length > 0 && arguments[0].equals("--chains");
+        String[] args = bases || chains
             ? java.util.Arrays.copyOfRange(arguments, 1, arguments.length) : arguments;
         repository = Path.of(args[0]).toAbsolutePath().normalize();
         Path root = repository.resolve(args[1]);
@@ -129,9 +136,16 @@ public class JavaCallTruth {
                         bound = null;
                     }
                     long end = positions.getEndPosition(unit, name);
-                    // super(...) and this(...) name no declaration.
-                    if (bound == null || end < 0 || text.equals("super") || text.equals("this")) return;
+                    boolean chain = text.equals("super") || text.equals("this");
+                    // super(...) and this(...) name no declaration: printed
+                    // only with --chains, and then nothing else is.
+                    if (bound == null || end < 0 || chain != chains) return;
                     long line = lines.getLineNumber(end - text.length());
+                    if (chain) {
+                        if (!bound.endsWith("\tcallable")) return;
+                        System.out.println(file + "\t" + line + "\t" + text + "\t" + bound);
+                        return;
+                    }
                     System.out.println(file + "\t" + line + "\t" + text + "\t" + bound);
                     if (element != null && element.getKind() == ElementKind.CONSTRUCTOR) {
                         // A call that names a class is a construction of it.
@@ -188,7 +202,7 @@ public class JavaCallTruth {
 
                 @Override
                 public Void visitNewClass(NewClassTree node, Void unused) {
-                    if (!bases && node.getClassBody() == null) {
+                    if (!bases && !chains && node.getClassBody() == null) {
                         name(node.getIdentifier(), trees.getElement(getCurrentPath()));
                     }
                     return super.visitNewClass(node, unused);
