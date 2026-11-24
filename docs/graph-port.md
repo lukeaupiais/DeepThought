@@ -735,7 +735,9 @@ anonymous classes around it (`anonymous`: base, the scope its methods are
 named in, first and last line); other calls do not have the field.
 
 A type's methods named `m` are the ones it declares, then those its
-repository bases have, followed in source order (a class's superclass
+repository bases have (a `private` method is not inherited, so it counts
+only in the type that declares it; Java methods and constructors record
+`private`), followed in source order (a class's superclass
 first) through every level. A nearer method with the same parameter shape (below)
 overrides an inherited one, and a method declared in a class (the
 superclass chain) also implements a same-shaped interface method; methods of
@@ -839,9 +841,9 @@ line); a `new` binds the class it creates.
 
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
-| google/gson | 7,275 / 7,278 | 0 | 3 | 2,167 | 124 |
+| google/gson | 7,282 / 7,285 | 0 | 3 | 2,160 | 124 |
 | apache/commons-lang | 23,855 / 25,038 | 0 | 1,183 | 11,306 | 380 |
-| google/guava | 55,803 / 55,972 | 2 | 167 | 65,153 | 3,439 |
+| google/guava | 55,814 / 55,981 | 0 | 167 | 65,144 | 3,439 |
 | junit-team/junit5 | 22,595 / 23,271 | 8 | 668 | 9,624 | 1,987 |
 
 `tree-sitter.java-call-typed-receiver` accounts for 3,123, 5,057, 7,280 and
@@ -862,11 +864,10 @@ methods are the same case. 74 guava links of the new rule are to repository
 methods javac leaves unbound; they were sampled, not checked one by one.
 Deciding overrides by parameter types (above) removes the commons-lang
 contradictions (`Range.fit(T)` and `LongRange.fit(long)`) and 33 of
-guava's (`putBytes`, `hashBytes`, `append`). The two left in guava link
-`getUninterruptibly` in `AggregateFuture` to a private method of its
-superclass `AbstractFuture`, which Java does not inherit, instead of the
-statically imported `Uninterruptibles.getUninterruptibly`; method access
-is not read yet. junit5's 8 (`getFullyQualifiedMethodName`) pick a method
+guava's (`putBytes`, `hashBytes`, `append`); not inheriting private
+methods removes the last two (`getUninterruptibly` in `AggregateFuture`
+had linked to `AbstractFuture`'s private method instead of the statically
+imported `Uninterruptibles.getUninterruptibly`). junit5's 8 (`getFullyQualifiedMethodName`) pick a method
 by name and arity where javac picks another of the same arity by argument
 types. junit5 indents with tabs; the oracle counts a tab as one
 column, as the analysis does, rather than expanding it to the next tab stop

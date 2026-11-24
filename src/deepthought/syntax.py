@@ -239,6 +239,8 @@ def extract(
                         _java_parameter_type(c, content, variables) for c in declared
                     ),
                 }
+                if _java_private(node, content):
+                    arity["private"] = True
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -1864,6 +1866,14 @@ _JAVA_METHODS = {
     "constructor_declaration",
     "compact_constructor_declaration",
 }
+
+
+def _java_private(node, content):
+    """Whether a Java method or constructor is declared ``private``."""
+    modifiers = next((c for c in node.children if c.type == "modifiers"), None)
+    return modifiers is not None and any(
+        c.type == "private" for c in modifiers.children
+    )
 
 
 def _java_type_variables(node, content, depth=None):

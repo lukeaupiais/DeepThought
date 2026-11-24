@@ -412,7 +412,8 @@ class _JavaScope:
         for base in self.bases.get((file, symbol), ()):
             for t in self.type(file, outer, base):
                 for m in self._inherit(t.file, t.symbol, name, seen):
-                    if not _overridden(m, shapes):
+                    # A private method is not inherited.
+                    if not m.definition.private and not _overridden(m, shapes):
                         inherited.setdefault(m.id, _Member(m.definition, True))
             # A method declared in a class (the superclass chain) implements
             # a same-shaped interface method rather than competing with it;
@@ -430,8 +431,9 @@ class _JavaScope:
 
     def anonymous_members(self, file, anonymous, name):
         """Methods ``name`` of an anonymous class: declared in its body, then
-        inherited from its base (unless a body method of the same parameter
-        count overrides them). A base outside the repository adds none."""
+        inherited from its base (unless a body method of the same shape
+        overrides them, and except private ones). A base outside the
+        repository adds none."""
         base, scope, first, last = anonymous
         found = [
             _Member(m, False)
@@ -442,7 +444,7 @@ class _JavaScope:
         inherited = {}
         for t in self.type(file, scope.split("."), base):
             for m in self.members(t.file, t.symbol, name):
-                if not _overridden(m, shapes):
+                if not m.definition.private and not _overridden(m, shapes):
                     inherited.setdefault(m.id, _Member(m.definition, True))
         return found + list(inherited.values())
 

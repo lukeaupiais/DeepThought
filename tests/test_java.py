@@ -656,6 +656,59 @@ class JavaTests(unittest.TestCase):
             ],
         )
 
+    def test_private_methods_are_not_inherited(self):
+        files = {
+            "src/p/Util.java": (
+                "package p;\nclass Util { static int get(Object o) { return 0; } }\n"
+            ),
+            "src/p/Base.java": (
+                "package p;\n"
+                "class Base {\n"
+                "  private static int get(Object o) { return 1; }\n"
+                "  private void own() { get(null); }\n"  # 4: its own
+                "  void open() {}\n"
+                "}\n"
+            ),
+            "src/p/Sub.java": (
+                "package p;\n"
+                "import static p.Util.get;\n"
+                "class Sub extends Base {\n"
+                "  void m(Sub s) {\n"
+                "    get(null);\n"  # 5: the import, not Base's private get
+                "    s.own();\n"  # 6: not inherited
+                "    s.open();\n"  # 7
+                "    new Base() {\n"
+                "      void f() { own(); }\n"  # 9: not inherited either
+                "    };\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        methods = {d.symbol: d for d in result.definitions if d.kind == "Method"}
+        self.assertTrue(methods["Base.own"].private)
+        self.assertIsNone(methods["Base.open"].private)
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].line): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual(
+            found[("src/p/Base.java", 4)],
+            ("Base.get", JAVA_ENCLOSING_METHOD),
+        )
+        self.assertEqual(found[("src/p/Sub.java", 5)], ("Util.get", JAVA_STATIC_IMPORT))
+        self.assertEqual(found[("src/p/Sub.java", 6)], (None, "not_declared_in_type"))
+        self.assertEqual(
+            found[("src/p/Sub.java", 7)], ("Base.open", JAVA_INHERITED_METHOD)
+        )
+        self.assertEqual(found[("src/p/Sub.java", 9)], (None, "unbound_name"))
+
     def test_calls_on_variables_whose_declaration_writes_the_type(self):
         files = {
             "src/p/Foo.java": (

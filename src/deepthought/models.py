@@ -50,6 +50,9 @@ class Definition:
     # Java methods and constructors: each parameter's type as written,
     # without type arguments (``List``, ``int[]``, ``T``). None elsewhere.
     parameter_types: tuple[str, ...] | None = None
+    # Java methods and constructors declared ``private``, which subtypes do
+    # not inherit: True. None elsewhere.
+    private: bool | None = None
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
@@ -62,6 +65,8 @@ class Definition:
             or not all(isinstance(t, str) and t for t in self.parameter_types)
         ):
             raise ValueError("parameter_types must be a tuple of nonempty strings")
+        if self.private is not None and self.private is not True:
+            raise ValueError("private must be True or None")
         if self.overload is not None and self.overload is not True:
             raise ValueError("overload must be True or None")
         if self.macro_export is not None and type(self.macro_export) is not bool:
@@ -528,6 +533,8 @@ class AnalysisResult:
                 del item["parameters"], item["variadic"]
             if item["parameter_types"] is None:
                 del item["parameter_types"]
+            if item["private"] is None:
+                del item["private"]
             if item["macro_export"] is None:
                 del item["macro_export"]
             if item["overload"] is None:
