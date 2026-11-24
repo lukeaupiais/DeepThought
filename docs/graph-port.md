@@ -2158,17 +2158,35 @@ unread reasons:
   that is not a literal.
 
 A functional bean in a module without a stream binder binds nothing and is
-not counted. One with both binders is `binder_unknown`.
+not counted. When the build that would show a binder is not fully read,
+for example a Gradle `project(':x')` the settings do not lead to, the bean
+is `build_not_read`. A bean in a stream module that no service runs (no
+`spring.application.name`) is `no_service`, like any other site.
+
+Gradle builds are read like Maven ones. A `build.gradle(.kts)` without a
+`pom.xml` gives its quoted `group:artifact` coordinates and its
+`project(':path')` dependencies, resolved from the nearest
+`settings.gradle`; comments are skipped.
+
+A service with both binders uses, for each binding, the binder named by
+`spring.cloud.stream.bindings.<binding>.binder` or else by
+`spring.cloud.stream.default-binder` (`defaultBinder`). These are read only
+from configuration documents that activate on no profile, and a name is
+mapped to its broker by `spring.cloud.stream.binders.<name>.type` or the
+standard names (`rabbit`, `kafka`, `kstream`). Without such a name the
+site is `binder_unknown`. This applies to every Spring Cloud Stream site,
+not only the functional ones.
 
 Checked on `spring-cloud/spring-cloud-stream-samples` (commit `2ff1168`):
 I labelled by hand every binding of the nine function-based applications
-that name a service (`spring.application.name`), 24 in all. The 16 read
-all have the configured destination. The other 8 are unread, not wrong:
+that name a service (`spring.application.name`), 24 in all. The 19 read
+all have the configured destination. The other 5 are unread, not wrong:
 
 - the three branch outputs of `kafka-streams-branching`, one
   `function_outputs` fact;
-- the five bindings of `kafka-streams-to-rabbitmq`, which uses both
-  binders, `binder_unknown`.
+- two bindings of `kafka-streams-to-rabbitmq`, which uses both binders.
+  The other three name their binder per binding and are read. The
+  remaining `process` function names none, so it is `binder_unknown`.
 
 Samples without a `spring.application.name` are not services here and give
 nothing.
