@@ -50,7 +50,8 @@ def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
     sent to a host configured elsewhere, so under ``http-path`` the routes
     of its own project (``project``: file -> project directory) are not
     candidates. A file whose project is not known (``project`` gives
-    None) excludes nothing.
+    None) excludes nothing, nor does a test's request, since tests
+    usually call their own project's service.
     """
     templates = [
         (
@@ -99,6 +100,7 @@ def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
             if (
                 project is not None
                 and not forwarded
+                and not getattr(request, "test_source", False)
                 and request.url.startswith(PLACEHOLDER)
             ):
                 own = project(request.file)

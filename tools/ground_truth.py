@@ -73,6 +73,53 @@ def _descriptor_name(native_id):
     return names[-1] if names else None
 
 
+_SELF_BUILTIN = re.compile(
+    r"\b(?:self|cls)\.\s*\0scip-python python python-stdlib \S+ builtins/[^#/]+(?:#|\(\)\.)$"
+)
+_ALL = re.compile(r"^__all__\s*=\s*[\[(]([^\])]*)[\])]", re.M)
+
+
+def _star_export(native_id, written, file, defined, text_of):
+    """The symbol a name re-exported by ``from .m import *`` really names.
+
+    scip-python 0.6.8 gives every name that a package re-exports from a
+    module through ``from .m import *`` one symbol of that module, whatever
+    the name: ``httpx.Response(...)`` is recorded as ``_models/Request#``.
+    When the written name differs from the symbol's, the module lists the
+    written name in ``__all__`` and the index defines that name as a
+    sibling symbol of the same module, the sibling is the one Python binds.
+    A name the referencing file binds with ``import ... as`` is an alias and
+    keeps its symbol. A differing name that cannot be placed otherwise (a
+    re-export through two star imports) returns None: the row is unjudged.
+    """
+    if (
+        not native_id.startswith("scip-python ")
+        or native_id not in defined
+        or not _NAME.fullmatch(written)
+    ):
+        return native_id
+    match = re.search(r"(`?)([A-Za-z_]\w*)\1(#|\(\)\.)$", native_id)
+    if not match or match.group(2) == written or "#" in native_id[: match.start()]:
+        return native_id
+    alias = re.compile(r"\bimport\b.*\bas\s+" + re.escape(written) + r"\b")
+    if any(alias.search(line) for line in text_of(file)):
+        return native_id
+    files = {file for file, _, _ in defined.get(native_id, ())}
+    if len(files) != 1:
+        return None
+    exported = _ALL.search("\n".join(text_of(next(iter(files)))))
+    if not exported or not re.search(
+        r"[\"']" + re.escape(written) + r"[\"']", exported.group(1)
+    ):
+        return None
+    prefix = native_id[: match.start()]
+    for suffix in ("#", "()."):
+        sibling = prefix + written + suffix
+        if sibling in defined:
+            return sibling
+    return None
+
+
 def _callable(native_id):
     return native_id.endswith(("().", "#")) and not native_id.startswith("local ")
 
@@ -246,8 +293,16 @@ def derive(workspace, index):
             # A tuple-struct pattern names a variant or struct before an
             # opening parenthesis without calling it.
             continue
-        if r.native_id in defined:
-            targets = defined[r.native_id]
+        native = _star_export(r.native_id, written, r.file, defined, text_of)
+        if native is None or _SELF_BUILTIN.search(
+            _slice(line, 0, r.column, encoding) + "\0" + r.native_id
+        ):
+            # scip-python binds `self.set(...)` in a class that defines
+            # `set` to the builtin `set`: an attribute of self is never a
+            # top-level builtin, so the row is left unjudged.
+            continue
+        if native in defined:
+            targets = defined[native]
         elif r.native_id.startswith("local "):
             # scip-typescript names a local class's constructor
             # `local N`<constructor>`().` without defining it: the call
@@ -409,8 +464,24 @@ def _at(definition):
     return (definition.file, definition.line) if definition else None
 
 
-def score(result, truth, examples=10):
-    """Judge every engine call resolution against expected calls."""
+# Columns of ``score --disagreements``: covered call sites whose SCIP and
+# parser targets differ ("-" and 0 where a side has none).
+DISAGREEMENT_COLUMNS = (
+    "file",
+    "line",
+    "callee",
+    "scip_target_file",
+    "scip_target_line",
+    "ts_target_file",
+    "ts_target_line",
+    "reason",
+    "rule",
+)
+
+
+def score(result, truth, examples=10, resolutions=None):
+    """Judge every engine call resolution (``resolutions``, by default the
+    parser's) against expected calls."""
     from deepthought.calls import resolve_calls
 
     positions, indexed = truth
@@ -441,7 +512,7 @@ def score(result, truth, examples=10):
     samples = {}
     # Why each expected call has no confirmed link, by engine outcome.
     near = {}
-    for resolution in resolve_calls(result):
+    for resolution in resolve_calls(result) if resolutions is None else resolutions:
         site = sites[resolution.call_id]
         # TypeScript private names: the index names `#m` as `m`. PHP callees
         # are written `$this->m`, `C::m` and `A\f`.
@@ -1688,6 +1759,18 @@ def main(argv=None):
     s.add_argument("truth", type=Path)
     s.add_argument("--language", action="append", required=True)
     s.add_argument("--exclude", action="append", default=[])
+    s.add_argument(
+        "--scip",
+        action="append",
+        type=Path,
+        default=[],
+        help="Bind calls from this SCIP index of the workspace (repeatable)",
+    )
+    s.add_argument(
+        "--disagreements",
+        type=Path,
+        help="With --scip: write call sites where SCIP and parser targets differ",
+    )
     c = sub.add_parser("check")
     c.add_argument("--corpus", action="append", default=[])
     c.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
@@ -1716,10 +1799,36 @@ def main(argv=None):
         )
         return 0
     if args.command == "score":
+        result = analyze(args.workspace, args.language, args.exclude)
+        resolutions = None
+        if args.scip:
+            # Calls bound from SCIP indexes of the workspace. Truth derived
+            # from the same indexer checks the binding, not the indexer.
+            import deepthought
+            from deepthought.scip_calls import bind_calls
+
+            binding = bind_calls(
+                result,
+                [
+                    (deepthought.ingest_scip(path, repository_id="truth"), "-")
+                    for path in args.scip
+                ],
+                args.workspace,
+            )
+            resolutions = binding.resolutions
+            if args.disagreements is not None:
+                args.disagreements.write_text(
+                    "".join(
+                        row + "\n"
+                        for row in (
+                            "# " + "\t".join(DISAGREEMENT_COLUMNS),
+                            *(d.row() for d in binding.disagreements),
+                        )
+                    ),
+                    "utf-8",
+                )
         report, samples = score(
-            analyze(args.workspace, args.language, args.exclude),
-            read_truth(args.truth),
-            args.examples,
+            result, read_truth(args.truth), args.examples, resolutions
         )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0
