@@ -45,7 +45,7 @@ instantiations, inheritance or architectural roles from reference occurrences.
 Provision dependencies separately:
 
 ```sh
-pip install '.[python,typescript,scip]'  # add javascript or go for those sources
+pip install '.[python,typescript]'  # add javascript or go for those sources
 deepthought analyze ./workspace --repository-id my-project --language python
 deepthought ingest-scip ./index.scip --repository-id my-project
 deepthought compose ./analysis.json ./dependency-analysis.json

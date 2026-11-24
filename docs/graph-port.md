@@ -150,8 +150,9 @@ Tree-sitter extraction records each call whose callee is a plain or dotted name
 enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
-inheritance and dynamic dispatch are not checked. Resolved call edges come from
-SCIP. The original builder's `confidence` floats and its `resolved_method` label
+inheritance and dynamic dispatch are not checked. No CALLS edge comes from SCIP
+yet: the `scip` tool records references, file dependencies and implementations,
+and the original's SCIP tool did not write CALLS either. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 
