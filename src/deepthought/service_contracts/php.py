@@ -272,7 +272,13 @@ def _curl_method(function, variable, content, folder):
     return method
 
 
-_GUZZLE_TYPES = ("GuzzleHttp\\Client", "GuzzleHttp\\ClientInterface")
+# Client types and the client their requests are made with.
+_CLIENT_TYPES = {
+    "GuzzleHttp\\Client": "guzzle",
+    "GuzzleHttp\\ClientInterface": "guzzle",
+    "Symfony\\Contracts\\HttpClient\\HttpClientInterface": "symfony-http",
+}
+_SYMFONY_FACTORY = "Symfony\\Component\\HttpClient\\HttpClient"
 _HTTP_FACADE = "Illuminate\\Support\\Facades\\Http"
 _CLIENT_VERBS = {
     m.lower(): m for m in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
@@ -310,8 +316,8 @@ def _enclosing(node, kinds):
 
 
 def _client_requests(root, content, folder, laravel):
-    """(call node, client, method or None, URL) of each Guzzle or Laravel
-    HTTP client request in the file."""
+    """(call node, client, method or None, URL) of each Guzzle, Symfony or
+    Laravel HTTP client request in the file."""
     uses, _ = _uses(root, content)
 
     def qualified(written):
@@ -319,34 +325,56 @@ def _client_requests(root, content, folder, laravel):
         head, _, rest = written.partition("\\")
         return uses[head] + ("\\" + rest if rest else "") if head in uses else written
 
-    def guzzle_type(node):
-        return node is not None and qualified(_text(node, content)) in _GUZZLE_TYPES
+    def client_type(node):
+        """The client a type names, else None."""
+        return _CLIENT_TYPES.get(qualified(_text(node, content))) if node else None
 
     def creation(node):
-        """The base URL ("" for none) of ``new Client([...])``, else None."""
-        if node is None or node.type != "object_creation_expression":
+        """(client, base URL: "" for none) of ``new GuzzleHttp\\Client([...])``,
+        ``HttpClient::create([...])`` or ``HttpClient::createForBaseUri(...)``,
+        else None."""
+        if node is None:
             return None
-        named = [c for c in node.named_children if c.type in ("name", "qualified_name")]
-        if not named or qualified(_text(named[0], content)) != _GUZZLE_TYPES[0]:
+        if node.type == "object_creation_expression":
+            named = [
+                c for c in node.named_children if c.type in ("name", "qualified_name")
+            ]
+            if not named or qualified(_text(named[0], content)) != "GuzzleHttp\\Client":
+                return None
+            client = "guzzle"
+            holder = next(
+                (c for c in node.named_children if c.type == "arguments"), None
+            )
+        elif node.type == "scoped_call_expression":
+            scope = node.child_by_field_name("scope")
+            name = _text(node.child_by_field_name("name"), content)
+            if qualified(_text(scope, content)) != _SYMFONY_FACTORY or name not in (
+                "create",
+                "createForBaseUri",
+            ):
+                return None
+            client = "symfony-http"
+            holder = node.child_by_field_name("arguments")
+        else:
             return None
-        holder = next((c for c in node.named_children if c.type == "arguments"), None)
         arguments = [
             c.named_children[-1]
             for c in (holder.named_children if holder is not None else ())
             if c.type == "argument" and c.named_children
         ]
         if not arguments:
-            return ""
+            return client, ""
+        if node.type == "scoped_call_expression" and name == "createForBaseUri":
+            return client, folder.evaluate(arguments[0])
         keyed, _ = _array(arguments[0], content)
-        return folder.evaluate(keyed["base_uri"]) if "base_uri" in keyed else ""
+        return client, folder.evaluate(keyed["base_uri"]) if "base_uri" in keyed else ""
 
     def typed(parameter_or_property):
-        kind = parameter_or_property.child_by_field_name("type")
-        return guzzle_type(kind)
+        return client_type(parameter_or_property.child_by_field_name("type"))
 
     def receiver(node):
-        """The base URL of the Guzzle client ``node`` names ("" when it has
-        none or it is not known), else None."""
+        """(client, base URL: "" when it has none or it is not known) of the
+        client object ``node`` names, else None."""
         written = _text(node, content)
         if node.type == "variable_name":
             scope = _enclosing(
@@ -373,7 +401,7 @@ def _client_requests(root, content, folder, laravel):
                     and _text(name, content) == written
                     and typed(parameter)
                 ):
-                    return "" if not assigned else None
+                    return (typed(parameter), "") if not assigned else None
             return None
         if node.type == "member_access_expression" and written.startswith("$this->"):
             name = written[len("$this->") :]
@@ -396,13 +424,13 @@ def _client_requests(root, content, folder, laravel):
                         for e in candidate.named_children
                         if e.type == "property_element"
                     ):
-                        return ""
+                        return typed(candidate), ""
                 if candidate.type == "property_promotion_parameter" and typed(
                     candidate
                 ):
                     variable = candidate.child_by_field_name("name")
                     if variable is not None and _text(variable, content) == "$" + name:
-                        return ""
+                        return typed(candidate), ""
         return None
 
     facades = {name for name, full in uses.items() if full == _HTTP_FACADE}
@@ -452,10 +480,13 @@ def _client_requests(root, content, folder, laravel):
             continue
         if stem == "send" or node.type != "member_call_expression":
             continue
-        base = receiver(node.child_by_field_name("object"))
-        if base is None:
+        target = receiver(node.child_by_field_name("object"))
+        if target is None:
             continue
-        found.append((node, "guzzle", method, _resolve_reference(base, url)))
+        client, base = target
+        if client == "symfony-http" and stem != "request":
+            continue  # its only request method
+        found.append((node, client, method, _resolve_reference(base, url)))
     return found
 
 
