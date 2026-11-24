@@ -293,6 +293,10 @@ _CALL_RULE_TEXT = {
     "or as 'module.name', names a module that does not declare the name but "
     "binds it with exactly one 'from M import name'; that import is followed, "
     "step by step, to the module that declares it at top level.",
+    call_rules.CALL_PYTHON_TYPED_RECEIVER: "A Python 'x.m()' where x is a "
+    "parameter annotated with a repository class, or a local whose one "
+    "binding calls or annotates that class, links to m declared on the "
+    "class or inherited through its declared bases.",
     call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
     "method declared in the enclosing class body; inheritance is not followed.",
     call_rules.CALL_PRIVATE_NAME: "A JavaScript or TypeScript 'obj.#m()' "
@@ -310,6 +314,11 @@ _CALL_RULE_TEXT = {
     "Java's lookup order (enclosing and local types, single-type imports, the "
     "package, wildcard imports, then a qualified name) that declares the "
     "method; a variable that obscures the type is not checked.",
+    call_rules.JAVA_TYPED_RECEIVER: "In a Java call 'x.name' or 'this.x.name', "
+    "the declaration of the local variable, parameter or field x in scope "
+    "writes a class type T (or 'var x = new T()'), T denotes a type by Java's "
+    "lookup order, and T declares or inherits the method; argument types are "
+    "not checked.",
     call_rules.JAVA_TYPE_NAME: "A Java 'new T(...)' names a type by Java's "
     "lookup order; the link reaches the type's declaration.",
     call_rules.JAVA_INHERITED_METHOD: "A Java method name, bare, after 'this.' "

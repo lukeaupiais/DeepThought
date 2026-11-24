@@ -352,6 +352,36 @@ OPENAPI_REQUEST_RULES = {
         )
     ),
 }
+_OPENAPI_FEIGN = (
+    "A call of a method of a Feign client <Api>Client that an "
+    "openapi-generator execution (generator spring, library spring-cloud, "
+    "version 7 or later, interfaceOnly false) in the repository makes from a "
+    "spec sends that operation: on a name declared once in the file with that "
+    "class as its type. The method and path are the operation's, under the "
+    "client's base, which is a property or service discovery and so is not "
+    "fixed. "
+)
+OPENAPI_FEIGN_REQUEST_RULES = {
+    contract_rules.HTTP_PATH: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-feign-client-path",
+            "pattern_matched",
+            _OPENAPI_FEIGN
+            + "The request fits this route more specifically than any other "
+            "route in the repository.",
+        )
+    ),
+    contract_rules.HTTP_GATEWAY: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-feign-client-gateway",
+            "pattern_matched",
+            _OPENAPI_FEIGN
+            + "The path starts with the literal prefix of a gateway route and, "
+            "with that prefix replaced, fits this route of the route's target "
+            "service more specifically than any other.",
+        )
+    ),
+}
 GRPC_SERVER_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "pattern_matched", description))
     for rule_id, description in (
@@ -1350,11 +1380,10 @@ class ServiceContractTool(AnalysisTool):
                             else {}
                         ),
                         **_evidence(
-                            (
-                                OPENAPI_REQUEST_RULES
-                                if request.client == "openapi-java"
-                                else REQUEST_RULES
-                            )[resolution.rule_id]
+                            {
+                                "openapi-java": OPENAPI_REQUEST_RULES,
+                                "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
+                            }.get(request.client, REQUEST_RULES)[resolution.rule_id]
                         ),
                     },
                 )

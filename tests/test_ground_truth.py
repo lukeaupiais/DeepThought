@@ -190,6 +190,38 @@ class JavaTruthTest(unittest.TestCase):
         report, _ = ground_truth.score_inherits(result, truth)
         self.assertEqual((report["confirmed"], report["recall"]), (1, 1.0))
 
+    def test_javac_leaves_out_overloads_chosen_by_error_recovery(self):
+        sources = {
+            "src/a/G.java": (
+                "package a;\n"
+                "public class G {\n"
+                "  public void put(Object o, Class<?> c) {}\n"
+                "  public void put(String s, Appendable w) {}\n"
+                "  public void only(Class<?> c) {}\n"
+                "  void use() {\n"
+                "    put(null, Missing.class);\n"
+                "    only(Missing.class);\n"
+                "    put(null, String.class);\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in sources.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            expected, _ = ground_truth.derive_java(directory)
+        # `Missing` is in no source: the overloaded put on line 7 is left
+        # out, the single `only` is kept, and line 9 resolves normally.
+        self.assertEqual(
+            expected,
+            {
+                ("src/a/G.java", 8, "only"): {("src/a/G.java", 5, "callable")},
+                ("src/a/G.java", 9, "put"): {("src/a/G.java", 3, "callable")},
+            },
+        )
+
     def test_javac_binds_constructor_chains(self):
         sources = {
             "src/a/Base.java": "package a;\npublic class Base {\n"

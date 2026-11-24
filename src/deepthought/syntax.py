@@ -226,11 +226,21 @@ def extract(
                     for c in parameters.named_children
                     if c.type in {"formal_parameter", "spread_parameter"}
                 ]
+                own = _java_type_variables(node, content, 1)
+                variables = {
+                    **dict.fromkeys(_java_type_variables(node.parent, content), "*"),
+                    **dict.fromkeys(own, "?"),
+                }
                 arity = {
                     "parameters": len(declared),
                     "variadic": bool(declared)
                     and declared[-1].type == "spread_parameter",
+                    "parameter_types": tuple(
+                        _java_parameter_type(c, content, variables) for c in declared
+                    ),
                 }
+                if _java_private(node, content):
+                    arity["private"] = True
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -1741,7 +1751,64 @@ def _python_parameters(parameters, content, found):
             _python_targets(item, content, found)
 
 
-def _python_bindings(scope, content):
+def _python_dotted(node, content):
+    """'a.b' for an identifier or attribute chain; None otherwise."""
+    if node.type == "identifier":
+        return _text(node, content)
+    if node.type == "attribute":
+        head = _python_dotted(node.child_by_field_name("object"), content)
+        attribute = node.child_by_field_name("attribute")
+        if head is not None and attribute is not None:
+            return f"{head}.{_text(attribute, content)}"
+    return None
+
+
+def _python_annotation(node, content):
+    """The class a Python annotation names (``T``, ``m.T``, ``"T"``,
+    ``Optional[T]``, ``T | None``) as written; None for any other shape."""
+    if node is not None and node.type == "type":
+        node = node.named_children[0] if node.named_children else None
+    if node is None:
+        return None
+    if node.type == "string":
+        parts = [c for c in node.named_children if c.type == "string_content"]
+        text = _text(parts[0], content) if len(parts) == 1 else ""
+        return text if re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*", text) else None
+    if node.type == "binary_operator":
+        sides = [
+            c
+            for c in (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            )
+        ]
+        operator = node.child_by_field_name("operator")
+        if operator is None or _text(operator, content) != "|":
+            return None
+        rest = [c for c in sides if c is not None and c.type != "none"]
+        return _python_annotation(rest[0], content) if len(rest) == 1 else None
+    if node.type in {"generic_type", "subscript"}:
+        if node.type == "generic_type":
+            head, *arguments = node.named_children
+            arguments = [a.named_children[0] for a in arguments if a.named_children]
+            arguments = [
+                a.named_children[0] if a.type == "type" and a.named_children else a
+                for a in arguments
+            ]
+        else:
+            head = node.child_by_field_name("value")
+            arguments = node.children_by_field_name("subscript")
+        name = _python_dotted(head, content) if head is not None else None
+        if (
+            name in {"Optional", "typing.Optional", "t.Optional"}
+            and len(arguments) == 1
+        ):
+            return _python_annotation(arguments[0], content)
+        return None
+    return _python_dotted(node, content)
+
+
+def _python_bindings(scope, content, parameters=True):
     """(names bound in a function, lambda or comprehension scope, names it
     declares ``global`` or with a nested ``def`` or ``class``, which the
     lexical rule resolves as before even when also assigned). A function binds its parameters and every name it
@@ -1757,7 +1824,8 @@ def _python_bindings(scope, content):
             if clause.type == "for_in_clause":
                 _python_targets(clause.child_by_field_name("left"), content, bound)
         return bound, declared
-    _python_parameters(scope.child_by_field_name("parameters"), content, bound)
+    if parameters:
+        _python_parameters(scope.child_by_field_name("parameters"), content, bound)
     # A comprehension's body is walked: only `:=` binds there.
     stack = [scope.child_by_field_name("body")]
     while stack:
@@ -1820,6 +1888,144 @@ def _python_shadowed(node, content, callee, cache):
     return None
 
 
+def _python_body_imports(scope):
+    """Whether a function body holds an import outside its nested scopes."""
+    stack = [scope.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        if node.type in {"import_statement", "import_from_statement"}:
+            return True
+        if node.type not in _PYTHON_SCOPES:
+            stack.extend(node.named_children)
+    return False
+
+
+def _python_receiver_type(node, content, callee, cache):
+    """For a Python call ``x.m()``, the class that the annotation of the
+    parameter ``x`` names (``x: T``, ``x: m.T``, ``x: "T"``,
+    ``x: Optional[T]``, ``x: T | None``), when that parameter is the
+    binding of ``x`` the call sees and the function binds or imports
+    nothing else under that name. None otherwise."""
+    parts = callee.split(".")
+    if len(parts) != 2:
+        return None
+    head = parts[0]
+    child, scope = node, node.parent
+    while scope is not None:
+        inside = False
+        if scope.type in {"function_definition", "lambda"}:
+            inside = child == scope.child_by_field_name("body")
+        elif scope.type in _PYTHON_COMPREHENSIONS:
+            first = next(
+                (c for c in scope.named_children if c.type == "for_in_clause"), None
+            )
+            inside = first is None or child != first
+        if inside:
+            key = (scope.start_byte, scope.end_byte, scope.type)
+            if key not in cache:
+                cache[key] = _python_bindings(scope, content)
+            bound, declared = cache[key]
+            if head in declared:
+                return None
+            if head in bound:
+                break
+        child, scope = scope, scope.parent
+    else:
+        return None
+    # A lambda's parameters carry no annotation, and a comprehension binds
+    # only its loop targets: neither gives a type below.
+    annotation = None
+    parameters = scope.child_by_field_name("parameters")
+    for item in parameters.named_children if parameters is not None else ():
+        if item.type == "typed_parameter":
+            name = item.named_children[0]
+        elif item.type == "typed_default_parameter":
+            name = item.child_by_field_name("name")
+        else:
+            continue
+        if (
+            name is not None
+            and name.type == "identifier"
+            and _text(name, content) == head
+        ):
+            annotation = item.child_by_field_name("type")
+    key = ("body", scope.start_byte, scope.end_byte)
+    if key not in cache:
+        cache[key] = (
+            _python_bindings(scope, content, parameters=False)[0],
+            _python_body_imports(scope),
+        )
+    rebound, imports = cache[key]
+    if imports:
+        return None
+    if annotation is not None:
+        return None if head in rebound else _python_annotation(annotation, content)
+    names = set()
+    _python_parameters(parameters, content, names)
+    if head in names:
+        return None  # an unannotated parameter, whatever it is rebound to
+    bound = cache[(scope.start_byte, scope.end_byte, scope.type)][0]
+    binders = _python_binders(scope, head, content)
+    if len(binders) != 1 or binders[0].type != "assignment":
+        return None
+    (assignment,) = binders
+    left, right = (
+        assignment.child_by_field_name("left"),
+        assignment.child_by_field_name("right"),
+    )
+    if left is None or left.type != "identifier":
+        return None
+    written = assignment.child_by_field_name("type")
+    if written is not None:
+        name = _python_annotation(written, content)
+    elif right is not None and right.type == "call":
+        # `x = T(...)`: a class called is an instance of it.
+        function = right.child_by_field_name("function")
+        name = _python_dotted(function, content) if function is not None else None
+    else:
+        return None
+    # The type is named in the function: it must not be a local there.
+    if name is None or name.split(".")[0] in bound:
+        return None
+    return name
+
+
+def _python_binders(scope, name, content):
+    """The statements of a function body (outside its nested scopes) that
+    bind ``name``: assignments, loops, ``with``/``except``/``case`` captures,
+    ``del`` and ``:=``. A ``global`` or ``nonlocal`` declaration of it makes
+    the list unusable, so it counts twice."""
+    found = []
+    stack = [scope.child_by_field_name("body")]
+    while stack:
+        node = stack.pop()
+        names = set()
+        if node.type == "named_expression":
+            _python_targets(node.child_by_field_name("name"), content, names)
+        elif node.type in {"assignment", "augmented_assignment", "for_statement"}:
+            _python_targets(node.child_by_field_name("left"), content, names)
+        elif node.type == "as_pattern":
+            _python_targets(node.child_by_field_name("alias"), content, names)
+        elif node.type == "delete_statement":
+            for child in node.named_children:
+                _python_targets(child, content, names)
+        elif node.type in {"global_statement", "nonlocal_statement"}:
+            if name in {_text(c, content) for c in node.named_children}:
+                found += [node, node]
+        elif node.type == "dotted_name" and node.parent.type == "case_pattern":
+            names.add(_text(node, content))
+        if name in names:
+            found.append(node)
+        if node.type not in _PYTHON_SCOPES:
+            stack.extend(node.named_children)
+        elif (
+            node.type != "lambda"
+            and _text(node.child_by_field_name("name"), content) == name
+        ):
+            found += [node, node]  # a nested def or class of that name
+    return found
+
+
 def _java_anonymous(node, content, spans, symbols):
     """Anonymous classes around a Java call, innermost first; None when
     there are none or for other languages.
@@ -1849,6 +2055,300 @@ def _java_anonymous(node, content, spans, symbols):
                 found.append((base, symbols[owner], start[0], end[0]))
         child, parent = parent, parent.parent
     return tuple(found) or None
+
+
+_JAVA_CLASS_BODIES = {
+    "class_body",
+    "interface_body",
+    "enum_body",
+    "annotation_type_body",
+}
+_JAVA_METHODS = {
+    "method_declaration",
+    "constructor_declaration",
+    "compact_constructor_declaration",
+}
+
+
+def _java_private(node, content):
+    """Whether a Java method or constructor is declared ``private``."""
+    modifiers = next((c for c in node.children if c.type == "modifiers"), None)
+    return modifiers is not None and any(
+        c.type == "private" for c in modifiers.children
+    )
+
+
+def _java_type_variables(node, content, depth=None):
+    """Names of the type parameters declared by ``node`` and the
+    declarations around it (``<T>`` of a method or class), or only by the
+    ``depth`` innermost of them."""
+    names = set()
+    while node is not None and depth != 0:
+        depth = None if depth is None else depth - 1
+        parameters = node.child_by_field_name("type_parameters")
+        for child in parameters.named_children if parameters else ():
+            names.add(_text(child.named_children[0], content))
+        node = node.parent
+    return names
+
+
+def _java_parameter_type(parameter, content, variables=None):
+    """A Java parameter's type as written, without type arguments,
+    annotations or spaces (``List``, ``int[]``, ``String...``). A type
+    parameter is written as ``variables`` maps it: ``*`` for one of a
+    class around the method, ``?`` for the method's own (``T[]`` is
+    ``*[]``)."""
+    if parameter.type == "spread_parameter":
+        written = next(
+            (
+                c
+                for c in parameter.named_children
+                if c.type not in {"modifiers", "variable_declarator"}
+            ),
+            None,
+        )
+        suffix = "..."
+    else:
+        written, suffix = parameter.child_by_field_name("type"), ""
+        if parameter.child_by_field_name("dimensions") is not None:
+            suffix = "[]"
+    if written is None:
+        return "?"
+    dims = ""
+    while written.type == "array_type":
+        dims += "[]"
+        written = written.child_by_field_name("element")
+    if written.type == "generic_type":
+        written = next(
+            (c for c in written.named_children if c.type != "type_arguments"),
+            written,
+        )
+    if written.type == "scoped_type_identifier":
+        # `java.util.List` nests as ((java . util) . List); annotations on a
+        # part (`java.util.@A List`) are dropped.
+        names, stack = [], [written]
+        while stack:
+            current = stack.pop()
+            if current.type == "type_identifier":
+                names.append(_text(current, content))
+            elif current.type == "scoped_type_identifier":
+                stack.extend(reversed(current.named_children))
+        text = ".".join(names)
+    else:
+        text = _text(written, content)
+    text = "".join(text.split())
+    text = (variables or {}).get(text, text)
+    return text + dims + suffix
+
+
+def _java_type_name(node, content):
+    """A Java class or interface type as written (``Foo``, ``Map.Entry``),
+    without type arguments; None for primitive, array and other types."""
+    if node is not None and node.type == "generic_type":
+        node = next(
+            (c for c in node.named_children if c.type != "type_arguments"), None
+        )
+    if node is None or node.type not in {"type_identifier", "scoped_type_identifier"}:
+        return None
+    text = _text(node, content)
+    return None if text == "var" else text
+
+
+def _java_written_type(type_node, value, content):
+    """The type a Java declaration writes: its declared type, or for ``var``
+    the class it creates (``var x = new Foo()``)."""
+    if type_node is not None and _text(type_node, content) == "var":
+        if value is not None and value.type == "object_creation_expression":
+            return _java_type_name(value.child_by_field_name("type"), content)
+        return None
+    return _java_type_name(type_node, content)
+
+
+def _java_declared_here(node, name, content, before):
+    """Declarations of ``name`` that ``node`` brings into scope for what it
+    holds, as a list of written types (None for one with no usable type).
+    Statements of a block count when they end before ``before``."""
+    found = []
+
+    def declarators(declaration):
+        written = declaration.child_by_field_name("type")
+        for declarator in declaration.children_by_field_name("declarator"):
+            declared = declarator.child_by_field_name("name")
+            if declared is not None and _text(declared, content) == name:
+                if declarator.child_by_field_name("dimensions") is not None:
+                    found.append(None)  # `Foo x[]` is an array
+                else:
+                    value = declarator.child_by_field_name("value")
+                    found.append(_java_written_type(written, value, content))
+
+    def parameter(child):
+        declared = child.child_by_field_name("name")
+        if child.type == "spread_parameter":
+            for c in child.named_children:
+                if c.type == "variable_declarator":
+                    inner = c.child_by_field_name("name")
+                    if inner is not None and _text(inner, content) == name:
+                        found.append(None)  # `Foo... xs` is an array
+        elif declared is not None and _text(declared, content) == name:
+            if child.child_by_field_name("dimensions") is not None:
+                found.append(None)
+            else:
+                found.append(
+                    _java_type_name(child.child_by_field_name("type"), content)
+                )
+
+    kind = node.type
+    if kind in _JAVA_CLASS_BODIES or kind == "enum_body_declarations":
+        for child in node.named_children:
+            if child.type in {"field_declaration", "constant_declaration"}:
+                declarators(child)
+            elif child.type == "enum_body_declarations":
+                found.extend(_java_declared_here(child, name, content, before))
+            elif child.type == "enum_constant":
+                declared = child.child_by_field_name("name")
+                if declared is not None and _text(declared, content) == name:
+                    found.append(None)
+        owner = node.parent
+        if owner is not None and owner.type == "record_declaration":
+            components = owner.child_by_field_name("parameters")
+            for child in components.named_children if components else ():
+                parameter(child)
+    elif kind in {"block", "switch_block_statement_group", "constructor_body"}:
+        for child in node.named_children:
+            if (
+                child.type == "local_variable_declaration"
+                and (child.end_point.row, child.end_point.column) <= before
+            ):
+                declarators(child)
+    elif kind == "for_statement":
+        for child in node.children_by_field_name("init"):
+            if child.type == "local_variable_declaration":
+                declarators(child)
+    elif kind == "enhanced_for_statement":
+        declared = node.child_by_field_name("name")
+        if declared is not None and _text(declared, content) == name:
+            if node.child_by_field_name("dimensions") is not None:
+                found.append(None)
+            else:
+                found.append(_java_type_name(node.child_by_field_name("type"), content))
+    elif kind == "try_with_resources_statement":
+        resources = node.child_by_field_name("resources")
+        for child in resources.named_children if resources else ():
+            declared = child.child_by_field_name("name")
+            if declared is not None and _text(declared, content) == name:
+                found.append(
+                    _java_written_type(
+                        child.child_by_field_name("type"),
+                        child.child_by_field_name("value"),
+                        content,
+                    )
+                )
+    elif kind == "catch_clause":
+        for child in node.named_children:
+            if child.type == "catch_formal_parameter":
+                declared = child.child_by_field_name("name")
+                if declared is not None and _text(declared, content) == name:
+                    types = [c for c in child.named_children if c.type == "catch_type"]
+                    alternatives = types[0].named_children if types else []
+                    found.append(
+                        _java_type_name(alternatives[0], content)
+                        if len(alternatives) == 1
+                        else None
+                    )
+    elif kind == "lambda_expression":
+        parameters = node.child_by_field_name("parameters")
+        if parameters is not None and parameters.type == "identifier":
+            if _text(parameters, content) == name:
+                found.append(None)
+        elif parameters is not None:
+            for child in parameters.named_children:
+                if child.type == "identifier":
+                    if _text(child, content) == name:
+                        found.append(None)
+                elif child.type in {"formal_parameter", "spread_parameter"}:
+                    parameter(child)
+    elif kind in _JAVA_METHODS:
+        parameters = node.child_by_field_name("parameters")
+        for child in parameters.named_children if parameters else ():
+            if child.type in {"formal_parameter", "spread_parameter"}:
+                parameter(child)
+    return found
+
+
+def _java_may_inherit_fields(owner):
+    """Whether the type whose body is under ``owner`` may inherit fields: an
+    anonymous class or enum constant body, or a type with a superclass or superinterfaces (an
+    interface's constants are inherited by its implementations)."""
+    if owner is None or owner.type in {"object_creation_expression", "enum_constant"}:
+        return True
+    return any(
+        owner.child_by_field_name(field) is not None
+        for field in ("superclass", "interfaces")
+    ) or any(c.type == "extends_interfaces" for c in owner.named_children)
+
+
+def _java_binds_pattern(node, name, content):
+    """Whether a pattern (``o instanceof Foo x``, ``case Foo x``) in ``node``
+    binds ``name``: such a variable's scope depends on control flow."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        declared = None
+        if current.type == "instanceof_expression":
+            declared = current.child_by_field_name("name")
+        elif current.type == "type_pattern":
+            declared = next(
+                (c for c in current.named_children if c.type == "identifier"), None
+            )
+        if declared is not None and _text(declared, content) == name:
+            return True
+        stack.extend(current.named_children)
+    return False
+
+
+def _java_receiver_type(node, content, callee, cache):
+    """For a Java call ``x.m()`` or ``this.x.m()``, the type that the
+    declaration of the variable or field ``x`` in scope writes (``Foo``,
+    ``Map.Entry``); None when no such declaration is in scope or it writes
+    no class type (``var`` without ``new``, a lambda's inferred parameter,
+    an array, a primitive, a type parameter)."""
+    parts = callee.split(".")
+    if len(parts) == 2:
+        name, fields_only = parts[0], False
+    elif len(parts) == 3 and parts[0] == "this":
+        name, fields_only = parts[1], True
+    else:
+        return None
+    before = (node.start_point.row, node.start_point.column)
+    found, method = None, None
+    ancestor = node.parent
+    while ancestor is not None:
+        body = ancestor.type in _JAVA_CLASS_BODIES
+        if found is None and (body or not fields_only):
+            here = _java_declared_here(ancestor, name, content, before)
+            if here:
+                found = here
+            elif body:
+                owner = ancestor.parent
+                if fields_only or _java_may_inherit_fields(owner):
+                    # `this.x` names a field of the innermost class; and a
+                    # field a type inherits may be the one named.
+                    return None
+        if ancestor.type in _JAVA_METHODS and method is None:
+            method = ancestor
+        ancestor = ancestor.parent
+    if not found or found[0] is None:
+        return None
+    if method is not None:
+        key = ("patterns", method.id, name)
+        if key not in cache:
+            cache[key] = _java_binds_pattern(method, name, content)
+        if cache[key]:
+            return None
+    written = found[0]
+    if written.split(".")[0] in _java_type_variables(node, content):
+        return None
+    return written
 
 
 _GO_FUNCTIONS = {"function_declaration", "method_declaration", "func_literal"}
@@ -2066,6 +2566,7 @@ def extract_call_sites(
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
     python = tree.root_node.type == "module"
+    java = tree.root_node.type == "program"
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
@@ -2099,9 +2600,13 @@ def extract_call_sites(
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python
                         else None,
-                        receiver_type=_go_receiver_type(
+                        receiver_type=_java_receiver_type(
                             node, content, callee, receivers
                         )
+                        if java
+                        else _python_receiver_type(node, content, callee, bindings)
+                        if python
+                        else _go_receiver_type(node, content, callee, receivers)
                         if go
                         else None,
                     )
