@@ -479,6 +479,7 @@ GO_REGISTER = "service-contracts.grpc-go-register"
 GO_REGISTER_CONSTRUCTOR = "service-contracts.grpc-go-register-constructor"
 PYTHON_SERVICER = "service-contracts.grpc-python-servicer"
 JAVA_IMPL_BASE = "service-contracts.grpc-java-impl-base"
+CSHARP_SERVICE_BASE = "service-contracts.grpc-csharp-service-base"
 NODE_ADD_SERVICE = "service-contracts.grpc-node-add-service"
 NODE_STATIC_ADD_SERVICE = "service-contracts.grpc-node-static-add-service"
 STUB_CALL = "service-contracts.grpc-stub-call"
@@ -583,6 +584,19 @@ def class_bases(tree, content, language):
                 []
                 if superclass is None
                 else [_text(c, content) for c in superclass.named_children]
+            )
+        elif language == "csharp" and node.type == "class_declaration":
+            bases = next(
+                (c for c in node.named_children if c.type == "base_list"), None
+            )
+            written = (
+                []
+                if bases is None
+                else [
+                    _text(b, content).replace(" ", "")
+                    for b in bases.named_children
+                    if b.type in ("identifier", "qualified_name")
+                ]
             )
         else:
             continue
@@ -730,11 +744,15 @@ def server_handlers(
                             rule,
                         )
                     )
-    elif language in ("python", "java"):
+    elif language in ("python", "java", "csharp"):
         classes = class_bases(tree, content, language)
         if language == "python":
             families = _servicer_families(classes, r"(?:.*\.)?(\w+)Servicer")
             spelled, rule = str, PYTHON_SERVICER
+        elif language == "csharp":
+            # Grpc.Tools nests the base class XBase in the static class X.
+            families = _servicer_families(classes, r"(?:.*\.)?(\w+)\.\1Base")
+            spelled, rule = str, CSHARP_SERVICE_BASE
         else:
             families = _servicer_families(classes, r"(?:.*\.)?(\w+)ImplBase")
             spelled, rule = lower_camel, JAVA_IMPL_BASE
@@ -810,6 +828,7 @@ _SUFFIXES = {
     "go": ".go",
     "python": ".py",
     "java": ".java",
+    "csharp": ".cs",
     "javascript": ".js",
     "typescript": ".ts",
 }
@@ -898,6 +917,8 @@ def collect(root, sources, definitions, repository_id, protos):
         )
         handlers.update(found)
         unread.extend((path, line, "server", reason) for line, reason in skipped)
+        if language not in _CALL:
+            continue  # C#: servers only so far
         calls.extend(
             extract_calls(
                 tree,
