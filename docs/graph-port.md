@@ -2073,6 +2073,7 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and relative imports, aliases, re-exports and `export *` included, while a package import, a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed with the innermost enclosing module's or class's literal `table_name_prefix`, or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
@@ -2296,6 +2297,20 @@ unresolved. Over the whole repository, including Django's test apps, 1,580
 models give 1,697 tables in 33 s. 3,578 manager calls are linked, and 7,472
 are left unlinked because the class name is not a model or names several
 models.
+
+On FreshRSS/FreshRSS `fa16ffd` the PHP rule reads 82 statements: 64 name
+fixed tables (`_entry`, `_feed`, `_category`, `_tag`, `_entrytag`), 16 are
+in a bundled SimplePie cache that joins a configured prefix to every name,
+and 2 name no table (`SELECT 1`). A single-line `grep` for `->query(`,
+`->prepare(`, `->exec(` and the other methods finds 127 lines, every one of
+the 82 among them. Of the 45 the tool does not take, 12 are XPath queries
+and the rest run DDL or session statements (`ALTER`, `CREATE`, `PRAGMA`,
+`ANALYZE`, `SET`), or SQL that an application helper builds
+(`sqlIgnoreConflict($sql)`, `str_replace`) or that arrives as a parameter.
+On pixelfed and koel the 5 and 4 `DB::select`/`DB::statement` statements
+with SQL verbs are read; their other `DB::statement` calls are DDL. Tables
+qualified with a schema (`information_schema.tables`) give the bare name,
+as everywhere in the SQL reader.
 
 On Apache Superset's `superset/` package, outside its Alembic migrations,
 the tool maps 39 classes through `__tablename__`. `grep` for
