@@ -462,6 +462,10 @@ CALL_RULES.update(
             "links to a function whose return type writes a type 'A', '&A', "
             "'m::A<T>' or 'Self' names 'm' as 'A::m' does, 'A' read where the "
             "function is declared.",
+            call_rules.RUST_CALL_ENUM_VARIANT: "A Rust 'E::V(...)' or "
+            "'Self::V(...)' where 'E' (read as a call's path is) or the type of "
+            "the impl around the call is an enum that declares the variant "
+            "'V' names that variant, ahead of any associated function.",
         }.items()
     }
 )
