@@ -9,6 +9,7 @@ reason, and produces no link.
 from collections import defaultdict
 from dataclasses import dataclass
 import posixpath
+import string
 
 from .models import AnalysisResult, Import
 
@@ -29,6 +30,8 @@ RUST_USE_MODULE = "tree-sitter.rust-use-module"
 RUST_EXTERN_CRATE = "tree-sitter.rust-extern-crate"
 RUST_USE_REEXPORT = "tree-sitter.rust-use-reexport"
 RUST_USE_EXPORTED_MACRO = "tree-sitter.rust-use-exported-macro"
+PHP_USE_DECLARED = "tree-sitter.php-use-declared"
+PHP_USE_NAMESPACE = "tree-sitter.php-use-namespace"
 _RUST_MODULE_KINDS = frozenset({"module", "module_path"})
 _RUST_CRATE_KINDS = frozenset({"crate_library", "crate_target"})
 # Declarations a use path can go through: modules and types.
@@ -355,6 +358,62 @@ def _java(item: Import, roots, packages, types):
         )
     return ImportResolution(
         item.id, "linked", tuple(ImportLink(file, rule) for file in files)
+    )
+
+
+_PHP_TYPES = frozenset({"Class", "Interface", "Trait", "Enum"})
+# PHP compares names with ASCII case folding.
+_PHP_FOLD = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+
+def _php_index(result: AnalysisResult):
+    """PHP class-like declarations, functions and namespaces, by lowercased
+    name (PHP compares names ignoring ASCII case), each mapped to the files declaring
+    them. A namespace maps to the files declaring anything in it."""
+    php = {i.file for i in result.coverage if i.language == "php"}
+    types, functions, namespaces = (defaultdict(set) for _ in range(3))
+    for d in result.definitions:
+        if d.file not in php:
+            continue
+        name = d.symbol.translate(_PHP_FOLD)
+        if d.kind in _PHP_TYPES:
+            types[name].add(d.file)
+        elif d.kind == "Function":
+            functions[name].add(d.file)
+        # A method adds its class-like type's name, which is found as a
+        # type first.
+        parts = name.split(".")
+        for i in range(1, len(parts)):
+            namespaces[".".join(parts[:i])].add(d.file)
+    return types, functions, namespaces
+
+
+def _php(item: Import, types, functions, namespaces):
+    """Link a PHP ``use`` to the files declaring the class-like type,
+    function or namespace it names.
+
+    ``use function`` names a function; ``use`` names a class, interface,
+    trait or enum, or failing that a namespace (every file declaring
+    something in it). Constants are not declarations here.
+    """
+    if item.kind == "use_const":
+        return ImportResolution(item.id, "unresolved", reason="constant")
+    name = item.specifier.replace("\\", ".").translate(_PHP_FOLD)
+    files = (functions if item.kind == "use_function" else types).get(name)
+    rule = PHP_USE_DECLARED
+    if not files and item.kind == "use":
+        files, rule = namespaces.get(name), PHP_USE_NAMESPACE
+    if not files:
+        return ImportResolution(item.id, "unresolved", reason="not_in_repository")
+    if rule == PHP_USE_DECLARED and len(files) > 1:
+        return ImportResolution(
+            item.id,
+            "ambiguous",
+            reason="multiple_declarations",
+            candidates=tuple(sorted(files)),
+        )
+    return ImportResolution(
+        item.id, "linked", tuple(ImportLink(file, rule) for file in sorted(files))
     )
 
 
@@ -788,6 +847,7 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
     modules, packages = _go_modules(result), _go_packages(result)
     java = _java_index(result)
     rust = _RustIndex(result, files, languages)
+    php = _php_index(result)
     resolutions = []
     for item in sorted(result.imports, key=lambda value: value.id):
         language = languages[item.file]
@@ -801,6 +861,8 @@ def resolve_imports(result: AnalysisResult) -> tuple[ImportResolution, ...]:
             resolutions.append(_java(item, *java))
         elif language == "rust":
             resolutions.append(rust.resolve(item))
+        elif language == "php":
+            resolutions.append(_php(item, *php))
         else:
             resolutions.append(_typescript(item, files))
     return tuple(resolutions)

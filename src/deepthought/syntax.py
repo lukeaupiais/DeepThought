@@ -40,9 +40,10 @@ LANGUAGES = {
         "language",
     ),
     "ruby": ((".rb",), "tree_sitter_ruby", "language"),
+    "php": ((".php",), "tree_sitter_php", "language_php"),
 }
-# Languages analyzed when none are selected. JavaScript, Go, Java, Rust, C, C++
-# and Ruby are opt-in so that existing Python/TypeScript analyses keep their
+# Languages analyzed when none are selected. JavaScript, Go, Java, Rust, C, C++,
+# Ruby and PHP are opt-in so that existing Python/TypeScript analyses keep their
 # output and do not need their grammars; select them with languages=("go", ...)
 # or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
@@ -852,6 +853,89 @@ def extract_ruby(
     return found
 
 
+_PHP_TYPES = {
+    "class_declaration": "Class",
+    "interface_declaration": "Interface",
+    "trait_declaration": "Trait",
+    "enum_declaration": "Enum",
+}
+# Bodies run later, so what they declare is declared when they run. (An
+# arrow function's body is an expression, which declares nothing outside
+# these.)
+_PHP_BODIES = {"anonymous_function", "anonymous_class"}
+
+
+def extract_php(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """PHP classes, interfaces, traits, enums, functions and methods, in
+    source order.
+
+    Symbols join the namespace (``namespace A\\B;`` up to the next
+    namespace statement, or a braced ``namespace A\\B { }``) and the
+    enclosing class-like declaration with ``.``. Declarations in a
+    conditional block (``if (!function_exists('f')) { function f() {} }``)
+    are recorded; those in a function or method body, a closure or an
+    anonymous class are not, since PHP declares them only when that code
+    runs. ``nodes`` receives id -> (node, name).
+    """
+    found, ordinals = [], {}
+
+    def add(node, name_node, symbol, kind):
+        ordinal = ordinals.get((symbol, kind), 0)
+        ordinals[(symbol, kind)] = ordinal + 1
+        definition = Definition(
+            id=identifier(repository_id, file, symbol, kind, ordinal),
+            file=file,
+            symbol=symbol,
+            kind=kind,
+            line=node.start_point.row + 1,
+            column=node.start_point.column,
+            end_line=node.end_point.row + 1,
+            end_column=node.end_point.column,
+        )
+        found.append(definition)
+        if nodes is not None:
+            nodes[definition.id] = (node, name_node)
+
+    def children(node, scope):
+        """Each named child with its scope: a namespace statement scopes
+        the statements after it."""
+        items = []
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                names = tuple(_text(name, content).split("\\")) if name else ()
+                if child.child_by_field_name("body") is None:
+                    scope = names
+                    continue
+                items.append((child, names, False))
+                continue
+            items.append((child, scope, False))
+        return items
+
+    # (node, scope, inside a class-like body)
+    stack = list(reversed(children(tree.root_node, ())))
+    while stack:
+        node, scope, in_type = stack.pop()
+        kind = _PHP_TYPES.get(node.type)
+        if kind is not None:
+            name = node.child_by_field_name("name")
+            inner = (*scope, _text(name, content))
+            add(node, name, ".".join(inner), kind)
+            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            continue
+        if node.type in {"function_definition", "method_declaration"}:
+            name = node.child_by_field_name("name")
+            symbol = ".".join((*scope, _text(name, content)))
+            add(node, name, symbol, "Method" if in_type else "Function")
+            continue
+        if node.type in _PHP_BODIES:
+            continue
+        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+    return found
+
+
 def _rust_macro_export(node):
     """Whether a ``macro_rules!`` definition carries ``#[macro_export]``."""
     sibling = node.prev_named_sibling
@@ -1024,6 +1108,41 @@ def _java_imports(node, content):
         yield owner, "import", (member,), (member,)
     else:
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
+
+
+def _php_imports(node, content):
+    """Yield one import per clause of a PHP ``use`` declaration.
+
+    The specifier is the imported name as written, without a leading
+    backslash and with a group's prefix (``use A\\{B, C}`` imports
+    ``A\\B`` and ``A\\C``). The kind is ``use`` for a class or namespace,
+    ``use_function`` or ``use_const`` for ``use function`` or ``use const``;
+    each binds its alias or the name's last part.
+    """
+    if node.type != "namespace_use_declaration":
+        return
+    group = node.child_by_field_name("body")
+    prefix = next((c for c in node.named_children if c.type == "namespace_name"), None)
+    clauses = [
+        c for c in (group or node).named_children if c.type == "namespace_use_clause"
+    ]
+    # `use function A\\f, A\\g;`: the grammar puts the keyword in the first
+    # clause, though it applies to every clause.
+    written = node.child_by_field_name("type")
+    if written is None and group is None and clauses:
+        written = clauses[0].child_by_field_name("type")
+    for clause in clauses:
+        keyword = written or clause.child_by_field_name("type")
+        name = next(
+            c for c in clause.named_children if c.type in {"qualified_name", "name"}
+        )
+        specifier = _text(name, content).lstrip("\\")
+        if prefix is not None:
+            specifier = _text(prefix, content) + "\\" + specifier
+        alias = clause.child_by_field_name("alias")
+        local = _text(alias, content) if alias else specifier.rsplit("\\", 1)[-1]
+        kind = "use_" + keyword.type if keyword is not None else "use"
+        yield specifier, kind, (), (local,)
 
 
 def _rust_inline_modules(node, content, expander=None):
@@ -1274,6 +1393,7 @@ def extract_imports(
         "python": _python_imports,
         "go": _go_imports,
         "java": _java_imports,
+        "php": _php_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     stack = [tree.root_node]
@@ -2167,6 +2287,8 @@ def declaration_sources(
         extract_cpp(tree, content, repository_id, file, nodes=nodes)
     elif language == "ruby":
         extract_ruby(tree, content, repository_id, file, nodes=nodes)
+    elif language == "php":
+        extract_php(tree, content, repository_id, file, nodes=nodes)
     else:
         extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")

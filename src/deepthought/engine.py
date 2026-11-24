@@ -29,6 +29,7 @@ from .syntax import (
     extract,
     extract_c,
     extract_cpp,
+    extract_php,
     extract_ruby,
     extract_call_sites,
     extract_cargo_manifest,
@@ -219,8 +220,8 @@ def analyze_repository(
         raise ValueError("repository_id must be nonempty")
     if not languages or set(languages) - LANGUAGES.keys():
         raise ValueError(
-            "Supported languages: c, cpp, go, java, javascript, python, ruby, rust, "
-            "typescript"
+            "Supported languages: c, cpp, go, java, javascript, php, python, ruby, "
+            "rust, typescript"
         )
     if max_file_bytes < 1:
         raise ValueError("max_file_bytes must be positive")
@@ -435,6 +436,15 @@ def analyze_repository(
                     # Ruby: declarations only so far.
                     definitions.extend(
                         extract_ruby(tree, content, repository_id, relative)
+                    )
+                    continue
+                if language == "php":
+                    # PHP: declarations and imports so far.
+                    definitions.extend(
+                        extract_php(tree, content, repository_id, relative)
+                    )
+                    imports.extend(
+                        extract_imports(tree, content, repository_id, relative, "php")
                     )
                     continue
                 expander = (
