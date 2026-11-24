@@ -1124,6 +1124,70 @@ class TypeScriptCallTests(unittest.TestCase):
             ("unresolved", None, None, "local_binding"),
         )
 
+    def test_declarations_exported_under_another_name(self):
+        result = analyze(
+            {
+                "base.ts": (
+                    "class Hono { route() {} static make() {} }\n"
+                    "function helper() {}\n"
+                    "function twice() {}\n"
+                    "function inner() { function hidden() {} }\n"
+                    "export function both() {}\n"
+                    "function other() {}\n"
+                    "const arrow = () => {}\n"
+                    "export { Hono as HonoBase, helper as help, Hono as default }\n"
+                    "export { helper as again, twice as twice, other as both }\n"
+                    "export { helper as help, hidden as shown, arrow as run }\n"
+                    "export { both as alsoBoth }\n"
+                    "export { helper as fromRelay } from './relay';\n"
+                ),
+                "relay.ts": (
+                    "import { helper } from './base';\nexport { helper as relayed }\n"
+                ),
+                "main.ts": (
+                    "import { HonoBase, help, again, both } from './base';\n"
+                    "import * as m from './base';\n"
+                    "import { relayed } from './relay';\n"
+                    "export class App extends HonoBase {}\n"
+                    "const a = new App(); a.route(); help(); new HonoBase();\n"  # 5
+                    "m.help(); HonoBase.make(); again(); both(); relayed();\n"  # 6
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for line, callee, target, rule in (
+            (5, "a.route", "base.ts::Hono.route", CALL_JS_TYPED_RECEIVER),
+            (5, "help", "base.ts::helper", CALL_IMPORTED_NAME),
+            (5, "HonoBase", "base.ts::Hono", CALL_IMPORTED_NAME),
+            (6, "m.help", "base.ts::helper", CALL_MODULE_ATTRIBUTE),
+            (6, "HonoBase.make", "base.ts::Hono.make", CALL_JS_STATIC_METHOD),
+            (6, "again", "base.ts::helper", CALL_IMPORTED_NAME),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)], ("linked", target, rule, None)
+                )
+        # A name declared and also exported for another declaration is
+        # ambiguous, and an imported name exported again is not followed.
+        self.assertEqual(found[("main.ts", 6, "both")][:2], ("ambiguous", None))
+        self.assertEqual(found[("main.ts", 6, "relayed")][0], "unresolved")
+        aliases = {d.symbol: d.export_aliases for d in result.definitions}
+        self.assertEqual(aliases["Hono"], ("HonoBase",))
+        self.assertEqual(aliases["helper"], ("help", "again"))
+        self.assertEqual(aliases["other"], ("both",))
+        self.assertEqual(aliases["arrow"], ("run",))
+        self.assertEqual(aliases["both"], ("alsoBoth",))
+        # Exporting a name as itself, or as `default`, adds no alias, and
+        # neither does `export { a as b } from` or a nested declaration.
+        self.assertIsNone(aliases["twice"])
+        self.assertIsNone(aliases["inner.hidden"])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        self.assertNotIn('"export_aliases": null', result.to_json())
+        for bad in ((), ("",), ["x"], (1,)):
+            with self.subTest(export_aliases=bad), self.assertRaises(ValueError):
+                replace(result.definitions[0], export_aliases=bad)
+
     def test_javascript_receivers_bound_to_new(self):
         result = analyze(
             {

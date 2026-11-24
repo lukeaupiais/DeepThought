@@ -81,6 +81,11 @@ class Definition:
     # method of that name the class inherits. None elsewhere, or when there
     # is none.
     properties: tuple[str, ...] | None = None
+    # JavaScript and TypeScript top-level declarations: the other names a
+    # local ``export { name as alias }`` (no ``from``) exports them under,
+    # ``default`` aside (see ``default_export``). None elsewhere, or when
+    # there is none.
+    export_aliases: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.result_type is not None and (
@@ -104,6 +109,12 @@ class Definition:
             or not all(isinstance(name, str) and name for name in self.properties)
         ):
             raise ValueError("properties must be a tuple of nonempty strings")
+        if self.export_aliases is not None and (
+            type(self.export_aliases) is not tuple
+            or not self.export_aliases
+            or not all(isinstance(name, str) and name for name in self.export_aliases)
+        ):
+            raise ValueError("export_aliases must be a tuple of nonempty strings")
         if self.parameter_types is not None and (
             type(self.parameter_types) is not tuple
             or not all(isinstance(t, str) and t for t in self.parameter_types)
@@ -727,6 +738,8 @@ class AnalysisResult:
                 del item["fields"]
             if item["properties"] is None:
                 del item["properties"]
+            if item["export_aliases"] is None:
+                del item["export_aliases"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -905,6 +918,9 @@ class AnalysisResult:
                         "properties": tuple(item["properties"])
                         if isinstance(item.get("properties"), list)
                         else item.get("properties"),
+                        "export_aliases": tuple(item["export_aliases"])
+                        if isinstance(item.get("export_aliases"), list)
+                        else item.get("export_aliases"),
                         "parameter_types": tuple(item["parameter_types"])
                         if isinstance(item.get("parameter_types"), list)
                         else item.get("parameter_types"),

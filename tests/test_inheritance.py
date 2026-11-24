@@ -193,6 +193,27 @@ class TypeScriptBaseTests(unittest.TestCase):
         )
         self.assertEqual(found[("B", "Error")][0], "unresolved")
 
+    def test_bases_exported_under_another_name_link(self):
+        result = analyze(
+            {
+                "base.ts": "class Hono {}\nexport { Hono as HonoBase }\n",
+                "a.ts": 'import { HonoBase } from "./base";\n'
+                'import * as lib from "./base";\n'
+                "class A extends HonoBase {}\n"
+                "class B extends lib.HonoBase {}\n",
+            },
+            "typescript",
+        )
+        found = links(result)
+        self.assertEqual(
+            found[("A", "HonoBase")],
+            ("linked", "base.ts::Hono", BASE_IMPORTED_NAME, None),
+        )
+        self.assertEqual(
+            found[("B", "lib.HonoBase")],
+            ("linked", "base.ts::Hono", BASE_MODULE_ATTRIBUTE, None),
+        )
+
 
 @unittest.skipUnless(READY["javascript"], "Provision the javascript extra")
 class JavaScriptBaseTests(unittest.TestCase):
