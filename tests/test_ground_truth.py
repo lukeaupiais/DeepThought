@@ -458,6 +458,19 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("| a | impact | confirmed 6 (**+2**), extra 1,", text)
         self.assertIn("| d | **regressions** | kind_mismatch 1 -> 2 |", text)
 
+    def test_route_corpora_show_each_kind(self):
+        base = {"routes": {"r": {"http": {"expected": 3, "found": 2, "extra": 0}}}}
+        reports = {
+            "r": {
+                "routes": {"http": {"expected": 3, "found": 3, "extra": 0}},
+                "regressions": [],
+            }
+        }
+        self.assertIn(
+            "| r | routes (http) | found 3 (**+1**), extra 0, expected 3 |",
+            ground_truth.summary(reports, base),
+        )
+
 
 class ContractRegressionTests(unittest.TestCase):
     BASE = {

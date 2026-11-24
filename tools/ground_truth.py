@@ -1035,6 +1035,7 @@ SUMMARY_METRICS = {
     ),
     "declarations": (("found", True), ("kind_mismatch", False), ("extra", False)),
     "contracts": (("true_positive", True), ("false_positive", False)),
+    "routes": (("found", True), ("extra", False), ("expected", True)),
 }
 
 
@@ -1063,6 +1064,10 @@ def summary(reports, baseline):
                 report["declarations"],
                 base.get("declarations", {}).get(name),
             )
+        elif "routes" in report:
+            before = base.get("routes", {}).get(name, {})
+            for kind, counts in sorted(report["routes"].items()):
+                yield f"routes ({kind})", counts, before.get(kind)
         elif "contracts" in report:
             before = base.get("contracts", {}).get(name)
             yield (
@@ -1094,7 +1099,7 @@ def summary(reports, baseline):
         for layer, now, before in layers(name, report, baseline):
             values = ", ".join(
                 f"{metric} {cell(now.get(metric), (before or {}).get(metric))}"
-                for metric, _ in SUMMARY_METRICS[layer]
+                for metric, _ in SUMMARY_METRICS[layer.split(" ")[0]]
             )
             lines.append(f"| {name} | {layer} | {values} |")
         if report.get("regressions"):
