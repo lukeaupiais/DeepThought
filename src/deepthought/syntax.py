@@ -859,10 +859,6 @@ _PHP_TYPES = {
     "trait_declaration": "Trait",
     "enum_declaration": "Enum",
 }
-# Bodies run later, so what they declare is declared when they run. (An
-# arrow function's body is an expression, which declares nothing outside
-# these.)
-_PHP_BODIES = {"anonymous_function", "anonymous_class"}
 
 
 def extract_php(
@@ -875,9 +871,11 @@ def extract_php(
     namespace statement, or a braced ``namespace A\\B { }``) and the
     enclosing class-like declaration with ``.``. Declarations in a
     conditional block (``if (!function_exists('f')) { function f() {} }``)
-    are recorded; those in a function or method body, a closure or an
-    anonymous class are not, since PHP declares them only when that code
-    runs. ``nodes`` receives id -> (node, name).
+    are recorded, and so are those in a function or method body or a
+    closure: PHP declares them in the current namespace when that code runs,
+    so their symbols are namespace-qualified. An anonymous class's methods
+    are named by the path to the class (``N.C.make.handle`` for one in
+    ``C::make``). ``nodes`` receives id -> (node, name).
     """
     found, ordinals = [], {}
 
@@ -914,25 +912,39 @@ def extract_php(
             items.append((child, scope, False))
         return items
 
-    # (node, scope, inside a class-like body)
-    stack = list(reversed(children(tree.root_node, ())))
+    # (node, scope, inside a class-like body, namespace, lexical path): a
+    # function or class declared in a body goes to the namespace, and an
+    # anonymous class's methods are named by the path to where it is.
+    stack = [(n, s, t, s, s) for n, s, t in reversed(children(tree.root_node, ()))]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, namespace, path = stack.pop()
         kind = _PHP_TYPES.get(node.type)
         if kind is not None:
             name = node.child_by_field_name("name")
             inner = (*scope, _text(name, content))
             add(node, name, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend(
+                (c, inner, True, namespace, inner)
+                for c in reversed(node.named_children)
+            )
+            continue
+        if node.type == "anonymous_class":
+            stack.extend(
+                (c, path, True, namespace, path) for c in reversed(node.named_children)
+            )
             continue
         if node.type in {"function_definition", "method_declaration"}:
             name = node.child_by_field_name("name")
-            symbol = ".".join((*scope, _text(name, content)))
-            add(node, name, symbol, "Method" if in_type else "Function")
+            symbol = (*scope, _text(name, content))
+            add(node, name, ".".join(symbol), "Method" if in_type else "Function")
+            stack.extend(
+                (c, namespace, False, namespace, symbol)
+                for c in reversed(node.named_children)
+            )
             continue
-        if node.type in _PHP_BODIES:
-            continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        stack.extend(
+            (c, scope, in_type, namespace, path) for c in reversed(node.named_children)
+        )
     return found
 
 

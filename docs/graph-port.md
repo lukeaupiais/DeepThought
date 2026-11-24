@@ -1401,10 +1401,14 @@ join the namespace and the enclosing class-like declaration with `.`
 statements after it up to the next one, and a braced `namespace A\B { }`
 scopes its body (`namespace { }` is the global namespace). A declaration in a
 conditional block (`if (!function_exists('f')) { function f() {} }`, common
-in WordPress) is recorded, once for each branch that declares it. One in a
-function or method body, a closure or an anonymous class is not, since PHP
-declares it only when that code runs, and neither are namespaces themselves,
-constants, properties, enum cases, calls or bases yet.
+in WordPress) is recorded, once for each branch that declares it. So is one
+in a function or method body or a closure: PHP declares it in the current
+namespace when that code runs, so its symbol is namespace-qualified
+(`App.Http.helper`, not `App.Http.Controller.make.helper`). The methods of
+an anonymous class are named by the path to the class
+(`App.Http.Controller.make.handle` for one in `Controller::make`).
+Namespaces themselves, constants, properties, enum cases, calls and bases are
+not recorded yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1418,11 +1422,11 @@ unexplained.
 
 | Corpus | Files (with syntax errors) | PHP-Parser | Matched | PHP-Parser only: grammar error |
 |---|---|---|---|---|
-| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,897 | 1,897 | 0 |
-| guzzle/guzzle `ba6574f` | 149 (0) | 3,334 | 3,334 | 0 |
-| composer/composer `edc2b0d` | 653 (0) | 5,951 | 5,951 | 0 |
-| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,688 | 13,687 | 1 |
-| laravel/framework `817f2fc` | 3,205 (1) | 37,497 | 37,497 | 0 |
+| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,929 | 1,929 | 0 |
+| guzzle/guzzle `ba6574f` | 149 (0) | 3,380 | 3,380 | 0 |
+| composer/composer `edc2b0d` | 653 (0) | 5,968 | 5,968 | 0 |
+| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,731 | 13,730 | 1 |
+| laravel/framework `817f2fc` | 3,205 (1) | 38,123 | 38,123 | 0 |
 
 No difference is unexplained, and no declaration is reported by tree-sitter
 alone. The grammar error is WordPress's `function readonly()`, a fallback for
