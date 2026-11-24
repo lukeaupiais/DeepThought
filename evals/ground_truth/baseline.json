@@ -799,14 +799,14 @@
   },
   "gson": {
     "ambiguous_excludes": 2,
-    "ambiguous_includes": 521,
+    "ambiguous_includes": 513,
     "ambiguous_unjudged": 51,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
       },
       "tree-sitter.java-call-typed-receiver": {
-        "confirmed": 4788,
+        "confirmed": 4796,
         "unjudged": 36
       },
       "tree-sitter.java-enclosing-type-method": {
@@ -833,7 +833,7 @@
         "unjudged": 380
       }
     },
-    "confirmed": 9334,
+    "confirmed": 9342,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
@@ -870,15 +870,15 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 1817,
+    "missed": 1809,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 523,
+      "ambiguous:multiple_declarations": 515,
       "no_call_site": 1165,
       "unresolved:attribute_call": 122,
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.8356,
+    "recall": 0.8363,
     "unjudged": 419,
     "unresolved_expected": 129,
     "unresolved_unjudged": 8034

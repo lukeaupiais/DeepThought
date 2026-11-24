@@ -8218,3 +8218,134 @@ def extract_mongodb_collections(tree, content, file, definitions):
             )
         )
     return found
+
+
+# Node SQL drivers and query builders whose query methods take SQL text.
+SCRIPT_SQL_MODULES = (
+    "pg",
+    "pg-pool",
+    "pg-promise",
+    "mysql",
+    "mysql2",
+    "mysql2/promise",
+    "mariadb",
+    "sqlite3",
+    "sqlite",
+    "better-sqlite3",
+    "mssql",
+    "tedious",
+    "oracledb",
+    "@neondatabase/serverless",
+    "@vercel/postgres",
+    "@libsql/client",
+    "@planetscale/database",
+    "knex",
+)
+# Their methods whose first argument is SQL (or pg's {text} config).
+SCRIPT_SQL_METHODS = {
+    "query",
+    "execute",
+    "raw",
+    "prepare",
+    "exec",
+    "run",
+    "all",
+    "get",
+    "each",
+    "none",
+    "one",
+    "oneOrNone",
+    "many",
+    "manyOrNone",
+    "any",
+}
+
+
+def _script_sql_text(node, content, depth=0):
+    """The SQL text an argument fixes: string literals, template strings
+    and ``+`` concatenation, with PLACEHOLDER for what the code does not
+    fix; pg's ``{ text: ... }`` config reads its text. None when the
+    argument is no text at all."""
+    if node is None or depth > 16:
+        return None
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _script_sql_text(node.named_children[0], content, depth + 1)
+    if node.type == "string":
+        return _script_string(node, content)
+    if node.type == "template_string":
+        parts = []
+        for child in node.named_children:
+            if child.type in ("string_fragment", "escape_sequence"):
+                parts.append(_text(child, content))
+            elif child.type == "template_substitution":
+                parts.append(PLACEHOLDER)
+        if not node.named_children:
+            # Older grammars hold the text between the backticks.
+            return _text(node, content)[1:-1]
+        return "".join(parts)
+    if node.type == "binary_expression":
+        if _text(node.child_by_field_name("operator"), content) != "+":
+            return None
+        left = _script_sql_text(node.child_by_field_name("left"), content, depth + 1)
+        right = _script_sql_text(node.child_by_field_name("right"), content, depth + 1)
+        if left is None and right is None:
+            return None
+        return (left if left is not None else PLACEHOLDER) + (
+            right if right is not None else PLACEHOLDER
+        )
+    if node.type == "object":
+        for pair in node.named_children:
+            if (
+                pair.type == "pair"
+                and _script_key(pair.child_by_field_name("key"), content) == "text"
+            ):
+                return _script_sql_text(
+                    pair.child_by_field_name("value"), content, depth + 1
+                )
+    return None
+
+
+def extract_script_sql(tree, content, file, definitions):
+    """SQL that one JavaScript or TypeScript file passes to a Node driver's
+    query method, in a file importing a SQL driver or knex. The text must
+    start with a statement verb; the receiver's type is not checked."""
+    root = tree.root_node
+    bindings = script_bindings(root, content)
+    if not any(source in SCRIPT_SQL_MODULES for source, _ in bindings.values()):
+        return []
+    found = []
+    for call in _descendants(root, "call_expression"):
+        function = call.child_by_field_name("function")
+        if function is None or function.type != "member_expression":
+            continue
+        name = function.child_by_field_name("property")
+        if name is None or _text(name, content) not in SCRIPT_SQL_METHODS:
+            continue
+        arguments = call.child_by_field_name("arguments")
+        first = (
+            next((c for c in arguments.named_children if c.type != "comment"), None)
+            if arguments is not None
+            else None
+        )
+        text = _script_sql_text(first, content)
+        if text is None:
+            continue
+        words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+        if not words or words[0].lower() not in SQL_VERBS:
+            continue  # Not a statement that reads or writes tables.
+        # Driver parameter markers ($1, ?, :name, @name) never name a table.
+        statement = statement_tables(re.sub(r"\$\d+", "?", text))
+        if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+            statement = None
+        found.append(
+            SqlUse(
+                file,
+                _innermost(definitions, file, call),
+                "script-sql",
+                False,
+                statement,
+                call.start_point.row + 1,
+                call.start_point.column,
+            )
+        )
+    return found
