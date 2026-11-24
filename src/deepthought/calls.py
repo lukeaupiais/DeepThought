@@ -43,6 +43,7 @@ JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
 JAVA_TYPED_RECEIVER = "tree-sitter.java-call-typed-receiver"
 JAVA_CHAINED_RECEIVER = "tree-sitter.java-call-chained-receiver"
+JAVA_STATIC_FIELD_RECEIVER = "tree-sitter.java-call-static-field-receiver"
 JAVA_PLATFORM_ARGUMENT = "tree-sitter.java-overload-platform-argument"
 JAVA_FIELD_ARGUMENT = "tree-sitter.java-overload-static-field-argument"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
@@ -1014,6 +1015,19 @@ class _JavaScope:
                 scope=scope,
             )
         owners = self.type(file, scope, head)
+        if not owners and site.type_qualified and len(parts) > 2:
+            # `T.F.m()`: no variable `T` is in scope, and the type `T`
+            # declares the static field (or enum constant) `F`.
+            found = self.static_field(file, scope, ".".join(parts[:-2]), parts[-2])
+            owners = [] if found is None else self.type(*found[1], found[0])
+            if owners:
+                return self.methods(
+                    site,
+                    [m for t in owners for m in self.members(t.file, t.symbol, name)],
+                    JAVA_STATIC_FIELD_RECEIVER,
+                    "not_declared_in_type",
+                    scope=scope,
+                )
         if not owners:
             return CallResolution(site.id, "unresolved", reason="attribute_call")
         return self.methods(

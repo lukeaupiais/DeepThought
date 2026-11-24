@@ -20,6 +20,7 @@ from deepthought.calls import (
     JAVA_PLATFORM_ARGUMENT,
     JAVA_TYPE_MEMBER,
     JAVA_CHAINED_RECEIVER,
+    JAVA_STATIC_FIELD_RECEIVER,
     JAVA_TYPED_RECEIVER,
     JAVA_TYPE_NAME,
     _JavaScope,
@@ -789,6 +790,59 @@ class JavaTests(unittest.TestCase):
         self.assertEqual(
             found[(13, "b.build().missing")], (None, "not_declared_in_type")
         )
+
+    def test_calls_on_static_fields_of_a_type(self):
+        files = {
+            "src/p/Kinds.java": (
+                "package p;\n"
+                "class Kinds {\n"
+                "  static final Kinds DEFAULT = new Kinds();\n"
+                "  static Box BOX;\n"
+                "  Box held;\n"
+                "  void go() {}\n"
+                "  enum Mode { FAST; void run() {} }\n"
+                "}\n"
+                "class Box { void open() {} }\n"
+            ),
+            "src/p/Main.java": (
+                "package p;\n"
+                "class Main {\n"
+                "  void m() {\n"
+                "    Kinds.DEFAULT.go();\n"  # 4
+                "    Kinds.BOX.open();\n"  # 5
+                "    Kinds.Mode.FAST.run();\n"  # 6: an enum constant
+                "    Kinds.held.open();\n"  # 7: not static
+                "  }\n"
+                "  void n(Main Kinds) { Kinds.BOX.open(); }\n"  # 9: a variable
+                "  class Sub extends Base { void s() { Kinds.BOX.open(); } }\n"
+                "  void o() { new Object() { void t() { Kinds.BOX.open(); } }; }\n"
+                "}\n"
+                "class Base {}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/p/Main.java"
+        }
+        rule = JAVA_STATIC_FIELD_RECEIVER
+        self.assertEqual(found[(4, "Kinds.DEFAULT.go")], ("Kinds.go", rule))
+        self.assertEqual(found[(5, "Kinds.BOX.open")], ("Box.open", rule))
+        self.assertEqual(found[(6, "Kinds.Mode.FAST.run")], ("Kinds.Mode.run", rule))
+        unresolved = (None, "attribute_call")
+        self.assertEqual(found[(7, "Kinds.held.open")], unresolved)
+        # A parameter named like the type obscures it.
+        self.assertEqual(found[(9, "Kinds.BOX.open")], unresolved)
+        # A class with a superclass, or an anonymous class, may inherit a
+        # field of that name.
+        self.assertEqual(found[(10, "Kinds.BOX.open")], unresolved)
+        self.assertEqual(found[(11, "Kinds.BOX.open")], unresolved)
 
     def test_calls_on_variables_whose_declaration_writes_the_type(self):
         files = {

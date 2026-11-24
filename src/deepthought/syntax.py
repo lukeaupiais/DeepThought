@@ -3317,6 +3317,33 @@ def _java_may_inherit_fields(owner):
     ) or any(c.type == "extends_interfaces" for c in owner.named_children)
 
 
+def _java_names_no_variable(node, content, callee):
+    """For a Java call ``X.f.m()``: True when no variable or field named
+    ``X`` can be in scope at the call, so that ``X`` names a type or
+    package (JLS 6.5.2); None for any other callee or when one may be: a
+    declaration of ``X`` around the call, or a type around it that may
+    inherit a field ``X``."""
+    parts = callee.split(".")
+    if len(parts) < 3 or parts[0] in {"this", "super"}:
+        return None
+    name = parts[0]
+    end = (float("inf"), float("inf"))
+    ancestor = node.parent
+    while ancestor is not None:
+        if _java_declared_here(ancestor, name, content, end):
+            return None
+        if ancestor.type in _JAVA_CLASS_BODIES and _java_may_inherit_fields(
+            ancestor.parent
+        ):
+            return None
+        if ancestor.type in _JAVA_METHODS and _java_binds_pattern(
+            ancestor, name, content
+        ):
+            return None
+        ancestor = ancestor.parent
+    return True
+
+
 def _java_binds_pattern(node, name, content):
     """Whether a pattern (``o instanceof Foo x``, ``case Foo x``) in ``node``
     binds ``name``: such a variable's scope depends on control flow."""
@@ -4136,7 +4163,10 @@ def extract_call_sites(
                             {
                                 "receiver_type": _java_receiver_type(
                                     node, content, callee, receivers
-                                )
+                                ),
+                                "type_qualified": _java_names_no_variable(
+                                    node, content, callee
+                                ),
                             }
                             if java
                             else {
