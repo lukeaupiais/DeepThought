@@ -1681,9 +1681,24 @@ def _script_imports(root, content):
     return found
 
 
+def _call_function(call):
+    """The callee expression of a call. tree-sitter-typescript reads
+    ``await x.f<T>(...)`` as a call of ``await x.f``; its callee is
+    ``x.f``."""
+    function = call.child_by_field_name("function")
+    if (
+        function is not None
+        and function.type == "await_expression"
+        and call.child_by_field_name("type_arguments") is not None
+        and function.named_children
+    ):
+        return function.named_children[0]
+    return function
+
+
 def _call_parts(call, content):
     """(callee name, receiver node or None, arguments) of a call."""
-    function = call.child_by_field_name("function")
+    function = _call_function(call)
     arguments = call.child_by_field_name("arguments")
     args = [
         a
@@ -3559,7 +3574,7 @@ def extract_drizzle(tree, content, file, definitions):
             reads, writes = True, False
         else:
             continue
-        where = call.child_by_field_name("function").child_by_field_name("property")
+        where = _call_function(call).child_by_field_name("property")
         uses.append(
             DrizzleUse(
                 file,
@@ -3713,6 +3728,108 @@ def resolve_script_alias(file, source, files, configs):
         if found:
             return found
     return None
+
+
+def read_package_entries(path, content):
+    """(name, directory, entry paths, {dependency: spec}) of a package.json:
+    the entry points its ``exports["."]`` (every condition), ``types``,
+    ``typings``, ``main`` and ``module`` give; None without a name."""
+    import json
+
+    try:
+        manifest = json.loads(content)
+    except ValueError:
+        return None
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("name"), str):
+        return None
+    entries = []
+    exported = manifest.get("exports")
+    if isinstance(exported, dict) and any(k.startswith(".") for k in exported):
+        exported = exported.get(".")
+    stack = [exported]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            entries.append(item)
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    for key in ("types", "typings", "main", "module"):
+        if isinstance(manifest.get(key), str):
+            entries.append(manifest[key])
+    dependencies = {}
+    for section in ("dependencies", "devDependencies", "peerDependencies"):
+        for name, spec in (manifest.get(section) or {}).items():
+            if isinstance(spec, str):
+                dependencies[name] = spec
+    return manifest["name"], path.rpartition("/")[0], entries, dependencies
+
+
+def read_tsconfig_out(path, content):
+    """(outDir, rootDir) of a tsconfig file's own ``compilerOptions``,
+    relative to the repository; None unless it sets both."""
+    import json
+
+    try:
+        config = json.loads(_strip_jsonc(content.decode("utf-8", "replace")))
+    except ValueError:
+        return None
+    options = config.get("compilerOptions") if isinstance(config, dict) else None
+    if not isinstance(options, dict):
+        return None
+    out, source = options.get("outDir"), options.get("rootDir")
+    if not (isinstance(out, str) and isinstance(source, str)):
+        return None
+    directory = path.rpartition("/")[0]
+    out, source = _join(directory, out), _join(directory, source)
+    return None if out is None or source is None else (out, source)
+
+
+def resolve_workspace_module(file, source, files, packages, outputs):
+    """The repository file a workspace package import (``@scope/name``)
+    names. The importing file's nearest package.json must depend on the
+    name through the ``workspace:`` protocol, and exactly one package.json
+    of the repository must carry it. An entry point that is a repository
+    file is that file; one under a tsconfig's ``outDir`` in the package's
+    directory is the source the compiler writes it from, under ``rootDir``
+    (``dist/index.js`` from ``src/index.ts``). The entries must agree on one
+    source. ``packages`` is [(name, directory, entries, dependencies)];
+    ``outputs`` is {tsconfig directory: [(outDir, rootDir)]}."""
+    if source.startswith(".") or source.startswith("/"):
+        return None
+    parts = source.split("/")
+    name = "/".join(parts[:2]) if source.startswith("@") else parts[0]
+    rest = "/".join(parts[2:] if source.startswith("@") else parts[1:])
+    owner = None
+    for package in packages:
+        directory = package[1]
+        if (directory == "" or file.startswith(directory + "/")) and (
+            owner is None or len(directory) > len(owner[1])
+        ):
+            owner = package
+    if owner is None or not owner[3].get(name, "").startswith("workspace:"):
+        return None
+    members = [p for p in packages if p[0] == name]
+    if len(members) != 1:
+        return None
+    _, directory, entries, _ = members[0]
+    found = set()
+    for entry in [rest] if rest else entries:
+        path = _join(directory, entry)
+        if path is None:
+            continue
+        direct = _script_file(path, files)
+        if direct:
+            found.add(direct)
+            continue
+        for out, root in outputs.get(directory, ()):
+            if path.startswith(out + "/"):
+                stem = re.sub(r"\.d\.ts$|\.(?:m|c)?js$", "", path[len(out) + 1 :])
+                written = _script_file(f"{root}/{stem}" if root else stem, files)
+                if written:
+                    found.add(written)
+    return found.pop() if len(found) == 1 else None
 
 
 # MyBatis: mapper XML and annotations -----------------------------------------
@@ -5341,7 +5458,7 @@ def extract_sequelize(tree, content, file, definitions):
         method, receiver, args = _call_parts(call, content)
         if receiver is None:
             continue
-        where = call.child_by_field_name("function").child_by_field_name("property")
+        where = _call_function(call).child_by_field_name("property")
         line, column = where.start_point.row + 1, where.start_point.column
         if method == "init" and receiver.type == "identifier" and len(args) >= 2:
             inits.setdefault(_text(receiver, content), []).append(
@@ -5425,7 +5542,7 @@ def extract_sequelize(tree, content, file, definitions):
                 model = _text(receiver.child_by_field_name("property"), content)
         if model is None:
             continue
-        where = call.child_by_field_name("function").child_by_field_name("property")
+        where = _call_function(call).child_by_field_name("property")
         uses.append(
             SequelizeUse(
                 file,
@@ -5631,7 +5748,11 @@ class MongooseModel:
 @dataclass(frozen=True)
 class MongooseUse:
     """A static model call. ``target`` is ("model", index of the file's
-    model), ("import", module, exported name) or ("name", model name)."""
+    model), ("import", module, exported name) or ("name", model name); or
+    ("field", class name, field) for ``this.field.find()`` in a class of
+    the file, or ("typed", class reference, method) for a method called on
+    a value whose declared type is a class, whose reads and writes come
+    from that method's body."""
 
     file: str
     caller_id: str | None
@@ -5640,6 +5761,26 @@ class MongooseUse:
     writes: bool
     line: int
     column: int
+
+
+@dataclass(frozen=True)
+class MongooseClass:
+    """A class that may hold a model in a field, the way repository base
+    classes do (``constructor(protected model: Model<T>)``, ``super(User)``).
+    ``base`` is the ``extends`` class as ("local", name) or ("import",
+    module, name); ``fields`` maps a field to the constructor parameter it
+    is set from; ``super_args`` gives each ``super(...)`` argument as
+    ("model", receiver reference), ("param", index) or None; ``effects``
+    maps a method to the (field, reads, writes) of its model calls on
+    ``this.field`` and ``calls`` to the methods it calls on ``this``."""
+
+    name: str
+    base: tuple | None
+    fields: dict
+    super_args: tuple
+    methods: frozenset
+    effects: dict
+    calls: dict
 
 
 @dataclass(frozen=True)
@@ -5652,6 +5793,11 @@ class MongooseFile:
     # module, name)}; "default" is module.exports or export default.
     exports: dict
     pluralize: object  # None, "off" (pluralize(null)) or UNKNOWN
+    # {name: MongooseClass} of the file's classes that extend another or
+    # set a field from a constructor parameter.
+    classes: dict | None = None
+    # Modules re-exported whole (``export * from './x'``).
+    stars: tuple = ()
 
 
 def _unwrap(node):
@@ -6296,10 +6442,304 @@ def extract_mongoose(tree, content, file, definitions):
             node = node.parent
         return None
 
+    # Classes that may hold a model in a field, and the declared class
+    # types of their properties.
+    class_nodes = {}
+    for node in [
+        *_descendants(root, "class_declaration"),
+        *_descendants(root, "abstract_class_declaration"),
+    ]:
+        name = node.child_by_field_name("name")
+        if name is not None:
+            class_nodes.setdefault(_text(name, content), node)
+
+    def type_ref(annotation):
+        """The class a type annotation names, as a reference."""
+        if annotation is None:
+            return None
+        written = annotation.named_children[0] if annotation.named_children else None
+        if written is not None and written.type == "generic_type":
+            written = written.child_by_field_name("name")
+        if written is None or written.type != "type_identifier":
+            return None
+        text = _text(written, content)
+        if text in class_nodes:
+            return ("local", text)
+        if text in bindings and bindings[text][0] != "mongoose":
+            return ("import", *bindings[text])
+        return None
+
+    def own_class(node):
+        while node is not None and node.type not in (
+            "class_declaration",
+            "abstract_class_declaration",
+            "class",
+        ):
+            node = node.parent
+        return node
+
+    def own_method(node):
+        while node is not None and node.type != "method_definition":
+            if node.type in ("class_body", "program"):
+                return None
+            node = node.parent
+        return node
+
+    repository_classes, stars = {}, []
+    typed = {}  # {class node id: {property: class reference}}
+    for cname, node in class_nodes.items():
+        base = None
+        for heritage in node.named_children:
+            if heritage.type != "class_heritage":
+                continue
+            for clause in heritage.named_children:
+                value = clause.child_by_field_name("value")
+                if clause.type == "extends_clause" and value is not None:
+                    if value.type == "identifier":
+                        text = _text(value, content)
+                        if text in class_nodes:
+                            base = ("local", text)
+                        elif text in bindings and bindings[text][0] != "mongoose":
+                            base = ("import", *bindings[text])
+        body = node.child_by_field_name("body")
+        fields, super_args, methods, effects, calls = {}, (), set(), {}, {}
+        props = {}
+        for member in body.named_children if body is not None else ():
+            if member.type == "public_field_definition":
+                found = type_ref(member.child_by_field_name("type"))
+                value = _unwrap(member.child_by_field_name("value"))
+                built = (
+                    value.child_by_field_name("constructor")
+                    if found is None
+                    and value is not None
+                    and value.type == "new_expression"
+                    else None
+                )
+                if built is not None and built.type == "identifier":
+                    # private repo = new UserRepository()
+                    text = _text(built, content)
+                    if text in class_nodes:
+                        found = ("local", text)
+                    elif text in bindings and bindings[text][0] != "mongoose":
+                        found = ("import", *bindings[text])
+                if found is not None:
+                    props[_text(member.child_by_field_name("name"), content)] = found
+            if member.type != "method_definition":
+                continue
+            mname = _text(member.child_by_field_name("name"), content)
+            if mname != "constructor":
+                methods.add(mname)
+                continue
+            params = member.child_by_field_name("parameters")
+            names = []
+            for index, param in enumerate(
+                p
+                for p in (params.named_children if params is not None else ())
+                if p.type in ("required_parameter", "optional_parameter")
+            ):
+                pattern = param.child_by_field_name("pattern")
+                pname = _text(pattern, content) if pattern is not None else None
+                names.append(pname)
+                if pname and any(
+                    c.type in ("accessibility_modifier", "readonly")
+                    for c in param.children
+                ):
+                    fields[pname] = index
+                    found = type_ref(param.child_by_field_name("type"))
+                    if found is not None:
+                        props[pname] = found
+            for call in _descendants(member, "call_expression"):
+                function = call.child_by_field_name("function")
+                if function is not None and function.type == "super":
+                    _, _, args = _call_parts(call, content)
+                    found = []
+                    for arg in args:
+                        arg = _unwrap(arg)
+                        text = _text(arg, content) if arg is not None else ""
+                        if (
+                            arg is not None
+                            and arg.type == "identifier"
+                            and text in names
+                        ):
+                            found.append(("param", names.index(text)))
+                        else:
+                            ref = receiver_ref(arg)
+                            found.append(("model", ref) if ref is not None else None)
+                    super_args = tuple(found)
+            for assignment in _descendants(member, "assignment_expression"):
+                left = assignment.child_by_field_name("left")
+                right = _unwrap(assignment.child_by_field_name("right"))
+                if (
+                    left is not None
+                    and left.type == "member_expression"
+                    and _text(left.child_by_field_name("object"), content) == "this"
+                    and right is not None
+                    and right.type == "identifier"
+                    and _text(right, content) in names
+                ):
+                    fields[_text(left.child_by_field_name("property"), content)] = (
+                        names.index(_text(right, content))
+                    )
+        typed[node.id] = props
+        if base is None and not fields:
+            continue
+        for call in _descendants(node, "call_expression"):
+            if getattr(own_class(call), "id", None) != node.id:
+                continue
+            method, receiver, _ = _call_parts(call, content)
+            holder = own_method(call)
+            if holder is None or receiver is None:
+                continue
+            hname = _text(holder.child_by_field_name("name"), content)
+            if receiver.type == "this":
+                calls.setdefault(hname, set()).add(method)
+            elif (
+                receiver.type == "member_expression"
+                and _text(receiver.child_by_field_name("object"), content) == "this"
+                and method in MONGOOSE_READS | MONGOOSE_WRITES | MONGOOSE_READ_WRITES
+            ):
+                effects.setdefault(hname, set()).add(
+                    (
+                        _text(receiver.child_by_field_name("property"), content),
+                        method in MONGOOSE_READS | MONGOOSE_READ_WRITES,
+                        method in MONGOOSE_WRITES | MONGOOSE_READ_WRITES,
+                    )
+                )
+        # const doc = new this.field(data); doc.save(): a write.
+        for declarator in _descendants(node, "variable_declarator"):
+            value = _unwrap(declarator.child_by_field_name("value"))
+            target = declarator.child_by_field_name("name")
+            holder = own_method(declarator)
+            if (
+                value is None
+                or value.type != "new_expression"
+                or target is None
+                or target.type != "identifier"
+                or holder is None
+                or getattr(own_class(declarator), "id", None) != node.id
+            ):
+                continue
+            built = value.child_by_field_name("constructor")
+            if (
+                built is None
+                or built.type != "member_expression"
+                or _text(built.child_by_field_name("object"), content) != "this"
+            ):
+                continue
+            variable = _text(target, content)
+            saved = any(
+                _call_parts(call, content)[0] == "save"
+                and _call_parts(call, content)[1] is not None
+                and _text(_call_parts(call, content)[1], content) == variable
+                for call in _descendants(holder, "call_expression")
+            )
+            if saved:
+                effects.setdefault(
+                    _text(holder.child_by_field_name("name"), content), set()
+                ).add(
+                    (_text(built.child_by_field_name("property"), content), False, True)
+                )
+        repository_classes[cname] = MongooseClass(
+            cname,
+            base,
+            fields,
+            super_args,
+            frozenset(methods),
+            {k: tuple(sorted(v)) for k, v in effects.items()},
+            {k: tuple(sorted(v)) for k, v in calls.items()},
+        )
+    for node in root.named_children:
+        declaration = (
+            node.child_by_field_name("declaration")
+            if node.type == "export_statement"
+            else None
+        )
+        if declaration is not None and declaration.type in (
+            "class_declaration",
+            "abstract_class_declaration",
+        ):
+            name = _text(declaration.child_by_field_name("name"), content)
+            exports.setdefault(name, ("class", name))
+        elif node.type == "export_statement":
+            source = _script_string(node.child_by_field_name("source"), content)
+            if source and not any(
+                c.type in ("export_clause", "namespace_export")
+                for c in node.named_children
+            ):
+                stars.append(source)
+            value = node.child_by_field_name("value")
+            if value is not None and value.type == "identifier":
+                if _text(value, content) in class_nodes:
+                    exports["default"] = ("class", _text(value, content))
+            for clause in node.named_children:
+                if clause.type != "export_clause" or node.child_by_field_name("source"):
+                    continue
+                for spec in clause.named_children:
+                    local = _text(spec.child_by_field_name("name"), content)
+                    alias = spec.child_by_field_name("alias")
+                    if local in class_nodes:
+                        exported = _text(alias, content) if alias is not None else local
+                        exports[exported] = ("class", local)
+
+    def property_use(receiver, call):
+        """("field", ...) or ("typed", ...) for ``this.p.m()`` in a class."""
+        owner = own_class(receiver)
+        if owner is None or owner.type == "class":
+            return None
+        cname = _text(owner.child_by_field_name("name"), content)
+        prop = _text(receiver.child_by_field_name("property"), content)
+        method, _, _ = _call_parts(call, content)
+        ref = typed.get(owner.id, {}).get(prop)
+        if ref is not None:
+            return ("typed", ref, method)
+        if (
+            cname in repository_classes
+            and method in MONGOOSE_READS | MONGOOSE_WRITES | MONGOOSE_READ_WRITES
+        ):
+            return ("field", cname, prop)
+        return None
+
     uses = []
     for call in _descendants(root, "call_expression"):
         method, receiver, args = _call_parts(call, content)
         if receiver is None:
+            continue
+        found = None
+        if (
+            receiver.type == "member_expression"
+            and _text(receiver.child_by_field_name("object"), content) == "this"
+            and receiver_ref(receiver) is None
+        ):
+            found = property_use(receiver, call)
+        elif receiver.type == "this":
+            owner = own_class(call)
+            if (
+                owner is not None
+                and owner.type != "class"
+                and _text(owner.child_by_field_name("name"), content)
+                in repository_classes
+                and this_model(call) is None
+            ):
+                found = (
+                    "typed",
+                    ("local", _text(owner.child_by_field_name("name"), content)),
+                    method,
+                )
+        if found is not None:
+            kind = found[0]
+            fixed = kind == "field"
+            where = _call_function(call).child_by_field_name("property")
+            uses.append(
+                MongooseUse(
+                    file,
+                    _innermost(definitions, file, call),
+                    found,
+                    fixed and method in MONGOOSE_READS | MONGOOSE_READ_WRITES,
+                    fixed and method in MONGOOSE_WRITES | MONGOOSE_READ_WRITES,
+                    where.start_point.row + 1,
+                    where.start_point.column,
+                )
+            )
             continue
         if method == "pluralize" and mongoose_root(receiver) and args:
             pluralize = "off" if args[0].type in ("null", "undefined") else UNKNOWN
@@ -6322,7 +6762,7 @@ def extract_mongoose(tree, content, file, definitions):
         target = this_model(call) if receiver.type == "this" else receiver_ref(receiver)
         if target is None:
             continue
-        where = call.child_by_field_name("function").child_by_field_name("property")
+        where = _call_function(call).child_by_field_name("property")
         uses.append(
             MongooseUse(
                 file,
@@ -6334,9 +6774,17 @@ def extract_mongoose(tree, content, file, definitions):
                 where.start_point.column,
             )
         )
-    if not (models or uses or exports or pluralize):
+    if not (models or uses or exports or pluralize or repository_classes or stars):
         return None
-    return MongooseFile(tuple(models), tuple(uses), schemas, exports, pluralize)
+    return MongooseFile(
+        tuple(models),
+        tuple(uses),
+        schemas,
+        exports,
+        pluralize,
+        repository_classes,
+        tuple(stars),
+    )
 
 
 def mongoose_majors(specs):
@@ -6359,7 +6807,13 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
     collection option) or "default" (the model name pluralized as every
     allowed mongoose major does). A discriminator takes its base's
     collection. ``resolve_use(use)`` gives a use's model key, or the reason
-    it has none: "package", "not_a_model" or "ambiguous"."""
+    it has none: "package", "not_a_model" or "ambiguous". A ("field", ...)
+    use has no model ("field") unless its class passes one to ``super``.
+    A ("typed", ...) use gives [(model key or reason, reads, writes)] for
+    the method it calls, inherited from the class's bases, or the reason it
+    has none: "package" (not a class that may hold a model),
+    "declared_method" (the class's own method, whose body carries the
+    uses), "method_not_found" or "no_model_access"."""
     majors = majors or set(MONGOOSE_MAJORS)
     resolve = resolve or (lambda file, module: None)
     scope = scope or (lambda file: "")
@@ -6369,8 +6823,12 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
             by_name.setdefault(model.name, []).append((file, index))
     pluralize = {f.pluralize for f in files.values() if f.pluralize is not None}
 
+    starred = {}
+
     def export(file, name, depth=0):
-        """What ``file`` exports as ``name``, following re-exports."""
+        """What ``file`` exports as ``name``, following re-exports. Of
+        ``export *`` modules, only one may export the name, as in ES
+        modules, where an ambiguous star export is no export."""
         found = files.get(file)
         if found is None or depth > 8:
             return None
@@ -6378,6 +6836,17 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
         if value is not None and value[0] == "import":
             target = resolve(file, value[1])
             return None if target is None else export(target, value[2], depth + 1)
+        if value is None and name != "default" and found.stars:
+            if (file, name) not in starred:
+                starred[file, name] = None  # a cycle of star exports
+                hits = []
+                for source in found.stars:
+                    target = resolve(file, source)
+                    hit = None if target is None else export(target, name, depth + 1)
+                    if hit is not None and hit not in hits:
+                        hits.append(hit)
+                starred[file, name] = hits[0] if len(hits) == 1 else None
+            return starred[file, name]
         return None if value is None else (file, value)
 
     def model_key(file, ref):
@@ -6476,7 +6945,126 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
     for file, found in sorted(files.items()):
         for index in range(len(found.models)):
             collection((file, index))
-    return tables, unresolved, lambda use: model_key(use.file, use.target)
+
+    def class_of(file, ref):
+        """(file, class name) of a class reference, when that class may
+        hold a model in a field."""
+        if ref is None:
+            return None
+        if ref[0] == "local":
+            where, name = file, ref[1]
+        else:
+            target = resolve(file, ref[1])
+            value = None if target is None else export(target, ref[2])
+            if value is None or value[1][0] != "class":
+                return None
+            where, name = value[0], value[1][1]
+        return (where, name) if name in (files[where].classes or {}) else None
+
+    def cls(key):
+        return files[key[0]].classes[key[1]]
+
+    def field_param(key, field, depth=0):
+        """The constructor parameter of ``key`` that ends up in ``field``."""
+        c = cls(key)
+        if field in c.fields:
+            return c.fields[field]
+        base = class_of(key[0], c.base)
+        if base is None or depth > 8:
+            return None
+        index = field_param(base, field, depth + 1)
+        arg = (
+            c.super_args[index]
+            if index is not None and index < len(c.super_args)
+            else None
+        )
+        return arg[1] if arg is not None and arg[0] == "param" else None
+
+    def field_model(key, field, depth=0):
+        """The model key (or a reason) that the class ``key`` holds in
+        ``field`` because its constructor passes it to ``super``."""
+        c = cls(key)
+        if field in c.fields or depth > 8:
+            return None
+        base = class_of(key[0], c.base)
+        if base is None:
+            return None
+        index = field_param(base, field)
+        if index is None:
+            return field_model(base, field, depth + 1)
+        arg = c.super_args[index] if index < len(c.super_args) else None
+        if arg is None or arg[0] != "model":
+            return None
+        return model_key(key[0], arg[1])
+
+    def dispatch(key, method, depth=0):
+        """The class that ``method`` on an instance of ``key`` runs from."""
+        while key is not None and depth <= 8:
+            if method in cls(key).methods:
+                return key
+            key = class_of(key[0], cls(key).base)
+            depth += 1
+        return None
+
+    def effects(key, method):
+        """{model key or reason: [reads, writes]} of ``method`` run on an
+        instance of ``key``, through the methods it calls on ``this``."""
+        found, seen, todo = {}, set(), [method]
+        while todo:
+            name = todo.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            where = dispatch(key, name)
+            if where is None:
+                continue
+            for field, reads, writes in cls(where).effects.get(name, ()):
+                model = field_model(key, field)
+                if model is None:
+                    continue
+                flags = found.setdefault(model, [False, False])
+                flags[0] |= reads
+                flags[1] |= writes
+            todo.extend(cls(where).calls.get(name, ()))
+        return found
+
+    holding = {}
+
+    def holds_model(key):
+        """Whether the class, or a base, calls model methods on a field
+        that holds a model for instances of ``key``."""
+        if key not in holding:
+            holding[key] = False
+            fields, where, depth = set(), key, 0
+            while where is not None and depth <= 8:
+                for found in cls(where).effects.values():
+                    fields.update(field for field, _, _ in found)
+                where = class_of(where[0], cls(where).base)
+                depth += 1
+            holding[key] = any(field_model(key, f) is not None for f in fields)
+        return holding[key]
+
+    def resolve_use(use):
+        kind = use.target[0]
+        if kind == "field":
+            found = field_model((use.file, use.target[1]), use.target[2])
+            return "field" if found is None else found
+        if kind != "typed":
+            return model_key(use.file, use.target)
+        key = class_of(use.file, use.target[1])
+        method = use.target[2]
+        if key is None or not holds_model(key):
+            return "package"
+        if method in cls(key).methods:
+            return "declared_method"
+        if dispatch(key, method) is None:
+            return "method_not_found"
+        found = effects(key, method)
+        return [(k, r, w) for k, (r, w) in sorted(found.items(), key=str)] or (
+            "no_model_access"
+        )
+
+    return tables, unresolved, resolve_use
 
 
 # Doctrine ORM: entity mappings (attributes, docblock annotations, XML),
