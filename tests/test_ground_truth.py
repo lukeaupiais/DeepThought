@@ -7,6 +7,7 @@ baseline. The pinned real-repository corpus runs with
 ``python tools/ground_truth.py check`` (it needs network to fetch).
 """
 
+from contextlib import redirect_stderr
 import importlib.util
 import io
 import json
@@ -18,6 +19,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+import c_declaration_truth  # noqa: E402
 import ground_truth  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures"
@@ -269,6 +271,69 @@ class CorpusFilesTest(unittest.TestCase):
                 )
                 counts = baseline[entry["name"]][kind]["call_sites"]
                 self.assertEqual(counts["labelled_in_scope"], in_scope)
+
+
+class RequirementTests(unittest.TestCase):
+    MANIFEST = {
+        "corpora": [{"name": "a", "languages": ["python"]}],
+        "contracts": [{"name": "contracts-b"}],
+    }
+
+    def test_missing_grammar_or_yaml_is_reported(self):
+        from unittest import mock
+
+        real = importlib.util.find_spec
+        absent = {"yaml", "tree_sitter_python"}
+        with mock.patch(
+            "importlib.util.find_spec",
+            side_effect=lambda name, *a: None if name in absent else real(name, *a),
+        ):
+            self.assertEqual(
+                ground_truth.missing_requirements(self.MANIFEST),
+                ["tree_sitter_python", "yaml"],
+            )
+            # Only what the selected corpora need.
+            self.assertEqual(
+                ground_truth.missing_requirements(self.MANIFEST, {"a"}),
+                ["tree_sitter_python"],
+            )
+
+    def test_check_refuses_to_score_without_them(self):
+        from unittest import mock
+
+        with (
+            mock.patch.object(
+                ground_truth, "missing_requirements", return_value=["yaml"]
+            ),
+            redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.assertEqual(ground_truth.main(["check", "--corpus", "x"]), 2)
+        self.assertIn("not installed: yaml", stderr.getvalue())
+
+
+class DeclarationRegressionTests(unittest.TestCase):
+    def test_declaration_regressions(self):
+        base = {"expected": 10, "found": 8, "kind_mismatch": 1, "extra": 2}
+        regressions = ground_truth.declaration_regressions
+        self.assertEqual(regressions(dict(base), base), [])
+        self.assertEqual(
+            regressions({**base, "found": 7, "extra": 3}, base),
+            ["found 8 -> 7", "extra 2 -> 3"],
+        )
+        self.assertIn(
+            "expected 10 -> 11", regressions({**base, "expected": 11}, base)[0]
+        )
+
+    def test_every_declaration_corpus_has_truth_and_baseline(self):
+        corpus = ROOT / "evals" / "ground_truth"
+        manifest = json.loads((corpus / "manifest.json").read_text())
+        baseline = json.loads((corpus / "baseline.json").read_text())
+        for entry in manifest["declarations"]:
+            self.assertRegex(entry["commit"], r"^[0-9a-f]{40}$")
+            rows, _ = c_declaration_truth.read(corpus / entry["truth"])
+            self.assertEqual(
+                len(rows), baseline["declarations"][entry["name"]]["expected"]
+            )
 
 
 class ContractRegressionTests(unittest.TestCase):
