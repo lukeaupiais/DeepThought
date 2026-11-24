@@ -1,0 +1,8193 @@
+{
+  "repo": "https://github.com/TryGhost/Ghost",
+  "commit": "7ada5b004d04bdb7c048ca8c6de18c4e13d1cbf0",
+  "labelled_by": "tools/knex_labels.py, every label read by hand",
+  "accesses": [
+    {
+      "file": "ghost/core/server/api/endpoints/authentication.ts",
+      "line": 257,
+      "tables": [
+        [
+          "user_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/api/endpoints/automated-emails.js",
+      "line": 186,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/api/endpoints/automated-emails.js",
+      "line": 255,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/auth/better-auth/create-auth.ts",
+      "line": 170,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/auth/better-auth/credential-password.ts",
+      "line": 18,
+      "tables": [
+        [
+          "user_accounts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/auth/better-auth/credential-password.ts",
+      "line": 40,
+      "tables": [
+        [
+          "user_accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/auth/better-auth/credential-password.ts",
+      "line": 48,
+      "tables": [
+        [
+          "user_accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/auth/better-auth/staff-sessions.ts",
+      "line": 68,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 36,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 70,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 74,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 89,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 126,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 141,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 158,
+      "tables": [
+        [
+          "permissions_roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 173,
+      "tables": [
+        [
+          "permissions_roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 181,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 194,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 207,
+      "tables": [
+        [
+          "permissions_roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/permissions.ts",
+      "line": 222,
+      "tables": [
+        [
+          "permissions_roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 21,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 48,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 51,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 58,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 68,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 78,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 81,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/utils/settings.ts",
+      "line": 113,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-14-12-33-delete-duplicate-offer-redemptions.ts",
+      "line": 9,
+      "tables": [
+        [
+          "offer_redemptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-14-12-33-delete-duplicate-offer-redemptions.ts",
+      "line": 16,
+      "tables": [
+        [
+          "offer_redemptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 20,
+      "tables": [
+        [
+          "offer_redemptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 21,
+      "tables": [
+        [
+          "offers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 22,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 23,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 40,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 118,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-03-28-15-25-backfill-mrr-adjustments-for-offers.ts",
+      "line": 119,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-25-10-32-backfill-mrr-for-discounted-subscriptions.ts",
+      "line": 7,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-25-10-32-backfill-mrr-for-discounted-subscriptions.ts",
+      "line": 8,
+      "tables": [
+        [
+          "offers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-25-10-32-backfill-mrr-for-discounted-subscriptions.ts",
+      "line": 40,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-25-10-32-backfill-mrr-for-discounted-subscriptions.ts",
+      "line": 41,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 9,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 19,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 24,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 37,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 76,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 79,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-26-15-44-backfill-mrr-events-for-canceled-subscriptions.ts",
+      "line": 85,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-27-11-26-backfill-mrr-for-canceled-subscriptions.ts",
+      "line": 11,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-04-27-11-26-backfill-mrr-for-canceled-subscriptions.ts",
+      "line": 20,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-04-15-24-map-existing-emails-to-default-newsletter.ts",
+      "line": 10,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-04-15-24-map-existing-emails-to-default-newsletter.ts",
+      "line": 17,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-04-15-24-map-existing-emails-to-default-newsletter.ts",
+      "line": 35,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-04-15-24-map-existing-emails-to-default-newsletter.ts",
+      "line": 40,
+      "tables": [
+        [
+          "emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-05-13-13-migrate-legacy-recipient-filters.ts",
+      "line": 6,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-05-13-13-migrate-legacy-recipient-filters.ts",
+      "line": 13,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-05-13-13-migrate-legacy-recipient-filters.ts",
+      "line": 20,
+      "tables": [
+        [
+          "emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-05-13-13-migrate-legacy-recipient-filters.ts",
+      "line": 27,
+      "tables": [
+        [
+          "emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-06-13-22-add-frontend-integration.ts",
+      "line": 16,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-06-13-22-add-frontend-integration.ts",
+      "line": 28,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-06-13-22-add-frontend-integration.ts",
+      "line": 42,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-06-13-22-add-frontend-integration.ts",
+      "line": 48,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-06-13-22-add-frontend-integration.ts",
+      "line": 57,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-06-13-22-add-frontend-integration.ts",
+      "line": 58,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-09-14-17-cleanup-invalid-users-status.ts",
+      "line": 8,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-10-14-57-cleanup-invalid-posts-status.ts",
+      "line": 8,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-11-13-12-rename-settings.ts",
+      "line": 22,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-11-13-12-rename-settings.ts",
+      "line": 33,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-11-13-12-rename-settings.ts",
+      "line": 36,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-11-13-12-rename-settings.ts",
+      "line": 40,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-11-16-36-remove-unused-settings.ts",
+      "line": 34,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-11-16-36-remove-unused-settings.ts",
+      "line": 39,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-13-11-38-drop-none-email-recipient-filter.ts",
+      "line": 11,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-13-11-38-drop-none-email-recipient-filter.ts",
+      "line": 26,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-21-00-00-regenerate-posts-html.ts",
+      "line": 14,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-21-00-00-regenerate-posts-html.ts",
+      "line": 30,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.0/2022-05-21-00-00-regenerate-posts-html.ts",
+      "line": 63,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.100/2024-11-06-04-45-15-add-activitypub-integration.ts",
+      "line": 12,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.100/2024-11-06-04-45-15-add-activitypub-integration.ts",
+      "line": 32,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.100/2024-11-06-04-45-15-add-activitypub-integration.ts",
+      "line": 38,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.11/2022-08-23-13-41-backfill-members-created-events.ts",
+      "line": 8,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.11/2022-08-23-13-41-backfill-members-created-events.ts",
+      "line": 25,
+      "tables": [
+        [
+          "members_created_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.11/2022-08-23-13-41-backfill-members-created-events.ts",
+      "line": 29,
+      "tables": [
+        [
+          "members_created_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.11/2022-08-23-13-59-fix-page-resource-type.ts",
+      "line": 8,
+      "tables": [
+        [
+          "actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.113/2025-03-07-12-24-00-add-super-editor.ts",
+      "line": 10,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.113/2025-03-07-12-24-00-add-super-editor.ts",
+      "line": 21,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.113/2025-03-07-12-24-00-add-super-editor.ts",
+      "line": 31,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.122/2025-06-03-19-32-57-change-default-for-newsletters-button-color.ts",
+      "line": 16,
+      "tables": [
+        [
+          "newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.126/2025-06-18-11-36-00-update-newsletters-link-color-null-to-accent.ts",
+      "line": 9,
+      "tables": [
+        [
+          "newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.17/2022-09-27-16-49-set-track-clicks-based-on-opens.ts",
+      "line": 7,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.17/2022-09-27-16-49-set-track-clicks-based-on-opens.ts",
+      "line": 18,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.19/2022-09-02-20-52-backfill-new-product-columns.ts",
+      "line": 7,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.19/2022-09-02-20-52-backfill-new-product-columns.ts",
+      "line": 14,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.19/2022-09-02-20-52-backfill-new-product-columns.ts",
+      "line": 15,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.19/2022-09-02-20-52-backfill-new-product-columns.ts",
+      "line": 27,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.19/2022-09-02-20-52-backfill-new-product-columns.ts",
+      "line": 32,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-24-07-23-disable-feedback-enabled.ts",
+      "line": 6,
+      "tables": [
+        [
+          "newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-25-12-05-backfill-missed-products-columns.ts",
+      "line": 8,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-25-12-05-backfill-missed-products-columns.ts",
+      "line": 16,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-25-12-05-backfill-missed-products-columns.ts",
+      "line": 24,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-26-04-50-member-subscription-created-batch-id.ts",
+      "line": 20,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-26-04-50-member-subscription-created-batch-id.ts",
+      "line": 27,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-26-04-50-member-subscription-created-batch-id.ts",
+      "line": 49,
+      "tables": [
+        [
+          "members_created_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.21/2022-10-26-04-50-member-subscription-created-batch-id.ts",
+      "line": 71,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.22/2022-10-31-12-03-backfill-new-product-columns.ts",
+      "line": 7,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.22/2022-10-31-12-03-backfill-new-product-columns.ts",
+      "line": 14,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.22/2022-10-31-12-03-backfill-new-product-columns.ts",
+      "line": 15,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.22/2022-10-31-12-03-backfill-new-product-columns.ts",
+      "line": 30,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.24/2022-11-21-15-03-populate-source-column-with-html-for-emails.ts",
+      "line": 8,
+      "tables": [
+        [
+          "emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.29/2023-01-11-02-45-truncate-suppressions.ts",
+      "line": 7,
+      "tables": [
+        [
+          "suppressions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-07-58-add-ghost-explore-integration-role.ts",
+      "line": 10,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-07-58-add-ghost-explore-integration-role.ts",
+      "line": 21,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-07-58-add-ghost-explore-integration-role.ts",
+      "line": 31,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-17-add-ghost-explore-integration.ts",
+      "line": 10,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-17-add-ghost-explore-integration.ts",
+      "line": 22,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-17-add-ghost-explore-integration.ts",
+      "line": 35,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 13,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 26,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 38,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 50,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 63,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 71,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.3/2022-07-06-09-26-add-ghost-explore-integration-api-key.ts",
+      "line": 83,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.30/2023-01-13-04-25-unsubscribe-suppressed-emails.ts",
+      "line": 9,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.30/2023-01-13-04-25-unsubscribe-suppressed-emails.ts",
+      "line": 10,
+      "tables": [
+        [
+          "suppressions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.30/2023-01-13-04-25-unsubscribe-suppressed-emails.ts",
+      "line": 21,
+      "tables": [
+        [
+          "members_newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.31/2022-12-05-09-56-update-newsletter-subscriptions.ts",
+      "line": 8,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.31/2022-12-05-09-56-update-newsletter-subscriptions.ts",
+      "line": 9,
+      "tables": [
+        [
+          "suppressions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.31/2022-12-05-09-56-update-newsletter-subscriptions.ts",
+      "line": 18,
+      "tables": [
+        [
+          "members_newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-00-fix-invalid-tier-expiry-for-paid-members.ts",
+      "line": 10,
+      "tables": [
+        [
+          "members_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-00-fix-invalid-tier-expiry-for-paid-members.ts",
+      "line": 12,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-00-fix-invalid-tier-expiry-for-paid-members.ts",
+      "line": 25,
+      "tables": [
+        [
+          "members_products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-09-restore-incorrect-expired-tiers-for-members.ts",
+      "line": 14,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-09-restore-incorrect-expired-tiers-for-members.ts",
+      "line": 15,
+      "tables": [
+        [
+          "members_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-09-restore-incorrect-expired-tiers-for-members.ts",
+      "line": 16,
+      "tables": [
+        [
+          "members_product_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.32/2023-01-24-08-09-restore-incorrect-expired-tiers-for-members.ts",
+      "line": 45,
+      "tables": [
+        [
+          "members_products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.36/2023-02-23-10-40-set-outbound-link-tagging-based-on-source-tracking.ts",
+      "line": 7,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.36/2023-02-23-10-40-set-outbound-link-tagging-based-on-source-tracking.ts",
+      "line": 18,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-18-42-add-self-serve-integration-role.ts",
+      "line": 10,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-18-42-add-self-serve-integration-role.ts",
+      "line": 21,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-18-42-add-self-serve-integration-role.ts",
+      "line": 31,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-18-52-add-self-serve-integration.ts",
+      "line": 10,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-18-52-add-self-serve-integration.ts",
+      "line": 22,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-18-52-add-self-serve-integration.ts",
+      "line": 35,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 13,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 26,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 38,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 50,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 63,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 71,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.40/2023-03-21-19-02-add-self-serve-integration-api-key.ts",
+      "line": 83,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.41/2023-03-27-17-51-fix-self-serve-integration-api-key-type.ts",
+      "line": 9,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.41/2023-03-27-17-51-fix-self-serve-integration-api-key-type.ts",
+      "line": 22,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.41/2023-03-27-17-51-fix-self-serve-integration-api-key-type.ts",
+      "line": 39,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.45/2023-04-20-14-19-add-announcement-visibility-setting.ts",
+      "line": 10,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.45/2023-04-20-14-19-add-announcement-visibility-setting.ts",
+      "line": 15,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.51/2023-05-30-19-03-update-pintura-setting.ts",
+      "line": 7,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-15-55-add-built-in-collections.ts",
+      "line": 9,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-15-55-add-built-in-collections.ts",
+      "line": 18,
+      "tables": [
+        [
+          "collections",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-15-55-add-built-in-collections.ts",
+      "line": 29,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-15-55-add-built-in-collections.ts",
+      "line": 38,
+      "tables": [
+        [
+          "collections",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-15-55-add-built-in-collections.ts",
+      "line": 52,
+      "tables": [
+        [
+          "collections",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-15-55-add-built-in-collections.ts",
+      "line": 58,
+      "tables": [
+        [
+          "collections",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 17,
+      "tables": [
+        [
+          "collections_posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 24,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 33,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 42,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 51,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 64,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 74,
+      "tables": [
+        [
+          "collections_posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 81,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.55/2023-07-10-05-16-55-add-built-in-collection-posts.ts",
+      "line": 92,
+      "tables": [
+        [
+          "collections_posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.56/2023-07-15-10-11-12-update-members-email-disabled-field.ts",
+      "line": 10,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ],
+        [
+          "suppressions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.56/2023-07-15-10-11-12-update-members-email-disabled-field.ts",
+      "line": 17,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.6/2022-07-27-13-40-change-explore-type.ts",
+      "line": 7,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.6/2022-07-27-13-40-change-explore-type.ts",
+      "line": 17,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-03-10-add-ghost-core-content-integration.ts",
+      "line": 19,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-03-10-add-ghost-core-content-integration.ts",
+      "line": 33,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-03-10-add-ghost-core-content-integration.ts",
+      "line": 39,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-03-10-add-ghost-core-content-integration.ts",
+      "line": 48,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-03-10-add-ghost-core-content-integration.ts",
+      "line": 49,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-34-11-add-ghost-core-content-integration-key.ts",
+      "line": 21,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-34-11-add-ghost-core-content-integration-key.ts",
+      "line": 34,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-34-11-add-ghost-core-content-integration-key.ts",
+      "line": 47,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-34-11-add-ghost-core-content-integration-key.ts",
+      "line": 61,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-34-11-add-ghost-core-content-integration-key.ts",
+      "line": 73,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.63/2023-09-13-13-34-11-add-ghost-core-content-integration-key.ts",
+      "line": 88,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.65/2023-09-22-06-42-15-truncate-stale-built-in-collections-posts.ts",
+      "line": 7,
+      "tables": [
+        [
+          "collections_posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.65/2023-09-22-06-42-55-repopulate-built-in-featured-collection-posts.ts",
+      "line": 17,
+      "tables": [
+        [
+          "collections_posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.65/2023-09-22-06-42-55-repopulate-built-in-featured-collection-posts.ts",
+      "line": 24,
+      "tables": [
+        [
+          "collections",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.65/2023-09-22-06-42-55-repopulate-built-in-featured-collection-posts.ts",
+      "line": 33,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.65/2023-09-22-06-42-55-repopulate-built-in-featured-collection-posts.ts",
+      "line": 45,
+      "tables": [
+        [
+          "collections_posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.67/2023-10-03-00-32-32-rollback-source-theme.ts",
+      "line": 27,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.67/2023-10-03-00-32-32-rollback-source-theme.ts",
+      "line": 36,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.74/2023-11-14-11-16-00-fill-transient-id-column.ts",
+      "line": 9,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.79/2024-01-30-19-36-44-fix-discrepancy-in-free-tier-visibility.ts",
+      "line": 6,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.79/2024-01-30-19-36-44-fix-discrepancy-in-free-tier-visibility.ts",
+      "line": 10,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.79/2024-01-30-19-36-44-fix-discrepancy-in-free-tier-visibility.ts",
+      "line": 36,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.79/2024-01-30-19-36-44-fix-discrepancy-in-free-tier-visibility.ts",
+      "line": 44,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.89/2024-07-30-19-51-06-backfill-offer-redemptions.ts",
+      "line": 53,
+      "tables": [
+        [
+          "offer_redemptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.9/2022-08-09-08-32-added-new-integration-type.ts",
+      "line": 7,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.9/2022-08-09-08-32-added-new-integration-type.ts",
+      "line": 17,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.90/2024-08-20-09-40-24-update-default-donations-suggested-amount.ts",
+      "line": 18,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.90/2024-08-20-09-40-24-update-default-donations-suggested-amount.ts",
+      "line": 32,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/5.94/2024-09-03-20-09-40-null-analytics-jobs-timings.ts",
+      "line": 11,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-23-09-49-25-add-missing-member-uuids.ts",
+      "line": 11,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-23-09-49-25-add-missing-member-uuids.ts",
+      "line": 17,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 14,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 41,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 52,
+      "tables": [
+        [
+          "roles_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 53,
+      "tables": [
+        [
+          "permissions_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 56,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 57,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 60,
+      "tables": [
+        [
+          "posts_authors",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 63,
+      "tables": [
+        [
+          "post_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 68,
+      "tables": [
+        [
+          "posts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 73,
+      "tables": [
+        [
+          "actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 91,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.0/2025-06-24-09-19-42-use-object-id-for-hardcoded-user-id.ts",
+      "line": 96,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.1/2025-09-11-00-39-08-backfill-tokens-uuid.ts",
+      "line": 8,
+      "tables": [
+        [
+          "tokens",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.1/2025-09-11-00-39-08-backfill-tokens-uuid.ts",
+      "line": 14,
+      "tables": [
+        [
+          "tokens",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-00-00-add-transistor-integration.ts",
+      "line": 10,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-00-00-add-transistor-integration.ts",
+      "line": 28,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-00-00-add-transistor-integration.ts",
+      "line": 34,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-01-00-add-transistor-integration-api-key.ts",
+      "line": 11,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-01-00-add-transistor-integration-api-key.ts",
+      "line": 24,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-01-00-add-transistor-integration-api-key.ts",
+      "line": 36,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-01-00-add-transistor-integration-api-key.ts",
+      "line": 48,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-01-00-add-transistor-integration-api-key.ts",
+      "line": 60,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.14/2026-01-15-12-01-00-add-transistor-integration-api-key.ts",
+      "line": 72,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-26-15-47-00-insert-default-email-design-settings-row.ts",
+      "line": 11,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-26-15-47-00-insert-default-email-design-settings-row.ts",
+      "line": 18,
+      "tables": [
+        [
+          "email_design_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-26-15-47-00-insert-default-email-design-settings-row.ts",
+      "line": 40,
+      "tables": [
+        [
+          "email_design_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-31-13-12-10-backfill-automated-emails-email-design-setting-id.ts",
+      "line": 11,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-31-13-12-10-backfill-automated-emails-email-design-setting-id.ts",
+      "line": 21,
+      "tables": [
+        [
+          "automated_emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-31-13-12-10-backfill-automated-emails-email-design-setting-id.ts",
+      "line": 28,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.25/2026-03-31-13-12-10-backfill-automated-emails-email-design-setting-id.ts",
+      "line": 39,
+      "tables": [
+        [
+          "automated_emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      "line": 17,
+      "tables": [
+        [
+          "automated_emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      "line": 24,
+      "tables": [
+        [
+          "welcome_email_automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      "line": 35,
+      "tables": [
+        [
+          "welcome_email_automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      "line": 46,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      "line": 65,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      "line": 66,
+      "tables": [
+        [
+          "welcome_email_automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.28/2026-04-09-02-30-06-disable-default-header-fields-for-existing-welcome-emails.ts",
+      "line": 9,
+      "tables": [
+        [
+          "welcome_email_automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.28/2026-04-09-02-30-06-disable-default-header-fields-for-existing-welcome-emails.ts",
+      "line": 16,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.28/2026-04-09-02-30-06-disable-default-header-fields-for-existing-welcome-emails.ts",
+      "line": 28,
+      "tables": [
+        [
+          "email_design_settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.41/2026-05-13-12-00-00-rename-reset-all-passwords-permission.ts",
+      "line": 12,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.41/2026-05-13-12-00-00-rename-reset-all-passwords-permission.ts",
+      "line": 17,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.45/2026-06-09-09-00-02-backfill-members-current-subscription.ts",
+      "line": 11,
+      "tables": [
+        [
+          "members_current_subscription",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.45/2026-06-09-09-00-02-backfill-members-current-subscription.ts",
+      "line": 33,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.45/2026-06-11-16-04-43-make-automated-email-recipient-email-id-nullable.ts",
+      "line": 18,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 6,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 17,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 21,
+      "tables": [
+        [
+          "permissions_roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 22,
+      "tables": [
+        [
+          "permissions_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 23,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 28,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-17-13-00-00-rename-gift-links-revoke-all-permission.ts",
+      "line": 34,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-18-16-37-27-rename-welcome-email-automation-names.ts",
+      "line": 22,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-19-10-00-00-grandfather-llms.ts",
+      "line": 12,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.46/2026-06-19-10-00-00-grandfather-llms.ts",
+      "line": 29,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 6,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 16,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 20,
+      "tables": [
+        [
+          "permissions_roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 21,
+      "tables": [
+        [
+          "permissions_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 22,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 27,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.48/2026-06-23-00-00-01-rename-gift-links-revoke-all-permission-to-remove-all.ts",
+      "line": 33,
+      "tables": [
+        [
+          "permissions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-54-14-reset-automation-email-analytics.ts",
+      "line": 8,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.57/2026-08-04-18-54-14-reset-automation-email-analytics.ts",
+      "line": 18,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 35,
+      "tables": [
+        [
+          "permissions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 50,
+      "tables": [
+        [
+          "permissions_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 62,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 72,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 73,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 77,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 87,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 104,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 111,
+      "tables": [
+        [
+          "api_keys",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 112,
+      "tables": [
+        [
+          "permissions_roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 113,
+      "tables": [
+        [
+          "roles_users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 114,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 118,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.58/2026-08-11-10-34-25-remove-legacy-explore-integration.ts",
+      "line": 125,
+      "tables": [
+        [
+          "roles",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.67/2026-09-29-16-22-08-add-description-to-automations.ts",
+      "line": 18,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.67/2026-09-29-16-22-08-add-description-to-automations.ts",
+      "line": 21,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.68/2026-09-29-17-39-23-add-automation-trigger-tier-scope.ts",
+      "line": 28,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.68/2026-09-29-17-39-23-add-automation-trigger-tier-scope.ts",
+      "line": 31,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.68/2026-09-29-19-59-04-make-automations-slug-nullable.ts",
+      "line": 14,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.72/2026-10-19-15-55-06-remove-automations-name-unique.ts",
+      "line": 34,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.72/2026-10-19-15-55-06-remove-automations-name-unique.ts",
+      "line": 54,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.73/2026-10-21-18-55-18-backfill-automation-trigger-type.ts",
+      "line": 6,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-43-24-backfill-automation-trigger-rules.ts",
+      "line": 8,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-43-24-backfill-automation-trigger-rules.ts",
+      "line": 10,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-43-24-backfill-automation-trigger-rules.ts",
+      "line": 36,
+      "tables": [
+        [
+          "automation_trigger_tiers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-43-24-backfill-automation-trigger-rules.ts",
+      "line": 61,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-44-14-remove-obsolete-automation-triggers.ts",
+      "line": 51,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-44-14-remove-obsolete-automation-triggers.ts",
+      "line": 54,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-44-14-remove-obsolete-automation-triggers.ts",
+      "line": 57,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-44-14-remove-obsolete-automation-triggers.ts",
+      "line": 62,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-44-14-remove-obsolete-automation-triggers.ts",
+      "line": 73,
+      "tables": [
+        [
+          "automation_trigger_tiers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-28-18-44-14-remove-obsolete-automation-triggers.ts",
+      "line": 84,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-29-15-02-40-clear-app-installation-tables.ts",
+      "line": 10,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.74/2026-10-29-15-02-40-clear-app-installation-tables.ts",
+      "line": 11,
+      "tables": [
+        [
+          "app_installations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.77/2026-11-05-10-00-00-discard-stripe-checkout-collection-settings.ts",
+      "line": 17,
+      "tables": [
+        [
+          "members_metafield_bindings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.77/2026-11-05-10-00-00-discard-stripe-checkout-collection-settings.ts",
+      "line": 20,
+      "tables": [
+        [
+          "stripe_checkout_config_tiers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",
+      "line": 14,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",
+      "line": 15,
+      "tables": [
+        [
+          "user_accounts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",
+      "line": 48,
+      "tables": [
+        [
+          "user_accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",
+      "line": 70,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-19-12-36-44-backfill-app-installation-manifest-changes.ts",
+      "line": 11,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-23-18-20-39-clear-app-installation-tables.ts",
+      "line": 10,
+      "tables": [
+        [
+          "actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-23-18-20-39-clear-app-installation-tables.ts",
+      "line": 12,
+      "tables": [
+        [
+          "app_installation_manifests",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/migrations/versions/6.79/2026-11-23-18-20-39-clear-app-installation-tables.ts",
+      "line": 13,
+      "tables": [
+        [
+          "app_installations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/data-generator.js",
+      "line": 98,
+      "tables": [
+        [
+          "roles_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/data-generator.js",
+      "line": 99,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/data-generator.js",
+      "line": 168,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/data-generator.js",
+      "line": 343,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/data-generator.js",
+      "line": 345,
+      "tables": [
+        [
+          "members_resolved_subscription",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/data-generator.js",
+      "line": 350,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-action-edges-importer.ts",
+      "line": 27,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-action-revisions-importer.ts",
+      "line": 47,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-action-revisions-importer.ts",
+      "line": 52,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-actions-importer.ts",
+      "line": 37,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-run-steps-importer.ts",
+      "line": 58,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-run-steps-importer.ts",
+      "line": 63,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-run-steps-importer.ts",
+      "line": 71,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-run-steps-importer.ts",
+      "line": 77,
+      "tables": [
+        [
+          "automation_action_edges",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-runs-importer.ts",
+      "line": 59,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automation-runs-importer.ts",
+      "line": 62,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/automations-importer.ts",
+      "line": 60,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/comment-reports-importer.js",
+      "line": 21,
+      "tables": [
+        [
+          "comments",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/comment-reports-importer.js",
+      "line": 27,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/comments-importer.js",
+      "line": 18,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/comments-importer.js",
+      "line": 20,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/email-batches-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/email-recipient-failures-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/email-recipients-importer.js",
+      "line": 57,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/email-recipients-importer.js",
+      "line": 66,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/email-recipients-importer.js",
+      "line": 68,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/email-recipients-importer.js",
+      "line": 71,
+      "tables": [
+        [
+          "members_subscribe_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/emails-importer.js",
+      "line": 22,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/emails-importer.js",
+      "line": 28,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/emails-importer.js",
+      "line": 32,
+      "tables": [
+        [
+          "members_subscribe_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-click-events-importer.js",
+      "line": 17,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-click-events-importer.js",
+      "line": 19,
+      "tables": [
+        [
+          "redirects",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-click-events-importer.js",
+      "line": 20,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-created-events-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-created-events-importer.js",
+      "line": 18,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-created-events-importer.js",
+      "line": 23,
+      "tables": [
+        [
+          "mentions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-feedback-importer.js",
+      "line": 17,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-feedback-importer.js",
+      "line": 18,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-importer.js",
+      "line": 45,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-importer.js",
+      "line": 64,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-labels-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-labels-importer.js",
+      "line": 16,
+      "tables": [
+        [
+          "labels",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-login-events-importer.js",
+      "line": 25,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-newsletters-importer.js",
+      "line": 18,
+      "tables": [
+        [
+          "members_subscribe_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-paid-subscription-events-importer.js",
+      "line": 28,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-paid-subscription-events-importer.js",
+      "line": 37,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-products-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-products-importer.js",
+      "line": 16,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-status-events-importer.js",
+      "line": 20,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-importer.js",
+      "line": 24,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-subscriptions-importer.js",
+      "line": 27,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-subscriptions-importer.js",
+      "line": 31,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-subscriptions-importer.js",
+      "line": 42,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-subscriptions-importer.js",
+      "line": 47,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-subscriptions-importer.js",
+      "line": 57,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-stripe-customers-subscriptions-importer.js",
+      "line": 70,
+      "tables": [
+        [
+          "members_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-subscribe-events-importer.js",
+      "line": 22,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-subscribe-events-importer.js",
+      "line": 28,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-subscription-created-events-importer.js",
+      "line": 24,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-subscription-created-events-importer.js",
+      "line": 30,
+      "tables": [
+        [
+          "mentions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-subscription-created-events-importer.js",
+      "line": 35,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/members-subscription-created-events-importer.js",
+      "line": 44,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/offer-redemptions-importer.js",
+      "line": 27,
+      "tables": [
+        [
+          "offers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/offer-redemptions-importer.js",
+      "line": 28,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/offer-redemptions-importer.js",
+      "line": 29,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/offer-redemptions-importer.js",
+      "line": 32,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/offers-importer.js",
+      "line": 67,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-authors-importer.js",
+      "line": 14,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-authors-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-importer.js",
+      "line": 24,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-products-importer.js",
+      "line": 12,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-products-importer.js",
+      "line": 13,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-tags-importer.js",
+      "line": 14,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/posts-tags-importer.js",
+      "line": 15,
+      "tables": [
+        [
+          "tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/products-benefits-importer.js",
+      "line": 12,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/products-benefits-importer.js",
+      "line": 13,
+      "tables": [
+        [
+          "benefits",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/products-importer.js",
+      "line": 29,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/products-importer.js",
+      "line": 32,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/products-importer.js",
+      "line": 34,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/products-importer.js",
+      "line": 58,
+      "tables": [
+        [
+          "products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/recommendation-click-events-importer.js",
+      "line": 16,
+      "tables": [
+        [
+          "recommendations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/recommendation-click-events-importer.js",
+      "line": 17,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/recommendation-subscribe-events-importer.js",
+      "line": 16,
+      "tables": [
+        [
+          "recommendations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/recommendation-subscribe-events-importer.js",
+      "line": 18,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/redirects-importer.js",
+      "line": 16,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/roles-users-importer.js",
+      "line": 17,
+      "tables": [
+        [
+          "roles_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/roles-users-importer.js",
+      "line": 18,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/roles-users-importer.js",
+      "line": 24,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/roles-users-importer.js",
+      "line": 26,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/stripe-prices-importer.js",
+      "line": 19,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/stripe-prices-importer.js",
+      "line": 22,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/stripe-products-importer.js",
+      "line": 17,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/seeders/importers/tags-importer.js",
+      "line": 19,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 80,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 129,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 150,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 170,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 194,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 195,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/data/tinybird/scripts/docker-database-utils.js",
+      "line": 199,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/lib/action-log/action-log.ts",
+      "line": 67,
+      "tables": [
+        [
+          "actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/lib/action-log/segments.ts",
+      "line": 19,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/label.js",
+      "line": 131,
+      "tables": [
+        [
+          "labels",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/member.js",
+      "line": 709,
+      "tables": [
+        [
+          "members_labels",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/member.js",
+      "line": 724,
+      "tables": [
+        [
+          "members_newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/member.js",
+      "line": 725,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/member.js",
+      "line": 726,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/newsletter.js",
+      "line": 101,
+      "tables": [
+        [
+          "members_newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/post.js",
+      "line": 1504,
+      "tables": [
+        [
+          "comments",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 265,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 267,
+      "tables": [
+        [
+          "roles_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 279,
+      "tables": [
+        [
+          "posts_authors",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 285,
+      "tables": [
+        [
+          "posts_authors",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 304,
+      "tables": [
+        [
+          "posts_authors",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 311,
+      "tables": [
+        [
+          "posts_authors",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 327,
+      "tables": [
+        [
+          "posts_authors",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/relations/authors.js",
+      "line": 334,
+      "tables": [
+        [
+          "posts_authors",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/session.js",
+      "line": 56,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/settings.js",
+      "line": 388,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/models/user.js",
+      "line": 1299,
+      "tables": [
+        [
+          "user_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 65,
+      "tables": [
+        [
+          "webhooks",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 139,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 149,
+      "tables": [
+        [
+          "webhooks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 155,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 182,
+      "tables": [
+        [
+          "webhooks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 197,
+      "tables": [
+        [
+          "webhooks",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 216,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 218,
+      "tables": [
+        [
+          "roles_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/activitypub/activity-pub-service.ts",
+      "line": 219,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 293,
+      "tables": [
+        [
+          "actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/app-installations/app-installations-repository.ts",
+      "line": 295,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/automation-limit.ts",
+      "line": 35,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 53,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 107,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 119,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 132,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 157,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 178,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 186,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 198,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 209,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 223,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 231,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 232,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 255,
+      "tables": [
+        [
+          "automation_action_edges",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 258,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 267,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 276,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 281,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 287,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 296,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 303,
+      "tables": [
+        [
+          "automation_actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 308,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 317,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 330,
+      "tables": [
+        [
+          "automation_runs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 342,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 347,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 349,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 350,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 357,
+      "tables": [
+        [
+          "automation_action_edges",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 359,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 362,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 377,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 388,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 397,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository-2.ts",
+      "line": 425,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 244,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 268,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 269,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 296,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 297,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 307,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 320,
+      "tables": [
+        [
+          "redirects",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 324,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 328,
+      "tables": [
+        [
+          "members_click_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 365,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 392,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 423,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 441,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 536,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 549,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 550,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 565,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 566,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 569,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 592,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 714,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 721,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 724,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 730,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 740,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 759,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 772,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 801,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 808,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 810,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 874,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 893,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 909,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 928,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 929,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 931,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 935,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 959,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 982,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1077,
+      "tables": [
+        [
+          "automation_action_edges",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1084,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1085,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1097,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1177,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1188,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1220,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1241,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1249,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1259,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1401,
+      "tables": [
+        [
+          "email_design_settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1419,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1432,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1481,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1488,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1513,
+      "tables": [
+        [
+          "automation_actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1528,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1587,
+      "tables": [
+        [
+          "automation_action_edges",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1591,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1602,
+      "tables": [
+        [
+          "automation_action_edges",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1632,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1671,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1680,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1685,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1698,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/database-automations-repository.ts",
+      "line": 1799,
+      "tables": [
+        [
+          "labels",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/welcome-email-automation-poll.ts",
+      "line": 81,
+      "tables": [
+        [
+          "welcome_email_automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/welcome-email-automation-poll.ts",
+      "line": 82,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/welcome-email-automation-poll.ts",
+      "line": 84,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/welcome-email-automation-poll.ts",
+      "line": 105,
+      "tables": [
+        [
+          "welcome_email_automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/automations/welcome-email-automation-poll.ts",
+      "line": 121,
+      "tables": [
+        [
+          "welcome_email_automation_runs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/comments/comments-stats-service.js",
+      "line": 12,
+      "tables": [
+        [
+          "comments",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/comments/comments-stats-service.js",
+      "line": 34,
+      "tables": [
+        [
+          "comments",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 34,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 139,
+      "tables": [
+        [
+          "jobs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 187,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 191,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 212,
+      "tables": [
+        [
+          "jobs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 228,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 232,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 261,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 269,
+      "tables": [
+        [
+          "jobs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 285,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 288,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 298,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 304,
+      "tables": [
+        [
+          "emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 309,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 311,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 315,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 319,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 335,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 344,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-analytics/lib/queries.ts",
+      "line": 345,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 886,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 887,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 967,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 968,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 977,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 1120,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/batch-sending-service.js",
+      "line": 1238,
+      "tables": [
+        [
+          "email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/email-event-processor.js",
+      "line": 237,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/email-event-processor.js",
+      "line": 278,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/email-event-processor.js",
+      "line": 312,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/email-event-processor.js",
+      "line": 341,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/newsletter-email-event-storage.js",
+      "line": 63,
+      "tables": [
+        [
+          "email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/newsletter-email-event-storage.js",
+      "line": 98,
+      "tables": [
+        [
+          "email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/newsletter-email-event-storage.js",
+      "line": 138,
+      "tables": [
+        [
+          "email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/recipient-preparation.ts",
+      "line": 42,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/sending-status-service.ts",
+      "line": 23,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/sending-status-service.ts",
+      "line": 58,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/sending-status-service.ts",
+      "line": 68,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/sending-status-service.ts",
+      "line": 76,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/sending-status-service.ts",
+      "line": 95,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-service/sending-status-service.ts",
+      "line": 98,
+      "tables": [
+        [
+          "email_batches",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-suppression-list/mailgun-email-suppression-list.js",
+      "line": 193,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/email-suppression-list/mailgun-email-suppression-list.js",
+      "line": 194,
+      "tables": [
+        [
+          "email_recipient_failures",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 45,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 47,
+      "tables": [
+        [
+          "post_gift_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 48,
+      "tables": [
+        [
+          "gift_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 64,
+      "tables": [
+        [
+          "post_gift_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 65,
+      "tables": [
+        [
+          "gift_links",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 110,
+      "tables": [
+        [
+          "post_gift_links",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 136,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 164,
+      "tables": [
+        [
+          "gift_links",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gift-links/service.ts",
+      "line": 168,
+      "tables": [
+        [
+          "post_gift_links",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-bookshelf-repository.ts",
+      "line": 325,
+      "tables": [
+        [
+          "gifts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-bookshelf-repository.ts",
+      "line": 363,
+      "tables": [
+        [
+          "gifts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 136,
+      "tables": [
+        [
+          "gift_deliveries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 138,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 159,
+      "tables": [
+        [
+          "gift_deliveries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 161,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 173,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 199,
+      "tables": [
+        [
+          "gift_deliveries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 201,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 214,
+      "tables": [
+        [
+          "gift_deliveries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 278,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 279,
+      "tables": [
+        [
+          "gift_deliveries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 305,
+      "tables": [
+        [
+          "gift_deliveries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 331,
+      "tables": [
+        [
+          "gift_deliveries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/gifts/gift-delivery-bookshelf-repository.ts",
+      "line": 351,
+      "tables": [
+        [
+          "gift_deliveries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/invites/invitation-limiter.ts",
+      "line": 41,
+      "tables": [
+        [
+          "invites",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/invites/invitation-limiter.ts",
+      "line": 87,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members-events/last-seen-at-updater.js",
+      "line": 122,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 168,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 210,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 219,
+      "tables": [
+        [
+          "labels",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 304,
+      "tables": [
+        [
+          "members_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 309,
+      "tables": [
+        [
+          "members_labels",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 314,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 319,
+      "tables": [
+        [
+          "members_newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/import-export/export/exporter.ts",
+      "line": 321,
+      "tables": [
+        [
+          "gifts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/jobs/clean-expired-comped-task.ts",
+      "line": 62,
+      "tables": [
+        [
+          "members_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/jobs/clean-expired-comped-task.ts",
+      "line": 90,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/jobs/clean-expired-comped-task.ts",
+      "line": 99,
+      "tables": [
+        [
+          "members_products",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/jobs/clean-expired-comped-task.ts",
+      "line": 104,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/jobs/clean-expired-comped-task.ts",
+      "line": 124,
+      "tables": [
+        [
+          "members_status_events",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/jobs/clean-tokens-task.ts",
+      "line": 14,
+      "tables": [
+        [
+          "tokens",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/event-repository.js",
+      "line": 1120,
+      "tables": [
+        [
+          "welcome_email_automated_emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/event-repository.js",
+      "line": 1128,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/event-repository.js",
+      "line": 1135,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/event-repository.js",
+      "line": 1142,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/event-repository.js",
+      "line": 1143,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/member-repository.js",
+      "line": 2305,
+      "tables": [
+        [
+          "members_resolved_subscription",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/member-repository.js",
+      "line": 2316,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/member-repository.js",
+      "line": 2321,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/members-api/repositories/member-repository.js",
+      "line": 2327,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/service.js",
+      "line": 100,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/service.js",
+      "line": 112,
+      "tables": [
+        [
+          "email_recipients",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/service.js",
+      "line": 114,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/service.js",
+      "line": 115,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/stats/members-stats.js",
+      "line": 84,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/members/stats/members-stats.js",
+      "line": 103,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/milestones/milestone-queries.js",
+      "line": 16,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/milestones/milestone-queries.js",
+      "line": 26,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/milestones/milestone-queries.js",
+      "line": 45,
+      "tables": [
+        [
+          "members_subscribe_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/posts/posts-service.js",
+      "line": 385,
+      "tables": [
+        [
+          "posts_tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/posts/posts-service.js",
+      "line": 417,
+      "tables": [
+        [
+          "posts_tags",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/posts/stats/post-stats.js",
+      "line": 16,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/posts/stats/post-stats.js",
+      "line": 30,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/posts/stats/post-stats.js",
+      "line": 43,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/recommendations/service/bookshelf-recommendation-repository.ts",
+      "line": 49,
+      "tables": [
+        [
+          "recommendation_click_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/recommendations/service/bookshelf-recommendation-repository.ts",
+      "line": 65,
+      "tables": [
+        [
+          "recommendation_subscribe_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/segments/settings-cache.ts",
+      "line": 37,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/segments/settings-repository.ts",
+      "line": 252,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/segments/settings-repository.ts",
+      "line": 273,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/segments/settings-repository.ts",
+      "line": 306,
+      "tables": [
+        [
+          "settings",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/comments-analytics.ts",
+      "line": 308,
+      "tables": [
+        [
+          "comments",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/comments-analytics.ts",
+      "line": 365,
+      "tables": [
+        [
+          "comment_reports",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/comments-analytics.ts",
+      "line": 366,
+      "tables": [
+        [
+          "comments",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/content-stats-service.js",
+      "line": 172,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/members-stats-service.js",
+      "line": 18,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/members-stats-service.js",
+      "line": 47,
+      "tables": [
+        [
+          "members_status_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/mrr-stats-service.js",
+      "line": 19,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/mrr-stats-service.js",
+      "line": 46,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 185,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 331,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 338,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 423,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 425,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 436,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 441,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 443,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 482,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 485,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 556,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 606,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 609,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 663,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 666,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 692,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 714,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 717,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 778,
+      "tables": [
+        [
+          "redirects",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 779,
+      "tables": [
+        [
+          "members_click_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 800,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 801,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 897,
+      "tables": [
+        [
+          "redirects",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 898,
+      "tables": [
+        [
+          "members_click_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 919,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 920,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 942,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 943,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1026,
+      "tables": [
+        [
+          "redirects",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1027,
+      "tables": [
+        [
+          "members_click_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1028,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1029,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1073,
+      "tables": [
+        [
+          "members_newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1165,
+      "tables": [
+        [
+          "members_subscribe_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1252,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1254,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1348,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1359,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1373,
+      "tables": [
+        [
+          "posts_authors",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1375,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1456,
+      "tables": [
+        [
+          "posts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1467,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1480,
+      "tables": [
+        [
+          "posts_authors",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1482,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1575,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1578,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1593,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1710,
+      "tables": [
+        [
+          "redirects",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/posts-stats-service.js",
+      "line": 1711,
+      "tables": [
+        [
+          "members_click_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 181,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 198,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 219,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 220,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 254,
+      "tables": [
+        [
+          "members_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 257,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/referrers-stats-service.js",
+      "line": 270,
+      "tables": [
+        [
+          "members_subscription_created_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 76,
+      "tables": [
+        [
+          "members_paid_subscription_events",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 77,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 85,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 90,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 92,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 98,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 167,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 176,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 182,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stats/subscription-stats-service.js",
+      "line": 187,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/stripe-checkout-config/service.ts",
+      "line": 550,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tiers/requirements.ts",
+      "line": 214,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tinybird-sync/sync-table-to-tinybird.ts",
+      "line": 128,
+      "tables": [
+        [
+          "tinybird_syncs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/tinybird-sync/sync-table-to-tinybird.ts",
+      "line": 151,
+      "tables": [
+        [
+          "tinybird_syncs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/users/users-service.ts",
+      "line": 139,
+      "tables": [
+        [
+          "posts_authors",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/users/users-service.ts",
+      "line": 178,
+      "tables": [
+        [
+          "posts_tags",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "ghost/core/server/services/users/users-service.ts",
+      "line": 195,
+      "tables": [
+        [
+          "posts_tags",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 11,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 18,
+      "tables": [
+        [
+          "automations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 21,
+      "tables": [
+        [
+          "automation_actions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 30,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 40,
+      "tables": [
+        [
+          "emails",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 50,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 52,
+      "tables": [
+        [
+          "roles_users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 53,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 55,
+      "tables": [
+        [
+          "invites",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 57,
+      "tables": [
+        [
+          "roles",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 67,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 68,
+      "tables": [
+        [
+          "invites",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "packages/limit-service/src/config.ts",
+      "line": 75,
+      "tables": [
+        [
+          "settings",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 148,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 161,
+      "tables": [
+        [
+          "automations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 169,
+      "tables": [
+        [
+          "automation_trigger_rules",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 178,
+      "tables": [
+        [
+          "automation_actions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 187,
+      "tables": [
+        [
+          "automation_action_revisions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 199,
+      "tables": [
+        [
+          "automation_action_edges",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 221,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 237,
+      "tables": [
+        [
+          "automation_runs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 239,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 258,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 260,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 276,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 277,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 294,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 297,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 322,
+      "tables": [
+        [
+          "automation_runs",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 323,
+      "tables": [
+        [
+          "automated_email_recipients",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 326,
+      "tables": [
+        [
+          "automation_run_steps",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 329,
+      "tables": [
+        [
+          "automation_run_steps",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-automations-drain.ts",
+      "line": 330,
+      "tables": [
+        [
+          "automation_runs",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-recipient-preparation.ts",
+      "line": 111,
+      "tables": [
+        [
+          "newsletters",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-recipient-preparation.ts",
+      "line": 113,
+      "tables": [
+        [
+          "labels",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-recipient-preparation.ts",
+      "line": 130,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-recipient-preparation.ts",
+      "line": 131,
+      "tables": [
+        [
+          "members_newsletters",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-recipient-preparation.ts",
+      "line": 139,
+      "tables": [
+        [
+          "members_labels",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/benchmark-recipient-preparation.ts",
+      "line": 232,
+      "tables": [
+        [
+          "emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 191,
+      "tables": [
+        [
+          "products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 195,
+      "tables": [
+        [
+          "stripe_products",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 201,
+      "tables": [
+        [
+          "stripe_prices",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 216,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 225,
+      "tables": [
+        [
+          "members_current_subscription",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 227,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 230,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 233,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 234,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 240,
+      "tables": [
+        [
+          "members",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 260,
+      "tables": [
+        [
+          "members_stripe_customers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 272,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 332,
+      "tables": [
+        [
+          "members",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 338,
+      "tables": [
+        [
+          "members_current_subscription",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "tools/gx/multi-sub-scenarios.ts",
+      "line": 341,
+      "tables": [
+        [
+          "members_stripe_customers_subscriptions",
+          "READS"
+        ]
+      ]
+    }
+  ],
+  "not_counted": [
+    [
+      "ghost/core/server/data/migrations/utils/permissions.ts",
+      62
+    ],
+    [
+      "ghost/core/server/data/migrations/utils/permissions.ts",
+      66
+    ],
+    [
+      "ghost/core/server/data/migrations/utils/settings.ts",
+      40
+    ],
+    [
+      "ghost/core/server/data/migrations/utils/settings.ts",
+      44
+    ],
+    [
+      "ghost/core/server/data/migrations/utils/settings.ts",
+      105
+    ],
+    [
+      "ghost/core/server/data/migrations/utils/settings.ts",
+      109
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.102/2024-12-02-17-32-40-alter-length-redirects-from.ts",
+      9
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.102/2024-12-02-17-32-40-alter-length-redirects-from.ts",
+      15
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.102/2024-12-02-17-48-40-add-index-redirects-from.ts",
+      12
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.122/2025-06-03-19-32-57-change-default-for-newsletters-button-color.ts",
+      13
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.122/2025-06-03-19-32-57-change-default-for-newsletters-button-color.ts",
+      30
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.126/2025-06-18-11-35-41-change-newsletters-link-color-default-to-accent.ts",
+      8
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.126/2025-06-18-11-35-41-change-newsletters-link-color-default-to-accent.ts",
+      14
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.14/2022-09-02-12-55-rename-members-bio-to-expertise.ts",
+      9
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.14/2022-09-02-12-55-rename-members-bio-to-expertise.ts",
+      10
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.14/2022-09-02-12-55-rename-members-bio-to-expertise.ts",
+      26
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.14/2022-09-02-12-55-rename-members-bio-to-expertise.ts",
+      33
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.14/2022-09-02-12-55-rename-members-bio-to-expertise.ts",
+      34
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.14/2022-09-02-12-55-rename-members-bio-to-expertise.ts",
+      50
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.59/2023-08-07-11-17-05-add-posts-published-at-index.ts",
+      29
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.59/2023-08-07-11-17-05-add-posts-published-at-index.ts",
+      55
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/5.93/2024-09-03-18-51-01-update-stripe-prices-nickname-length.ts",
+      12
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.0/2025-06-30-14-00-00-update-feature-image-alt-length.ts",
+      15
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.0/2025-06-30-14-00-00-update-feature-image-alt-length.ts",
+      22
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-06-15-55-20-split-automated-emails-into-welcome-email-tables.ts",
+      11
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-07-15-10-32-update-automated-email-recipients-foreign-key.ts",
+      7
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-07-15-10-32-update-automated-email-recipients-foreign-key.ts",
+      15
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-07-15-10-32-update-automated-email-recipients-foreign-key.ts",
+      21
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-07-15-10-32-update-automated-email-recipients-foreign-key.ts",
+      48
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-07-15-10-32-update-automated-email-recipients-foreign-key.ts",
+      56
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.27/2026-04-07-15-10-32-update-automated-email-recipients-foreign-key.ts",
+      62
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.28/2026-04-08-13-05-35-drop-automated-emails-table.ts",
+      39
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.28/2026-04-08-13-05-35-drop-automated-emails-table.ts",
+      50
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.37/2026-05-04-07-51-14-add-members-created-at-id-index.ts",
+      40
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.37/2026-05-04-07-51-14-add-members-created-at-id-index.ts",
+      65
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-10-08-40-add-pinned-at-to-comments.ts",
+      12
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.40/2026-05-18-10-08-40-add-pinned-at-to-comments.ts",
+      30
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.63/2026-09-03-10-07-03-rename-custom-field-tables-to-metafields.ts",
+      136
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.70/2026-10-12-08-20-15-update-plan-nickname-length.ts",
+      20
+    ],
+    [
+      "ghost/core/server/data/migrations/versions/6.79/2026-11-18-03-20-26-backfill-credential-accounts.ts",
+      55
+    ],
+    [
+      "ghost/core/server/data/seeders/data-generator.js",
+      113
+    ],
+    [
+      "ghost/core/server/data/seeders/data-generator.js",
+      127
+    ],
+    [
+      "ghost/core/server/data/seeders/data-generator.js",
+      341
+    ],
+    [
+      "ghost/core/server/models/settings.js",
+      372
+    ],
+    [
+      "tools/gx/multi-sub-scenarios.ts",
+      211
+    ]
+  ]
+}

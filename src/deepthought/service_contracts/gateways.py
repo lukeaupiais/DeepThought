@@ -4,10 +4,11 @@ Read: Spring Cloud Gateway routes in a module's ``application``/``bootstrap``
 YAML (``spring.cloud.gateway.routes``, or ``spring.cloud.gateway.server.
 webflux.routes``) with ``Path=`` predicates ending in ``/**``, ``uri`` of
 ``lb://service`` or ``http(s)://host``, and ``StripPrefix``/``PrefixPath``
-filters; and nginx ``location /prefix/ { proxy_pass ...; }`` blocks in
-``*.conf`` and ``*.conf.template`` files. A route with any other predicate
-or filter that changes the path (``RewritePath``, a regex location) is
-recorded as unread rather than guessed.
+filters or a ``RewritePath`` that replaces a literal path prefix; and nginx
+``location /prefix/ { proxy_pass ...; }`` blocks in ``*.conf`` and
+``*.conf.template`` files. A route with any other filter that changes the
+path (another ``RewritePath``, ``SetPath``, a regex location) is recorded as
+unread rather than guessed.
 """
 
 from dataclasses import dataclass
@@ -64,6 +65,40 @@ def _shortcut(item):
     return "", []
 
 
+# RewritePath regexes that replace a literal prefix and keep the rest:
+# /old/?(?<rest>.*) or /old(?<rest>/?.*), optionally anchored.
+_REWRITE = re.compile(
+    r"\^?(?P<old>(?:/[\w.~-]+)*)(?P<separator>/\??)?"
+    r"\((?:\?<(?P<name>\w+)>)?(?P<body>/\??)?\.\*\)\$?"
+)
+
+
+def _rewrite(args):
+    """(old prefix segments, new prefix segments) of a ``RewritePath`` that
+    swaps a literal path prefix and keeps the rest of the path, else None."""
+    if len(args) != 2:
+        return None
+    match = _REWRITE.fullmatch(args[0])
+    if match is None or bool(match["separator"]) == bool(match["body"]):
+        return None  # exactly one of the two must carry the slash
+    references = ["$1", "${1}", "$\\{1}"]
+    if match["name"]:
+        references += ["${" + match["name"] + "}", "$\\{" + match["name"] + "}"]
+    reference = next((r for r in references if args[1].endswith(r)), None)
+    if reference is None:
+        return None
+    new = args[1][: -len(reference)]
+    if "$" in new or "\\" in new or not (new == "" or new.startswith("/")):
+        return None
+    # /old/?(.*) -> /new/$1 joins with a slash in the replacement; /old(/?.*)
+    # -> /new$1 joins with the captured one.
+    if bool(match["separator"]) != (new.endswith("/") or new == "/"):
+        return None
+    if match["body"] and new.endswith("/"):
+        return None
+    return _segments(match["old"]), _segments(new)
+
+
 def spring_gateway_routes(path, text, file):
     """Routes and unread routes of one Spring configuration YAML file."""
     try:
@@ -90,7 +125,8 @@ def spring_gateway_routes(path, text, file):
             if not isinstance(route, dict):
                 continue
             line = _line_of(text, f"id: {route.get('id')}")
-            paths, strip, prefix_path, other = [], 0, "", []
+            paths, strip, prefix_path, other, rewrite = [], 0, "", [], None
+            path_filters = 0
             for name, args in map(_shortcut, route.get("predicates") or []):
                 if name == "Path":
                     paths.extend(args)
@@ -98,16 +134,24 @@ def spring_gateway_routes(path, text, file):
                     other.append(name)
             for name, args in map(_shortcut, route.get("filters") or []):
                 if name == "StripPrefix" and args and args[0].isdigit():
-                    strip = int(args[0])
+                    strip, path_filters = int(args[0]), path_filters + 1
                 elif name == "PrefixPath" and args:
-                    prefix_path = args[0]
+                    prefix_path, path_filters = args[0], path_filters + 1
+                elif name == "RewritePath" and rewrite is None:
+                    rewrite, path_filters = _rewrite(args), path_filters + 1
+                    if rewrite is None:
+                        other.append(name)
                 elif name in (
                     "RewritePath",
                     "SetPath",
                     "RewriteLocationResponseHeader",
                 ):
                     other.append(name)
-            if other and any(n in ("RewritePath", "SetPath") for n in other):
+            # A RewritePath is read alone: filters apply in order, which the
+            # other path filters would make matter.
+            if (other and any(n in ("RewritePath", "SetPath") for n in other)) or (
+                rewrite is not None and path_filters > 1
+            ):
                 unread.append(GatewayUnread(file, line, "path_rewritten"))
                 continue
             target = _target(str(route.get("uri", "")))
@@ -116,6 +160,23 @@ def spring_gateway_routes(path, text, file):
                     unread.append(GatewayUnread(file, line, "path_pattern"))
                     continue
                 prefix = _segments(pattern[:-3])
+                if rewrite is not None:
+                    old, replacement = rewrite
+                    if prefix[: len(old)] != old:
+                        # The regex does not match every path the route takes.
+                        unread.append(GatewayUnread(file, line, "path_rewritten"))
+                        continue
+                    routes.append(
+                        GatewayRoute(
+                            file,
+                            line,
+                            "spring-cloud-gateway",
+                            prefix,
+                            replacement + prefix[len(old) :],
+                            target,
+                        )
+                    )
+                    continue
                 if strip > len(prefix):
                     unread.append(GatewayUnread(file, line, "strip_beyond_prefix"))
                     continue

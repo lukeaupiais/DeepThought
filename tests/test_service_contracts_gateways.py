@@ -63,6 +63,31 @@ spring:
             - Path=/api/other/**
           filters:
             - RewritePath=/api/other/(?<rest>.*), /$\\{rest}
+        - id: renamed
+          uri: lb://renamed
+          predicates:
+            - Path=/api/renamed/v1/**
+          filters:
+            - RewritePath=^/api/renamed(?<rest>/?.*)$, /v2$\\{rest}
+        - id: moved
+          uri: lb://other
+          predicates:
+            - Path=/api/moved/**
+          filters:
+            - RewritePath=/api/moved/(?<rest>.*), /x/$\\{rest}/y
+        - id: twice
+          uri: lb://other
+          predicates:
+            - Path=/api/twice/**
+          filters:
+            - StripPrefix=1
+            - RewritePath=/twice/(?<rest>.*), /$\\{rest}
+        - id: elsewhere
+          uri: lb://other
+          predicates:
+            - Path=/api/elsewhere/**
+          filters:
+            - RewritePath=/elsewhere/?(?<rest>.*), /$\\{rest}
         - id: pattern
           uri: lb://other
           predicates:
@@ -119,6 +144,9 @@ class GatewayReaderTests(unittest.TestCase):
                 (("api", "vet"), (), "vets-service"),
                 # /vets-api/** cannot lose two segments to StripPrefix=2.
                 (("api", "visit"), ("v2", "visit"), "visits-service"),
+                # RewritePath that swaps a literal prefix.
+                (("api", "other"), (), "other"),
+                (("api", "renamed", "v1"), ("v2", "v1"), "renamed"),
             ],
         )
         self.assertEqual(
@@ -127,7 +155,16 @@ class GatewayReaderTests(unittest.TestCase):
         )
         self.assertEqual(
             [u.reason for u in unread],
-            ["strip_beyond_prefix", "path_rewritten", "path_pattern"],
+            [
+                "strip_beyond_prefix",
+                # The replacement does not end with the rest of the path.
+                "path_rewritten",
+                # Read alone only: filters apply in order.
+                "path_rewritten",
+                # The regex does not match the start of every routed path.
+                "path_rewritten",
+                "path_pattern",
+            ],
         )
 
     def test_nginx(self):
@@ -295,9 +332,9 @@ class GatewayToolTests(unittest.TestCase):
         self.assertEqual(rules, {HTTP_GATEWAY})
         self.assertEqual(get_rule(HTTP_GATEWAY).evidence_type, "pattern_matched")
         metrics = self.output.metadata.custom_metrics
-        # Two Spring routes, three nginx ones; node_modules is not read.
-        self.assertEqual(metrics["gateway_routes"], 5)
-        self.assertEqual(metrics["unread"]["gateway:path_rewritten"], 1)
+        # Four Spring routes, three nginx ones; node_modules is not read.
+        self.assertEqual(metrics["gateway_routes"], 7)
+        self.assertEqual(metrics["unread"]["gateway:path_rewritten"], 3)
 
 
 if __name__ == "__main__":

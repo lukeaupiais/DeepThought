@@ -549,6 +549,16 @@
       "labels": "tables/countly-mongodb.json",
       "oracle": "hand-read driver accesses (tools/mongodb_driver_labels.py)",
       "oracle_command": "python tools/mongodb_driver_labels.py . countly-mongodb.json --repo https://github.com/Countly/countly-server --override api/parts/jobs/manager.js:38=READS --override frontend/express/libs/connect-mongo.js:22=READS,WRITES"
+    },
+    {
+      "name": "tables-ghost-knex",
+      "url": "https://github.com/TryGhost/Ghost",
+      "commit": "7ada5b004d04bdb7c048ca8c6de18c4e13d1cbf0",
+      "license": "MIT",
+      "language": "knex",
+      "labels": "tables/ghost-knex.json",
+      "oracle": "tree-sitter parse of every Knex call on a literal table (tools/knex_labels.py), every label read by hand",
+      "oracle_command": "python tools/knex_labels.py . ghost-knex.json --repo https://github.com/TryGhost/Ghost"
     }
   ]
 }
