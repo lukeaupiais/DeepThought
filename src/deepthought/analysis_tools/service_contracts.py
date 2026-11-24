@@ -58,7 +58,9 @@ from ..service_contracts.graphql import (
     template_schemas,
 )
 from ..service_contracts.http import PLACEHOLDER
-from ..service_contracts.model import Unread
+from ..service_contracts.model import HttpRoute, Unread
+from ..service_contracts.listeners import kratos_ports
+from ..service_contracts.protoc import route_path
 from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
@@ -277,6 +279,17 @@ ROUTE_RULES = {
             "github.com/go-chi/chi declares this path; Route prefixes are "
             "joined, and a chi.Router passed in adds an unknown base assumed "
             "to add no segments.",
+        )
+    ),
+    "grpc-http-annotation": register_rule(
+        EvidenceRule(
+            "service-contracts.grpc-http-annotation-route",
+            "pattern_matched",
+            "The rpc's google.api.http option, read by protoc from the "
+            ".proto file's descriptor (grpc-gateway and Kratos generate an "
+            "HTTP handler for it), maps this method and path template to the "
+            "rpc; additional_bindings give more routes. The gRPC method "
+            "handles the route.",
         )
     ),
     "nextjs": register_rule(
@@ -616,6 +629,20 @@ REQUEST_RULES = {
             "repository; the host, base URL and gateway are not checked.",
         )
     ),
+    contract_rules.HTTP_LOCAL_PORT: register_rule(
+        EvidenceRule(
+            contract_rules.HTTP_LOCAL_PORT,
+            "pattern_matched",
+            "The request's literal host is a loopback name (localhost, "
+            "127.0.0.1) with a literal port that a program of the repository "
+            "is configured to listen on (a Kratos configs/*.yaml "
+            "server.http.addr), and its method and path fit this route, "
+            "served from that program's directory (its own file, or a Go file "
+            "of the program registering the generated HTTP handlers of a "
+            "google.api.http route), more specifically than any other route "
+            "that program serves.",
+        )
+    ),
     contract_rules.HTTP_GATEWAY: register_rule(
         EvidenceRule(
             contract_rules.HTTP_GATEWAY,
@@ -717,6 +744,21 @@ OPENAPI_REQUEST_RULES = {
             + "The host names no known service, and the request fits this "
             "route more specifically than any other route in the repository; "
             "the host and port are not checked.",
+        )
+    ),
+    contract_rules.HTTP_LOCAL_PORT: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-local-port",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The request's literal host is a loopback name (localhost, "
+            "127.0.0.1) with a literal port that a program of the repository "
+            "is configured to listen on (a Kratos configs/*.yaml "
+            "server.http.addr), and its method and path fit this route, "
+            "served from that program's directory (its own file, or a Go file "
+            "of the program registering the generated HTTP handlers of a "
+            "google.api.http route), more specifically than any other route "
+            "that program serves.",
         )
     ),
     contract_rules.HTTP_GATEWAY: register_rule(
@@ -2236,13 +2278,6 @@ class ServiceContractTool(AnalysisTool):
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
             )
-        gateways, gateway_unread = _gateways(root, config, sources)
-        deployments = Deployments(deployed_units(root))
-        routes, requests = _deployed(root, deployments, routes, requests)
-        resolutions = contract_rules.resolve_requests(
-            routes, requests, gateways, deployments.hosts(), _projects(root, sources)
-        )
-        self.last_facts = (result, routes, requests, unread, resolutions)
         grpc = grpc_contracts.collect(
             root,
             grpc_sources,
@@ -2255,6 +2290,55 @@ class ServiceContractTool(AnalysisTool):
             ),
             tests=frozenset(tests),
         )
+        # An rpc's google.api.http option is an HTTP route the gRPC method
+        # serves through grpc-gateway or Kratos.
+        for binding in grpc.http_bindings:
+            path = route_path(binding.path)
+            routes.append(
+                HttpRoute(
+                    id=identifier(
+                        repo_url,
+                        binding.file,
+                        f"{binding.verb} {path} {binding.service}/{binding.method}",
+                        "HttpRoute",
+                        0,
+                    ),
+                    file=binding.file,
+                    line=binding.line,
+                    column=0,
+                    handler_id=None,
+                    methods=(binding.verb,),
+                    path=path,
+                    framework="grpc-http-annotation",
+                    rpc=f"{binding.service}/{binding.method}",
+                )
+            )
+        gateways, gateway_unread = _gateways(root, config, sources)
+        deployments = Deployments(deployed_units(root))
+        routes, requests = _deployed(root, deployments, routes, requests)
+        # A google.api.http route is served by the Go files that register
+        # its service's generated HTTP handlers.
+        served = {
+            route.id: tuple(
+                sorted(
+                    grpc.http_servers.get(
+                        route.rpc.split("/")[0].rpartition(".")[2], ()
+                    )
+                )
+            )
+            for route in routes
+            if route.rpc is not None
+        }
+        resolutions = contract_rules.resolve_requests(
+            routes,
+            requests,
+            gateways,
+            deployments.hosts(),
+            _projects(root, sources),
+            ports=kratos_ports(root),
+            served=served,
+        )
+        self.last_facts = (result, routes, requests, unread, resolutions)
         self.last_grpc = grpc
         self.last_messages = (endpoints, messaging_unread)
 
@@ -2361,7 +2445,10 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
-            if route.handler_id is None:
+            if route.rpc is not None:
+                labels = ["GrpcMethod", "Contract"]
+                handler = f"{repo_url}::grpc::{route.rpc}"
+            elif route.handler_id is None:
                 labels, handler = file_node(route.file)
             else:
                 labels, handler = symbol_node(route.handler_id)

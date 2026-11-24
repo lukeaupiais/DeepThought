@@ -752,6 +752,28 @@ def go_registrations(tree, content, constructors=None):
     return found
 
 
+# The functions protoc-gen-go-http (Kratos) and grpc-gateway generate to
+# serve a service's google.api.http routes on an HTTP server.
+_GO_HTTP_REGISTER = re.compile(
+    r"Register(\w+?)(?:HTTPServer|Handler(?:FromEndpoint|Server|Client)?)"
+)
+
+
+def go_http_registrations(tree, content):
+    """Simple names of the services whose generated HTTP handlers a Go file
+    registers (``v1.RegisterXHTTPServer(srv, s)``,
+    ``gw.RegisterXHandlerFromEndpoint(ctx, mux, addr, opts)``)."""
+    found = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        match = _GO_HTTP_REGISTER.fullmatch(_callee_name(node, "go", content) or "")
+        if match:
+            found.add(match.group(1))
+    return found
+
+
 def class_bases(tree, content, language):
     """{class name: (class node, [base names as written])} of a file."""
     classes = {}
@@ -1015,6 +1037,11 @@ class GrpcFacts:
     unread: list  # (file, line, kind, reason)
     # path -> "protoc" (compiled) | "fallback" (read by read_proto)
     proto_readers: dict = dataclasses.field(default_factory=dict)
+    # protoc.HttpBinding of the rpcs' google.api.http options
+    http_bindings: list = dataclasses.field(default_factory=list)
+    # simple service name -> Go files that register its generated HTTP
+    # handlers (go_http_registrations)
+    http_servers: dict = dataclasses.field(default_factory=dict)
 
 
 _SKIPPED_DIRECTORIES = {".git", ".venv", "node_modules", "__pycache__", "vendor"}
@@ -1087,9 +1114,11 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
         digests[path] = sha256(data).hexdigest()
         texts[path] = data.decode("utf-8", "replace")
     compiled = read_protos(root, list(protos), texts)
+    bindings = []
     for path in protos:
         read = compiled.get(path) or read_proto(texts[path], path)
         methods.extend(read[1])
+        bindings.extend(read[2] if path in compiled else ())
     readers = {path: "protoc" if path in compiled else "fallback" for path in protos}
     index = ProtoIndex(methods)
     handlers, calls, unread, parsers = set(), [], [], {}
@@ -1121,8 +1150,12 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
         for name, type_name in package.items():
             if type_name not in structs[directory]:
                 package[name] = None
+    http_servers = {}
     for path, language, content, tree in parsed:
         test = path in tests
+        if language == "go" and not test:
+            for name in go_http_registrations(tree, content):
+                http_servers.setdefault(name, set()).add(path)
         if not test:
             found, skipped = server_handlers(
                 tree, content, path, language, definitions, index, constructors
@@ -1150,6 +1183,8 @@ def collect(root, sources, definitions, repository_id, protos, tests=frozenset()
     return GrpcFacts(
         proto_files=digests,
         proto_readers=readers,
+        http_bindings=bindings,
+        http_servers=http_servers,
         index=index,
         handlers=sorted(
             handlers, key=lambda h: (h.service, h.method, h.file, h.line, h.handler_id)

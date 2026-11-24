@@ -3159,6 +3159,31 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   streaming kinds as the fallback reader on every one; the rest import
   protos the repositories do not vendor or are deliberately broken test
   inputs.
+- **HTTP annotations.** An rpc's `google.api.http` option, read from its
+  protoc descriptor (with `googleapis-common-protos` supplying
+  `google/api/annotations.proto` when the repository does not vendor it),
+  is an `HttpRoute` (framework `grpc-http-annotation`) per binding,
+  `additional_bindings` included: grpc-gateway and Kratos generate an HTTP
+  handler for each. `{x}` and `{x=*}` are variables, `{x=**}` the rest of
+  the path, `{x=shelves/*}` its own segments, and a `:verb` suffix stays
+  literal. The `GrpcMethod` `HANDLES` the route (rule
+  `service-contracts.grpc-http-annotation-route`), so impact runs from the
+  route to the rpc and on to its servers. The route is served by the Go
+  files that call the generated `RegisterXHTTPServer` (Kratos) or
+  `RegisterXHandler[FromEndpoint|Server|Client]` (grpc-gateway) of its
+  service, which matters for loopback requests (below).
+- **Loopback ports.** A request whose literal host is `localhost`,
+  `127.0.0.1`, `0.0.0.0` or `[::1]` and whose literal port a program of the
+  repository is configured to listen on goes to that program: only routes
+  served from files under its directory are candidates (rule
+  `service-contracts.http-local-port`), else it is unresolved as
+  `no_route_on_port`. Ports come from Kratos configuration
+  (`configs/*.yaml` with `server.http.addr: host:port`; the program is the
+  directory holding `configs`). A port no program declares changes nothing.
+  In go-kratos/beer-shop the admin frontend calls `localhost:8100`, the
+  admin service; its stale `/v1/login` call is left unresolved instead of
+  linking to the shop service's `/v1/login` on port 8000, while its
+  `/admin/v1/...` calls link to the admin rpcs.
 - **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
 
   | Rule | Server |
