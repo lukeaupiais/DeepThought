@@ -712,7 +712,10 @@ GRPC_CALL_RULE = register_rule(
         "factory (NewXClient, XStub, XGrpc.newStub/newBlockingStub/"
         "newFutureStub, new pkg.X, or new m.XClient for a grpc-tools *_grpc_pb "
         "module m), directly or through a name bound in the "
-        "same file only to stubs of X; X is declared by exactly one proto "
+        "same file only to stubs of X; in C#, a value of the generated type "
+        "X.XClient (new, or a parameter, field, property, local or method "
+        "result declared with it, looked up in its enclosing scope); X is "
+        "declared by exactly one proto "
         "package and the method names one of its rpcs. The channel's target "
         "address is not read.",
     )
@@ -2168,7 +2171,7 @@ class ServiceContractTool(AnalysisTool):
                 "fetch, axios, request and Go net/http requests with folded URLs, "
                 "outside test source sets; requests linked to routes by service "
                 "name and path template, never by traced values; gRPC "
-                "methods from .proto files, their Go, Python, Java and Node "
+                "methods from .proto files, their Go, Python, Java, Node and C# "
                 "servers and stub calls, matched by proto service and rpc name",
             },
         )

@@ -2433,8 +2433,7 @@ path pairs under `/api`, and they are exactly the 36 routes.
 ### gRPC
 
 The same tool reads gRPC contracts from `.proto` files and from Go, Python,
-Java and JavaScript sources (`deepthought.service_contracts.grpc`). C# is not
-parsed, so C# servers and clients are out of scope.
+Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
 
 - **Methods.** Every `rpc` of a top-level `service` block in a `.proto` file
   (comments removed, strings kept; directories `node_modules`, `vendor` and
@@ -2456,7 +2455,7 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-go-register-constructor` | `pb.RegisterXServer(s, f(...))` (or a name bound once to that call), where `f` is declared in one file of the same package directory and its only result is `T` or `*T` for a struct type `T` of that package; the methods of `T` as above |
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
-  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class. C# clients are not read yet |
+  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
   | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
 
@@ -2476,6 +2475,31 @@ parsed, so C# servers and clients are out of scope.
   the same file only to stubs of X. For JavaScript, where any `new a.B()`
   looks the same, `B` must be a service some proto declares. The call is
   placed at the method's name.
+
+  C# stubs are values of the generated client type `X.XClient` (with or
+  without its namespace, or through a `using A = ...;` alias):
+  `new X.XClient(channel)`, a parameter (primary constructor parameters
+  included), field, property or local declared with that type (`var` takes
+  the type of a `new`), `this.x` for a field or property, or a call to a
+  method of the same file whose return type is `X.XClient`. A name is looked
+  up in the innermost enclosing member, function or type that declares it,
+  so two locals named `client` in different methods can hold different
+  services; a name declared there with another type, or with clients of
+  two services, is not a stub. `MAsync` denotes rpc `M` when the proto has
+  no rpc `MAsync`. Clients registered with `AddGrpcClient<X.XClient>` and
+  injected into a constructor are read through that parameter's type.
+  Clients of a `using static` import (`XClient` alone) are not read.
+
+  C# clients, against a lexical reference (names assigned
+  `new ...X.XClient(` or declared with that type, then `name.M(`):
+  grpc-dotnet `7c1a477` 82 of 131 reference sites extracted plus 1 the
+  reference missed; each of the 49 others is a `client` local assigned
+  from `TestClientFactory.Create(...)`, which the reference's file-wide
+  name match takes for a stub. 72 sites link; 11 are unresolved because
+  their service (`Counter`, `Racer`, `ServerReflection`) is declared by several
+  proto packages of the repository. dotnet/eShop `669682e`: the WebApp's
+  injected `Basket.BasketClient` and the MAUI ClientApp's
+  `GetBasketClient()` give 6 of 6 calls, linked to `BasketApi.Basket`.
 
 A simple service name must belong to one proto package and the written
 method must be one of its rpcs (exactly, or as the only lowerCamel match);
