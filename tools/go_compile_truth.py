@@ -170,7 +170,10 @@ def rename_and_compile(root, out, pkgs, file, line, name):
         lines = p.read_text("utf-8").split("\n")
         text = lines[n - 1]
         if column is None:
-            m = _FUNC.match(text)
+            # A function or method, or a method of an interface type.
+            m = _FUNC.match(text) or re.match(
+                r"\s*(" + re.escape(name) + r")\s*\(", text
+            )
             start = m.start(1)
         else:
             # The column marks the start of the expression: the name itself
