@@ -42,6 +42,7 @@ JAVA_TYPE_MEMBER = "tree-sitter.java-type-member"
 JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
 JAVA_TYPED_RECEIVER = "tree-sitter.java-call-typed-receiver"
+JAVA_CHAINED_RECEIVER = "tree-sitter.java-call-chained-receiver"
 JAVA_PLATFORM_ARGUMENT = "tree-sitter.java-overload-platform-argument"
 JAVA_FIELD_ARGUMENT = "tree-sitter.java-overload-static-field-argument"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
@@ -997,6 +998,26 @@ class _JavaScope:
                 return CallResolution(site.id, "unresolved", reason="outside_class")
             return self.methods(
                 site, innermost, CALL_SELF_METHOD, "not_declared_in_class", scope=scope
+            )
+        if site.receiver_call is not None:
+            # `a.b().m()`: the type the receiver call's linked method
+            # returns, where that method is declared; `new T().m()`: T.
+            receiver = self.spans.get((file, *site.receiver_call))
+            if receiver is not None and receiver.kind == "new":
+                owners = self.type(file, scope, receiver.callee)
+            else:
+                found = self.call_result(file, site.receiver_call)
+                owners = [] if found is None else self.type(*found[1], found[0])
+            if not owners:
+                return CallResolution(
+                    site.id, "unresolved", reason="receiver_type_unknown"
+                )
+            return self.methods(
+                site,
+                [m for t in owners for m in self.members(t.file, t.symbol, name)],
+                JAVA_CHAINED_RECEIVER,
+                "not_declared_in_type",
+                scope=scope,
             )
         if site.receiver_type is not None:
             # A variable or field whose declaration writes its type.
