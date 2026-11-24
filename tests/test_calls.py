@@ -1170,9 +1170,12 @@ class TypeScriptCallTests(unittest.TestCase):
                     found[("main.ts", line, callee)], ("linked", target, rule, None)
                 )
         # A name declared and also exported for another declaration is
-        # ambiguous, and an imported name exported again is not followed.
+        # ambiguous; an imported name exported again is followed.
         self.assertEqual(found[("main.ts", 6, "both")][:2], ("ambiguous", None))
-        self.assertEqual(found[("main.ts", 6, "relayed")][0], "unresolved")
+        self.assertEqual(
+            found[("main.ts", 6, "relayed")],
+            ("linked", "base.ts::helper", CALL_JS_REEXPORT, None),
+        )
         aliases = {d.symbol: d.export_aliases for d in result.definitions}
         self.assertEqual(aliases["Hono"], ("HonoBase",))
         self.assertEqual(aliases["helper"], ("help", "again"))
@@ -1188,6 +1191,70 @@ class TypeScriptCallTests(unittest.TestCase):
         for bad in ((), ("",), ["x"], (1,)):
             with self.subTest(export_aliases=bad), self.assertRaises(ValueError):
                 replace(result.definitions[0], export_aliases=bad)
+
+    def test_imports_exported_again(self):
+        result = analyze(
+            {
+                "src/render.ts": (
+                    "export function render() {}\n"
+                    "export default function hydrate() {}\n"
+                    "export function unused() {}\n"
+                ),
+                "src/index.ts": (
+                    "import { render as r, unused } from './render';\n"
+                    "import hyd from './render';\n"
+                    "import * as ns from './render';\n"
+                    "export { r as render, r, hyd as hydrate, ns };\n"
+                    "export { r as render };\n"
+                    "export default r;\n"
+                    "function local() {}\n"
+                    "export { local as alsoLocal };\n"
+                    "export { unused as fromRender } from './render';\n"
+                ),
+                "main.ts": (
+                    "import { render, r, hydrate, ns, unused } from './src/index';\n"
+                    "import dflt from './src/index';\n"
+                    "import * as idx from './src/index';\n"
+                    "render(); r(); hydrate(); dflt(); idx.render();\n"  # 4
+                    "ns.render(); unused();\n"  # 5
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for callee, target in (
+            ("render", "src/render.ts::render"),
+            ("r", "src/render.ts::render"),
+            ("hydrate", "src/render.ts::hydrate"),
+            ("dflt", "src/render.ts::render"),
+            ("idx.render", "src/render.ts::render"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", 4, callee)],
+                    ("linked", target, CALL_JS_REEXPORT, None),
+                )
+        # A namespace exported again is not followed, and an import that is
+        # not exported again exports nothing.
+        self.assertEqual(found[("main.ts", 5, "ns.render")][0], "unresolved")
+        self.assertEqual(
+            found[("main.ts", 5, "unused")],
+            ("unresolved", None, None, "imported_name_not_declared"),
+        )
+        imports = {(i.file, i.line): i.reexported_as for i in result.imports}
+        self.assertEqual(
+            imports[("src/index.ts", 1)],
+            (("r", "render"), ("r", "r"), ("r", "default")),
+        )
+        self.assertEqual(imports[("src/index.ts", 2)], (("hyd", "hydrate"),))
+        self.assertEqual(imports[("src/index.ts", 3)], (("ns", "ns"),))
+        self.assertIsNone(imports[("main.ts", 1)])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        self.assertNotIn('"reexported_as": null', result.to_json())
+        item = next(i for i in result.imports if i.reexported_as)
+        for bad in ((), (("r",),), (("x", "y"),), ((r"r", ""),), [("r", "s")]):
+            with self.subTest(reexported_as=bad), self.assertRaises(ValueError):
+                replace(item, reexported_as=bad)
 
     def test_javascript_receivers_bound_to_new(self):
         result = analyze(

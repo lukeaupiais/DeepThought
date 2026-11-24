@@ -256,8 +256,25 @@ class Import:
     # name each of ``names`` is exported under (aliases applied; ``*`` for
     # ``export *``, the namespace for ``export * as ns``). None elsewhere.
     exported_names: tuple[str, ...] | None = None
+    # JavaScript and TypeScript imports: (local, exported) for each name the
+    # statement binds that a local ``export { local as exported }`` (no
+    # ``from``) of the same module exports again, which re-exports what the
+    # import names. None elsewhere, or when there is none.
+    reexported_as: tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self):
+        if self.reexported_as is not None and (
+            type(self.reexported_as) is not tuple
+            or not self.reexported_as
+            or not all(
+                type(pair) is tuple
+                and len(pair) == 2
+                and all(isinstance(n, str) and n for n in pair)
+                and pair[0] in self.local_names
+                for pair in self.reexported_as
+            )
+        ):
+            raise ValueError("reexported_as must pair local names with exported names")
         if self.exported_names is not None and (
             type(self.exported_names) is not tuple
             or len(self.exported_names) != len(self.names)
@@ -829,6 +846,8 @@ class AnalysisResult:
                 del item["block"]
             if item["exported_names"] is None:
                 del item["exported_names"]
+            if item["reexported_as"] is None:
+                del item["reexported_as"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
@@ -895,6 +914,15 @@ class AnalysisResult:
                         **(
                             {"exported_names": tuple(item["exported_names"])}
                             if isinstance(item.get("exported_names"), list)
+                            else {}
+                        ),
+                        **(
+                            {
+                                "reexported_as": tuple(
+                                    tuple(pair) for pair in item["reexported_as"]
+                                )
+                            }
+                            if isinstance(item.get("reexported_as"), list)
                             else {}
                         ),
                     }
