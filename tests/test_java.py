@@ -830,6 +830,30 @@ class JavaTests(unittest.TestCase):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(found[(line, callee)], (None, "attribute_call"))
 
+    def test_a_comment_between_type_parameters_is_not_a_type_variable(self):
+        # TypeScript methods share Java's formal_parameters node type, and
+        # both grammars keep comments as named children of type_parameters.
+        files = {
+            "src/main/java/demo/Box.java": (
+                "package demo;\n"
+                "class Box<\n  // the element\n  T> {\n"
+                "  <\n  /* a key */\n  K> void put(K k, T t) {}\n"
+                "}\n"
+            ),
+            "web/model.ts": (
+                "export class Model<\n"
+                "  // oxlint-disable-next-line no-explicit-any\n"
+                "  T = any,\n"
+                "> {\n"
+                "  find(id: string): T | undefined { return undefined; }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files, languages=("java", "typescript"))
+        methods = {d.symbol: d for d in result.definitions if d.kind == "Method"}
+        self.assertEqual(methods["Box.put"].parameter_types, ("?", "*"))
+        self.assertIn("Model.find", methods)
+
     def test_an_override_needs_parameter_types_that_may_be_the_same(self):
         files = {
             "src/p/Range.java": (
