@@ -443,8 +443,9 @@ def score(result, truth, examples=10):
     near = {}
     for resolution in resolve_calls(result):
         site = sites[resolution.call_id]
-        # TypeScript private names: the index names `#m` as `m`.
-        name = re.split(r"::|\.", site.callee)[-1].lstrip("#")
+        # TypeScript private names: the index names `#m` as `m`. PHP callees
+        # are written `$this->m`, `C::m` and `A\f`.
+        name = re.split(r"::|\.|->|\\", site.callee)[-1].lstrip("#")
         keys = [
             (site.file, line, name)
             for line in range(site.line, site.end_line + 1)
