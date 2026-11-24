@@ -283,7 +283,9 @@ def _declaration_sources(root, result):
 
 _CALL_RULE_TEXT = {
     call_rules.CALL_LEXICAL_NAME: "A bare callee name equals a function or class "
-    "declared in an enclosing lexical scope of the same file.",
+    "declared in an enclosing lexical scope of the same file; in JavaScript "
+    "and TypeScript, the declaration that the call's block and function "
+    "scopes give.",
     call_rules.CALL_IMPORTED_NAME: "A bare callee name is bound by an import "
     "whose module file declares that name at top level.",
     call_rules.CALL_MODULE_ATTRIBUTE: "A callee 'module.name' uses a module "

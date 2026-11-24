@@ -219,7 +219,11 @@ def extract(
             ordinals[(symbol, kind)] = ordinal + 1
             parameters = node.child_by_field_name("parameters")
             arity = {}
-            if parameters is not None and parameters.type == "formal_parameters":
+            if (
+                parameters is not None
+                and parameters.type == "formal_parameters"
+                and file.endswith(".java")
+            ):
                 # Java; a receiver parameter (``Outer this``) is not counted.
                 declared = [
                     c
@@ -1876,6 +1880,220 @@ def _python_bindings(scope, content, parameters=True):
     return bound, declared
 
 
+_JS_FUNCTIONS = {
+    "function_declaration",
+    "generator_function_declaration",
+    "function_expression",
+    "function",
+    "generator_function",
+    "arrow_function",
+    "method_definition",
+}
+_JS_BLOCKS = {"program", "statement_block", "class_static_block", "switch_body"}
+_JS_DECLARATIONS = {
+    "function_declaration",
+    "generator_function_declaration",
+    "function_signature",
+    "class_declaration",
+    "abstract_class_declaration",
+    "enum_declaration",
+    "internal_module",
+    "module",
+}
+
+
+def _js_pattern_names(node):
+    """The identifiers a JavaScript or TypeScript binding pattern declares."""
+    if node is None:
+        return []
+    kind = node.type
+    if kind in {"identifier", "shorthand_property_identifier_pattern"}:
+        return [node]
+    if kind in {"assignment_pattern", "object_assignment_pattern"}:
+        return _js_pattern_names(node.child_by_field_name("left"))
+    if kind == "pair_pattern":
+        return _js_pattern_names(node.child_by_field_name("value"))
+    if kind in {"required_parameter", "optional_parameter"}:
+        return _js_pattern_names(node.child_by_field_name("pattern"))
+    if kind in {"object_pattern", "array_pattern", "rest_pattern"}:
+        return [n for c in node.named_children for n in _js_pattern_names(c)]
+    return []
+
+
+def _js_required(node):
+    """Whether a declarator's value is ``require(...)``: an import."""
+    value = node.child_by_field_name("value")
+    function = value.child_by_field_name("function") if value is not None else None
+    return (
+        value is not None
+        and value.type == "call_expression"
+        and function is not None
+        and function.type == "identifier"
+        and function.text == b"require"
+    )
+
+
+def _js_declarators(node, content, found):
+    """Add the names a ``let``, ``const`` or ``var`` declaration binds."""
+    for declarator in node.named_children:
+        if declarator.type != "variable_declarator":
+            continue
+        name = declarator.child_by_field_name("name")
+        for identifier in _js_pattern_names(name):
+            key = (
+                "import"
+                if _js_required(declarator)
+                else _js_start(declarator if identifier == name else identifier)
+            )
+            found.setdefault(_text(identifier, content), []).append(key)
+
+
+def _js_start(node):
+    return (node.start_point.row + 1, node.start_point.column)
+
+
+def _js_scope_bindings(node, content):
+    """{name: [binding]} that the scope ``node`` declares; a binding is the
+    start of the declaring node, ``"import"``, or ``"unknown"`` where the
+    language may or may not bind the name there."""
+    found = {}
+    kind = node.type
+    if kind in _JS_BLOCKS:
+        statements = [
+            s
+            for c in node.named_children
+            for s in (
+                c.named_children
+                if c.type in {"switch_case", "switch_default"}
+                else (c,)
+            )
+        ]
+        for statement in statements:
+            if statement.type == "export_statement":
+                declared = statement.child_by_field_name("declaration")
+                if declared is None:
+                    continue
+                statement = declared
+            if statement.type == "ambient_declaration" and statement.named_children:
+                statement = statement.named_children[0]
+            if statement.type == "lexical_declaration":
+                _js_declarators(statement, content, found)
+            elif statement.type in _JS_DECLARATIONS:
+                name = statement.child_by_field_name("name")
+                if name is not None:
+                    found.setdefault(_text(name, content), []).append(
+                        _js_start(statement)
+                    )
+            elif statement.type in {"import_statement", "import_alias"}:
+                for identifier in _js_import_names(statement):
+                    found.setdefault(_text(identifier, content), []).append("import")
+    if kind in _JS_FUNCTIONS:
+        parameters = node.child_by_field_name("parameters")
+        single = node.child_by_field_name("parameter")
+        for parameter in (
+            parameters.named_children if parameters is not None else [single]
+        ):
+            for identifier in _js_pattern_names(parameter):
+                found.setdefault(_text(identifier, content), []).append(
+                    _js_start(identifier)
+                )
+        name = node.child_by_field_name("name")
+        if kind in {"function_expression", "function", "generator_function"} and (
+            name is not None
+        ):
+            # A named function expression binds its name inside itself.
+            found.setdefault(_text(name, content), []).append(_js_start(name))
+    if kind in _JS_FUNCTIONS or kind == "program":
+        body = node if kind == "program" else node.child_by_field_name("body")
+        stack = list(body.named_children) if body is not None else []
+        while stack:
+            child = stack.pop()
+            if child.type in _JS_FUNCTIONS - {
+                "function_declaration",
+                "generator_function_declaration",
+            }:
+                continue
+            if child.type in {"variable_declaration"}:
+                _js_declarators(child, content, found)
+            elif child.type == "for_in_statement" and any(
+                c.type == "var" for c in child.children
+            ):
+                for identifier in _js_pattern_names(child.child_by_field_name("left")):
+                    found.setdefault(_text(identifier, content), []).append(
+                        _js_start(identifier)
+                    )
+            if child.type in {"function_declaration", "generator_function_declaration"}:
+                if child.parent != body:
+                    # A function declared in a nested block: sloppy mode
+                    # also binds it in the function around.
+                    name = child.child_by_field_name("name")
+                    if name is not None:
+                        found.setdefault(_text(name, content), []).append("unknown")
+                continue
+            stack.extend(child.named_children)
+    if kind == "for_statement":
+        initializer = node.child_by_field_name("initializer")
+        if initializer is not None and initializer.type == "lexical_declaration":
+            _js_declarators(initializer, content, found)
+    if kind == "for_in_statement" and not any(c.type == "var" for c in node.children):
+        if any(c.type in {"let", "const"} for c in node.children):
+            for identifier in _js_pattern_names(node.child_by_field_name("left")):
+                found.setdefault(_text(identifier, content), []).append(
+                    _js_start(identifier)
+                )
+    if kind == "catch_clause":
+        for identifier in _js_pattern_names(node.child_by_field_name("parameter")):
+            found.setdefault(_text(identifier, content), []).append(
+                _js_start(identifier)
+            )
+    return found
+
+
+def _js_import_names(node):
+    """The local names an import statement binds."""
+    if node.type == "import_alias":
+        return [c for c in node.named_children[:1] if c.type == "identifier"]
+    names = []
+    stack = list(node.named_children)
+    while stack:
+        child = stack.pop()
+        if child.type == "import_clause":
+            stack.extend(child.named_children)
+        elif child.type == "identifier":
+            names.append(child)
+        elif child.type == "namespace_import":
+            names.extend(c for c in child.named_children if c.type == "identifier")
+        elif child.type == "named_imports":
+            for specifier in child.named_children:
+                alias = specifier.child_by_field_name("alias")
+                name = specifier.child_by_field_name("name")
+                bound = alias if alias is not None else name
+                if bound is not None and bound.type == "identifier":
+                    names.append(bound)
+    return names
+
+
+def _js_binding(node, content, callee, cache):
+    """``CallSite.binding`` for a JavaScript or TypeScript call of
+    ``callee``: the declaration of that plain name the call sees."""
+    if "." in callee:
+        return None
+    scope = node.parent
+    while scope is not None:
+        if scope.type == "with_statement" or scope.has_error:
+            # A scope the parser could not read may declare the name.
+            return None
+        if scope.id not in cache:
+            cache[scope.id] = _js_scope_bindings(scope, content)
+        entries = cache[scope.id].get(callee)
+        if entries:
+            if len(entries) != 1 or entries[0] in {"import", "unknown"}:
+                return None
+            return entries[0]
+        scope = scope.parent
+    return ()
+
+
 def _python_shadowed(node, content, callee, cache):
     """Whether the first name of a Python call's callee is bound in a
     function, lambda or comprehension around the call, so that it does not
@@ -2827,7 +3045,10 @@ def extract_call_sites(
     go = not rust and any(
         c.type == "package_clause" for c in tree.root_node.named_children
     )
-    sites, ordinals, bindings, receivers = [], {}, {}, {}
+    script = file.endswith(
+        (*LANGUAGES["javascript"][0], *LANGUAGES["typescript"][0], ".mts", ".cts")
+    )
+    sites, ordinals, bindings, receivers, scopes = [], {}, {}, {}, {}
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
@@ -2859,6 +3080,9 @@ def extract_call_sites(
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python
+                        else None,
+                        binding=_js_binding(node, content, callee, scopes)
+                        if script
                         else None,
                         **(
                             {

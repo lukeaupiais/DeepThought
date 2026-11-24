@@ -148,7 +148,7 @@ arbitrary object gets no edge.
 
 | Rule | Links |
 |---|---|
-| `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
+| `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
@@ -2831,7 +2831,8 @@ introspection queries (`pg_class`, `sqlite_master`, `user_constraints`,
 ...).
 
 On prisma/prisma-examples, outside `node_modules`, the tool reads all 147
-`model` blocks of its 83 schemas. It links 548 client calls to their
+`model` blocks of its 83 schemas. It links 490 client calls outside the
+test sources (548 with them) to their
 example's own model and leaves 6 whose name several models of the repository
 share outside the caller's package. Against a `grep` for
 `x.model.method(` it finds 554 calls to grep's 525: the extra ones are
@@ -2918,12 +2919,12 @@ are mapped. Their superclasses (`ParanoidModel`, `IdModel`, and a local
 the `@server/*` alias of `tsconfig.json`; a second `ParanoidModel` in the
 frontend is never taken. The 41 tables (`Document` and `Template` share
 `documents`) are all created by the baseline `schema.sql` or a
-`createTable` migration. The tool links 1,862 static calls. A single-line
-`grep` for the mapped class names followed by a Sequelize method finds 1,854
-lines, and the tool links all of them but one, a model taken from a
-dynamic `await import(...)`. Its 9 extra lines are calls with type
-arguments (`Import.findAll<Import<any>>(`). The 133 calls not linked are on
-other classes (`TextSelection.create`, `Metrics.count`, ...). On
+`createTable` migration. A single-line `grep` for the mapped class names
+followed by a Sequelize method finds 1,854 lines, 821 of them outside the
+test sources, and the tool links all 821; it links 837 calls in all, the
+others split over lines or written with type arguments
+(`Import.findAll<Import<any>>(`). The 96 calls not linked are on other
+classes (`TextSelection.create`, `Metrics.count`, ...). On
 TonyMckes/conduit-realworld-example-app `5e127d8` the 4 `Model.init` models
 get their default names (`Users`, `Articles`, ...), and each is one its
 migrations create; its 23 calls are the lines `grep` finds. In
@@ -3005,8 +3006,16 @@ repositories. On novuhq/novu `d688aea` all 44 models resolve, several
 through schema options imported from a shared file. Its calls go through a
 `BaseRepository` that holds the model in a field set by a subclass, so
 none are linked yet. When several files declare a model of the same name
-for the same collection, as NestJS feature modules do, it is one model. JavaScript and TypeScript test sources (`test/`, `tests/`,
-`__tests__/`, `spec/`, `*.test.*`, `*.spec.*`) are skipped for Mongoose.
+for the same collection, as NestJS feature modules do, it is one model.
+
+JavaScript and TypeScript test sources (`test/`, `tests/`, `__tests__/`,
+`spec/`, `*.test.*`, `*.spec.*`) are skipped by every script reader
+(Prisma, TypeORM, Sequelize, Drizzle and Mongoose), as Ruby, PHP
+and Go tests are. A test's fixture calls are not the application's data
+access, and on outline/outline `fd66b5e` they were 1,047 of the 1,887
+Sequelize call edges. On outline and prisma/prisma-examples every edge that
+goes away comes from a test source, and on ten other JavaScript and
+TypeScript corpora nothing changes.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
 they map is one its migrations create. One `Pivot` without `$table` is left

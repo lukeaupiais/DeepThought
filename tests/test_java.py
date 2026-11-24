@@ -108,6 +108,15 @@ class JavaTests(unittest.TestCase):
             [("Base", "extends"), ("Runnable", "implements")],
         )
 
+    def test_parameter_types_are_recorded_for_java_only(self):
+        typescript = analyze(
+            {"c.ts": "export class C<T> { m(x: T) {} }\n"},
+            languages=("typescript",),
+        )
+        (method,) = [d for d in typescript.definitions if d.symbol == "C.m"]
+        # TypeScript parameter lists are formal_parameters too.
+        self.assertEqual((method.parameters, method.parameter_types), (None, None))
+
     def test_annotations_belong_to_the_text_and_javadoc_does_not(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "Outer.java").write_text(SOURCE)
