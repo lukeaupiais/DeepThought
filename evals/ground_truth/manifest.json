@@ -279,6 +279,15 @@
         "http",
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-node-microservices-base-kafka",
+      "url": "https://github.com/19EB/microservices-base-kafka",
+      "commit": "9facb7f3c6a588252aa6364fb119beeedafa7b56",
+      "labels": "../fixtures/service_contracts/node-microservices-base-kafka.json",
+      "kinds": [
+        "messaging"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
