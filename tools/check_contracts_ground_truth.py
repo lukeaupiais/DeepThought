@@ -253,6 +253,18 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
 
     tool = ServiceContractTool(Path(workspace))
     output = asyncio.run(tool.analyze("corpus"))
+    missing = sorted(
+        key
+        for key in output.metadata.custom_metrics.get("unread", {})
+        if key.endswith("yaml_not_installed")
+    )
+    if missing:
+        # Gateway routes are read with pyyaml; without it the scores drop
+        # for reasons of the environment, not the extractor.
+        raise RuntimeError(
+            "pyyaml is not installed (install the 'languages' extra); "
+            "unread: " + ", ".join(missing)
+        )
     _, routes, requests, unread, resolutions = tool.last_facts
     roots = [(s["name"], s["root"]) for s in corpus["services"]]
     if kind == "grpc":
