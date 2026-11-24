@@ -1063,6 +1063,34 @@ end
 }
 
 
+class SourceLimitTests(unittest.TestCase):
+    def test_file_limit_is_reported_and_can_be_raised(self):
+        files = {
+            f"app/models/m{i}.rb": f"class M{i} < ActiveRecord::Base\nend\n"
+            for i in range(3)
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            capped = asyncio.run(
+                DataContractTool(directory, max_files=2).analyze(
+                    "r", languages=["ruby"]
+                )
+            )
+            full = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        metrics = capped.metadata.custom_metrics
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertEqual(metrics["source_limits"], ["file_count_limit"])
+        self.assertEqual(metrics["active_record_models"], 2)
+        self.assertTrue(
+            any("max_files=2" in w for w in capped.metadata.warnings),
+            capped.metadata.warnings,
+        )
+        self.assertEqual(full.metadata.custom_metrics["source_limits"], [])
+        self.assertEqual(full.metadata.custom_metrics["active_record_models"], 3)
+
+
 class RailsTests(unittest.TestCase):
     def test_inflector_matches_active_support(self):
         from deepthought.data_contracts import (

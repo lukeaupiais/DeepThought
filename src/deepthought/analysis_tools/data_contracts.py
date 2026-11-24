@@ -685,11 +685,16 @@ def _sql_files(root, include, exclude, suffix=".sql"):
     return found
 
 
+# Engine diagnostics that stop the walk over source files.
+SOURCE_LIMITS = {"file_count_limit", "total_byte_limit"}
+
+
 @register_tool
 class DataContractTool(AnalysisTool):
-    def __init__(self, repo_path):
+    def __init__(self, repo_path, max_files=10_000):
         super().__init__(repo_path)
         self.last_facts = None
+        self.max_files = max_files
 
     def _get_metadata(self):
         return ToolMetadata(
@@ -732,6 +737,7 @@ class DataContractTool(AnalysisTool):
             languages=selected,
             include=include,
             exclude=exclude,
+            max_files=self.max_files,
         )
         root = Path(self.repo_path).resolve()
         scan = scan_components(root, include=include, exclude=exclude)
@@ -1936,6 +1942,15 @@ class DataContractTool(AnalysisTool):
             "partial" if unreadable or result.status != "succeeded" else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        # A limit stops the source walk: the files after it are unread, so
+        # the tables and edges reported are a lower bound.
+        limits = sorted({d.code for d in result.diagnostics if d.code in SOURCE_LIMITS})
+        warnings += [
+            f"{code}: analysis stopped before reading every source file, "
+            "so tables, models and calls in the unread files are missing"
+            + (f" (max_files={self.max_files})" if code == "file_count_limit" else "")
+            for code in limits
+        ]
         identity = {
             "analyzer": "data-contracts",
             "analyzer_version": __version__,
@@ -1958,6 +1973,7 @@ class DataContractTool(AnalysisTool):
                 custom_metrics={
                     "snapshot_id": snapshot_id,
                     "analysis_status": status,
+                    "source_limits": limits,
                     "model_tokens": 0,
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),

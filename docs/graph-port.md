@@ -1998,7 +1998,35 @@ the same way. A `configurationFile` (JSON or YAML) supplies settings under the
 pom's own. Without `apiPackage`, the generator's default applies
 (`org.openapitools.api` for spring, `org.openapitools.client.api` for java).
 
-Gradle builds are not read yet.
+Gradle builds that apply `org.openapi.generator` are read the same way
+(`deepthought.service_contracts.openapi_gradle`): the `openApiGenerate { }`
+block and each task of type `GenerateTask` (Groovy `task x(type: ...)`,
+Kotlin `tasks.register<GenerateTask>`, `tasks.register("x", GenerateTask::class)`
+and `by tasks.registering(GenerateTask::class)`), with comments skipped.
+
+A setting is read when it is written `name = value`, `name.set(value)` or
+`name value` at the block's top level, and its value is one of:
+- a string literal (`.toString()` allowed), with `$rootDir`, `$projectDir`
+  and their `${...}`/`project.`/`rootProject.` forms replaced; the root is
+  the nearest `settings.gradle(.kts)`, and a relative `inputSpec` is
+  relative to the project directory;
+- a boolean;
+- for `configOptions`, a Groovy map literal or a Kotlin `mapOf(... to ...)`.
+
+Any other value of a setting that matters (generator, spec, package,
+library, name affixes, options) makes the task `openapi:config_not_literal`.
+The plugin version comes from a `plugins { id ... version ... }` block in
+the build or its settings, or from a buildscript
+`openapi-generator-gradle-plugin` classpath, with `gradle.properties`
+values from the root down to the project replaced.
+
+Checked on three public builds; each one is read as written:
+
+| Build | Read as | Outcome |
+|---|---|---|
+| Guardian-Development/contract-first-service (`7be7d87`) | spring, plugin 4.3.1 | `generator_version` |
+| maschnetwork/openapi-code-generator (`d2ebb3a`) | kotlin-spring, a relative spec | `not_spring_server` |
+| The plugin's own `samples/local-spec` (v7.4.0) | all 5 tasks, version from `gradle.properties` | kotlin, go and csharp are not read; the java client is read |
 
 #### Generated Java clients
 
@@ -2242,6 +2270,63 @@ all have the configured destination. The other 5 are unread, not wrong:
 Samples without a `spring.application.name` are not services here and give
 nothing.
 
+#### Services that Compose builds
+
+A Compose service whose `build` context is a module's directory runs that
+module (`deepthought.service_contracts.compose`). Each Compose file is a
+deployment of its own, and every file name of the `compose*.yml` /
+`docker-compose*.yml` family counts, `docker-compose-kafka.yml` included.
+Such a module is a running service even without its own
+`spring.application.name`, and its name is, in this order:
+
+1. its own `spring.application.name`;
+2. the name every Compose service that builds it gives it:
+   `SPRING_APPLICATION_NAME`, or `spring.application.name` read under the
+   service's active profiles in its `SPRING_CONFIG_LOCATION` files;
+3. the Compose services' name, when they all have the same one;
+4. the module's directory name, when they have several (for example the
+   replicas `product` and `product-p1`).
+
+Message edges of Spring Cloud Stream sites record which step applied as
+`service_identity_rule`: `service-contracts.service-spring-application-name`,
+`service-compose-name` or `service-module-name`. They also record the
+Compose services that deploy them as `deployed_as` (`file:service`).
+
+`SPRING_CONFIG_LOCATION` entries are followed to repository files.
+- A `file:` entry goes through the service's bind mounts. A relative
+  source is relative to the Compose file, and `$PWD` is taken to be the
+  Compose file's directory.
+- A `classpath:` entry is looked up in the module's resources.
+- An `optional:` entry that does not exist is skipped.
+
+When every Compose service that builds the module sets a location, the
+module's own config files are not read, as at run time.
+
+The binder keys are then read per Compose service, with its
+`SPRING_PROFILES_ACTIVE`: the last document that applies decides. So a
+binding gives one endpoint per broker its deployments use, each with its
+own `deployed_as`. A service is `binder_unknown` when:
+- its profiles or location are not literal;
+- a profile expression decides the value;
+- its location cannot be followed.
+
+Environment overrides of other keys are not read.
+
+On PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition (commit `db9e0fa`)
+(Chapter07 and Chapter23), the three core services had been `no_service`,
+since neither chapter sets a name in the module config. Each now consumes
+its destination twice:
+- on RabbitMQ, in `docker-compose.yml` and `docker-compose-partitions.yml`;
+- on Kafka, in `docker-compose-kafka.yml`, whose `kafka` profile switches
+  the default binder.
+
+Chapter23 takes the names (`product`, `recommendation`, `review`) and
+destinations from `config-repo/` through the mounted config location.
+Chapter07 has replicas under two names, so its services are named after
+their module directories. No edges changed on the gated corpora,
+spring-petclinic-rest, train-ticket or the stream samples, apart from the
+two new properties.
+
 ### Validation
 
 `tools/check_contracts_ground_truth.py CORPUS.json CHECKOUT` scores the tool
@@ -2390,6 +2475,11 @@ through expressions other than a declared variable, named queries and other pers
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
 `tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
+The tool reads at most 10,000 source files by default (`graph index --tool
+data-contracts --max-files N` raises it). When a file count or byte limit
+stops the walk, the run is `partial`, the `source_limits` metric names the
+limit, and a warning says tables, models and calls in the unread files are
+missing.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
