@@ -2430,7 +2430,7 @@ link to their mutations, and `subscribeWebPush` is
 
 Browser and load-test code usually calls a gateway, not the service:
 robot-shop's pages call `/api/cart/...`, which nginx forwards to the cart
-service as `/...`. The tool reads three kinds of gateway route
+service as `/...`. The tool reads four kinds of gateway route
 (`deepthought.service_contracts.gateways`):
 
 - **Spring Cloud Gateway.** `spring.cloud.gateway.routes` (or
@@ -2457,6 +2457,21 @@ service as `/...`. The tool reads three kinds of gateway route
   patterns leave the route unread. Environment overlays
   (`appsettings.Development.json`, ...) are not read, as with Spring
   profiles.
+- **Ocelot.** `Routes` (or `ReRoutes`, before Ocelot 16) in a JSON file of
+  a .NET project with analyzed C# sources that holds
+  `UpstreamPathTemplate`s. The upstream and downstream templates must be
+  literal segments followed by the same placeholders in the same order
+  (`/merchant/api/{everything}` to `/api/{everything}`), and the upstream
+  prefix is replaced by the downstream one. A template without placeholders
+  takes only its own path; with placeholders, the last takes the rest of the
+  path (Ocelot matches it with `.+`) and each other one segment. Query
+  templates are ignored. `UpstreamHttpMethod` limits the methods the route
+  takes; a request with another method, or a path the templates do not
+  take, is not forwarded by it. The target is the `ServiceName` (service discovery), else the host
+  every `DownstreamHostAndPorts` entry shares. Other templates (no literal
+  prefix, a placeholder before literal text, reordered placeholders) are
+  unread. A file `x.Env.json` beside `x.json` (`ocelot.Docker.json`) is an
+  environment overlay and is not read, as for YARP.
 - **nginx.** `location /prefix/ { proxy_pass http://host[:port][/uri]; }` in
   `*.conf` and `*.conf.template` files outside hidden, `node_modules` and
   `vendor` folders. A `proxy_pass` with a URI replaces the prefix with it, as

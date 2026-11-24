@@ -12,6 +12,7 @@ from deepthought.service_contracts.gateways import (
     GatewayRoute,
     forward,
     nginx_routes,
+    ocelot_routes,
     spring_gateway_routes,
     yarp_routes,
 )
@@ -192,6 +193,40 @@ YARP = """{
 }
 """
 
+OCELOT = """{
+  "Routes": [
+    {
+      "DownstreamPathTemplate": "/api/{everything}",
+      "UpstreamPathTemplate": "/merchant/api/{everything}",
+      "ServiceName": "Merchant.Api",
+      "UpstreamHttpMethod": [ "Get", "POST" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/catalog/{id}",
+      "DownstreamHostAndPorts": [ { "Host": "catalog", "Port": 80 } ],
+      "UpstreamPathTemplate": "/catalog/{id}"
+    },
+    {
+      "DownstreamPathTemplate": "/api/basket?userId={userId}",
+      "DownstreamHostAndPorts": [ { "Host": "a", "Port": 80 }, { "Host": "b" } ],
+      "UpstreamPathTemplate": "/basket?userId={userId}"
+    },
+    {
+      "DownstreamPathTemplate": "/{url}",
+      "UpstreamPathTemplate": "/{url}"
+    },
+    {
+      "DownstreamPathTemplate": "/api/{id}/items",
+      "UpstreamPathTemplate": "/items/{id}/list"
+    },
+    {
+      "DownstreamPathTemplate": "/api/{b}/{a}",
+      "UpstreamPathTemplate": "/pair/{a}/{b}"
+    }
+  ]
+}
+"""
+
 
 class GatewayReaderTests(unittest.TestCase):
     @unittest.skipUnless(YAML, "pyyaml is not installed")
@@ -256,6 +291,45 @@ class GatewayReaderTests(unittest.TestCase):
             yarp_routes("{ not json", "x.json")[1][0].reason, "json_not_parsed"
         )
         self.assertEqual(yarp_routes('{"Logging": {}}', "x.json"), ([], []))
+
+    def test_ocelot(self):
+        routes, unread = ocelot_routes(OCELOT, "gw/ocelot.json")
+        self.assertEqual(
+            [
+                (r.prefix, r.replacement, r.target, r.methods, r.min_rest, r.max_rest)
+                for r in routes
+            ],
+            [
+                # The last placeholder takes the rest of the path.
+                (
+                    ("merchant", "api"),
+                    ("api",),
+                    "merchant.api",
+                    ("GET", "POST"),
+                    1,
+                    None,
+                ),
+                (("catalog",), ("api", "catalog"), "catalog", (), 1, None),
+                # No placeholder in the path: that path only. Hosts differ.
+                (("basket",), ("api", "basket"), None, (), 0, 0),
+            ],
+        )
+        self.assertEqual(
+            routes[1].line, OCELOT[: OCELOT.find('"/catalog/{id}"')].count("\n") + 1
+        )
+        # No literal prefix, a placeholder before literal text, placeholders
+        # in another order.
+        self.assertEqual([u.reason for u in unread], ["path_pattern"] * 3)
+        self.assertEqual(ocelot_routes("[", "x.json")[1][0].reason, "json_not_parsed")
+
+    def test_forward_checks_methods_and_the_rest_of_the_path(self):
+        routes, _ = ocelot_routes(OCELOT, "gw/ocelot.json")
+        self.assertEqual(len(forward(routes, ("merchant", "api", "x"), "GET")), 1)
+        self.assertEqual(len(forward(routes, ("merchant", "api", "x"), None)), 1)
+        self.assertEqual(forward(routes, ("merchant", "api", "x"), "DELETE"), [])
+        self.assertEqual(forward(routes, ("merchant", "api"), "GET"), [])
+        self.assertEqual(len(forward(routes, ("basket",))), 1)
+        self.assertEqual(forward(routes, ("basket", "x")), [])
 
     def test_nginx(self):
         routes, unread = nginx_routes(NGINX, "web/default.conf")
@@ -489,6 +563,60 @@ class YarpGatewayTests(unittest.TestCase):
             ],
         )
         self.assertEqual(output.metadata.custom_metrics["gateway_routes"], 3)
+
+    def test_ocelot_requests_follow_the_base_configuration(self):
+        overlay = OCELOT.replace("/catalog/{id}", "/other/{id}")
+        files = {
+            "src/Catalog/Catalog.csproj": "<Project />",
+            "src/Catalog/Api.cs": (
+                "public static class Api {\n"
+                "  public static void Map(IEndpointRouteBuilder app) {\n"
+                '    app.MapGet("/api/catalog/{id}", (int id) => id);\n'
+                "  }\n"
+                "}\n"
+            ),
+            "src/Gateway/Gateway.csproj": "<Project />",
+            "src/Gateway/Program.cs": "var app = WebApplication.Create();\n",
+            "src/Gateway/ocelot.json": OCELOT,
+            # An environment overlay beside its base file is not read.
+            "src/Gateway/ocelot.Docker.json": overlay,
+            "src/Web/Web.csproj": "<Project />",
+            "src/Web/Client.cs": (
+                "class Client {\n"
+                '  Task F() => new HttpClient().GetAsync("/catalog/1");\n'
+                '  Task G() => new HttpClient().GetAsync("/other/1");\n'
+                "}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, text in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        edges = [
+            (
+                r.properties["request"],
+                r.properties["rule_id"],
+                r.properties["gateway"],
+                r.target_match["qualified_name"].split("::")[1],
+            )
+            for r in output.relationships
+            if r.type == "REQUESTS"
+        ]
+        line = OCELOT[: OCELOT.find('"/catalog/{id}"')].count("\n") + 1
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "GET /catalog/1",
+                    HTTP_GATEWAY,
+                    f"src/Gateway/ocelot.json:{line}",
+                    "src/Catalog/Api.cs",
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":
