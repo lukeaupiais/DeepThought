@@ -2152,7 +2152,7 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
-  `CURLOPT_URL`, and Symfony HttpClient, are not read yet.
+  `CURLOPT_URL` is not read yet.
 - **Guzzle and Laravel HTTP client requests** (clients `guzzle`,
   `laravel-http`). Guzzle: `get`, `post`, `put`, `patch`, `delete`, `head`,
   `options` (and their `...Async` forms) and `request($method, $url)` on a
@@ -2169,6 +2169,15 @@ PHP files are read for routes and requests (`service_contracts.php`):
   a literal `baseUrl(...)` in the chain is prepended. A method that is not
   a literal is unknown; a dynamic method name (`->$method(...)`) is not
   read.
+- **Symfony HttpClient requests** (client `symfony-http`).
+  `request($method, $url)`, its only request method, on a client that is a
+  parameter, property or promoted constructor parameter typed
+  `Symfony\Contracts\HttpClient\HttpClientInterface`, or a local variable
+  or `$this->x` property assigned once to `HttpClient::create([...])` or
+  `HttpClient::createForBaseUri($base)`. A literal base (`base_uri`, or the
+  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). Scoped
+  clients configured in `framework.yaml` are not read: they reach code as an
+  injected interface, so their URLs stay as written.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
