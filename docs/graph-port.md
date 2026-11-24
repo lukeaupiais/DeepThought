@@ -1835,8 +1835,22 @@ Facts are read from Java sources outside test source sets (`src/test/`):
   `url`, then each method's mapping), `RestTemplate`/`RestOperations` calls
   (`getForObject`, `postForEntity`, `exchange` with an `HttpMethod` argument,
   and the rest) on a name the file declares with that type only, and WebClient
-  `.get()/.post()/.method(HttpMethod.X)...uri(...)` chains that start at a name
-  declared as `WebClient` or `WebClient.Builder`, or at `WebClient` itself.
+  and RestClient `.get()/.post()/.method(HttpMethod.X)...uri(...)` chains that
+  start at a name declared as `WebClient`, `WebClient.Builder`, `RestClient`
+  or `RestClient.Builder`, or at `WebClient` or `RestClient` itself (clients
+  `web-client` and `rest-client`).
+- **HTTP interfaces.** Methods of an interface annotated with
+  `@HttpExchange`, `@GetExchange`, `@PostExchange`, `@PutExchange`,
+  `@DeleteExchange` or `@PatchExchange` from
+  `org.springframework.web.service.annotation` (client `http-interface`),
+  placed on the method's annotation. The URL is the interface's
+  `@HttpExchange` URL joined with the method's (`url` or `value`); the
+  method is the annotation's, or `@HttpExchange`'s literal `method`, else the
+  interface's, else unknown. The base URL the proxy gets from its
+  `RestClient`/`WebClient` (`baseUrl`, set where `HttpServiceProxyFactory`
+  creates it) is not read, so a URL without a scheme starts with unknown text,
+  as does a `${...}` property. Exchange annotations on controllers, which
+  Spring MVC also serves as routes, are not read.
 - **URL values.** String literals, `+`, `String.format` with `%s`/`%d`, String
   fields of the file with an initializer, no `@Value` injection and no
   assignment anywhere in the file, String locals declared once and never

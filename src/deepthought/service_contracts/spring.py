@@ -1,5 +1,6 @@
-"""Spring MVC routes, WebSocket endpoints, Feign clients, RestTemplate
-requests and calls of openapi-generator Java clients in Java sources.
+"""Spring MVC routes, WebSocket endpoints, Feign and HTTP interface clients,
+RestTemplate, WebClient and RestClient requests and calls of
+openapi-generator Java clients in Java sources.
 
 Only what the source fixes is read: annotation names that the file imports
 from Spring, string literals, ``+`` concatenation, ``String.format`` with
@@ -30,9 +31,20 @@ _MAPPINGS = {
     "DeleteMapping": "DELETE",
     "PatchMapping": "PATCH",
 }
+# Spring 6 HTTP interface clients (HttpServiceProxyFactory).
+_EXCHANGE = "org.springframework.web.service.annotation"
+_EXCHANGES = {
+    "HttpExchange": None,
+    "GetExchange": "GET",
+    "PostExchange": "POST",
+    "PutExchange": "PUT",
+    "DeleteExchange": "DELETE",
+    "PatchExchange": "PATCH",
+}
 _CONTROLLERS = {"RestController", "Controller"}
 _REST_TYPES = {"RestTemplate", "RestOperations", "OAuth2RestTemplate"}
 _WEB_CLIENT_TYPES = {"WebClient", "WebClient.Builder"}
+_REST_CLIENT_TYPES = {"RestClient", "RestClient.Builder"}
 _WEB_CLIENT_VERBS = {v.lower(): v for v in HTTP_METHODS}
 # RestTemplate methods: the HTTP method each fixes; None reads it from the
 # argument after the URL (exchange and execute).
@@ -834,6 +846,22 @@ def _mapping(written, annotation, imports, values, content):
     return methods, values.strings(path_node)
 
 
+def _exchange(written, annotation, imports, values, content):
+    """(method, URL text) of an HTTP interface annotation, or None if not
+    one. The method is None when ``@HttpExchange`` names none (or not a
+    literal); the URL is ``url`` or ``value``, "" without one."""
+    name = imports.spring_name(written, (_EXCHANGE,))
+    if name not in _EXCHANGES:
+        return None
+    arguments = _arguments(annotation)
+    method = _EXCHANGES[name]
+    if method is None and "method" in arguments:
+        text = values.evaluate(arguments["method"]).upper()
+        method = text if text in HTTP_METHODS else None
+    url_node = arguments.get("url", arguments.get("value"))
+    return method, "" if url_node is None else values.evaluate(url_node)
+
+
 _BUILD_FILES = ("pom.xml", "build.gradle", "build.gradle.kts")
 _CONFIG_STEMS = ("bootstrap", "application")
 _CONFIG_SUFFIXES = ("yml", "yaml", "properties")
@@ -1338,6 +1366,70 @@ def _generated_routes(
             )
 
 
+def _interface_requests(
+    declaration,
+    annotations,
+    imports,
+    values,
+    spans,
+    span,
+    make_id,
+    requests,
+    file,
+    content,
+):
+    """Requests of a Spring HTTP interface: an interface whose methods carry
+    ``@HttpExchange``/``@GetExchange``/... annotations, each a request to the
+    type's URL joined with the method's. The base URL the proxy is built
+    with (``RestClient``/``WebClient`` ``baseUrl``) is not read, so a URL
+    without a scheme starts with unknown text. Whether it was one."""
+    type_method, type_url = next(
+        (
+            found
+            for written, node in annotations
+            if (found := _exchange(written, node, imports, values, content))
+        ),
+        (None, None),
+    )
+    body = declaration.child_by_field_name("body")
+    members = [
+        (member, written, node, found)
+        for member in ([] if body is None else body.named_children)
+        if member.type == "method_declaration"
+        for written, node in _annotations(member, content)
+        if (found := _exchange(written, node, imports, values, content))
+    ]
+    if type_url is None and not members:
+        return False
+    for member, _, annotation, (method, path) in members:
+        method = method or type_method
+        url = type_url or ""
+        if path:
+            url = url.rstrip("/") + "/" + path.lstrip("/") if url else path
+        # A property placeholder is resolved at run time: unknown text.
+        url = re.sub(r"\$\{[^}]*\}", PLACEHOLDER, url)
+        if not _ABSOLUTE.match(url) and not url.startswith(PLACEHOLDER):
+            url = PLACEHOLDER + ("/" + url.lstrip("/") if url else "")
+        line = annotation.start_point.row + 1
+        handler = spans.get(span(member))
+        requests.append(
+            HttpRequest(
+                id=make_id("HttpRequest", f"{method or ANY_METHOD} {url}"),
+                file=file,
+                line=line,
+                column=annotation.start_point.column,
+                caller_id=handler.id if handler else None,
+                method=method,
+                url=url,
+                client="http-interface",
+            )
+        )
+    return True
+
+
+_ABSOLUTE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+
+
 def _client_requests(
     root,
     content,
@@ -1667,6 +1759,19 @@ def extract_spring(
                 values.evaluate(arguments["path"]) if "path" in arguments else ""
             )
             prefixes = [base.rstrip("/") + join_paths(feign_path, p) for p in prefixes]
+        if declaration.type == "interface_declaration" and _interface_requests(
+            declaration,
+            annotations,
+            imports,
+            values,
+            spans,
+            span,
+            make_id,
+            requests,
+            file,
+            content,
+        ):
+            continue
         is_server = feign is None and (
             declaration.type == "interface_declaration"
             or _CONTROLLERS & simple.keys()
@@ -1761,10 +1866,18 @@ def extract_spring(
     web_names = _receivers(root, content, imports, _WEB_CLIENT_TYPES)
     if imports.from_spring("WebClient"):
         web_names.add("WebClient")  # WebClient.create() / WebClient.builder()
+    rest_client_names = _receivers(root, content, imports, _REST_CLIENT_TYPES)
+    if imports.from_spring("RestClient"):
+        rest_client_names.add("RestClient")  # RestClient.create() / .builder()
+    chain_clients = {
+        **{n: "rest-client" for n in rest_client_names},
+        **{n: "web-client" for n in web_names},
+    }
 
     def web_client_method(node):
-        """The HTTP method of a WebClient ``.uri()`` chain, '' if unknown,
-        None if the chain does not start at a WebClient."""
+        """(HTTP method, client) of a WebClient or RestClient ``.uri()``
+        chain, the method '' if unknown; None if the chain does not start
+        at one."""
         verb = node.child_by_field_name("object")
         if verb is None or verb.type != "method_invocation":
             return None
@@ -1784,9 +1897,10 @@ def extract_spring(
             return None
         written = _text(current, content)
         written = written[5:] if written.startswith("this.") else written
-        return method if written in web_names else None
+        client = chain_clients.get(written)
+        return None if client is None else (method, client)
 
-    if rest_names or web_names:
+    if rest_names or chain_clients:
         stack = [root]
         while stack:
             node = stack.pop()
@@ -1798,11 +1912,12 @@ def extract_spring(
             if target is None:
                 continue
             arguments = node.child_by_field_name("arguments").named_children
-            if name == "uri" and web_names:
-                method = web_client_method(node)
-                if method is None:
+            if name == "uri" and chain_clients:
+                found = web_client_method(node)
+                if found is None:
                     continue
-                client, method = "web-client", method or None
+                method, client = found
+                method = method or None
             elif name in _REST_METHODS and rest_names:
                 receiver = _text(target, content)
                 receiver = receiver[5:] if receiver.startswith("this.") else receiver
