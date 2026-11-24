@@ -2152,7 +2152,23 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
-  `CURLOPT_URL`, Guzzle and Symfony HttpClient are not read yet.
+  `CURLOPT_URL`, and Symfony HttpClient, are not read yet.
+- **Guzzle and Laravel HTTP client requests** (clients `guzzle`,
+  `laravel-http`). Guzzle: `get`, `post`, `put`, `patch`, `delete`, `head`,
+  `options` (and their `...Async` forms) and `request($method, $url)` on a
+  `GuzzleHttp\Client`, where the receiver is a local variable assigned
+  once in its function to `new Client([...])`, a `$this->x` property
+  assigned once in its class to one, or a parameter, property or promoted
+  constructor parameter typed `Client` or `ClientInterface`. A literal
+  `base_uri` is resolved as Guzzle does (RFC 3986: a rooted path replaces
+  the base path, a relative one joins the base's directory); an absolute
+  URL, or a base that is not literal, leaves the URL as written. Laravel:
+  `Http::get(...)`, ... and `Http::send($method, $url)`, also at the end of
+  a chain (`Http::withToken(...)->get(...)`), on the facade imported from
+  `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
+  a literal `baseUrl(...)` in the chain is prepended. A method that is not
+  a literal is unknown; a dynamic method name (`->$method(...)`) is not
+  read.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the

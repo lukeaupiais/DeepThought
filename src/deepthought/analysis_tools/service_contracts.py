@@ -1676,7 +1676,13 @@ class ServiceContractTool(AnalysisTool):
                 )
             elif coverage.language == "php":
                 found = extract_php(
-                    tree, content, repo_url, coverage.file, result.definitions
+                    tree,
+                    content,
+                    repo_url,
+                    coverage.file,
+                    result.definitions,
+                    laravel=_composer_framework(root, coverage.file, composer)[0]
+                    == "laravel",
                 )
                 framework, project = _composer_framework(root, coverage.file, composer)
                 if framework is not None:
