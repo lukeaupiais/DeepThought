@@ -6675,6 +6675,9 @@ def extract_mongoose(tree, content, file, definitions):
                 if clause.type != "export_clause" or node.child_by_field_name("source"):
                     continue
                 for spec in clause.named_children:
+                    # A comment in the braces is a named child too.
+                    if spec.type != "export_specifier":
+                        continue
                     local = _text(spec.child_by_field_name("name"), content)
                     alias = spec.child_by_field_name("alias")
                     if local in class_nodes:
