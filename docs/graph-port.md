@@ -2782,7 +2782,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and relative imports, aliases, re-exports and `export *` included, while a package import, a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
@@ -2935,6 +2935,18 @@ next line and 23 use an imported alias (`page as pageTable`). On
 jackblatch/OneStopShop `31208da` the tool reads all 6 tables and its 59
 calls are exactly the lines `grep` finds.
 
+On mx-space/core `06e732e`, whose app re-exports its Drizzle schema from a
+workspace package (`export * from '@mx-space/db-schema/schema'`), the tool
+reads all 69 `pgTable` declarations. A single-line `grep` for the
+query-builder methods with a table variable finds 821 lines outside the
+test sources. The tool links 778 of them. Following the workspace
+re-export added 14 edges that it missed before, and no edge went away. The
+others are 30 calls in scripts that load the schema through
+`await import(...)`, and 13 `tx.update(posts, ...)` calls in the admin
+frontend on client-side collections named like tables, which are rightly
+not linked. Openstatus, OneStopShop, the nest samples and prisma-examples
+are unchanged.
+
 On mybatis/jpetstore-6 `b7433c2` the tool reads all 25 mapper statements,
 ties each to its mapper interface method, and every table they name is one
 that the application's DDL declares. On macrozheng/mall `dcaa93b`, 906
@@ -3036,8 +3048,9 @@ carries the name. The package's entry points (`exports["."]`, `types`,
 under a tsconfig's `outDir` in the package's directory, as the source under
 `rootDir` that the compiler writes it from (`dist/index.js` from
 `src/index.ts`). `export * from` is followed, and a name that two star
-exports both give is no export, as in ES modules. Only the Mongoose reader
-resolves workspace packages so far. On novuhq/novu `d688aea` the tool links
+exports both give is no export, as in ES modules. The Mongoose, Drizzle and Sequelize
+readers resolve workspace packages; a subpath (`@scope/db/schema`) goes
+through the package's `exports` map when it has one. On novuhq/novu `d688aea` the tool links
 1,409 repository calls, where it linked none before. Of the 1,335
 `this.<x>Repository.<base method>(` lines a single-line `grep` finds
 outside the tests, 1,033 are linked. The others are methods the subclass
