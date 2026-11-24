@@ -6299,3 +6299,713 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
         for index in range(len(found.models)):
             collection((file, index))
     return tables, unresolved, lambda use: model_key(use.file, use.target)
+
+
+# Doctrine ORM: entity mappings (attributes, docblock annotations, XML),
+# repositories and EntityManager calls -------------------------------------
+
+DOCTRINE_MAPPING = "Doctrine\\ORM\\Mapping\\"
+DOCTRINE_FINDERS = {"find", "findBy", "findOneBy", "findAll", "count", "matching"}
+DOCTRINE_REPOSITORY_BASES = {
+    "Doctrine\\ORM\\EntityRepository",
+    "Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository",
+    "Doctrine\\Persistence\\ObjectRepository",
+}
+# Methods a repository calls on itself that read its entity's table.
+DOCTRINE_SELF_READS = DOCTRINE_FINDERS | {
+    "createQueryBuilder",
+    "createResultSetMappingBuilder",
+}
+
+
+def _doctrine_finder(method):
+    """A built-in or Doctrine 2 magic finder (``findOneByEmail``)."""
+    return method in DOCTRINE_FINDERS or bool(
+        re.match(r"(?:findBy|findOneBy|countBy)[A-Z]", method or "")
+    )
+
+
+@dataclass(frozen=True)
+class DoctrineClass:
+    """A PHP class, or an XML ``<entity>`` (``file`` is the XML file and
+    ``class_id`` None). ``kind`` is "entity", "mapped" (mapped superclass),
+    "embeddable" or None; ``table`` is the literal table name, None when
+    unset, PLACEHOLDER when not fixed; ``inheritance`` is the literal
+    InheritanceType or PLACEHOLDER."""
+
+    file: str
+    class_id: str | None
+    path: str
+    superclass: str | None
+    kind: str | None
+    table: str | None
+    inheritance: str | None
+    repository: str | None  # the entity's repositoryClass
+    repository_of: str | None  # parent::__construct($registry, X::class)
+    join_tables: tuple  # ((name, line), ...)
+    line: int
+    column: int
+    methods: tuple = ()  # the methods the class declares
+
+
+@dataclass(frozen=True)
+class DoctrineUse:
+    """A read or write of an entity (``entity``) or of a repository's entity
+    (``repository``), both fully qualified. ``finder`` is the method of a
+    finder call on a typed repository, which a repository that declares a
+    method of that name answers itself."""
+
+    file: str
+    caller_id: str | None
+    entity: str | None
+    repository: str | None
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+    finder: str | None = None
+
+
+def _doc_annotations(text):
+    """[(name, positional args, {key: raw value})] of a docblock's top-level
+    ``@Name(...)`` annotations; values keep their quotes."""
+    found, i = [], 0
+    while True:
+        match = re.compile(r"@([A-Za-z_\\][\w\\]*)").search(text, i)
+        if match is None:
+            return found
+        i = match.end()
+        j = i
+        while j < len(text) and text[j] in " \t":
+            j += 1
+        args, named = [], {}
+        if j < len(text) and text[j] == "(":
+            depth, k, quote, start, parts = 0, j, None, j + 1, []
+            while k < len(text):
+                c = text[k]
+                if quote:
+                    if c == quote:
+                        quote = None
+                elif c in "\"'":
+                    quote = c
+                elif c in "({[":
+                    depth += 1
+                elif c in ")}]":
+                    depth -= 1
+                    if depth == 0:
+                        parts.append(text[start:k])
+                        break
+                elif c == "," and depth == 1:
+                    parts.append(text[start:k])
+                    start = k + 1
+                k += 1
+            i = k + 1
+            for part in parts:
+                part = re.sub(r"\s*\*\s*", " ", part).strip()
+                key = re.match(r"(\w+)\s*[=:]\s*(.*)$", part, re.S)
+                if key:
+                    named[key.group(1)] = key.group(2).strip()
+                elif part:
+                    args.append(part)
+        found.append((match.group(1), args, named))
+
+
+def _quoted(raw):
+    """The text of a "..." or '...' annotation value, else None."""
+    match = re.fullmatch(r"\"([^\"]*)\"|'([^']*)'", (raw or "").strip())
+    return None if match is None else (match.group(1) or match.group(2) or "")
+
+
+def extract_php_doctrine(tree, content, file, definitions):
+    """(classes, uses, renames) of one PHP file: Doctrine mappings of its
+    classes, reads and writes of entities and repositories, and whether a
+    metadata listener renames tables (``setPrimaryTable``/``setTableName``)."""
+    classes, uses = [], []
+    renames = False
+    namespace, imports = "", {}
+
+    def resolve(written):
+        if not written:
+            return None
+        written = written.strip()
+        if written.startswith("\\"):
+            return written[1:]
+        if written in ("self", "static", "parent"):
+            return None
+        head, _, rest = written.partition("\\")
+        if head in imports:
+            return imports[head] + ("\\" + rest if rest else "")
+        return f"{namespace}\\{written}" if namespace else written
+
+    def use_clauses(declaration):
+        prefix = ""
+        for child in declaration.named_children:
+            if child.type == "namespace_name":
+                prefix = _text(child, content) + "\\"
+            elif child.type == "namespace_use_clause":
+                add_clause(child, "")
+            elif child.type == "namespace_use_group":
+                for clause in child.named_children:
+                    if clause.type == "namespace_use_clause":
+                        add_clause(clause, prefix)
+
+    def add_clause(clause, prefix):
+        if any(c.type in ("function", "const") for c in clause.children):
+            return
+        alias = clause.child_by_field_name("alias")
+        target = next(
+            (c for c in clause.named_children if c.type in ("qualified_name", "name")),
+            None,
+        )
+        if target is None:
+            return
+        path = (prefix + _text(target, content)).lstrip("\\")
+        local = _text(alias, content) if alias is not None else path.rpartition("\\")[2]
+        imports[local] = path
+
+    def mapping(written):
+        """The Doctrine mapping class an attribute or annotation names."""
+        path = resolve(written)
+        if path and path.startswith(DOCTRINE_MAPPING):
+            return path[len(DOCTRINE_MAPPING) :]
+        # Doctrine 2's simple annotation reader takes unimported names.
+        if written in ("Entity", "Table", "MappedSuperclass", "Embeddable",
+                       "InheritanceType", "JoinTable") and written not in imports:  # fmt: skip
+            return written
+        return None
+
+    def class_of(node):
+        """The class an ``X::class`` expression names."""
+        if node is not None and node.type == "class_constant_access_expression":
+            parts = node.named_children
+            if len(parts) == 2 and _text(parts[1], content) == "class":
+                return resolve(_text(parts[0], content))
+        literal = _php_literal(node, content)
+        return literal.lstrip("\\") if literal else None
+
+    def type_of(node):
+        """The class a parameter or property type names, if one."""
+        for child in node.named_children if node is not None else ():
+            if child.type == "named_type":
+                return resolve(_text(child, content))
+            if child.type == "optional_type":
+                return type_of(child)
+        return None
+
+    def read_class(node):
+        nonlocal renames
+        name = node.child_by_field_name("name")
+        if name is None:
+            return
+        path = (
+            f"{namespace}\\{_text(name, content)}"
+            if namespace
+            else _text(name, content)
+        )
+        base = next((c for c in node.named_children if c.type == "base_clause"), None)
+        superclass = (
+            resolve(_text(base.named_children[0], content))
+            if base is not None and base.named_children
+            else None
+        )
+        kind = table = inheritance = repository = repository_of = None
+        join_tables = []
+        found = []  # (mapping, positional, named) with values as raw text
+        for group in _descendants(node, "attribute_list"):
+            if group.parent != node:
+                continue
+            for attribute in _descendants(group, "attribute"):
+                written = next(
+                    (
+                        c
+                        for c in attribute.named_children
+                        if c.type in ("name", "qualified_name")
+                    ),
+                    None,
+                )
+                args, named = [], {}
+                arguments = attribute.child_by_field_name("parameters") or next(
+                    (c for c in attribute.named_children if c.type == "arguments"), None
+                )
+                for argument in (
+                    arguments.named_children if arguments is not None else ()
+                ):
+                    if argument.type != "argument":
+                        continue
+                    key = next(
+                        (c for c in argument.named_children if c.type == "name"), None
+                    )
+                    value = (
+                        argument.named_children[-1] if argument.named_children else None
+                    )
+                    if key is not None and key != value:
+                        named[_text(key, content)] = value
+                    else:
+                        args.append(value)
+                found.append(
+                    (mapping(_text(written, content) if written else None), args, named)
+                )
+        previous = node.prev_named_sibling
+        docblock = (
+            _text(previous, content)
+            if previous is not None
+            and previous.type == "comment"
+            and _text(previous, content).startswith("/**")
+            else ""
+        )
+        for written, args, named in _doc_annotations(docblock):
+            found.append((mapping(written), args, named))
+
+        def literal(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                text = _quoted(value)
+                return PLACEHOLDER if text is None else text
+            text = _php_literal(value, content)
+            return PLACEHOLDER if text is None else text
+
+        def class_value(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                text = _quoted(value)
+                if text is not None:
+                    return text.lstrip("\\")
+                match = re.fullmatch(r"([\w\\]+)::class", value.strip())
+                return resolve(match.group(1)) if match else None
+            return class_of(value)
+
+        for which, args, named in found:
+            if which == "Entity":
+                kind = "entity"
+                repository = class_value(named.get("repositoryClass"))
+            elif which == "MappedSuperclass":
+                kind = kind or "mapped"
+                repository = repository or class_value(named.get("repositoryClass"))
+            elif which == "Embeddable":
+                kind = kind or "embeddable"
+            elif which == "Table":
+                table = literal(named.get("name", args[0] if args else None))
+            elif which == "InheritanceType":
+                inheritance = literal(named.get("value", args[0] if args else None))
+        body = node.child_by_field_name("body")
+        # Join tables on the properties: #[ORM\JoinTable(name: '...')].
+        for member in body.named_children if body is not None else ():
+            if member.type != "property_declaration":
+                continue
+            entries = []
+            for group in member.named_children:
+                if group.type == "attribute_list":
+                    for attribute in _descendants(group, "attribute"):
+                        written = next(
+                            (
+                                c
+                                for c in attribute.named_children
+                                if c.type in ("name", "qualified_name")
+                            ),
+                            None,
+                        )
+                        if (
+                            written is not None
+                            and mapping(_text(written, content)) == "JoinTable"
+                        ):
+                            arguments = next(
+                                (
+                                    c
+                                    for c in attribute.named_children
+                                    if c.type == "arguments"
+                                ),
+                                None,
+                            )
+                            for argument in (
+                                arguments.named_children if arguments else ()
+                            ):
+                                key = next(
+                                    (
+                                        c
+                                        for c in argument.named_children
+                                        if c.type == "name"
+                                    ),
+                                    None,
+                                )
+                                if key is None or _text(key, content) == "name":
+                                    entries.append(literal(argument.named_children[-1]))
+                                    break
+            doc = member.prev_named_sibling
+            if doc is not None and doc.type == "comment":
+                for written, args, named in _doc_annotations(_text(doc, content)):
+                    if mapping(written) == "JoinTable":
+                        entries.append(
+                            literal(named.get("name", args[0] if args else None))
+                        )
+            for entry in entries:
+                if entry and entry is not PLACEHOLDER:
+                    join_tables.append((entry, member.start_point.row + 1))
+        for call in _descendants(node, "scoped_call_expression"):
+            if (
+                _text(call.child_by_field_name("scope"), content) == "parent"
+                and _text(call.child_by_field_name("name"), content) == "__construct"
+            ):
+                for argument in _php_arguments(call)[1:2]:
+                    repository_of = class_of(argument)
+        classes.append(
+            DoctrineClass(
+                file,
+                _innermost(definitions, file, name),
+                path,
+                superclass,
+                kind,
+                table,
+                inheritance,
+                repository,
+                repository_of,
+                tuple(join_tables),
+                name.start_point.row + 1,
+                name.start_point.column,
+                tuple(
+                    _text(m.child_by_field_name("name"), content)
+                    for m in (body.named_children if body is not None else ())
+                    if m.type == "method_declaration"
+                ),
+            )
+        )
+        # Uses in the class's methods.
+        properties = {}
+        for member in body.named_children if body is not None else ():
+            if member.type == "property_declaration":
+                kind_of = type_of(member)
+                for element in member.named_children:
+                    if element.type == "property_element":
+                        variable = (
+                            element.child_by_field_name("name")
+                            or element.named_children[0]
+                        )
+                        properties[_text(variable, content).lstrip("$")] = kind_of
+            elif member.type == "method_declaration":
+                parameters = member.child_by_field_name("parameters")
+                for parameter in parameters.named_children if parameters else ():
+                    if parameter.type == "property_promotion_parameter":
+                        variable = parameter.child_by_field_name("name") or next(
+                            (
+                                c
+                                for c in parameter.named_children
+                                if c.type == "variable_name"
+                            ),
+                            None,
+                        )
+                        if variable is not None:
+                            properties[_text(variable, content).lstrip("$")] = type_of(
+                                parameter
+                            )
+        is_repository = (
+            repository_of is not None or superclass in DOCTRINE_REPOSITORY_BASES
+        )
+        for method in body.named_children if body is not None else ():
+            if method.type != "method_declaration":
+                continue
+            variables = {}
+            parameters = method.child_by_field_name("parameters")
+            for parameter in parameters.named_children if parameters else ():
+                variable = next(
+                    (c for c in parameter.named_children if c.type == "variable_name"),
+                    None,
+                )
+                if variable is not None:
+                    variables[_text(variable, content)] = type_of(parameter)
+            for assignment in _descendants(method, "assignment_expression"):
+                left = assignment.child_by_field_name("left")
+                right = assignment.child_by_field_name("right")
+                if (
+                    left is not None
+                    and left.type == "variable_name"
+                    and right is not None
+                ):
+                    created = (
+                        resolve(
+                            _text(
+                                right.child_by_field_name("class")
+                                or right.named_children[0],
+                                content,
+                            )
+                        )
+                        if right.type == "object_creation_expression"
+                        and right.named_children
+                        else None
+                    )
+                    name_ = _text(left, content)
+                    if name_ in variables and variables[name_] != created:
+                        variables[name_] = None
+                    else:
+                        variables[name_] = created
+            walk_method(method, path, is_repository, properties, variables)
+
+    def receiver_type(node, properties, variables):
+        if node is None:
+            return None
+        if node.type == "variable_name":
+            return variables.get(_text(node, content))
+        if node.type == "member_access_expression":
+            target = node.child_by_field_name("object")
+            if target is not None and _text(target, content) == "$this":
+                return properties.get(_text(node.child_by_field_name("name"), content))
+        return None
+
+    def use(call, entity, repository, reads, writes, finder=None):
+        where = call.child_by_field_name("name") or call
+        uses.append(
+            DoctrineUse(
+                file,
+                _innermost(definitions, file, call),
+                entity,
+                repository,
+                reads,
+                writes,
+                where.start_point.row + 1,
+                where.start_point.column,
+                finder,
+            )
+        )
+
+    def chain(call):
+        names, node = [], call
+        while node.parent is not None and node.parent.type == "member_call_expression":
+            if node.parent.child_by_field_name("object") != node:
+                break
+            node = node.parent
+            names.append(_text(node.child_by_field_name("name"), content))
+        return names
+
+    def walk_method(method, path, is_repository, properties, variables):
+        nonlocal renames
+        for call in _descendants(method, "member_call_expression"):
+            name = _text(call.child_by_field_name("name"), content)
+            target = call.child_by_field_name("object")
+            arguments = _php_arguments(call)
+            if name in ("setPrimaryTable", "setTableName"):
+                renames = True
+            elif name == "getRepository" and arguments:
+                entity = class_of(arguments[0])
+                following = chain(call)
+                if entity and following and _doctrine_finder(following[0]):
+                    use(call, entity, None, True, False)
+            elif name in ("from", "update", "delete") and arguments:
+                entity = class_of(arguments[0])
+                if entity and arguments[0].type == "class_constant_access_expression":
+                    use(call, entity, None, name == "from", name != "from")
+            elif (
+                name in ("find", "getReference", "getPartialReference")
+                and len(arguments) >= 2
+            ):
+                entity = class_of(arguments[0])
+                if entity and arguments[0].type == "class_constant_access_expression":
+                    use(call, entity, None, True, False)
+            elif name in ("persist", "remove") and len(arguments) == 1:
+                entity = receiver_type(arguments[0], properties, variables)
+                if entity:
+                    use(call, entity, None, False, True)
+            elif target is not None and _text(target, content) == "$this":
+                if is_repository and name in DOCTRINE_SELF_READS:
+                    following = chain(call)
+                    writes = name == "createQueryBuilder" and any(
+                        m in ("update", "delete") for m in following
+                    )
+                    use(call, None, path, not writes or "select" in following, writes)
+            elif _doctrine_finder(name):
+                kind = receiver_type(target, properties, variables)
+                if kind:
+                    use(call, None, kind, True, False, name)
+
+    def walk(node):
+        nonlocal namespace
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                namespace = _text(name, content) if name is not None else ""
+                imports.clear()
+                body = child.child_by_field_name("body")
+                if body is not None:
+                    walk(body)
+                continue
+            if child.type == "namespace_use_declaration":
+                use_clauses(child)
+                continue
+            if child.type == "class_declaration":
+                read_class(child)
+                continue
+            walk(child)
+
+    walk(tree.root_node)
+    return classes, uses, renames
+
+
+def doctrine_xml(path, content):
+    """The DoctrineClass entries of a ``*.orm.xml`` mapping file."""
+    import xml.etree.ElementTree as ElementTree
+
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return []
+    found = []
+    for element in root.iter():
+        tag = element.tag.rpartition("}")[2]
+        kind = {
+            "entity": "entity",
+            "mapped-superclass": "mapped",
+            "embeddable": "embeddable",
+        }.get(tag)
+        if kind is None or not element.get("name"):
+            continue
+        joins = tuple(
+            (j.get("name"), 0)
+            for j in element.iter()
+            if j.tag.rpartition("}")[2] == "join-table" and j.get("name")
+        )
+        found.append(
+            DoctrineClass(
+                path,
+                None,
+                element.get("name").lstrip("\\"),
+                None,
+                kind,
+                element.get("table"),
+                element.get("inheritance-type"),
+                (element.get("repository-class") or "").lstrip("\\") or None,
+                None,
+                joins,
+                0,
+                0,
+            )
+        )
+    return found
+
+
+def doctrine_table_name(class_path, strategy, number_aware=True):
+    """A Doctrine naming strategy's ``classToTableName``: "default" keeps the
+    short class name; "underscore" lowercases it with ``_`` before each
+    capital that follows a lowercase letter (or a digit, number aware)."""
+    short = class_path.rpartition("\\")[2]
+    if strategy == "default":
+        return short
+    pattern = r"(?<=[a-z0-9])([A-Z])" if number_aware else r"(?<=[a-z])([A-Z])"
+    return re.sub(pattern, r"_\1", short).lower()
+
+
+def doctrine_strategies(configured, php_sources, majors):
+    """The (strategy, number_aware) choices a repository's Doctrine naming
+    can be, or UNKNOWN. ``configured`` holds the ``naming_strategy`` service
+    ids of the Symfony configuration; without one, a PHP bootstrap's ``new
+    UnderscoreNamingStrategy(...)`` passed to ``setNamingStrategy`` counts,
+    else DoctrineBundle's and the ORM's default. ``majors`` are the
+    doctrine/orm majors in use: plain ``underscore`` is number aware only
+    from ORM 3."""
+    kinds = set()
+    for service in configured:
+        kinds.add(
+            {
+                "doctrine.orm.naming_strategy.default": "default",
+                "doctrine.orm.naming_strategy.underscore": "underscore",
+                "doctrine.orm.naming_strategy.underscore_number_aware": "number_aware",
+            }.get(service, UNKNOWN)
+        )
+    if not kinds:
+        text = "\n".join(php_sources)
+        if "setNamingStrategy(" in text:
+            created = re.findall(
+                r"new\s+\\?(?:[\w\\]+\\)?UnderscoreNamingStrategy\s*\(([^)]*)\)", text
+            )
+            if len(set(created)) != 1 or "CASE_UPPER" in created[0]:
+                return UNKNOWN
+            kinds.add(
+                "number_aware"
+                if re.search(r"\btrue\b", created[0], re.I)
+                else "underscore"
+            )
+        else:
+            kinds.add("default")
+    if len(kinds) != 1 or UNKNOWN in kinds:
+        return UNKNOWN
+    kind = kinds.pop()
+    if kind == "default":
+        return {("default", True)}
+    if kind == "number_aware":
+        return {("underscore", True)}
+    return {("underscore", major >= 3) for major in majors or (2, 3)}
+
+
+def resolve_doctrine(classes, strategies, renames=False):
+    """({path: (DoctrineClass, table, how)}, {path: reason}, {repository
+    path: entity path}) of the mapped entities. ``how`` is "explicit" (a
+    Table name) or "default" (the naming strategy). Single-table subclasses
+    take their root's table; XML mappings take precedence over the class."""
+    php, xml, duplicates = {}, {}, set()
+    for c in classes:
+        target = xml if c.class_id is None and c.file.endswith(".xml") else php
+        if c.path in target and target[c.path] != c:
+            duplicates.add(c.path)
+        target.setdefault(c.path, c)
+    merged = {}
+    for path in sorted(set(php) | set(xml)):
+        own, mapped = php.get(path), xml.get(path)
+        if mapped is not None and own is not None:
+            mapped = replace(
+                mapped,
+                file=own.file,
+                class_id=own.class_id,
+                superclass=own.superclass,
+                repository_of=own.repository_of,
+                line=own.line,
+                column=own.column,
+            )
+        merged[path] = mapped or own
+    repositories = {}
+    for c in merged.values():
+        for repository, entity in ((c.path, c.repository_of), (c.repository, c.path)):
+            if repository and entity:
+                repositories.setdefault(repository, set()).add(entity)
+    repositories = {r: e.pop() for r, e in repositories.items() if len(e) == 1}
+    tables, unresolved = {}, {}
+
+    def own_table(c):
+        if c.table is PLACEHOLDER:
+            return None, "table"
+        if c.table:
+            return (c.table, "explicit"), None
+        if strategies is UNKNOWN:
+            return None, "naming"
+        names = {doctrine_table_name(c.path, s, n) for s, n in strategies}
+        return ((names.pop(), "default"), None) if len(names) == 1 else (None, "naming")
+
+    for path, c in merged.items():
+        if c.kind != "entity":
+            continue
+        if renames:
+            unresolved[path] = "metadata_listener"
+            continue
+        if path in duplicates:
+            unresolved[path] = "duplicate"
+            continue
+        # The topmost entity ancestor with an inheritance type is the root.
+        chain, seen, node = [], {path}, c
+        while node.superclass in merged and node.superclass not in seen:
+            seen.add(node.superclass)
+            node = merged[node.superclass]
+            if node.kind == "entity":
+                chain.append(node)
+        roots = [n for n in chain if n.inheritance]
+        root = roots[-1] if roots else (c if c.inheritance else None)
+        if root is not None and root.inheritance is PLACEHOLDER:
+            unresolved[path] = "inheritance"
+            continue
+        source = (
+            root
+            if root is not None and root.inheritance.upper() == "SINGLE_TABLE"
+            else c
+        )
+        found, reason = own_table(source)
+        if found is None:
+            unresolved[path] = reason
+        else:
+            tables[path] = (c, table_key(found[0]), found[1])
+    return tables, unresolved, repositories
