@@ -2148,8 +2148,8 @@ it picks the frontend (see "Services named by their deployments").
 
 ### C# HttpClient requests
 
-C# files are read for `HttpClient` requests (`service_contracts.csharp_http`,
-client `dotnet-httpclient`):
+C# files are read for `HttpClient` and Refit requests
+(`service_contracts.csharp_http`, client `dotnet-httpclient`):
 
 - **Clients.** A call on a value of type `HttpClient`: a parameter (primary
   constructor parameters included), field, property or local declared with
@@ -2175,13 +2175,23 @@ client `dotnet-httpclient`):
   relative URL is resolved against it as a URI (`https+http://` service
   discovery addresses count as `http://`). A class registered with a base
   that is not literal, or with different bases, has none, and its relative
-  URLs are paths under an unknown base.
+  URLs are paths under an unknown base. A `BaseAddress` set in a
+  `.ConfigureHttpClient(...)` chained on the registration counts too.
+- **Refit** (client `refit`). Each method of an interface carrying
+  `[Get("/path")]`, `[Post(...)]`, `[Put]`, `[Delete]`, `[Patch]`, `[Head]`
+  or `[Options]` from the `Refit` namespace (`using Refit;`, a
+  `global using` of the project, or `Refit.Get`) is a request, placed on
+  the attribute and sent from the method. `AddRefitClient<I>()` with a
+  `BaseAddress` (as for typed clients) or `RestService.For<I>("url")` gives
+  interface `I` a base. Refit appends the path to the base, base path
+  included; with no literal base the path is read as written. A path that
+  is not a string literal is unknown text.
 
 Requests are resolved like any other (`http-service-path`, `http-path`,
 `http-gateway`). Wrappers that take the URL as a parameter of a public
 method (eShopOnWeb's `HttpService`), `IHttpClientFactory.CreateClient`
-results assigned to `var`, Refit interfaces and API version query
-parameters are not read.
+results assigned to `var`, and API version query parameters are not
+read.
 
 dotnet/eShop `669682e`: the WebApp's `CatalogService` and
 `OrderingService` (bases `https+http://catalog-api` and
