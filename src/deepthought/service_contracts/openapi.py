@@ -29,8 +29,9 @@ poms in the repository give the plugin), or of the Gradle plugin
 - each operation is in ``<apiNamePrefix><Group><apiNameSuffix>`` (Spring
   takes no prefix) in ``apiPackage``, once per group: its tags for a java
   client, and for Spring its tags with ``useTags`` and its first path
-  segment without it; its Java
-  method is the ``operationId`` with a lower-case first letter.
+  segment without it; its Java method is the ``operationId`` with a
+  lower-case first letter (without one, the name the generator makes from
+  the path and method).
 
 Anything else (another generator or library, an older plugin, a generated
 controller, a base path on the interfaces, an operationId that is not a
@@ -299,6 +300,35 @@ def _parent(poms, relative, project):
     return candidate
 
 
+def _generated_operation_id(route, http_method):
+    """The operationId openapi-generator gives an operation without one
+    (DefaultCodegen.getOrGenerateOperationId): the path's segments without
+    braces, then the method, the first with a lower-case first letter and the
+    rest camelized; None for a segment that is not letters and digits (the
+    first) or hyphen-separated runs of them (the rest), which the generator
+    sanitizes in ways not read here."""
+    path = route.replace("{", "").replace("}", "")
+    generated = "root" if path == "/" else ""
+    for part in (p for p in (path + "/" + http_method).split("/") if p):
+        if not generated:
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", part):
+                return None
+            generated = part[0].lower() + part[1:]
+        elif re.fullmatch(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", part):
+            generated += "".join(w[:1].upper() + w[1:] for w in part.split("-"))
+        else:
+            return None
+    return generated
+
+
+def _route_line(text, route):
+    """The line of a path key, in YAML or JSON; 1 if not found."""
+    match = re.search(
+        r"""^\s*["']?""" + re.escape(route) + r"""["']?\s*:""", text, re.MULTILINE
+    )
+    return 1 if match is None else text.count("\n", 0, match.start()) + 1
+
+
 def _spec_operations(document, text, spec_file, group_names, unread):
     """(group, method name, HTTP method, path, line) per operation; an
     operation whose method or group name is not read is counted unread."""
@@ -310,7 +340,13 @@ def _spec_operations(document, text, spec_file, group_names, unread):
             if not isinstance(operation, dict):
                 continue
             operation_id = operation.get("operationId")
-            op_line = _operation_line(text, operation_id)
+            if operation_id is None or (
+                isinstance(operation_id, str) and not operation_id.strip()
+            ):
+                operation_id = _generated_operation_id(route, http_method)
+                op_line = _route_line(text, route)
+            else:
+                op_line = _operation_line(text, operation_id)
             if not isinstance(operation_id, str) or not re.fullmatch(
                 r"[A-Za-z][A-Za-z0-9]*", operation_id
             ):
@@ -406,10 +442,26 @@ def _generate(
     if reason is not None:
         unread.append(OpenApiUnread(pom_file, line, reason))
         return
+
+    def setting(name, default):
+        """A naming setting, given in the configuration or, as the generator
+        also reads it, in configOptions; None when the two differ."""
+        given = {
+            _substitute(v, properties)
+            for v in (config.get(name), options.get(name))
+            if isinstance(v, str) and v
+        }
+        if len(given) > 1:
+            return None
+        return next(iter(given), default)
+
+    prefix = setting("apiNamePrefix", "")
+    suffix = setting("apiNameSuffix", "Api")
+    package = setting("apiPackage", _DEFAULT_PACKAGES[generator])
+    if None in (prefix, suffix, package):
+        unread.append(OpenApiUnread(pom_file, line, "config_conflict"))
+        return
     spec = _substitute(config.get("inputSpec", ""), properties).lstrip("/")
-    package = _substitute(
-        config.get("apiPackage", _DEFAULT_PACKAGES[generator]), properties
-    )
     path = root / module / spec
     if not spec or "${" in spec or not path.is_file() or not package:
         unread.append(OpenApiUnread(pom_file, line, "spec_not_found"))
@@ -423,8 +475,6 @@ def _generate(
     if not isinstance(document, dict) or not isinstance(document.get("paths"), dict):
         unread.append(OpenApiUnread(spec_file, 1, "spec_not_parsed"))
         return
-    prefix = _substitute(config.get("apiNamePrefix", ""), properties)
-    suffix = _substitute(config.get("apiNameSuffix", "Api"), properties)
     if generator == "java":
         group_names, base, target = _tags, _server_url(document), clients
         kind = "openapi-java"

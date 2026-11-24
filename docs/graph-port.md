@@ -2029,7 +2029,16 @@ read as a method of a generated interface:
   per group (Spring's `toApiName` takes no `apiNamePrefix`), where the groups are the operation's tags with `useTags`
   (`default` when it has none) and its first path segment without it, as
   the generator's `addOperationToGroup` does;
-- the method is the `operationId` with a lower-case first letter.
+- the method is the `operationId` with a lower-case first letter. Without
+  one, it is the name the generator makes (`getOrGenerateOperationId`): the
+  path segments without braces and then the HTTP method, the first with a
+  lower-case first letter and the rest camelized (`/policies/{id}` GET is
+  `policiesIdGet`). That name is read only when the first segment is letters
+  and digits and the others are letters and digits joined by hyphens.
+  Anything else is `openapi:operation_id`;
+- `apiPackage`, `apiNamePrefix` and `apiNameSuffix` are read from the
+  execution's configuration or its `configOptions`, as the generator reads
+  both. Two different values are `openapi:config_conflict`.
 
 A `@RestController`/`@Controller` class that implements the interface and
 declares exactly one method of that name handles the operation. The route is
@@ -2149,7 +2158,7 @@ interface type are not read, because a server may implement it too.
 |---|---|---|
 | TPE-TicketYa (`cdf3173`, 6 services, plugin 7.16) | 7 | 7 linked, each to the controller method of the operation (precision 7/7, recall 7/7) |
 | oficina-agua-pagos (`0040a10`, plugin 7.21) | 2 | 2 requests found, unresolved: the bank and ERP servers are JSON mock definitions, not code in the repository |
-| cf-kaizen (`449d8d0`, plugin 7.18) | 3 | Not read: the spec's operations have no `operationId` (`openapi:operation_id`, 63) |
+| cf-kaizen (`449d8d0`, plugin 7.18) | 75 | 75 requests found, using generated operation names and `apiPackage` from `configOptions`. All are unresolved: the servers, cf-butler and cf-hoover, are other repositories |
 
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The
