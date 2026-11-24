@@ -25,7 +25,10 @@
 //
 // With --recovered first, prints instead only the calls left out above for
 // error recovery, each bound to every same-named overload javac could have
-// chosen among (one row per overload of the repository). These are edges
+// chosen among (one row per overload of the repository), and the calls
+// javac left unbound because their receiver's type is erroneous although the
+// receiver is a call it bound, each bound to every method of that name and
+// arity the receiver's declared type has or inherits. These are edges
 // the oracle cannot rule on: impact truth uses them to tell a dependent it
 // cannot judge from a wrong one.
 //
@@ -250,6 +253,44 @@ public class JavaCallTruth {
                     }
                 }
 
+                // A method javac left unbound because its receiver's type is
+                // erroneous, although the receiver is a call javac did bind:
+                // ``new B().with(Missing.class).build()`` (the missing class
+                // makes the chain erroneous). The receiver's declared type
+                // names the class, so every method of that name and arity it
+                // has or inherits is a possible target.
+                void unboundOnBoundReceiver(MethodInvocationTree node) {
+                    Element called = trees.getElement(getCurrentPath());
+                    if (called != null && called.asType() != null
+                            && called.asType().getKind() != javax.lang.model.type.TypeKind.ERROR) return;
+                    if (!(node.getMethodSelect() instanceof MemberSelectTree select)) return;
+                    TreePath receiverPath = new TreePath(
+                        new TreePath(getCurrentPath(), select), select.getExpression());
+                    Element receiver = trees.getElement(receiverPath);
+                    if (receiver == null) return;
+                    javax.lang.model.type.TypeMirror type;
+                    if (receiver.getKind() == ElementKind.CONSTRUCTOR) {
+                        type = receiver.getEnclosingElement().asType();
+                    } else if (receiver.getKind() == ElementKind.METHOD) {
+                        type = ((javax.lang.model.element.ExecutableElement) receiver).getReturnType();
+                    } else {
+                        return;
+                    }
+                    if (type == null || type.getKind() != javax.lang.model.type.TypeKind.DECLARED) return;
+                    Element owner = ((javax.lang.model.type.DeclaredType) type).asElement();
+                    if (!(owner instanceof javax.lang.model.element.TypeElement typeElement)) return;
+                    String text = select.getIdentifier().toString();
+                    int arity = node.getArguments().size();
+                    for (Element e : task.getElements().getAllMembers(typeElement)) {
+                        if (e.getKind() != ElementKind.METHOD || !e.getSimpleName().contentEquals(text)) continue;
+                        javax.lang.model.element.ExecutableElement method =
+                            (javax.lang.model.element.ExecutableElement) e;
+                        if (method.getParameters().size() == arity || method.isVarArgs()) {
+                            emitAny(select, text, e);
+                        }
+                    }
+                }
+
                 @Override
                 public Void visitMethodInvocation(MethodInvocationTree node, Void unused) {
                     if (bases) return super.visitMethodInvocation(node, unused);
@@ -257,6 +298,7 @@ public class JavaCallTruth {
                         if (recovered) overloads(node.getMethodSelect(), node.getArguments());
                         return super.visitMethodInvocation(node, unused);
                     }
+                    if (recovered && !chains) unboundOnBoundReceiver(node);
                     name(node.getMethodSelect(), trees.getElement(getCurrentPath()));
                     return super.visitMethodInvocation(node, unused);
                 }
