@@ -2050,9 +2050,9 @@ C# files are read for routes (`service_contracts.aspnet`):
   unread (`path_not_literal`).
 
 Constraints and defaults (`{id:int}`, `{id?}`, `{*rest}`) are read as plain
-parameters. Matching is case-sensitive, so a request to `/api/catalog` does
-not meet `[controller]` read as `Catalog`, although ASP.NET Core matches
-both.
+parameters. As in ASP.NET Core, a request meets these routes' literal
+segments without regard to case (`/api/Orders` meets `[controller]` read as
+`orders`); routes of other frameworks stay case-sensitive.
 
 Checked by hand against a lexical count of route attributes and `Map*`
 calls: eShopOnWeb `4da8212` 33 of 33 (26 attribute routes, 7 minimal API),
@@ -2067,6 +2067,52 @@ gRPC. The load generator's `l.client.get("/")` has no host, so it now meets
 both that route and the frontend's `GET /` and is ambiguous instead of
 linked; the corpus scores 8 of 9 HTTP call sites, with its one HTTP service
 pair still found.
+
+### C# HttpClient requests
+
+C# files are read for `HttpClient` requests (`service_contracts.csharp_http`,
+client `dotnet-httpclient`):
+
+- **Clients.** A call on a value of type `HttpClient`: a parameter (primary
+  constructor parameters included), field, property or local declared with
+  that type, or `new HttpClient(...)`, looked up in the innermost enclosing
+  member, function or type that declares the name. `GetAsync`,
+  `GetStringAsync`, `GetFromJsonAsync`, `PostAsync`, `PostAsJsonAsync`,
+  `PutAsync`, `PatchAsync`, `DeleteAsync` and their JSON variants fix the
+  method; `SendAsync` takes it from `new HttpRequestMessage(HttpMethod.X,
+  url)`, in place or through a local bound once to one.
+- **URLs.** Folded from string literals, interpolated strings, `+`,
+  `new Uri(...)`, locals assigned once, fields of the class that nothing
+  assigns but their initializer, `TrimEnd`/`TrimStart`/`Trim` with
+  character literals, and calls of a method of the file (the only one of
+  its name) that returns one expression, with its parameters bound to the
+  call's arguments. Anything else is unknown text.
+- **Typed clients.** `AddHttpClient<T>(o => o.BaseAddress = new("..."))`
+  (or `new Uri(...)`, or `AddHttpClient<I, T>`) anywhere in the repository
+  gives class `T` a base address. `T` is the one class of that name whose
+  namespace is in scope at the registration (enclosing namespaces, `using`
+  directives, and the `global using`s of the registering file's project,
+  the nearest `.csproj` directory). The base applies to the `HttpClient`
+  fields, properties and constructor parameters of `T`, not to locals. A
+  relative URL is resolved against it as a URI (`https+http://` service
+  discovery addresses count as `http://`). A class registered with a base
+  that is not literal, or with different bases, has none, and its relative
+  URLs are paths under an unknown base.
+
+Requests are resolved like any other (`http-service-path`, `http-path`,
+`http-gateway`). Wrappers that take the URL as a parameter of a public
+method (eShopOnWeb's `HttpService`), `IHttpClientFactory.CreateClient`
+results assigned to `var`, Refit interfaces and API version query
+parameters are not read.
+
+dotnet/eShop `669682e`: the WebApp's `CatalogService` and
+`OrderingService` (bases `https+http://catalog-api` and
+`https+http://ordering-api`, registered in another project) and the
+WebhookClient's `WebhooksClient` give 10 of 11 labelled call sites and 3 of
+3 service pairs of `contracts-eshop-http`, none wrong. The miss is
+`GET /api/catalog/items?...`, which both API versions of Catalog.API serve
+at the same path; the version is chosen by a query parameter the client
+adds through a message handler, so it stays ambiguous.
 
 ### NestJS controllers
 

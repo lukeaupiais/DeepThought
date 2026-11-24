@@ -30,6 +30,8 @@ class HttpRoute:
     base_unknown: bool = False
     # "file:line" of the specification operation that declares the route.
     declared_in: str | None = None
+    # Literal path segments match without regard to case (ASP.NET Core).
+    case_insensitive: bool = False
 
 
 @dataclass(frozen=True)
