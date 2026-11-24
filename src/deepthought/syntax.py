@@ -180,6 +180,8 @@ def extract(
     children = expander.children if expander else (lambda node: node.named_children)
     definitions = []
     ordinals = {}
+    script = file.endswith(_SCRIPT_SUFFIXES)
+    defaults = _js_default_names(tree.root_node, content) if script else set()
     stack = [(tree.root_node, (), False)]
     while stack:
         node, scope, in_class = stack.pop()
@@ -189,7 +191,16 @@ def extract(
             name = node.child_by_field_name("name")
             if (
                 value is not None
-                and value.type == "arrow_function"
+                and (
+                    value.type == "arrow_function"
+                    # An anonymous function expression (`function* () {}`);
+                    # a named one keeps its own name.
+                    or (
+                        value.type
+                        in {"function_expression", "function", "generator_function"}
+                        and value.child_by_field_name("name") is None
+                    )
+                )
                 and name is not None
                 and name.type == "identifier"
             ):
@@ -268,6 +279,12 @@ def extract(
                 arity = {"macro_export": _rust_macro_export(node)}
             elif node.type == "function_definition" and _python_overload(node, content):
                 arity = {"overload": True}
+            elif node.type == "method_definition" and any(
+                c.type == "static" for c in node.children
+            ):
+                arity = {"static": True}
+            elif script and _js_default_export(node, name, defaults):
+                arity = {"default_export": True}
             if file.endswith(".go"):
                 if node.type in {
                     "function_declaration",
@@ -2176,11 +2193,62 @@ def _js_import_names(node):
     return names
 
 
+_SCRIPT_SUFFIXES = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
+
+
+def _js_default_names(root, content):
+    """Names a JavaScript or TypeScript module exports as ``default`` by
+    ``export default name`` or ``export { name as default }`` (no ``from``)."""
+    found = set()
+    for child in root.named_children:
+        if child.type != "export_statement":
+            continue
+        if any(c.type == "default" for c in child.children):
+            value = child.child_by_field_name("value")
+            if value is not None:
+                # Only an identifier's text can be a declared name.
+                found.add(_text(value, content))
+        elif child.child_by_field_name("source") is None:
+            for clause in child.named_children:
+                if clause.type != "export_clause":
+                    continue
+                for specifier in clause.named_children:
+                    name = specifier.child_by_field_name("name")
+                    alias = specifier.child_by_field_name("alias")
+                    if (
+                        name is not None
+                        and alias is not None
+                        and _text(alias, content) == "default"
+                    ):
+                        found.add(_text(name, content))
+    return found
+
+
+def _js_default_export(node, name, defaults):
+    """Whether a JavaScript or TypeScript declaration is its module's
+    ``default`` export: written as ``export default`` or, at module level,
+    named by one of ``defaults``."""
+    parent = node.parent
+    if node.type == "variable_declarator":
+        # `const f = () => ...`: the declaration is the declarator's parent.
+        parent = parent.parent if parent is not None else None
+    if parent is None:
+        return False
+    if parent.type == "export_statement":
+        if any(c.type == "default" for c in parent.children):
+            return True
+        parent = parent.parent
+    return parent is not None and parent.type == "program" and name in defaults
+
+
 def _js_binding(node, content, callee, cache):
     """``CallSite.binding`` for a JavaScript or TypeScript call of
-    ``callee``: the declaration of that plain name the call sees."""
-    if "." in callee:
+    ``callee``: the declaration of that plain name, or of ``x`` in ``x.m``,
+    the call sees."""
+    parts = callee.split(".")
+    if len(parts) > 2 or parts[0] in {"this", "super"}:
         return None
+    callee = parts[0]
     scope = node.parent
     while scope is not None:
         if scope.type == "with_statement" or scope.has_error:

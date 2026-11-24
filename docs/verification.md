@@ -148,11 +148,11 @@ Baseline (calls):
 | Corpus | Language | Expected | Confirmed | Contradicted | Precision | Recall |
 |---|---|---|---|---|---|---|
 | click | python | 3,313 | 2,878 | 0 | 1.0 | 0.8639 |
-| ky | typescript | 143 | 322 | 0 | 1.0 | 0.9371 |
-| hono | typescript | 3,009 | 5,652 | 23 | 0.9959 | 0.5274 |
+| ky | typescript | 143 | 331 | 0 | 1.0 | 1.0 |
+| hono | typescript | 3,009 | 5,775 | 0 | 1.0 | 0.5274 |
 | cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
 | chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
-| preact | javascript | 3,884 | 4,426 | 0 | 1.0 | 0.8671 |
+| preact | javascript | 3,884 | 4,427 | 0 | 1.0 | 0.8671 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
 | gson | java | 11,050 | 9,342 | 0 | 1.0 | 0.8363 |
@@ -811,11 +811,11 @@ declaration already spans: a function `run` is not merged with a method
 | Corpus | Seeds | Oracle dependents | Confirmed | Extra | Recall | Precision |
 |---|---|---|---|---|---|---|
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
-| ky | 38 | 175 | 139 | 0 | 0.794 | 1.0 |
-| hono | 40 | 108 | 96 | 0 | 0.889 | 1.0 |
+| ky | 38 | 175 | 159 | 0 | 0.909 | 1.0 |
+| hono | 40 | 108 | 100 | 0 | 0.926 | 1.0 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
-| preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
+| preact | 28 | 73 | 69 | 0 | 0.945 | 1.0 |
 | gson | 164 | 5070 | 3515 | 0 | 0.693 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
