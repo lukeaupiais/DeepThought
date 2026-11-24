@@ -57,7 +57,10 @@ class CallResolution:
 
 
 def _pick(call_id, matches, rule_id, none_reason):
-    ids = tuple(sorted(d.id for d in matches))
+    # `typing.overload` signatures declare call forms; the call runs the
+    # declaration they stand beside.
+    runs = [d for d in matches if not d.overload]
+    ids = tuple(sorted(d.id for d in (runs or matches)))
     if len(ids) == 1:
         return CallResolution(call_id, "linked", ids[0], rule_id)
     if ids:

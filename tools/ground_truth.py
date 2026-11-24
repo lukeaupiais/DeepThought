@@ -49,6 +49,7 @@ Scores (calls):
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -1040,6 +1041,95 @@ def rule_coverage(reports):
     }
 
 
+# Per layer, the counts a PR summary shows: (metric, higher is better).
+SUMMARY_METRICS = {
+    "calls": (("confirmed", True), ("contradicted", False), ("recall", True)),
+    "inherits": (("confirmed", True), ("contradicted", False)),
+    "imports": (("confirmed", True), ("contradicted", False)),
+    "impact": (
+        ("confirmed", True),
+        ("extra", False),
+        ("recall", True),
+        ("precision", True),
+    ),
+    "declarations": (("found", True), ("kind_mismatch", False), ("extra", False)),
+    "contracts": (("true_positive", True), ("false_positive", False)),
+    "routes": (("found", True), ("extra", False), ("expected", True)),
+}
+
+
+def _contract_totals(report):
+    """Call-site links summed over link kinds: (true positives, false ones)."""
+    true = predicted = 0
+    for levels in report.values():
+        counts = levels.get("call_sites", {})
+        true += counts.get("true_positive", 0)
+        predicted += counts.get("predicted", 0)
+    return {"true_positive": true, "false_positive": predicted - true}
+
+
+def summary(reports, baseline):
+    """A Markdown table of every layer's scores against the baseline.
+
+    ``check`` writes it to ``$GITHUB_STEP_SUMMARY`` when that is set, so each
+    PR's run shows how call, impact and other scores moved, not only whether
+    the gate passed. A changed value is shown with its difference in bold.
+    """
+
+    def layers(name, report, base):
+        if "declarations" in report:
+            yield (
+                "declarations",
+                report["declarations"],
+                base.get("declarations", {}).get(name),
+            )
+        elif "routes" in report:
+            before = base.get("routes", {}).get(name, {})
+            for kind, counts in sorted(report["routes"].items()):
+                yield f"routes ({kind})", counts, before.get(kind)
+        elif "contracts" in report:
+            before = base.get("contracts", {}).get(name)
+            yield (
+                "contracts",
+                _contract_totals(report["contracts"]),
+                _contract_totals(before) if before else None,
+            )
+        else:
+            yield "calls", report, base.get(name)
+            for layer in ("inherits", "imports", "impact"):
+                if layer in report:
+                    yield layer, report[layer], base.get(name, {}).get(layer)
+
+    def cell(now, before):
+        if now is None:
+            return "–"
+        if before is None or now == before:
+            return f"{now}"
+        delta = round(now - before, 4)
+        return f"{now} (**{delta:+}**)"
+
+    lines = [
+        "### Ground truth against the baseline",
+        "",
+        "| Corpus | Layer | Scores |",
+        "|---|---|---|",
+    ]
+    for name, report in reports.items():
+        for layer, now, before in layers(name, report, baseline):
+            values = ", ".join(
+                f"{metric} {cell(now.get(metric), (before or {}).get(metric))}"
+                for metric, _ in SUMMARY_METRICS[layer.split(" ")[0]]
+            )
+            lines.append(f"| {name} | {layer} | {values} |")
+        if report.get("regressions"):
+            lines.append(
+                f"| {name} | **regressions** | "
+                + "; ".join(report["regressions"])
+                + " |"
+            )
+    return "\n".join(lines) + "\n"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1093,6 +1183,7 @@ def main(argv=None):
         )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0
+    baseline = json.loads((CORPUS / "baseline.json").read_text("utf-8"))
     try:
         reports, failed = check(
             set(args.corpus), args.cache, args.update_baseline, args.examples
@@ -1102,6 +1193,9 @@ def main(argv=None):
         return 2
     coverage = rule_coverage(reports)
     print(json.dumps({"corpora": reports, "rule_coverage": coverage}, indent=2))
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+            out.write(summary(reports, baseline))
     return 1 if failed else 0
 
 
