@@ -2382,7 +2382,9 @@ def _java_type_variables(node, content, depth=None):
         depth = None if depth is None else depth - 1
         parameters = node.child_by_field_name("type_parameters")
         for child in parameters.named_children if parameters else ():
-            names.add(_text(child.named_children[0], content))
+            # A comment between the brackets is a named child too.
+            if child.type == "type_parameter" and child.named_children:
+                names.add(_text(child.named_children[0], content))
         node = node.parent
     return names
 
