@@ -58,8 +58,31 @@ class Definition:
     macro_export: bool | None = None
     # Python: True for a ``typing.overload`` signature. None elsewhere.
     overload: bool | None = None
+    # Go functions and methods (interface methods too): the type of the
+    # first result, as ``T``, ``pkg.T`` or ``[]`` before an element type,
+    # through pointers and type arguments. None elsewhere, or when that type
+    # is of another kind.
+    result_type: str | None = None
+    # Go struct types: (name, type) for each named field whose type is
+    # written as for ``result_type``. None elsewhere, or when there is none.
+    fields: tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self):
+        if self.result_type is not None and (
+            not isinstance(self.result_type, str) or not self.result_type
+        ):
+            raise ValueError("result_type must be a nonempty string or None")
+        if self.fields is not None and (
+            type(self.fields) is not tuple
+            or not self.fields
+            or not all(
+                type(field) is tuple
+                and len(field) == 2
+                and all(isinstance(part, str) and part for part in field)
+                for field in self.fields
+            )
+        ):
+            raise ValueError("fields must be a tuple of (name, type) pairs")
         if self.parameter_types is not None and (
             type(self.parameter_types) is not tuple
             or not all(isinstance(t, str) and t for t in self.parameter_types)
@@ -231,17 +254,29 @@ class CallSite:
     shadowed: bool | None = None
     # Java calls ``x.m()`` and ``this.x.m()`` where the declaration of the
     # variable or field ``x`` in scope writes a class type: that type as
-    # written (``Foo``, ``Map.Entry``). Go calls ``x.M()`` where ``x`` is
-    # declared in the function around the call: the type that declaration
-    # writes (``T`` or ``pkg.T``). Python calls ``x.m()``: the class name
-    # (``T``, ``m.T``) that the binding of ``x`` writes. None elsewhere.
+    # written (``Foo``, ``Map.Entry``). Go calls ``x.M()`` and ``x.f.g.M()``
+    # where ``x`` is declared in the function around the call: the type of
+    # ``x`` its declaration gives, written as for ``Definition.result_type``.
+    # Python calls ``x.m()``: the class name (``T``, ``m.T``) that the
+    # binding of ``x`` writes. None elsewhere.
     receiver_type: str | None = None
+    # Go: how the receiver's type follows from ``receiver_type``, one step
+    # each: a field name ``f``, a method call ``M()`` (its first result), or
+    # ``[]`` (an element of a slice). None when the receiver is ``x`` itself.
+    receiver_steps: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.receiver_type is not None and (
             not isinstance(self.receiver_type, str) or not self.receiver_type
         ):
             raise ValueError("receiver_type must be a nonempty string or None")
+        if self.receiver_steps is not None and (
+            self.receiver_type is None
+            or type(self.receiver_steps) is not tuple
+            or not self.receiver_steps
+            or not all(isinstance(step, str) and step for step in self.receiver_steps)
+        ):
+            raise ValueError("receiver_steps must be nonempty strings after a type")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
         if self.arguments is not None and (
@@ -542,6 +577,10 @@ class AnalysisResult:
                 del item["macro_export"]
             if item["overload"] is None:
                 del item["overload"]
+            if item["result_type"] is None:
+                del item["result_type"]
+            if item["fields"] is None:
+                del item["fields"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -551,6 +590,8 @@ class AnalysisResult:
                 del item["shadowed"]
             if item["receiver_type"] is None:
                 del item["receiver_type"]
+            if item["receiver_steps"] is None:
+                del item["receiver_steps"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -628,6 +669,11 @@ class AnalysisResult:
                             if isinstance(item.get("anonymous"), list)
                             else {}
                         ),
+                        **(
+                            {"receiver_steps": tuple(item["receiver_steps"])}
+                            if isinstance(item.get("receiver_steps"), list)
+                            else {}
+                        ),
                     }
                 )
                 for item in data.get("call_sites", [])
@@ -653,6 +699,9 @@ class AnalysisResult:
                 Definition(
                     **{
                         **item,
+                        "fields": tuple(tuple(field) for field in item["fields"])
+                        if isinstance(item.get("fields"), list)
+                        else item.get("fields"),
                         "parameter_types": tuple(item["parameter_types"])
                         if isinstance(item.get("parameter_types"), list)
                         else item.get("parameter_types"),

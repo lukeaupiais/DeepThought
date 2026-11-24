@@ -338,13 +338,18 @@ CALL_RULES.update(
     {
         rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
         for rule_id, text in {
-            call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' where x is "
-            "declared in the function around the call (a parameter, receiver, "
-            "named result, 'var x T', or 'x := T{...}', '&T{...}' or "
-            "'new(T)', the innermost declaration visible at the call) links to "
-            "the method M declared on T, in the caller's package or, for "
-            "'pkg.T', in the package the file imports as pkg; promoted methods "
-            "of embedded fields are not followed.",
+            call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' or "
+            "'x.f.M()' where x is declared in the function around the call (a "
+            "parameter, receiver, named result, 'var x T', or 'x := T{...}', "
+            "'&T{...}', 'new(T)' or 'x := e', the innermost declaration "
+            "visible at the call) links to the method M declared on the "
+            "receiver's type T, in the package that declares T. The type is "
+            "followed from what is written: a variable's declaration, a "
+            "struct field's declared type, the first declared result of a "
+            "method, the element of a slice or array, a type assertion; a "
+            "step that names nothing, or more than one declaration, leaves the "
+            "call unresolved. Promoted methods of embedded fields are not "
+            "followed.",
             call_rules.RUST_CALL_PATH: "A Rust call's path, read from the "
             "caller's module as a use path is (through modules, uses and globs, "
             "after the uses written in the function bodies around the call), "

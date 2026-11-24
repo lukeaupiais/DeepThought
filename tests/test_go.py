@@ -1,6 +1,7 @@
 """Go declarations, import facts and name-matched calls (opt-in language)."""
 
 import asyncio
+from dataclasses import replace
 import importlib.util
 import json
 from pathlib import Path
@@ -221,7 +222,7 @@ class GoTests(unittest.TestCase):
                 "\ta, b := pair()\n"
                 "\tb.Root()\n"  # 35
                 "\twr := Wrap{}\n"
-                "\twr.B.Up()\n"  # 37: a field's method
+                "\twr.B.Up()\n"  # 37: a field's method, through its type
                 "\tconst k Num = 1\n"
                 "\tk.Get()\n"  # 39: a typed constant
                 "\tset := make(Set)\n"
@@ -266,6 +267,7 @@ class GoTests(unittest.TestCase):
             (30, "t.Name", ("cmd.go", "Command.Name")),
             (39, "k.Get", ("cmd.go", "Num.Get")),
             (41, "set.Add", ("cmd.go", "Set.Add")),
+            (37, "wr.B.Up", ("cmd.go", "Base.Up")),
             (43, "c.Root", ("cmd.go", "Command.Root")),
         ):
             with self.subTest(line=line, callee=callee):
@@ -284,12 +286,218 @@ class GoTests(unittest.TestCase):
             (31, "xs.Root"),
             (33, "m.Root"),
             (35, "b.Root"),
-            (37, "wr.B.Up"),
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(
                     found[(line, callee)], ("unresolved", "attribute_call", None)
                 )
+
+    def test_receiver_types_follow_fields_results_elements_and_variables(self):
+        files = {
+            "go.mod": "module example.com/app\n",
+            "lib/lib.go": ("package lib\ntype T struct{}\nfunc (t *T) Go() {}\n"),
+            "cmd.go": (
+                "package app\n"
+                'import "example.com/app/lib"\n'
+                "type Command struct {\n"
+                "\tparent, next *Command\n"
+                "\tcommands []*Command\n"
+                "\tgrid [2][]Command\n"
+                "\tbyName map[string]*Command\n"
+                "\t*Base\n"
+                "\tlib.T\n"
+                "\ttool *lib.T\n"
+                "\tnamed Commands\n"
+                "\tfn func() *Command\n"
+                "}\n"
+                "type Base struct{}\n"
+                "func (b *Base) Up() {}\n"
+                "type Commands []*Command\n"
+                "func (c *Command) Root() *Command { return c }\n"
+                "func (c *Command) Find() (*Command, []string, error) { return c, nil, nil }\n"
+                "func (c *Command) Commands() []*Command { return nil }\n"
+                "func (c *Command) Tool() *lib.T { return nil }\n"
+                'func (c *Command) Name() string { return "" }\n'
+                "type Getter interface{ Get() *Command }\n"
+                "type Box[T any] struct{ v T; all []T }\n"
+                "func (b *Box[T]) Get() T { return b.v }\n"
+                "type T struct{}\n"
+                "func (T) Root() {}\n"
+                "type Twice struct{ c *Command }\n"
+            ),
+            "twice.go": (
+                "package app\n"
+                "type Twice struct{ c *Command }\n"
+                "func (c *Command) Dup() *Command { return c }\n"
+            ),
+            "dup.go": "package app\nfunc (c *Command) Dup() *Command { return c }\n",
+            "use.go": (
+                "package app\n"
+                "func Use(c *Command, g Getter, b *Box[Command], xs ...*Command) {\n"
+                "\tc.parent.Root()\n"  # 3: a field
+                "\tc.next.parent.Root()\n"  # 4: two fields
+                "\tc.Base.Up()\n"  # 5: an embedded field by its type name
+                "\tc.T.Go()\n"  # 6: an embedded qualified type
+                "\tc.tool.Go()\n"  # 7: a qualified field type
+                "\tr := c.Root()\n"
+                "\tr.Name()\n"  # 9: a method's result
+                "\tf, rest, err := c.Find()\n"
+                "\tf.Name()\n"  # 11: the first result
+                "\tfor _, s := range c.Commands() {\n"
+                "\t\ts.Name()\n"  # 13: an element of a method's result
+                "\t}\n"
+                "\tfor _, s := range c.commands {\n"
+                "\t\ts.Name()\n"  # 16: an element of a field
+                "\t}\n"
+                "\tfor _, x := range xs {\n"
+                "\t\tx.Name()\n"  # 19: an element of a variadic parameter
+                "\t}\n"
+                "\tfirst := xs[0]\n"
+                "\tfirst.Name()\n"  # 22: an index
+                "\tcell := c.grid[0][1]\n"
+                "\tcell.Name()\n"  # 24: two indexes
+                "\tp := c\n"
+                "\tp.Name()\n"  # 26: a variable
+                "\tq := (*c).parent\n"
+                "\tq.Name()\n"  # 28: through a dereference
+                "\tgot := g.Get()\n"
+                "\tgot.Name()\n"  # 30: an interface method's result
+                "\tany := interface{}(c)\n"
+                "\tas := any.(*Command)\n"
+                "\tas.Name()\n"  # 33: a type assertion
+                "\ttool := c.Tool()\n"
+                "\ttool.Go()\n"  # 35: a result type written in another package
+                "}\n"
+                "func Not(c *Command, b *Box[Command], tw Twice) {\n"
+                "\tfor k, v := range c.byName {\n"
+                "\t\tk.Name(); v.Name()\n"  # 39: a map is not followed
+                "\t}\n"
+                "\tfor i := range c.commands {\n"
+                "\t\ti.Name()\n"  # 42: the index
+                "\t}\n"
+                "\tfor _, n := range c.named {\n"
+                "\t\tn.Name()\n"  # 45: a named slice type is not followed
+                "\t}\n"
+                "\t_, args, _ := c.Find()\n"
+                "\targs.Name()\n"  # 48: not the first result
+                "\tc.missing.Root()\n"  # 49: no such field
+                "\tc.Name().Root()\n"  # 50: not a dotted name
+                "\tc.fn.Root()\n"  # 51: a field of a function type
+                "\tv := b.Get()\n"
+                "\tv.Root()\n"  # 53: a type parameter result
+                "\tb.v.Root()\n"  # 54: a type parameter field
+                "\ttw.c.Name()\n"  # 55: the struct is declared twice
+                "\tc.Up()\n"  # 56: promoted through an embedded field
+                "\tc.commands.Root()\n"  # 57: a slice has no methods
+                "\td := c.Dup()\n"
+                "\td.Name()\n"  # 59: the method is declared twice
+                "}\n"
+                "func Generic[T any](t T, xs ...*Command) {\n"
+                "\tt.Root()\n"  # 62: a type parameter, not the type T
+                "\txs.parent.Root()\n"  # 63: a slice has no fields
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        cmd = next(d for d in result.definitions if d.symbol == "Command")
+        self.assertEqual(
+            cmd.fields,
+            (
+                ("parent", "Command"),
+                ("next", "Command"),
+                ("commands", "[]Command"),
+                ("grid", "[][]Command"),
+                ("Base", "Base"),
+                ("T", "lib.T"),
+                ("tool", "lib.T"),
+                ("named", "Commands"),
+            ),
+        )
+        results = {d.symbol: d.result_type for d in result.definitions}
+        self.assertEqual(results["Command.Find"], "Command")
+        self.assertEqual(results["Command.Commands"], "[]Command")
+        self.assertEqual(results["Getter.Get"], "Command")
+        self.assertIsNone(results["Box.Get"])
+        self.assertEqual(results["Command.Name"], "string")
+        box = next(d for d in result.definitions if d.symbol == "Box")
+        self.assertIsNone(box.fields)
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                r.status,
+                (
+                    (definitions[r.target_id].file, definitions[r.target_id].symbol)
+                    if r.target_id
+                    else r.reason
+                ),
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "use.go"
+        }
+        for line, callee, target in (
+            (3, "c.parent.Root", ("cmd.go", "Command.Root")),
+            (4, "c.next.parent.Root", ("cmd.go", "Command.Root")),
+            (5, "c.Base.Up", ("cmd.go", "Base.Up")),
+            (6, "c.T.Go", ("lib/lib.go", "T.Go")),
+            (7, "c.tool.Go", ("lib/lib.go", "T.Go")),
+            (9, "r.Name", ("cmd.go", "Command.Name")),
+            (11, "f.Name", ("cmd.go", "Command.Name")),
+            (13, "s.Name", ("cmd.go", "Command.Name")),
+            (16, "s.Name", ("cmd.go", "Command.Name")),
+            (19, "x.Name", ("cmd.go", "Command.Name")),
+            (22, "first.Name", ("cmd.go", "Command.Name")),
+            (24, "cell.Name", ("cmd.go", "Command.Name")),
+            (26, "p.Name", ("cmd.go", "Command.Name")),
+            (28, "q.Name", ("cmd.go", "Command.Name")),
+            (30, "got.Name", ("cmd.go", "Command.Name")),
+            (33, "as.Name", ("cmd.go", "Command.Name")),
+            (35, "tool.Go", ("lib/lib.go", "T.Go")),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[(line, callee)], ("linked", target, GO_CALL_TYPED_RECEIVER)
+                )
+        unknown = ("unresolved", "receiver_type_unknown", None)
+        for line, callee, outcome in (
+            (39, "k.Name", ("unresolved", "attribute_call", None)),
+            (39, "v.Name", unknown),
+            (42, "i.Name", ("unresolved", "attribute_call", None)),
+            (45, "n.Name", unknown),
+            (48, "args.Name", ("unresolved", "attribute_call", None)),
+            (49, "c.missing.Root", unknown),
+            (51, "c.fn.Root", unknown),
+            (53, "v.Root", unknown),
+            (54, "b.v.Root", unknown),
+            (55, "tw.c.Name", unknown),
+            (56, "c.Up", ("unresolved", "not_declared_on_type", None)),
+            (57, "c.commands.Root", unknown),
+            (59, "d.Name", unknown),
+            (62, "t.Root", ("unresolved", "attribute_call", None)),
+            (63, "xs.parent.Root", ("unresolved", "attribute_call", None)),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], outcome)
+        self.assertNotIn((50, "c.Name().Root"), found)
+        steps = {
+            (sites[s].line, sites[s].callee): sites[s].receiver_steps for s in sites
+        }
+        self.assertEqual(steps[(13, "s.Name")], ("Commands()", "[]"))
+        self.assertEqual(steps[(22, "first.Name")], None)
+        roundtrip = AnalysisResult.from_json(result.to_json())
+        self.assertEqual(roundtrip, result)
+        site = sites[next(iter(sites))]
+        for steps in ((), ("",), ["f"]):
+            with self.subTest(steps=steps), self.assertRaises(ValueError):
+                replace(site, receiver_type="T", receiver_steps=steps)
+        with self.assertRaises(ValueError):
+            replace(site, receiver_type=None, receiver_steps=("f",))
+        for fields in ((), (("a",),), (("a", ""),), [("a", "T")]):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                replace(cmd, fields=fields)
+        with self.assertRaises(ValueError):
+            replace(cmd, result_type="")
 
     def test_reindex_reuses_package_clauses_and_rejects_earlier_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
