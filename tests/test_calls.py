@@ -632,6 +632,74 @@ class PythonCallTests(unittest.TestCase):
             ("unresolved", None, None, "base_not_resolved"),
         )
 
+    def test_typed_receivers_need_one_class_the_annotation_names(self):
+        files = {
+            "lib.py": (
+                "class Formatter:\n"
+                "    def write(self): pass\n"
+                "class Nested:\n"
+                "    class write: pass\n"
+            ),
+            "lib2.py": "class Formatter:\n    def write(self): pass\n",
+            "twice.py": (
+                "import sys\n"
+                "if sys.flags.debug:\n"
+                "    class Twice:\n"
+                "        def write(self): pass\n"
+                "else:\n"
+                "    class Twice:\n"
+                "        def write(self): pass\n"
+                "def f(t: Twice):\n"
+                "    t.write()\n"  # 9: two classes named Twice
+            ),
+            "main.py": (
+                "try:\n"
+                "    import lib as L\n"
+                "except ImportError:\n"
+                "    import lib2 as L\n"
+                "from lib import Formatter, Nested\n"
+                "class Formatter:\n"
+                "    def write(self): pass\n"
+                "def f(a: L.Formatter, b: Formatter, n: Nested):\n"
+                "    a.write()\n"  # 9: L is one of two modules
+                "    b.write()\n"  # 10: imported and declared here
+                "    n.write()\n"  # 11: a nested class, not a method
+            ),
+            "outer.py": (
+                "from lib import Formatter\n"
+                "class Outer:\n"
+                "    class Formatter:\n"
+                "        def write(self): pass\n"
+                "    def m(self, a: Formatter):\n"
+                "        a.write()\n"  # 6: the annotation sees Outer.Formatter
+                "def make():\n"
+                "    class Local:\n"
+                "        def write(self): pass\n"
+                "    def use(a: Local):\n"
+                "        a.write()\n"  # 11: a class of the enclosing function
+            ),
+        }
+        found = links(analyze(files, "python"))
+        # Each is left to the other rules, which see a parameter.
+        for key in (
+            ("twice.py", 9, "t.write"),
+            ("main.py", 9, "a.write"),
+            ("main.py", 10, "b.write"),
+            ("outer.py", 6, "a.write"),
+        ):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    found[key], ("unresolved", None, None, "local_binding")
+                )
+        self.assertEqual(
+            found[("outer.py", 11, "a.write")],
+            ("linked", "outer.py::make.Local.write", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        self.assertEqual(
+            found[("main.py", 11, "n.write")],
+            ("unresolved", None, None, "not_declared_on_type"),
+        )
+
 
 @unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
 class TypeScriptCallTests(unittest.TestCase):

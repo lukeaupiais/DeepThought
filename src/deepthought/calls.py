@@ -954,8 +954,6 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 return declared
             seen.add((module, name))
             name, files = bound[0]
-            if name is None:
-                return []
 
     def python_class(file, scope, written):
         """The classes a Python annotation names, looked up as a base is:
@@ -967,6 +965,15 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             return (
                 declared_through(bound[0], name, {"Class"}) if len(bound) == 1 else []
             )
+        for depth in range(len(scope), 0, -1):
+            # A parameter annotation is evaluated in the class body around
+            # the method, which `lexical` skips, so a name declared there
+            # gives no single class.
+            prefix = ".".join(scope[:depth])
+            if any(
+                d.kind == "Class" for d in by_symbol.get((file, prefix), ())
+            ) and by_symbol.get((file, f"{prefix}.{name}")):
+                return []
         lexical = bindings.lexical(file, scope, name, {"Class"})
         bound = names.get((file, name), [])
         if lexical and not bound:
