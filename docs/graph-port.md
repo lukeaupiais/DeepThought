@@ -1978,6 +1978,50 @@ Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
 
+#### Apache HttpClient and fields set by constructors
+
+Java code that builds a request with Apache HttpClient (`new HttpGet(url)`,
+`new HttpPost(url)`, ... from `org.apache.http.client.methods` or the 5.x
+`org.apache.hc.client5.http.classic.methods`) is a request with that
+method, placed on the `new` (`service_contracts.spring`). The URL is folded
+as for RestTemplate, and one more kind of name is folded for every Java
+client: a String field with no initializer and no annotation that only
+constructors assign, each time from one of their parameters
+(`this.baseUrl = baseUrl;`). Its values are that argument of every `new` of
+the class in the repository with as many arguments, folded in the file that
+writes it (`java_constructions`). With none, or when one `new` passes wholly unknown text, or when another assignment (a literal in a second constructor, a setter) sets the field, it is unknown: the request is unresolved rather than linked through the values the other constructions give. robot-shop's
+shipping service builds `new CartHelper(CART_URL)` with
+`String.format("http://%s/shipping/", ...)`, so `new HttpPost(baseUrl + id)`
+is `POST http://{?}/shipping/{?}` and meets the cart service's route.
+
+### PHP: Symfony routes and curl
+
+PHP files are read for routes and requests (`service_contracts.php`):
+
+- **Routes.** A method carries a `@Route` annotation in its docblock or a
+  `#[Route]` attribute, where `Route` is imported from
+  `Symfony\Component\Routing\Annotation` or `...\Attribute`. The path is
+  the first argument or `path`, joined with the class's own `Route`; the
+  methods are `methods` (any method without it). A path that is not a
+  literal is unread. Routes in YAML, XML or PHP config files, and a
+  kernel-level prefix, are not read (rule `service-contracts.symfony-route`).
+- **Requests.** `curl_init($url)` is a request placed on that call. The URL
+  is folded in its function: literals, `"...$x..."` (variables are unknown
+  text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once
+  before the use; properties are unknown. The method is GET, or what
+  `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
+  with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
+  other value makes it unknown. A handle whose URL is set with
+  `CURLOPT_URL`, Guzzle and Symfony HttpClient are not read yet.
+
+robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
+`PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
+web front end and load generator reach ratings through the nginx
+`/api/ratings/` location. Its curl call to `sprintf('%s/product/%s', ...)`
+meets the catalogue's `GET /product/:sku`. With the Java change above, the
+corpus scores 42 of 42 labelled call sites and 17 of 17 service pairs, none
+wrong (37 and 14 before).
+
 ### NestJS controllers
 
 In TypeScript files that import from `@nestjs/common`, a class decorated
