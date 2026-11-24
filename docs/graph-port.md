@@ -1322,7 +1322,21 @@ after an export macro (`API Status Get();`) is in an error node and the
 declarator is kept, so a field annotated the same way (`int x
 GUARDED_BY(mu);`) reads as a function named after the macro; and a
 function's declarator standing alone in an error node declares a function,
-as in C.
+as in C. A line holding only an upper-case name with an underscore
+(`FMT_BEGIN_EXPORT`, or `FMT_CONSTEXPR` above a declaration) is a macro and
+is replaced with spaces too, since the grammar would read it as the type of
+the declaration after it. The same name at the start of a line before a
+constructor or destructor (`FMT_CONSTEXPR explicit checker(...) : a(1) {`,
+`FMT_CONSTEXPR20 ~buffer()`) is replaced too: read as a return type, it turns
+the member initializers into a parse error that ends the class early. A
+declarator standing alone in an error node with nothing before it (`M(a,
+b);`) is a macro's invocation, not a function, unless it is in a class and
+names it (a constructor whose initializers hold an `#if`). Two shapes declare no function: a declarator after
+a class body in the same declaration (C++ does not allow a class defined in a
+return type, so this is text after a body the grammar closed early), and a
+declarator after a bit-field width (a constructor's member initializers,
+`: size_(n), cap_(n)`, after a macro). An enum whose name the grammar reports
+as missing (`enum : unsigned {`) is unnamed.
 
 `tools/compare_c_declarations_with_clang.py --language cpp` checks this
 against clang (libclang 18.1.1, `-std=c++20`), as for C, with namespaces and
@@ -1341,7 +1355,7 @@ text before it.
 |---|---|---|---|---|---|
 | leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
 | google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
-| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,449 (1,677 / 856) | 740 / 50 / 0 / 830 / 178 / 30 / 13 | 3,497 / 564 / 0 / 196 / 165 / 14 / 1 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 7,036 (2,259 / 856) | 742 / 50 / 0 / 781 / 84 / 0 / 13 | 3,511 / 124 / 0 / 133 / 67 / 14 / 1 |
 
 No difference is unexplained. Most of fmt's macro-generated declarations
 and names that are macros come from its bundled GoogleTest (`TEST(...)`
@@ -1749,6 +1763,45 @@ are read from 81 route decorators. The samples' own end-to-end tests make
 of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
+
+### GraphQL root fields
+
+Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL
+server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
+`protocol` `graphql`), scoped to the Node package (the nearest
+`package.json`) of the files that declare or resolve it
+(`deepthought.service_contracts.graphql`):
+
+- Schema files (`*.graphql`, `*.gql`) declare the fields of `type Query`,
+  `type Mutation` and `type Subscription`, including `extend type` blocks.
+  Descriptions, comments, arguments and directives are skipped. The node
+  records them as `declared_in`.
+- NestJS resolvers: a method of a class decorated `@Resolver` that carries
+  `@Query`, `@Mutation` or `@Subscription`, all imported from
+  `@nestjs/graphql`, resolves the field named by the decorator's literal
+  name (`@Query('cats')`), the `name` of its options, or else the method
+  name. It links to the field by `HANDLES` (rule
+  `service-contracts.nestjs-graphql-resolver`, pattern_matched).
+
+Counted as unread:
+- `graphql:schema_root_renamed`: a schema that renames its root types;
+- `graphql:field_not_literal`: a resolver name that is not literal;
+- `graphql:declared_not_resolved`: a declared field that no read resolver
+  handles;
+- `graphql:resolved_not_declared`: a resolved field missing from a package
+  that has schema files.
+
+Clients, resolver maps (Apollo `resolvers` objects) and field resolvers of
+object types are not read yet.
+
+On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
+GraphQL servers, 23 of them also declared in schema files. The two
+code-first samples commit the `schema.gql` that Nest itself generates from
+the decorators, and its fields are exactly the ones read from the
+resolvers. In the schema-first samples, every declared field has a
+resolver and every resolver has a declaration. The four root fields that
+the samples' end-to-end tests query (other than introspection) are all
+among them.
 
 ### Gateways
 
