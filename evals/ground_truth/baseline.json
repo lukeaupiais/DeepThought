@@ -88,23 +88,23 @@
       "by_depth": {
         "1": {
           "confirmed": 104,
-          "expected": 351
+          "expected": 285
         },
         "2": {
           "confirmed": 380,
-          "expected": 505
+          "expected": 502
         },
         "3": {
           "confirmed": 51,
-          "expected": 295
+          "expected": 293
         }
       },
       "confirmed": 535,
-      "expected": 1151,
+      "expected": 1080,
       "extra": 0,
-      "missed": 616,
+      "missed": 545,
       "precision": 1.0,
-      "recall": 0.4648,
+      "recall": 0.4954,
       "seeds": 144,
       "seeds_undeclared": 0
     },
