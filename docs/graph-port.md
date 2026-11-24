@@ -2324,6 +2324,11 @@ through expressions other than a declared variable, named queries and other pers
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
 `spec/`) and Ruby's vendored gems (`vendor/`) are skipped.
+The tool reads at most 10,000 source files by default (`graph index --tool
+data-contracts --max-files N` raises it). When a file count or byte limit
+stops the walk, the run is `partial`, the `source_limits` metric names the
+limit, and a warning says tables, models and calls in the unread files are
+missing.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
