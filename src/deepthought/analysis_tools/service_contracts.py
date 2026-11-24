@@ -127,6 +127,28 @@ ROUTE_RULES = {
             "variable before the path is assumed to add no segments.",
         )
     ),
+    "spring-websocket": register_rule(
+        EvidenceRule(
+            "service-contracts.spring-websocket-endpoint",
+            "pattern_matched",
+            "A method with a StompEndpointRegistry or WebSocketHandlerRegistry "
+            "parameter (from org.springframework.web.socket.config.annotation) "
+            "calls addEndpoint or addHandler on it with this literal path; the "
+            "route is the WebSocket handshake (GET), under the servlet context "
+            "path, handled by that method. SockJS fallback paths below it are "
+            "not listed.",
+        )
+    ),
+    "jakarta-websocket": register_rule(
+        EvidenceRule(
+            "service-contracts.jakarta-websocket-endpoint",
+            "pattern_matched",
+            "A class carries @ServerEndpoint (javax or jakarta "
+            ".websocket.server) with this literal path; the route is the "
+            "WebSocket handshake (GET), under the servlet context path, "
+            "handled by the class.",
+        )
+    ),
     "openapi-spring": register_rule(
         EvidenceRule(
             "service-contracts.openapi-spring-route",

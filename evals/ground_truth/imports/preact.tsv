@@ -1,0 +1,615 @@
+# file	line	name	target_file	target_line	kind
+# indexed	compat/client.js
+# indexed	compat/client.mjs
+# indexed	compat/compiler-runtime.js
+# indexed	compat/compiler-runtime.mjs
+# indexed	compat/jsx-dev-runtime.js
+# indexed	compat/jsx-dev-runtime.mjs
+# indexed	compat/jsx-runtime.js
+# indexed	compat/jsx-runtime.mjs
+# indexed	compat/scheduler.js
+# indexed	compat/scheduler.mjs
+# indexed	compat/server.browser.mjs
+# indexed	compat/server.js
+# indexed	compat/server.mjs
+# indexed	compat/src/Children.js
+# indexed	compat/src/PureComponent.js
+# indexed	compat/src/forwardRef.js
+# indexed	compat/src/hooks.js
+# indexed	compat/src/index.js
+# indexed	compat/src/memo.js
+# indexed	compat/src/portals.js
+# indexed	compat/src/render.js
+# indexed	compat/src/suspense.js
+# indexed	compat/src/util.js
+# indexed	compat/test-utils.js
+# indexed	compat/test-utils.mjs
+# indexed	compat/test/browser/Children.test.jsx
+# indexed	compat/test/browser/PureComponent.test.jsx
+# indexed	compat/test/browser/cloneElement.test.jsx
+# indexed	compat/test/browser/compat.options.test.jsx
+# indexed	compat/test/browser/compiler-runtime.test.jsx
+# indexed	compat/test/browser/component.test.jsx
+# indexed	compat/test/browser/componentDidCatch.test.jsx
+# indexed	compat/test/browser/context.test.jsx
+# indexed	compat/test/browser/createElement.test.jsx
+# indexed	compat/test/browser/createFactory.test.jsx
+# indexed	compat/test/browser/elementPropsRef.test.jsx
+# indexed	compat/test/browser/events.test.jsx
+# indexed	compat/test/browser/exports.test.js
+# indexed	compat/test/browser/findDOMNode.test.jsx
+# indexed	compat/test/browser/forwardRef.test.jsx
+# indexed	compat/test/browser/hardened-js.test.jsx
+# indexed	compat/test/browser/hooks.test.jsx
+# indexed	compat/test/browser/hydrate.test.jsx
+# indexed	compat/test/browser/isFragment.test.js
+# indexed	compat/test/browser/isMemo.test.jsx
+# indexed	compat/test/browser/isValidElement.test.js
+# indexed	compat/test/browser/memo.test.jsx
+# indexed	compat/test/browser/portals.test.jsx
+# indexed	compat/test/browser/render.test.jsx
+# indexed	compat/test/browser/scheduler.test.js
+# indexed	compat/test/browser/select.test.jsx
+# indexed	compat/test/browser/suspense-hydration.test.jsx
+# indexed	compat/test/browser/suspense-utils.js
+# indexed	compat/test/browser/suspense.test.jsx
+# indexed	compat/test/browser/svg.test.jsx
+# indexed	compat/test/browser/testUtils.js
+# indexed	compat/test/browser/textarea.test.jsx
+# indexed	compat/test/browser/unmountComponentAtNode.test.jsx
+# indexed	compat/test/browser/unstable_batchedUpdates.test.js
+# indexed	compat/test/browser/use.test.jsx
+# indexed	compat/test/browser/useSyncExternalStore.test.jsx
+# indexed	config/compat-entries.js
+# indexed	debug/src/check-props.js
+# indexed	debug/src/component-stack.js
+# indexed	debug/src/constants.js
+# indexed	debug/src/debug.js
+# indexed	debug/src/index.js
+# indexed	debug/src/util.js
+# indexed	debug/test/browser/component-stack-2.test.jsx
+# indexed	debug/test/browser/component-stack.test.jsx
+# indexed	debug/test/browser/debug-compat.test.jsx
+# indexed	debug/test/browser/debug-hooks.test.jsx
+# indexed	debug/test/browser/debug-suspense.test.jsx
+# indexed	debug/test/browser/debug.options.test.jsx
+# indexed	debug/test/browser/debug.test.jsx
+# indexed	debug/test/browser/fakeDevTools.js
+# indexed	debug/test/browser/prop-types.test.js
+# indexed	debug/test/browser/serializeVNode.test.jsx
+# indexed	debug/test/browser/validateHookArgs.test.jsx
+# indexed	devtools/src/devtools.js
+# indexed	devtools/src/index.js
+# indexed	devtools/test/browser/addHookName.test.jsx
+# indexed	hooks/src/index.js
+# indexed	hooks/test/_util/useEffectUtil.js
+# indexed	hooks/test/browser/combinations.test.jsx
+# indexed	hooks/test/browser/componentDidCatch.test.jsx
+# indexed	hooks/test/browser/errorBoundary.test.jsx
+# indexed	hooks/test/browser/hooks.options.test.jsx
+# indexed	hooks/test/browser/useCallback.test.jsx
+# indexed	hooks/test/browser/useContext.test.jsx
+# indexed	hooks/test/browser/useDebugValue.test.jsx
+# indexed	hooks/test/browser/useEffect.test.jsx
+# indexed	hooks/test/browser/useEffectAssertions.jsx
+# indexed	hooks/test/browser/useId.test.jsx
+# indexed	hooks/test/browser/useImperativeHandle.test.jsx
+# indexed	hooks/test/browser/useLayoutEffect.test.jsx
+# indexed	hooks/test/browser/useMemo.test.jsx
+# indexed	hooks/test/browser/useReducer.test.jsx
+# indexed	hooks/test/browser/useRef.test.jsx
+# indexed	hooks/test/browser/useState.test.jsx
+# indexed	jsx-runtime/src/index.js
+# indexed	jsx-runtime/src/utils.js
+# indexed	jsx-runtime/test/browser/jsx-runtime.test.js
+# indexed	scripts/babel-plugin-fast-rest.mjs
+# indexed	scripts/build.mjs
+# indexed	src/component.js
+# indexed	src/constants.js
+# indexed	src/create-context.js
+# indexed	src/create-element.js
+# indexed	src/create-portal.js
+# indexed	src/diff/catch-error.js
+# indexed	src/diff/children.js
+# indexed	src/diff/index.js
+# indexed	src/diff/props.js
+# indexed	src/index.js
+# indexed	src/options.js
+# indexed	src/render.js
+# indexed	src/util.js
+# indexed	test-utils/src/index.js
+# indexed	test-utils/test/shared/act.test.jsx
+# indexed	test-utils/test/shared/rerender.test.jsx
+# indexed	test/_util/dom.js
+# indexed	test/_util/helpers.jsx
+# indexed	test/_util/logCall.js
+# indexed	test/_util/optionSpies.js
+# indexed	test/browser/cloneElement.test.jsx
+# indexed	test/browser/components.test.jsx
+# indexed	test/browser/context.test.jsx
+# indexed	test/browser/createContext.test.jsx
+# indexed	test/browser/customBuiltInElements.test.jsx
+# indexed	test/browser/events.test.jsx
+# indexed	test/browser/focus.test.jsx
+# indexed	test/browser/fragments.test.jsx
+# indexed	test/browser/getDomSibling.test.jsx
+# indexed	test/browser/hardened-js.test.jsx
+# indexed	test/browser/hydrate.test.jsx
+# indexed	test/browser/isValidElement.test.js
+# indexed	test/browser/keys.test.jsx
+# indexed	test/browser/lifecycles/componentDidCatch.test.jsx
+# indexed	test/browser/lifecycles/componentDidMount.test.jsx
+# indexed	test/browser/lifecycles/componentDidUpdate.test.jsx
+# indexed	test/browser/lifecycles/componentWillMount.test.jsx
+# indexed	test/browser/lifecycles/componentWillReceiveProps.test.jsx
+# indexed	test/browser/lifecycles/componentWillUnmount.test.jsx
+# indexed	test/browser/lifecycles/componentWillUpdate.test.jsx
+# indexed	test/browser/lifecycles/getDerivedStateFromError.test.jsx
+# indexed	test/browser/lifecycles/getDerivedStateFromProps.test.jsx
+# indexed	test/browser/lifecycles/getSnapshotBeforeUpdate.test.jsx
+# indexed	test/browser/lifecycles/lifecycle.test.jsx
+# indexed	test/browser/lifecycles/shouldComponentUpdate.test.jsx
+# indexed	test/browser/mathml.test.jsx
+# indexed	test/browser/placeholders.test.jsx
+# indexed	test/browser/portals.test.jsx
+# indexed	test/browser/refs.test.jsx
+# indexed	test/browser/render.test.jsx
+# indexed	test/browser/select.test.jsx
+# indexed	test/browser/signals.test.jsx
+# indexed	test/browser/spec.test.jsx
+# indexed	test/browser/style.test.jsx
+# indexed	test/browser/svg.test.jsx
+# indexed	test/browser/toChildArray.test.jsx
+# indexed	test/browser/vnode-recognition.test.jsx
+# indexed	test/fixtures/preact.js
+# indexed	test/node/index.test.js
+# indexed	test/shared/createContext.test.jsx
+# indexed	test/shared/createElement.test.jsx
+# indexed	test/shared/exports.test.js
+# indexed	test/shared/isValidElement.test.js
+# indexed	test/shared/isValidElementTests.jsx
+# indexed	vitest.config.mjs
+# indexed	vitest.setup.js
+compat/client.js	1	import	compat/src/index.js	0	module
+compat/client.mjs	1	import	compat/src/index.js	0	module
+compat/compiler-runtime.js	1	import	hooks/src/index.js	0	module
+compat/compiler-runtime.mjs	1	import	hooks/src/index.js	0	module
+compat/jsx-dev-runtime.js	1	import	compat/src/index.js	0	module
+compat/jsx-dev-runtime.js	3	import	jsx-runtime/src/index.js	0	module
+compat/jsx-dev-runtime.mjs	1	import	compat/src/index.js	0	module
+compat/jsx-dev-runtime.mjs	3	import	jsx-runtime/src/index.js	0	module
+compat/jsx-runtime.js	1	import	compat/src/index.js	0	module
+compat/jsx-runtime.js	3	import	jsx-runtime/src/index.js	0	module
+compat/jsx-runtime.mjs	1	import	compat/src/index.js	0	module
+compat/jsx-runtime.mjs	3	import	jsx-runtime/src/index.js	0	module
+compat/src/Children.js	1	import	src/index.js	0	module
+compat/src/PureComponent.js	1	import	src/index.js	0	module
+compat/src/PureComponent.js	2	import	compat/src/util.js	0	module
+compat/src/forwardRef.js	1	import	compat/src/util.js	0	module
+compat/src/hooks.js	1	import	hooks/src/index.js	0	module
+compat/src/index.js	10	import	src/index.js	0	module
+compat/src/index.js	23	import	hooks/src/index.js	0	module
+compat/src/index.js	24	import	compat/src/Children.js	0	module
+compat/src/index.js	25	import	compat/src/PureComponent.js	0	module
+compat/src/index.js	26	import	compat/src/forwardRef.js	0	module
+compat/src/index.js	33	import	compat/src/hooks.js	0	module
+compat/src/index.js	34	import	compat/src/memo.js	0	module
+compat/src/index.js	35	import	compat/src/portals.js	0	module
+compat/src/index.js	43	import	compat/src/render.js	0	module
+compat/src/index.js	44	import	compat/src/suspense.js	0	module
+compat/src/index.js	166	import	hooks/src/index.js	0	module
+compat/src/memo.js	1	import	src/index.js	0	module
+compat/src/memo.js	2	import	compat/src/util.js	0	module
+compat/src/portals.js	1	import	src/index.js	0	module
+compat/src/render.js	7	import	src/index.js	0	module
+compat/src/render.js	20	import	hooks/src/index.js	0	module
+compat/src/render.js	21	import	compat/src/index.js	0	module
+compat/src/render.js	22	import	compat/src/util.js	0	module
+compat/src/suspense.js	1	import	src/index.js	0	module
+compat/src/suspense.js	8	import	src/constants.js	0	module
+compat/src/suspense.js	9	import	hooks/src/index.js	0	module
+compat/src/suspense.js	10	import	compat/src/util.js	0	module
+compat/test-utils.js	1	import	test-utils/src/index.js	0	module
+compat/test-utils.mjs	1	import	test-utils/src/index.js	0	module
+compat/test/browser/Children.test.jsx	5	import	test/_util/helpers.jsx	0	module
+compat/test/browser/Children.test.jsx	6	import	test/_util/dom.js	0	module
+compat/test/browser/Children.test.jsx	7	import	compat/src/index.js	0	module
+compat/test/browser/PureComponent.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/PureComponent.test.jsx	2	import	test-utils/src/index.js	0	module
+compat/test/browser/PureComponent.test.jsx	3	import	test/_util/helpers.jsx	0	module
+compat/test/browser/cloneElement.test.jsx	1	import	src/index.js	0	module
+compat/test/browser/cloneElement.test.jsx	2	import	compat/src/index.js	0	module
+compat/test/browser/cloneElement.test.jsx	3	import	test/_util/helpers.jsx	0	module
+compat/test/browser/compat.options.test.jsx	1	import	test/_util/optionSpies.js	0	module
+compat/test/browser/compat.options.test.jsx	2	import	compat/src/index.js	0	module
+compat/test/browser/compat.options.test.jsx	3	import	test-utils/src/index.js	0	module
+compat/test/browser/compat.options.test.jsx	8	import	test/_util/helpers.jsx	0	module
+compat/test/browser/compiler-runtime.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/compiler-runtime.test.jsx	3	import	test-utils/src/index.js	0	module
+compat/test/browser/compiler-runtime.test.jsx	4	import	test/_util/helpers.jsx	0	module
+compat/test/browser/component.test.jsx	1	import	test-utils/src/index.js	0	module
+compat/test/browser/component.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/component.test.jsx	3	import	compat/src/index.js	0	module
+compat/test/browser/componentDidCatch.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/componentDidCatch.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/componentDidCatch.test.jsx	3	import	test-utils/src/index.js	0	module
+compat/test/browser/context.test.jsx	1	import	test-utils/src/index.js	0	module
+compat/test/browser/context.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/context.test.jsx	11	import	compat/src/index.js	0	module
+compat/test/browser/createElement.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/createElement.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/createElement.test.jsx	3	import	compat/test/browser/testUtils.js	0	module
+compat/test/browser/createFactory.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/createFactory.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/elementPropsRef.test.jsx	7	import	compat/src/index.js	0	module
+compat/test/browser/elementPropsRef.test.jsx	8	import	jsx-runtime/src/index.js	0	module
+compat/test/browser/elementPropsRef.test.jsx	9	import	test/_util/helpers.jsx	0	module
+compat/test/browser/events.test.jsx	1	import	src/index.js	0	module
+compat/test/browser/events.test.jsx	7	import	test/_util/helpers.jsx	0	module
+compat/test/browser/events.test.jsx	9	import	compat/src/index.js	0	module
+compat/test/browser/exports.test.js	1	import	compat/src/index.js	0	module
+compat/test/browser/exports.test.js	4	import	compat/src/index.js	0	module
+compat/test/browser/findDOMNode.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/findDOMNode.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/forwardRef.test.jsx	13	import	compat/src/index.js	0	module
+compat/test/browser/forwardRef.test.jsx	14	import	test/_util/helpers.jsx	0	module
+compat/test/browser/forwardRef.test.jsx	15	import	test-utils/src/index.js	0	module
+compat/test/browser/forwardRef.test.jsx	16	import	compat/test/browser/testUtils.js	0	module
+compat/test/browser/hardened-js.test.jsx	1	import	test-utils/src/index.js	0	module
+compat/test/browser/hardened-js.test.jsx	2	import	compat/src/index.js	0	module
+compat/test/browser/hardened-js.test.jsx	3	import	test/_util/helpers.jsx	0	module
+compat/test/browser/hardened-js.test.jsx	4	import	compat/test/browser/suspense-utils.js	0	module
+compat/test/browser/hooks.test.jsx	1	import	src/index.js	0	module
+compat/test/browser/hooks.test.jsx	12	import	compat/src/index.js	0	module
+compat/test/browser/hooks.test.jsx	13	import	test-utils/src/index.js	0	module
+compat/test/browser/hooks.test.jsx	14	import	test/_util/helpers.jsx	0	module
+compat/test/browser/hydrate.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/hydrate.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/isFragment.test.js	1	import	src/index.js	0	module
+compat/test/browser/isFragment.test.js	2	import	compat/src/index.js	0	module
+compat/test/browser/isMemo.test.jsx	1	import	src/index.js	0	module
+compat/test/browser/isMemo.test.jsx	2	import	compat/src/index.js	0	module
+compat/test/browser/isValidElement.test.js	1	import	src/index.js	0	module
+compat/test/browser/isValidElement.test.js	2	import	compat/src/index.js	0	module
+compat/test/browser/memo.test.jsx	1	import	test-utils/src/index.js	0	module
+compat/test/browser/memo.test.jsx	6	import	test/_util/helpers.jsx	0	module
+compat/test/browser/memo.test.jsx	13	import	compat/src/index.js	0	module
+compat/test/browser/portals.test.jsx	8	import	compat/src/index.js	0	module
+compat/test/browser/portals.test.jsx	9	import	test/_util/helpers.jsx	0	module
+compat/test/browser/portals.test.jsx	10	import	test-utils/src/index.js	0	module
+compat/test/browser/render.test.jsx	7	import	compat/src/index.js	0	module
+compat/test/browser/render.test.jsx	8	import	test-utils/src/index.js	0	module
+compat/test/browser/render.test.jsx	15	import	test/_util/helpers.jsx	0	module
+compat/test/browser/select.test.jsx	1	import	test/_util/helpers.jsx	0	module
+compat/test/browser/select.test.jsx	2	import	compat/src/index.js	0	module
+compat/test/browser/suspense-hydration.test.jsx	1	import	test-utils/src/index.js	0	module
+compat/test/browser/suspense-hydration.test.jsx	14	import	compat/src/index.js	0	module
+compat/test/browser/suspense-hydration.test.jsx	15	import	test/_util/logCall.js	0	module
+compat/test/browser/suspense-hydration.test.jsx	20	import	test/_util/helpers.jsx	0	module
+compat/test/browser/suspense-hydration.test.jsx	21	import	test/_util/dom.js	0	module
+compat/test/browser/suspense-hydration.test.jsx	22	import	compat/test/browser/suspense-utils.js	0	module
+compat/test/browser/suspense-utils.js	1	import	compat/src/index.js	0	module
+compat/test/browser/suspense.test.jsx	1	import	test-utils/src/index.js	0	module
+compat/test/browser/suspense.test.jsx	2	import	src/index.js	0	module
+compat/test/browser/suspense.test.jsx	18	import	compat/src/index.js	0	module
+compat/test/browser/suspense.test.jsx	19	import	test/_util/helpers.jsx	0	module
+compat/test/browser/suspense.test.jsx	20	import	compat/test/browser/suspense-utils.js	0	module
+compat/test/browser/svg.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/svg.test.jsx	7	import	test/_util/helpers.jsx	0	module
+compat/test/browser/textarea.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/textarea.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/textarea.test.jsx	3	import	test-utils/src/index.js	0	module
+compat/test/browser/unmountComponentAtNode.test.jsx	1	import	compat/src/index.js	0	module
+compat/test/browser/unmountComponentAtNode.test.jsx	2	import	test/_util/helpers.jsx	0	module
+compat/test/browser/unstable_batchedUpdates.test.js	1	import	compat/src/index.js	0	module
+compat/test/browser/use.test.jsx	9	import	compat/src/index.js	0	module
+compat/test/browser/use.test.jsx	10	import	test-utils/src/index.js	0	module
+compat/test/browser/use.test.jsx	11	import	test/_util/helpers.jsx	0	module
+compat/test/browser/useSyncExternalStore.test.jsx	11	import	compat/src/index.js	0	module
+compat/test/browser/useSyncExternalStore.test.jsx	13	import	test-utils/src/index.js	0	module
+compat/test/browser/useSyncExternalStore.test.jsx	14	import	test/_util/helpers.jsx	0	module
+config/compat-entries.js	5	import	-	0	external
+debug/src/component-stack.js	1	import	src/index.js	0	module
+debug/src/debug.js	1	import	debug/src/check-props.js	0	module
+debug/src/debug.js	2	import	src/index.js	0	module
+debug/src/debug.js	7	import	debug/src/constants.js	0	module
+debug/src/debug.js	13	import	debug/src/component-stack.js	0	module
+debug/src/debug.js	14	import	debug/src/util.js	0	module
+debug/src/index.js	1	import	debug/src/debug.js	0	module
+debug/src/index.js	2	import	devtools/src/index.js	0	module
+debug/src/index.js	6	import	debug/src/check-props.js	0	module
+debug/src/index.js	14	import	debug/src/component-stack.js	0	module
+debug/test/browser/component-stack-2.test.jsx	1	import	src/index.js	0	module
+debug/test/browser/component-stack-2.test.jsx	2	import	debug/src/index.js	0	module
+debug/test/browser/component-stack-2.test.jsx	3	import	test/_util/helpers.jsx	0	module
+debug/test/browser/component-stack.test.jsx	1	import	src/index.js	0	module
+debug/test/browser/component-stack.test.jsx	2	import	hooks/src/index.js	0	module
+debug/test/browser/component-stack.test.jsx	3	import	test-utils/src/index.js	0	module
+debug/test/browser/component-stack.test.jsx	4	import	debug/src/index.js	0	module
+debug/test/browser/component-stack.test.jsx	6	import	test/_util/helpers.jsx	0	module
+debug/test/browser/debug-compat.test.jsx	1	import	src/index.js	0	module
+debug/test/browser/debug-compat.test.jsx	2	import	test/_util/helpers.jsx	0	module
+debug/test/browser/debug-compat.test.jsx	4	import	debug/src/index.js	0	module
+debug/test/browser/debug-compat.test.jsx	8	import	debug/src/index.js	0	module
+debug/test/browser/debug-compat.test.jsx	9	import	compat/src/index.js	0	module
+debug/test/browser/debug-hooks.test.jsx	1	import	src/index.js	0	module
+debug/test/browser/debug-hooks.test.jsx	2	import	hooks/src/index.js	0	module
+debug/test/browser/debug-hooks.test.jsx	3	import	debug/src/index.js	0	module
+debug/test/browser/debug-hooks.test.jsx	4	import	test-utils/src/index.js	0	module
+debug/test/browser/debug-hooks.test.jsx	5	import	test/_util/helpers.jsx	0	module
+debug/test/browser/debug-suspense.test.jsx	1	import	compat/src/index.js	0	module
+debug/test/browser/debug-suspense.test.jsx	2	import	debug/src/index.js	0	module
+debug/test/browser/debug-suspense.test.jsx	3	import	test-utils/src/index.js	0	module
+debug/test/browser/debug-suspense.test.jsx	8	import	test/_util/helpers.jsx	0	module
+debug/test/browser/debug.options.test.jsx	8	import	test/_util/optionSpies.js	0	module
+debug/test/browser/debug.options.test.jsx	10	import	src/index.js	0	module
+debug/test/browser/debug.options.test.jsx	11	import	hooks/src/index.js	0	module
+debug/test/browser/debug.options.test.jsx	12	import	test-utils/src/index.js	0	module
+debug/test/browser/debug.options.test.jsx	13	import	debug/src/index.js	0	module
+debug/test/browser/debug.options.test.jsx	14	import	test/_util/helpers.jsx	0	module
+debug/test/browser/debug.test.jsx	9	import	src/index.js	0	module
+debug/test/browser/debug.test.jsx	10	import	hooks/src/index.js	0	module
+debug/test/browser/debug.test.jsx	11	import	test/_util/helpers.jsx	0	module
+debug/test/browser/debug.test.jsx	13	import	debug/src/index.js	0	module
+debug/test/browser/debug.test.jsx	14	import	test-utils/src/index.js	0	module
+debug/test/browser/prop-types.test.js	1	import	src/index.js	0	module
+debug/test/browser/prop-types.test.js	6	import	test/_util/helpers.jsx	0	module
+debug/test/browser/prop-types.test.js	8	import	debug/src/index.js	0	module
+debug/test/browser/prop-types.test.js	10	import	jsx-runtime/src/index.js	0	module
+debug/test/browser/serializeVNode.test.jsx	1	import	src/index.js	0	module
+debug/test/browser/serializeVNode.test.jsx	2	import	debug/src/debug.js	0	module
+debug/test/browser/validateHookArgs.test.jsx	1	import	src/index.js	0	module
+debug/test/browser/validateHookArgs.test.jsx	9	import	hooks/src/index.js	0	module
+debug/test/browser/validateHookArgs.test.jsx	10	import	test-utils/src/index.js	0	module
+debug/test/browser/validateHookArgs.test.jsx	11	import	test/_util/helpers.jsx	0	module
+debug/test/browser/validateHookArgs.test.jsx	12	import	debug/src/index.js	0	module
+devtools/src/devtools.js	1	import	src/index.js	0	module
+devtools/src/index.js	1	import	src/index.js	0	module
+devtools/src/index.js	2	import	devtools/src/devtools.js	0	module
+devtools/test/browser/addHookName.test.jsx	1	import	src/index.js	0	module
+devtools/test/browser/addHookName.test.jsx	2	import	test/_util/helpers.jsx	0	module
+devtools/test/browser/addHookName.test.jsx	3	import	hooks/src/index.js	0	module
+devtools/test/browser/addHookName.test.jsx	4	import	devtools/src/index.js	0	module
+hooks/src/index.js	1	import	src/index.js	0	module
+hooks/test/browser/combinations.test.jsx	1	import	test-utils/src/index.js	0	module
+hooks/test/browser/combinations.test.jsx	2	import	src/index.js	0	module
+hooks/test/browser/combinations.test.jsx	3	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/combinations.test.jsx	12	import	hooks/src/index.js	0	module
+hooks/test/browser/combinations.test.jsx	13	import	hooks/test/_util/useEffectUtil.js	0	module
+hooks/test/browser/componentDidCatch.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/componentDidCatch.test.jsx	2	import	test-utils/src/index.js	0	module
+hooks/test/browser/componentDidCatch.test.jsx	3	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/componentDidCatch.test.jsx	4	import	hooks/src/index.js	0	module
+hooks/test/browser/errorBoundary.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/errorBoundary.test.jsx	2	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/errorBoundary.test.jsx	3	import	hooks/src/index.js	0	module
+hooks/test/browser/errorBoundary.test.jsx	4	import	test-utils/src/index.js	0	module
+hooks/test/browser/hooks.options.test.jsx	6	import	test/_util/optionSpies.js	0	module
+hooks/test/browser/hooks.options.test.jsx	8	import	test-utils/src/index.js	0	module
+hooks/test/browser/hooks.options.test.jsx	9	import	src/index.js	0	module
+hooks/test/browser/hooks.options.test.jsx	10	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/hooks.options.test.jsx	22	import	hooks/src/index.js	0	module
+hooks/test/browser/useCallback.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useCallback.test.jsx	2	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useCallback.test.jsx	3	import	hooks/src/index.js	0	module
+hooks/test/browser/useContext.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useContext.test.jsx	2	import	test-utils/src/index.js	0	module
+hooks/test/browser/useContext.test.jsx	3	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useContext.test.jsx	4	import	hooks/src/index.js	0	module
+hooks/test/browser/useDebugValue.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useDebugValue.test.jsx	2	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useDebugValue.test.jsx	3	import	hooks/src/index.js	0	module
+hooks/test/browser/useEffect.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useEffect.test.jsx	2	import	hooks/src/index.js	0	module
+hooks/test/browser/useEffect.test.jsx	3	import	test-utils/src/index.js	0	module
+hooks/test/browser/useEffect.test.jsx	5	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useEffect.test.jsx	6	import	hooks/test/_util/useEffectUtil.js	0	module
+hooks/test/browser/useEffect.test.jsx	7	import	hooks/test/browser/useEffectAssertions.jsx	0	module
+hooks/test/browser/useEffectAssertions.jsx	1	import	test-utils/src/index.js	0	module
+hooks/test/browser/useEffectAssertions.jsx	2	import	src/index.js	0	module
+hooks/test/browser/useEffectAssertions.jsx	3	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useId.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useId.test.jsx	2	import	hooks/src/index.js	0	module
+hooks/test/browser/useId.test.jsx	3	import	test-utils/src/index.js	0	module
+hooks/test/browser/useId.test.jsx	5	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useImperativeHandle.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useImperativeHandle.test.jsx	2	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useImperativeHandle.test.jsx	3	import	hooks/src/index.js	0	module
+hooks/test/browser/useImperativeHandle.test.jsx	4	import	test-utils/src/index.js	0	module
+hooks/test/browser/useLayoutEffect.test.jsx	1	import	test-utils/src/index.js	0	module
+hooks/test/browser/useLayoutEffect.test.jsx	2	import	src/index.js	0	module
+hooks/test/browser/useLayoutEffect.test.jsx	7	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useLayoutEffect.test.jsx	8	import	hooks/test/browser/useEffectAssertions.jsx	0	module
+hooks/test/browser/useLayoutEffect.test.jsx	9	import	hooks/src/index.js	0	module
+hooks/test/browser/useMemo.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useMemo.test.jsx	2	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useMemo.test.jsx	3	import	hooks/src/index.js	0	module
+hooks/test/browser/useMemo.test.jsx	4	import	test-utils/src/index.js	0	module
+hooks/test/browser/useReducer.test.jsx	1	import	test-utils/src/index.js	0	module
+hooks/test/browser/useReducer.test.jsx	2	import	src/index.js	0	module
+hooks/test/browser/useReducer.test.jsx	3	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useReducer.test.jsx	4	import	hooks/src/index.js	0	module
+hooks/test/browser/useRef.test.jsx	1	import	src/index.js	0	module
+hooks/test/browser/useRef.test.jsx	2	import	test/_util/helpers.jsx	0	module
+hooks/test/browser/useRef.test.jsx	3	import	hooks/src/index.js	0	module
+hooks/test/browser/useState.test.jsx	1	import	test-utils/src/index.js	0	module
+hooks/test/browser/useState.test.jsx	2	import	src/index.js	0	module
+hooks/test/browser/useState.test.jsx	4	import	hooks/src/index.js	0	module
+hooks/test/browser/useState.test.jsx	5	import	test/_util/helpers.jsx	0	module
+jsx-runtime/src/index.js	1	import	src/index.js	0	module
+jsx-runtime/src/index.js	2	import	jsx-runtime/src/utils.js	0	module
+jsx-runtime/src/index.js	3	import	src/constants.js	0	module
+jsx-runtime/test/browser/jsx-runtime.test.js	1	import	src/index.js	0	module
+jsx-runtime/test/browser/jsx-runtime.test.js	10	import	jsx-runtime/src/index.js	0	module
+jsx-runtime/test/browser/jsx-runtime.test.js	11	import	test/_util/helpers.jsx	0	module
+jsx-runtime/test/browser/jsx-runtime.test.js	12	import	jsx-runtime/src/utils.js	0	module
+scripts/build.mjs	19	import	scripts/babel-plugin-fast-rest.mjs	0	module
+src/component.js	7	import	src/constants.js	0	module
+src/component.js	8	import	src/create-element.js	0	module
+src/component.js	9	import	src/diff/index.js	0	module
+src/component.js	10	import	src/options.js	0	module
+src/component.js	11	import	src/util.js	0	module
+src/create-context.js	1	import	src/component.js	0	module
+src/create-context.js	2	import	src/constants.js	0	module
+src/create-element.js	1	import	src/util.js	0	module
+src/create-element.js	2	import	src/options.js	0	module
+src/create-element.js	3	import	src/constants.js	0	module
+src/create-portal.js	1	import	src/create-element.js	0	module
+src/diff/catch-error.js	1	import	src/component.js	0	module
+src/diff/catch-error.js	7	import	src/constants.js	0	module
+src/diff/children.js	1	import	src/diff/index.js	0	module
+src/diff/children.js	2	import	src/create-element.js	0	module
+src/diff/children.js	13	import	src/constants.js	0	module
+src/diff/children.js	14	import	src/util.js	0	module
+src/diff/children.js	15	import	src/component.js	0	module
+src/diff/index.js	1	import	src/component.js	0	module
+src/diff/index.js	19	import	src/constants.js	0	module
+src/diff/index.js	20	import	src/create-element.js	0	module
+src/diff/index.js	21	import	src/options.js	0	module
+src/diff/index.js	22	import	src/util.js	0	module
+src/diff/index.js	23	import	src/diff/children.js	0	module
+src/diff/index.js	24	import	src/diff/props.js	0	module
+src/diff/props.js	1	import	src/constants.js	0	module
+src/diff/props.js	2	import	src/options.js	0	module
+src/index.js	1	import	src/render.js	0	module
+src/index.js	9	import	src/create-element.js	0	module
+src/index.js	10	import	src/component.js	0	module
+src/index.js	11	import	src/create-context.js	0	module
+src/index.js	12	import	src/create-portal.js	0	module
+src/index.js	13	import	src/diff/children.js	0	module
+src/index.js	14	import	src/options.js	0	module
+src/options.js	1	import	src/diff/catch-error.js	0	module
+src/render.js	1	import	src/constants.js	0	module
+src/render.js	2	import	src/diff/index.js	0	module
+src/render.js	3	import	src/create-element.js	0	module
+src/render.js	4	import	src/options.js	0	module
+src/render.js	5	import	src/util.js	0	module
+src/util.js	1	import	src/constants.js	0	module
+test-utils/src/index.js	1	import	src/index.js	0	module
+test-utils/test/shared/act.test.jsx	1	import	src/index.js	0	module
+test-utils/test/shared/act.test.jsx	2	import	hooks/src/index.js	0	module
+test-utils/test/shared/act.test.jsx	3	import	test-utils/src/index.js	0	module
+test-utils/test/shared/act.test.jsx	4	import	test/_util/helpers.jsx	0	module
+test-utils/test/shared/rerender.test.jsx	1	import	src/index.js	0	module
+test-utils/test/shared/rerender.test.jsx	2	import	test-utils/src/index.js	0	module
+test/_util/helpers.jsx	1	import	src/index.js	0	module
+test/_util/helpers.jsx	2	import	test/_util/logCall.js	0	module
+test/_util/helpers.jsx	3	import	test-utils/src/index.js	0	module
+test/_util/optionSpies.js	1	import	src/index.js	0	module
+test/browser/cloneElement.test.jsx	1	import	src/index.js	0	module
+test/browser/components.test.jsx	1	import	src/index.js	0	module
+test/browser/components.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/components.test.jsx	10	import	test/_util/helpers.jsx	0	module
+test/browser/context.test.jsx	1	import	src/index.js	0	module
+test/browser/context.test.jsx	2	import	test/_util/helpers.jsx	0	module
+test/browser/createContext.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/createContext.test.jsx	8	import	src/index.js	0	module
+test/browser/createContext.test.jsx	9	import	test/_util/helpers.jsx	0	module
+test/browser/customBuiltInElements.test.jsx	1	import	src/index.js	0	module
+test/browser/customBuiltInElements.test.jsx	2	import	test/_util/helpers.jsx	0	module
+test/browser/events.test.jsx	1	import	src/index.js	0	module
+test/browser/events.test.jsx	6	import	test/_util/helpers.jsx	0	module
+test/browser/focus.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/focus.test.jsx	2	import	src/index.js	0	module
+test/browser/focus.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/focus.test.jsx	4	import	test/_util/dom.js	0	module
+test/browser/fragments.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/fragments.test.jsx	8	import	src/index.js	0	module
+test/browser/fragments.test.jsx	9	import	test/_util/helpers.jsx	0	module
+test/browser/fragments.test.jsx	10	import	test/_util/dom.js	0	module
+test/browser/fragments.test.jsx	11	import	test/_util/logCall.js	0	module
+test/browser/getDomSibling.test.jsx	1	import	src/index.js	0	module
+test/browser/getDomSibling.test.jsx	2	import	src/component.js	0	module
+test/browser/getDomSibling.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/hardened-js.test.jsx	1	import	src/index.js	0	module
+test/browser/hardened-js.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/hardened-js.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/hydrate.test.jsx	1	import	src/index.js	0	module
+test/browser/hydrate.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/hydrate.test.jsx	10	import	test/_util/helpers.jsx	0	module
+test/browser/hydrate.test.jsx	11	import	test/_util/dom.js	0	module
+test/browser/hydrate.test.jsx	12	import	test/_util/logCall.js	0	module
+test/browser/isValidElement.test.js	1	import	src/index.js	0	module
+test/browser/isValidElement.test.js	2	import	test/shared/isValidElementTests.jsx	0	module
+test/browser/keys.test.jsx	7	import	src/index.js	0	module
+test/browser/keys.test.jsx	8	import	test-utils/src/index.js	0	module
+test/browser/keys.test.jsx	9	import	test/_util/helpers.jsx	0	module
+test/browser/keys.test.jsx	10	import	test/_util/logCall.js	0	module
+test/browser/keys.test.jsx	11	import	test/_util/dom.js	0	module
+test/browser/lifecycles/componentDidCatch.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/componentDidCatch.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/componentDidCatch.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/componentDidMount.test.jsx	1	import	src/index.js	0	module
+test/browser/lifecycles/componentDidMount.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/componentDidMount.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/componentDidUpdate.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/componentDidUpdate.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/componentDidUpdate.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/componentWillMount.test.jsx	1	import	src/index.js	0	module
+test/browser/lifecycles/componentWillMount.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/componentWillMount.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/componentWillReceiveProps.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/componentWillReceiveProps.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/componentWillReceiveProps.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/componentWillUnmount.test.jsx	1	import	src/index.js	0	module
+test/browser/lifecycles/componentWillUnmount.test.jsx	2	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/componentWillUpdate.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/componentWillUpdate.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/componentWillUpdate.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/getDerivedStateFromError.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/getDerivedStateFromError.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/getDerivedStateFromError.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/getDerivedStateFromProps.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/getDerivedStateFromProps.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/getDerivedStateFromProps.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/getSnapshotBeforeUpdate.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/getSnapshotBeforeUpdate.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/getSnapshotBeforeUpdate.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/lifecycle.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/lifecycle.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/lifecycle.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/shouldComponentUpdate.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/lifecycles/shouldComponentUpdate.test.jsx	2	import	src/index.js	0	module
+test/browser/lifecycles/shouldComponentUpdate.test.jsx	4	import	test/_util/helpers.jsx	0	module
+test/browser/lifecycles/shouldComponentUpdate.test.jsx	5	import	test/_util/logCall.js	0	module
+test/browser/mathml.test.jsx	1	import	src/index.js	0	module
+test/browser/mathml.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/mathml.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/placeholders.test.jsx	1	import	src/index.js	0	module
+test/browser/placeholders.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/placeholders.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/placeholders.test.jsx	4	import	test/_util/logCall.js	0	module
+test/browser/placeholders.test.jsx	5	import	test/_util/dom.js	0	module
+test/browser/portals.test.jsx	8	import	src/index.js	0	module
+test/browser/portals.test.jsx	9	import	test/_util/helpers.jsx	0	module
+test/browser/portals.test.jsx	10	import	test-utils/src/index.js	0	module
+test/browser/refs.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/refs.test.jsx	2	import	src/index.js	0	module
+test/browser/refs.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/render.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/render.test.jsx	2	import	src/index.js	0	module
+test/browser/render.test.jsx	13	import	test/_util/helpers.jsx	0	module
+test/browser/render.test.jsx	14	import	test/_util/logCall.js	0	module
+test/browser/select.test.jsx	1	import	src/index.js	0	module
+test/browser/select.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/select.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/signals.test.jsx	1	import	src/index.js	0	module
+test/browser/signals.test.jsx	5	import	test/_util/helpers.jsx	0	module
+test/browser/spec.test.jsx	1	import	test-utils/src/index.js	0	module
+test/browser/spec.test.jsx	2	import	src/index.js	0	module
+test/browser/spec.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/style.test.jsx	1	import	src/index.js	0	module
+test/browser/style.test.jsx	2	import	test/_util/helpers.jsx	0	module
+test/browser/svg.test.jsx	1	import	src/index.js	0	module
+test/browser/svg.test.jsx	2	import	test-utils/src/index.js	0	module
+test/browser/svg.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/browser/toChildArray.test.jsx	1	import	src/index.js	0	module
+test/browser/toChildArray.test.jsx	7	import	test/_util/helpers.jsx	0	module
+test/browser/vnode-recognition.test.jsx	1	import	src/index.js	0	module
+test/browser/vnode-recognition.test.jsx	2	import	jsx-runtime/src/index.js	0	module
+test/browser/vnode-recognition.test.jsx	3	import	test/_util/helpers.jsx	0	module
+test/shared/createContext.test.jsx	1	import	src/index.js	0	module
+test/shared/createElement.test.jsx	1	import	src/index.js	0	module
+test/shared/exports.test.js	14	import	src/index.js	0	module
+test/shared/isValidElement.test.js	1	import	src/index.js	0	module
+test/shared/isValidElement.test.js	3	import	test/shared/isValidElementTests.jsx	0	module

@@ -38,6 +38,22 @@
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ky.tsv HISTORY --language typescript --revision 3541888878c4d303a8bc2ad61815f4e048f55a5d"
     },
     {
+      "name": "preact",
+      "url": "https://github.com/preactjs/preact",
+      "commit": "1fbc07f67bd841315332cac73de8ce1ae3e8b7b5",
+      "license": "MIT",
+      "languages": [
+        "javascript"
+      ],
+      "truth": "calls/preact.tsv",
+      "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
+      "oracle_command": "git ls-files -z '*.d.ts' | xargs -0 rm && python tools/javascript_tsconfig.py . --alias preact=src/index.js --alias preact/compat=compat/src/index.js --alias preact/jsx-runtime=jsx-runtime/src/index.js --alias preact/jsx-dev-runtime=jsx-runtime/src/index.js --alias preact/debug=debug/src/index.js --alias preact/devtools=devtools/src/index.js --alias preact/hooks=hooks/src/index.js --alias preact/test-utils=test-utils/src/index.js && scip-typescript index && python tools/ground_truth.py derive . index.scip | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))' > calls.tsv",
+      "imports": "imports/preact.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language javascript | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))'",
+      "impact": "impact/preact.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip calls.tsv HISTORY --language javascript --revision 1fbc07f67bd841315332cac73de8ce1ae3e8b7b5"
+    },
+    {
       "name": "cobra",
       "url": "https://github.com/spf13/cobra",
       "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e",
@@ -53,6 +69,26 @@
       "imports_granularity": "directory",
       "impact": "impact/cobra.tsv",
       "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv"
+    },
+    {
+      "name": "chi",
+      "url": "https://github.com/go-chi/chi",
+      "commit": "c64ed7d6635f33a8b2feaff7dcfa55677023ac7d",
+      "license": "MIT",
+      "languages": [
+        "go"
+      ],
+      "exclude": [
+        "_examples/*"
+      ],
+      "truth": "calls/chi.tsv",
+      "oracle": "scip-go 0.1.26, go 1.24.7",
+      "oracle_command": "scip-go",
+      "imports": "imports/chi.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
+      "imports_granularity": "directory",
+      "impact": "impact/chi.tsv",
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/chi.tsv HISTORY --language go --revision c64ed7d6635f33a8b2feaff7dcfa55677023ac7d --spans spans.tsv"
     },
     {
       "name": "anyhow",

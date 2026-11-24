@@ -60,6 +60,68 @@
     "unresolved_expected": 76,
     "unresolved_unjudged": 363
   },
+  "chi": {
+    "by_rule": {
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 200
+      },
+      "tree-sitter.call-module-attribute": {
+        "confirmed": 74
+      },
+      "tree-sitter.call-package-name": {
+        "confirmed": 377
+      },
+      "tree-sitter.go-call-typed-receiver": {
+        "confirmed": 298
+      }
+    },
+    "confirmed": 949,
+    "contradicted": 0,
+    "expected": 1223,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 90,
+          "expected": 106
+        },
+        "2": {
+          "confirmed": 179,
+          "expected": 206
+        },
+        "3": {
+          "confirmed": 47,
+          "expected": 87
+        }
+      },
+      "confirmed": 316,
+      "expected": 399,
+      "extra": 0,
+      "missed": 83,
+      "precision": 1.0,
+      "recall": 0.792,
+      "seeds": 87,
+      "seeds_undeclared": 0
+    },
+    "imports": {
+      "confirmed": 31,
+      "contradicted": 0,
+      "expected": 31,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 276
+    },
+    "missed": 383,
+    "missed_by_engine_outcome": {
+      "no_call_site": 15,
+      "unresolved:attribute_call": 361,
+      "unresolved:no_declaration": 3,
+      "unresolved:not_declared_on_type": 4
+    },
+    "precision": 1.0,
+    "recall": 0.6868,
+    "unresolved_expected": 369,
+    "unresolved_unjudged": 2290
+  },
   "click": {
     "ambiguous_includes": 5,
     "ambiguous_no_candidates": 14,
@@ -718,6 +780,77 @@
     "unjudged": 1,
     "unresolved_expected": 9,
     "unresolved_unjudged": 11403
+  },
+  "preact": {
+    "ambiguous_no_candidates": 38,
+    "ambiguous_unjudged": 42,
+    "by_rule": {
+      "tree-sitter.call-imported-name": {
+        "confirmed": 1293,
+        "not_indexed": 2
+      },
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 737,
+        "contradicted": 6,
+        "not_indexed": 49,
+        "unjudged": 1
+      },
+      "tree-sitter.call-self-method": {
+        "confirmed": 1,
+        "not_indexed": 8
+      }
+    },
+    "confirmed": 2031,
+    "contradicted": 6,
+    "expected": 3884,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 16,
+          "expected": 24
+        },
+        "2": {
+          "confirmed": 17,
+          "expected": 24
+        },
+        "3": {
+          "confirmed": 9,
+          "expected": 25
+        }
+      },
+      "confirmed": 42,
+      "expected": 73,
+      "extra": 3,
+      "missed": 31,
+      "precision": 0.9333,
+      "recall": 0.5753,
+      "seeds": 28,
+      "seeds_undeclared": 0
+    },
+    "imports": {
+      "confirmed": 195,
+      "contradicted": 0,
+      "expected": 442,
+      "linked_unjudged": 3,
+      "not_indexed": 88,
+      "precision": 1.0,
+      "recall": 0.4412,
+      "unresolved_expected": 240,
+      "unresolved_unjudged": 106
+    },
+    "missed": 2861,
+    "missed_by_engine_outcome": {
+      "ambiguous:multiple_bindings": 38,
+      "no_call_site": 7,
+      "unresolved:imported_name_not_declared": 2812,
+      "unresolved:unbound_name": 4
+    },
+    "not_indexed": 59,
+    "precision": 0.9971,
+    "recall": 0.2634,
+    "unjudged": 1,
+    "unresolved_expected": 2824,
+    "unresolved_unjudged": 10952
   },
   "ripgrep": {
     "ambiguous_includes": 18,
