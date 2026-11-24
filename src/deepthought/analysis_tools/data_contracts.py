@@ -20,7 +20,7 @@ from .._version import __version__
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..data_contracts import extract_ddl, extract_java
 from ..engine import analyze_repository
-from ..service_contracts.spring import java_constants
+from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .components import _nearest_packages
@@ -45,8 +45,10 @@ DDL_RULE = register_rule(
         "data-contracts.sql-create-table",
         "resolved",
         "The SQL file has a CREATE TABLE statement for this table (temporary "
-        "tables excluded). Tables are told apart by their nearest package and "
-        "their case-insensitive name without schema.",
+        "tables excluded). Tables are told apart by their case-insensitive "
+        "name without schema and their namespace: the module's "
+        "spring.datasource.url when its Spring configuration fixes one "
+        "persistent database, else the nearest package.",
     )
 )
 TABLE_RULE = register_rule(
@@ -54,8 +56,8 @@ TABLE_RULE = register_rule(
         "data-contracts.jpa-table-annotation",
         "pattern_matched",
         "The class is a JPA @Entity (jakarta or javax.persistence) whose "
-        "@Table names this table; the datasource and any naming strategy "
-        "that rewrites explicit names are not read.",
+        "@Table names this table; a naming strategy that rewrites explicit "
+        "names is not read.",
     )
 )
 DEFAULT_RULE = register_rule(
@@ -68,6 +70,15 @@ DEFAULT_RULE = register_rule(
         "gives another name.",
     )
 )
+JOIN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.jpa-join-table",
+        "pattern_matched",
+        "A field or getter of the JPA @Entity carries @JoinTable or "
+        "@CollectionTable (jakarta or javax.persistence) naming this table, "
+        "which holds the entity's association or element collection.",
+    )
+)
 REPOSITORY_RULE = register_rule(
     EvidenceRule(
         "data-contracts.spring-data-repository",
@@ -78,6 +89,10 @@ REPOSITORY_RULE = register_rule(
         "called is not checked.",
     )
 )
+
+
+# JDBC URL markers of databases that live and die with one process.
+IN_MEMORY = (":mem:", ":memory:", "jdbc:derby:memory")
 
 
 def _evidence(rule):
@@ -156,7 +171,27 @@ class DataContractTool(AnalysisTool):
         packages = {c: c for c in scan.components if c.kind in PACKAGE_KINDS}
         cache = {}
 
+        config = SpringConfig(root)
+        datasources = {}
+
         def scope(path):
+            """The table namespace of a file: its module's datasource URL when
+            the Spring configuration fixes one persistent database, else its
+            nearest package."""
+            module = _module_root(root, path)
+            if module is not None:
+                if module not in datasources:
+                    urls = config.values(path, "spring.datasource.url") or []
+                    url = urls[0] if len(urls) == 1 else None
+                    datasources[module] = (
+                        url
+                        if url
+                        and "${" not in url
+                        and not any(m in url.lower() for m in IN_MEMORY)
+                        else None
+                    )
+                if datasources[module]:
+                    return "datasource:" + datasources[module]
             nearest = _nearest_packages(path, packages, cache)
             return min((c.manifest for c in nearest), default="")
 
@@ -204,7 +239,8 @@ class DataContractTool(AnalysisTool):
         # A class name mapped in two files gives no entity.
         entities = {}
         for mapping in mappings:
-            entities.setdefault(mapping.entity, []).append(mapping)
+            if mapping.member is None:
+                entities.setdefault(mapping.entity, []).append(mapping)
         resolved, counts = [], {"linked": 0, "not_an_entity": 0}
         for repository in repositories:
             target = next(
@@ -314,16 +350,25 @@ class DataContractTool(AnalysisTool):
             )
         mapped = {}
         for mapping in mappings:
-            if len(entities[mapping.entity]) != 1:
+            if len(entities.get(mapping.entity, ())) != 1:
                 continue
             target = table(mapping.file, mapping.name)
-            mapped[mapping.entity] = target
+            if mapping.member is None:
+                mapped[mapping.entity] = target
             link(
                 "MAPS_TO",
                 symbol(mapping.entity_id),
                 target,
-                TABLE_RULE if mapping.explicit else DEFAULT_RULE,
-                {"line": mapping.line, "column": mapping.column},
+                JOIN_RULE
+                if mapping.member is not None
+                else TABLE_RULE
+                if mapping.explicit
+                else DEFAULT_RULE,
+                {
+                    "line": mapping.line,
+                    "column": mapping.column,
+                    **({"member": mapping.member} if mapping.member else {}),
+                },
             )
         for repository, entity in resolved:
             source = symbol(repository.repository_id)
@@ -385,7 +430,8 @@ class DataContractTool(AnalysisTool):
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
                     "ddl_statements": len(ddl),
-                    "entities": len(mappings),
+                    "entities": len(entities),
+                    "association_tables": sum(1 for m in mappings if m.member),
                     "repositories": len(repositories),
                     "repository_resolution": counts,
                     "scope": "tables from CREATE TABLE and JPA entity mappings, "
