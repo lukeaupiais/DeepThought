@@ -412,6 +412,25 @@ api-gateway to customers-service and genai-service to vets-service, and both
 match the calling code (`CustomersServiceClient` and
 `VectorStoreController`).
 
+Code in no package (a Python service with only `requirements.txt`, a C# or
+Gradle service) counts in the Compose services and Kubernetes workloads
+whose build context, the Compose `build` or Skaffold artifact context, is
+deepest above it (`components.contract-consumer-build-context`). Copies of
+one build context deployed by several manifests are one service and never
+use each other. On GoogleCloudPlatform/microservices-demo `c7cb6d5` this
+adds 5 component pairs to the 8 between its Go and Node packages:
+loadgenerator to frontend (Locust HTTP), recommendationservice to
+productcatalogservice, checkoutservice to emailservice, and frontend to
+adservice and recommendationservice. Each one matches a gRPC stub or HTTP
+call in the consuming service. `get_component_impact` from
+productcatalogservice now lists the recommendationservice workload, and
+from the emailservice workload it lists checkoutservice. Every edge on
+those paths carries a rule ID. `get_impact` already crossed the same
+contracts at declaration level: from currencyservice's Node `convert`
+handler it reaches the `CurrencyService/Convert` method, then the Go
+`convertCurrency` callers in checkoutservice and frontend and their own
+callers.
+
 The same comparison tool checks REQUIRES against `cargo metadata
 --all-features` resolve graphs, `go mod edit -json` replacements and a Yarn
 Berry `yarn.lock`: every resolved link must be one the build tool made, and
