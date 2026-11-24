@@ -1869,7 +1869,14 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
   resolvers. A member that is a function declared in the file
   (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
-  function, anything else to the file.
+  function, anything else to the file. A field's options object is read the
+  same way whether its `subscribe` (preferred) or `resolve` option is a
+  pair, a method (`subscribe() {...}`) or a shorthand (`{me}`), and
+  `withFilter(fn, ...)` anchors to its first argument when that is a
+  function or a name of one. A shorthand member bound to an options object
+  of the same file (`const tick = {subscribe: fn}`) is followed once. A
+  function expression passed as an argument has no definition of its own,
+  so its edge stays on the file.
 - A root key bound to a name is followed: to an object literal of the same
   file (`const Query = {...}`), or to a relative module of the repository
   bound by `require` (whole, destructured or `.Name`) or `import` (default,
@@ -2322,6 +2329,23 @@ all have the configured destination. The other 5 are unread, not wrong:
 
 Samples without a `spring.application.name` are not services here and give
 nothing.
+
+A `StreamBridge.send(binding, ...)` whose binding is a parameter of a
+`private` method takes the literal value of the argument that each direct
+call in the file passes (`m(...)` or `this.m(...)`, inside lambdas too). The
+send site gets one binding per distinct value, and a caller's own parameter
+is followed the same way, at most three methods deep. The binding stays
+`binding_not_literal` when the method:
+- is not private;
+- assigns the parameter, or declares a local that shadows it;
+- is used as a method reference;
+- has an overload of another arity;
+- is never called;
+- gets any argument that is not literal.
+
+On the Packt chapters this resolves product-composite's `sendMessage("products-out-0", ...)`
+helper. With the Compose identity below, `contracts-packt-chapter07` and
+`contracts-packt-chapter23` each score 3/3 labelled links with no false ones.
 
 #### Services that Compose builds
 
