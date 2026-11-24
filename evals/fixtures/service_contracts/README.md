@@ -27,6 +27,7 @@ matcher could find.
 | grpc-java-route-guide.json | grpc/grpc-java @ 63363339259696a63ef0b33387e01b5520c5c700 (examples/src/main) | Apache-2.0 | Java | gRPC, one rpc per streaming kind |
 | grpc-node-route-guide.json | grpc/grpc-node @ ca7f83f719ba1e69ee9b832b84d5375de15eeca6 (examples; static and dynamic codegen) | Apache-2.0 | JavaScript @grpc/grpc-js, @grpc/proto-loader | gRPC, one rpc per streaming kind |
 | eshop-grpc.json | dotnet/eShop @ 669682e724306a48f6c6ec4c8afea941658bf3a7 | MIT | C# (Grpc.AspNetCore, Grpc.Net.Client) | gRPC, Basket.API server called by WebApp and the MAUI ClientApp (build_eshop_grpc.py) |
+| eshop-http.json | dotnet/eShop @ 669682e724306a48f6c6ec4c8afea941658bf3a7 | MIT | C# (ASP.NET Core minimal APIs, typed HttpClient, Aspire) | HTTP, WebApp to Catalog.API and Ordering.API, WebhookClient to Webhooks.API (build_eshop_http.py) |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).

@@ -298,6 +298,20 @@
         }
       }
     },
+    "contracts-eshop-http": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 11,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
     "contracts-graphql-apollo-fullstack-tutorial": {
       "graphql": {
         "call_sites": {
