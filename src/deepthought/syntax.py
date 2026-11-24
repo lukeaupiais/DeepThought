@@ -235,6 +235,8 @@ def extract(
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
                 arity = {"macro_export": _rust_macro_export(node)}
+            elif node.type == "function_definition" and _python_overload(node, content):
+                arity = {"overload": True}
             definition = Definition(
                 id=identifier(repository_id, file, symbol, kind, ordinal),
                 file=file,
@@ -934,6 +936,28 @@ def extract_php(
             continue
         stack.extend((c, scope, in_type) for c in reversed(node.named_children))
     return found
+
+
+# `@overload`, `@typing.overload` and the usual module aliases.
+_PYTHON_OVERLOADS = {
+    "overload",
+    "typing.overload",
+    "t.overload",
+    "typing_extensions.overload",
+}
+
+
+def _python_overload(node, content) -> bool:
+    """Whether a Python function is a ``typing.overload`` signature, which
+    declares a call form and is not the function that runs."""
+    parent = node.parent
+    if parent is None or parent.type != "decorated_definition":
+        return False
+    return any(
+        child.type == "decorator"
+        and _text(child, content).lstrip("@").strip() in _PYTHON_OVERLOADS
+        for child in parent.children
+    )
 
 
 def _rust_macro_export(node):
