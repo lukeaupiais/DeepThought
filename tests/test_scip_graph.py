@@ -270,7 +270,8 @@ class ScipGraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(evidence is not None for _, evidence, _ in rows))
         self.assertIn(("REFERENCES", "resolved", True), rows)
         self.assertIn(("DEPENDS_ON", "resolved", True), rows)
-        self.assertTrue(all(not scip for (kind, _, scip) in rows if kind == "CALLS"))
+        # Call sites bind through the index the tree-sitter run made itself.
+        self.assertIn(("CALLS", "resolved", True), rows)
 
 
 @unittest.skipUnless(

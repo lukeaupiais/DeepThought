@@ -464,7 +464,9 @@ def run_indexer(
     before = capture_inputs(root, spec, excluded=(output, receipt_path))
     with tempfile.TemporaryDirectory(prefix="deepthought-scip-") as scratch:
         temporary = Path(scratch) / "index.scip"
-        argv, cwd = _arguments(spec, root, temporary, project_name or root.name)
+        # The workspace's own name would put where it was checked out into
+        # every symbol, so the default project name is fixed.
+        argv, cwd = _arguments(spec, root, temporary, project_name or "workspace")
         cwd = base
         project = None
         if files is not None and spec.name == "scip-typescript":
@@ -534,6 +536,10 @@ def run_indexer(
         ]
         for document in outside + other:
             parsed.documents.remove(document)
+        # The indexers record the workspace's absolute URI; documents are
+        # relative to it, and nothing reads it, so it is fixed to keep the
+        # index the same wherever the workspace lives.
+        parsed.metadata.project_root = "file:///workspace"
         data = canonical_bytes(parsed)
         produced = (parsed.metadata.tool_info.name, parsed.metadata.tool_info.version)
         if produced != (spec.name, spec.version):
@@ -935,6 +941,65 @@ def ingest_indexed(report, repository_id, workspace=None):
             )
         )
     return sources
+
+
+class IndexerFailure(ValueError):
+    """An indexer was missing, failed or wrong: the analysis must not go on.
+    ``report`` is the ``index_workspace`` report, cut to the analyzed files."""
+
+    def __init__(self, report, failed):
+        super().__init__(
+            f"{len(failed)} source files have no SCIP index because an indexer "
+            "is missing or failed; install the pinned indexers "
+            "(deepthought indexers lists them)"
+        )
+        self.report = report
+        self.failed = failed
+
+
+def index_for_analysis(
+    workspace,
+    output_directory,
+    *,
+    repository_id,
+    languages=None,
+    include=None,
+    exclude=None,
+    environ=None,
+):
+    """Run the pinned indexers for one analysis and ingest what they wrote.
+
+    Returns the ``index_workspace`` report, its coverage cut to the files the
+    analysis reads (``include``/``exclude`` glob patterns), and the ingested
+    indexes paired with their receipt digests; ``(None, [])`` when no
+    requested language has an indexer. Raises ``IndexerFailure`` when an
+    indexer is missing, failed or wrong. A file no compiler can index keeps an
+    uncovered entry with its reason and the parser's call rules."""
+    from fnmatch import fnmatchcase
+
+    requested = LANGUAGE_INDEXERS if languages is None else languages
+    chosen = tuple(sorted(set(requested) & set(LANGUAGE_INDEXERS)))
+    if not chosen:
+        return None, []
+    report = index_workspace(
+        workspace, output_directory, languages=chosen, environ=environ
+    )
+
+    def analyzed(path):
+        return any(
+            fnmatchcase(path, pattern) for pattern in include or ("*",)
+        ) and not any(fnmatchcase(path, pattern) for pattern in exclude or ())
+
+    report["coverage"] = {
+        path: entry for path, entry in report["coverage"].items() if analyzed(path)
+    }
+    report["uncovered"] = sum(
+        1 for entry in report["coverage"].values() if entry["status"] != "covered"
+    )
+    failed = failed_files(report)
+    if failed:
+        raise IndexerFailure(report, failed)
+    return report, ingest_indexed(report, repository_id, workspace)
 
 
 def requirements(environ=None):

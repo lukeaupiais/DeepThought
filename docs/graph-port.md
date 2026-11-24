@@ -177,8 +177,16 @@ rule. Snapshots written before this change have no such nodes and answer
 callback, dynamic dispatch) are not counted.
 
 Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
-covers are bound from the index (`deepthought.scip_calls.bind_calls`;
-`TreeSitterTool.analyze(..., scip_indexes=[(ingested index, receipt digest)])`).
+covers are bound from the index (`deepthought.scip_calls.bind_calls`).
+`TreeSitterTool.analyze` runs the pinned indexers itself
+(`deepthought.indexers.index_for_analysis`) into a scratch directory, so every
+caller (the graph import, evaluation, `tools/check_impact.py`,
+`tools/check_determinism.py`) binds through them, and a missing or failing
+indexer raises `IndexerFailure`; the report is kept on `last_scip_report`. A
+caller that already ran them passes
+`scip_indexes=[(ingested index, receipt digest)]` instead. Indexes do not
+depend on where the workspace lives: the default scip-python project name is
+`workspace` and the index's `project_root` is fixed to `file:///workspace`.
 Each call site records where the last name of its callee starts
 (`callee_at`); the SCIP reference there names a symbol, and the symbol's SCIP
 definition is read back to the innermost parsed declaration whose span holds it
