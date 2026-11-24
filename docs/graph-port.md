@@ -2025,8 +2025,8 @@ version 7 or later, `interfaceOnly` true and no `delegatePattern`, every
 operation of the `inputSpec` file (OpenAPI 3 or Swagger 2, YAML or JSON) is
 read as a method of a generated interface:
 
-- the interface is `apiPackage.<apiNamePrefix><Group><apiNameSuffix>`, once
-  per group, where the groups are the operation's tags with `useTags`
+- the interface is `apiPackage.<Group><apiNameSuffix>`, once
+  per group (Spring's `toApiName` takes no `apiNamePrefix`), where the groups are the operation's tags with `useTags`
   (`default` when it has none) and its first path segment without it, as
   the generator's `addOperationToGroup` does;
 - the method is the `operationId` with a lower-case first letter.
@@ -2115,8 +2115,7 @@ The `REQUESTS` edge carries `declared_in` and one of
 also state the generated-client step. Libraries such as `rest-assured`,
 `retrofit2`, `vertx` and `microprofile` are unread as
 `openapi:client_library`, older plugins as `openapi:generator_version`, and
-an unreadable configuration file as `openapi:config_not_read`. Spring
-`spring-cloud` (Feign) clients are not read yet.
+an unreadable configuration file as `openapi:config_not_read`.
 
 Results on three repositories:
 
@@ -2127,6 +2126,30 @@ Results on three repositories:
 | openapi-generator-maven-plugin-demo (`7a86bda`) | 1 of 1 | Linked to the right operation, using library `feign` from the configurationFile and the default apiPackage |
 
 No link is wrong. spring-petclinic-rest still gives 36 routes.
+
+#### Generated Feign clients
+
+An execution with generator `spring`, library `spring-cloud`, plugin version
+7 or later and `interfaceOnly` false generates, per group (as for Spring
+servers), the interface `apiPackage.<Group><apiNameSuffix>` and the Feign
+client `<that name>Client` that extends it (`SpringCodegen` and
+`spring-cloud/apiClient.mustache`, checked at v7.4.0 and v7.16.0). A call of
+`<operation>` on a name declared once in the file with the client as its
+type is an `HttpRequest` with client `openapi-spring-cloud` and the spec
+location as `declared_in`. The client's `@FeignClient` URL is the
+`<api var>.url` property with the server URL as its default, or service
+discovery by the `<api var>.name` property without `useFeignClientUrl`. Both
+are run-time settings, so the base is unknown and only the path is matched.
+The `REQUESTS` edge carries `service-contracts.openapi-feign-client-path` or
+`openapi-feign-client-gateway` (pattern_matched). With `interfaceOnly` no
+client is generated (`openapi:client_not_generated`). Calls on the plain
+interface type are not read, because a server may implement it too.
+
+| Repository | Call sites in main code | Outcome |
+|---|---|---|
+| TPE-TicketYa (`cdf3173`, 6 services, plugin 7.16) | 7 | 7 linked, each to the controller method of the operation (precision 7/7, recall 7/7) |
+| oficina-agua-pagos (`0040a10`, plugin 7.21) | 2 | 2 requests found, unresolved: the bank and ERP servers are JSON mock definitions, not code in the repository |
+| cf-kaizen (`449d8d0`, plugin 7.18) | 3 | Not read: the spec's operations have no `operationId` (`openapi:operation_id`, 63) |
 
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The
