@@ -95,6 +95,7 @@ from ..service_contracts.web import (
     compose_python_prefixes,
     express_routers,
     extract_web,
+    go_router_calls,
     nest_settings,
     python_routers,
 )
@@ -1279,10 +1280,24 @@ _MANIFESTS = (
 )
 
 
-def _projects(root):
+def _projects(root, sources=()):
     """file -> the nearest directory above it with a build manifest (or a
-    .csproj), "." when there is none."""
+    .csproj); None when there is none, or when it is a Go module holding
+    more than one ``package main`` directory (several programs, so which
+    one a file belongs to is not known)."""
     cache = {}
+    programs = {
+        PurePosixPath(c.file).parent
+        for c, content, _ in sources
+        if c.language == "go" and re.search(rb"^package main\b", content, re.M)
+    }
+
+    def several_programs(key, directory):
+        if not (directory / "go.mod").is_file():
+            return False
+        base = PurePosixPath(key)
+        inside = [p for p in programs if key == "." or p == base or base in p.parents]
+        return len(inside) > 1
 
     def project(file):
         path = PurePosixPath(file).parent
@@ -1297,10 +1312,10 @@ def _projects(root):
             if any((directory / m).is_file() for m in _MANIFESTS) or any(
                 directory.glob("*.csproj")
             ):
-                found = key
+                found = None if several_programs(key, directory) else key
                 break
             if path == path.parent:
-                found = "."
+                found = None
                 break
             path = path.parent
         for key in seen:
@@ -1465,6 +1480,74 @@ def _symfony_scoped_clients(root, project, cache):
                 else ""
             )
     return found
+
+
+def _go_modules(root, sources):
+    """{module path: directory} of the go.mod files above the Go sources."""
+    found = {}
+    directories = {
+        PurePosixPath(c.file).parent for c, _, _ in sources if c.language == "go"
+    }
+    for directory in directories:
+        for path in (directory, *directory.parents):
+            manifest = root / path / "go.mod"
+            if not manifest.is_file():
+                continue
+            try:
+                head = manifest.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                break
+            match = re.search(r"^module\s+(\S+)", head, re.MULTILINE)
+            if match:
+                found[match.group(1)] = (
+                    "" if path.as_posix() == "." else path.as_posix()
+                )
+            break
+    return found
+
+
+def _go_router_mounts(root, sources):
+    """{package directory: {(function, parameter index): prefixes}}: the Gin
+    and Echo routers each function's router parameters receive from calls
+    in the repository, followed through up to four levels of such calls."""
+    modules = _go_modules(root, sources)
+    files = [
+        (c.file, content, tree)
+        for c, content, tree in sources
+        if c.language == "go"
+        and (b"gin-gonic/gin" in content or b"labstack/echo" in content)
+    ]
+
+    def directory(file, callee):
+        package, name = callee
+        if not package:
+            return PurePosixPath(file).parent.as_posix(), name
+        for module, folder in modules.items():
+            if package == module or package.startswith(module + "/"):
+                rest = package[len(module) :].lstrip("/")
+                joined = PurePosixPath(folder or ".") / rest if rest else folder
+                return PurePosixPath(joined or ".").as_posix(), name
+        return None
+
+    mounts = {}
+    for _ in range(4):
+        found = {}
+        for file, content, tree in files:
+            own = mounts.get(PurePosixPath(file).parent.as_posix())
+            for callee, index, prefixes in go_router_calls(tree, content, own):
+                target = directory(file, callee)
+                if target is None:
+                    continue
+                key = (target[1], index)
+                found.setdefault(target[0], {}).setdefault(key, set()).update(prefixes)
+        found = {
+            d: {k: tuple(sorted(v)) for k, v in keys.items()}
+            for d, keys in found.items()
+        }
+        if found == mounts:
+            break
+        mounts = found
+    return mounts
 
 
 def _php_wrapper_calls(sources):
@@ -1794,6 +1877,7 @@ class ServiceContractTool(AnalysisTool):
         composer = {}
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
+        go_mounts = _go_router_mounts(root, sources)
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
@@ -1888,7 +1972,9 @@ class ServiceContractTool(AnalysisTool):
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
-                    mounts=python_mounts.get(coverage.file),
+                    mounts=python_mounts.get(coverage.file)
+                    if coverage.language != "go"
+                    else go_mounts.get(coverage.file.rpartition("/")[0] or "."),
                     externals=(
                         scripts.externals(coverage.file)
                         if scripts is not None
@@ -2054,7 +2140,7 @@ class ServiceContractTool(AnalysisTool):
         deployments = Deployments(deployed_units(root))
         routes, requests = _deployed(root, deployments, routes, requests)
         resolutions = contract_rules.resolve_requests(
-            routes, requests, gateways, deployments.hosts(), _projects(root)
+            routes, requests, gateways, deployments.hosts(), _projects(root, sources)
         )
         self.last_facts = (result, routes, requests, unread, resolutions)
         grpc = grpc_contracts.collect(
