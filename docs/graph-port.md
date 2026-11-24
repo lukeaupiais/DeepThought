@@ -1257,6 +1257,19 @@ a receiver that is `self`, a name or a field of one is recorded as
 `a().b()`, `<T as Trait>::f`) and macro invocations are not call sites. Calls
 inside item macro bodies are read as other calls are.
 
+The arguments of a standard macro whose arguments are expressions (`assert!`,
+`assert_eq!`, `assert_ne!`, their `debug_` forms, `dbg!`, `format!`,
+`format_args!`, `print!`, `println!`, `eprint!`, `eprintln!`, `write!`,
+`writeln!`, `panic!`, `todo!`, `unimplemented!`, `unreachable!` and `vec!`),
+invoked by its name or through `std::`, `core::` or `alloc::`, are read as
+expressions: the invocation's token tree is split on its top-level commas and
+each argument is parsed on its own, in place, so its calls are call sites
+like any other. Declarations around the invocation type receivers in it as
+they would outside. An argument that does not parse as an expression is
+skipped. `matches!` (a pattern argument), other macros, a macro of the same
+name under another path, and an invocation with no `;` after it in the file
+(the last tail expression of a file) are not read.
+
 A call is resolved as a use path would be, from the caller's module, after
 the names the function bodies around it bind:
 
