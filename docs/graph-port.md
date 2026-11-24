@@ -753,7 +753,26 @@ read, so their methods stay unresolved.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity`.
+none is `no_matching_arity`. When several are left, the argument types the
+call writes choose among them as javac does (JLS 15.12.2). An argument's type
+is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
+`long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
+`(T) e`, or a variable whose declaration writes its type (as for
+`receiver_type` below); `CallSite.argument_types` records them. The phases
+are tried in order: without boxing, with boxing, then variable arity. In the
+first phase where some method applies, the most specific one is linked:
+each of its parameter types is a subtype of the other's. Subtypes are known
+for repository types through their declared bases, for primitives by
+widening, and for the `java.lang` types a literal or boxing gives (`String`,
+`Class`, the box types), which are listed with every supertype. A type outside
+the repository has no other known supertype than `Object`, and a type
+parameter has no known bound, so a check against either is unknown. An
+unknown argument or check makes a method possibly applicable, and the call is
+linked only when the choice holds for every outcome of the unknown checks:
+one method possible from that phase on, or a method that applies and is more
+specific than every other possible one. A `private` method is not a
+candidate outside the top-level class that declares it. Otherwise the call
+stays ambiguous among the arity candidates.
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
@@ -1840,6 +1859,52 @@ of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
 
+### WebSocket endpoints
+
+A WebSocket connection opens with an HTTP GET handshake. Each endpoint is
+read as the `HttpRoute` of that handshake (`methods` GET), so clients are
+linked by the usual HTTP resolution:
+
+- **Spring.** In a method with a `StompEndpointRegistry` or
+  `WebSocketHandlerRegistry` parameter (from
+  `org.springframework.web.socket.config.annotation`), each literal path
+  given to `addEndpoint(...)` or to `addHandler(handler, ...)` on that
+  parameter is a route under the servlet context path, handled by the method
+  (framework `spring-websocket`, rule `service-contracts.spring-websocket-endpoint`).
+  SockJS fallback paths below the endpoint are not listed.
+- **Jakarta / javax.** A class with `@ServerEndpoint` from
+  `jakarta.websocket.server` or `javax.websocket.server` and a literal path is
+  a route handled by the class (framework `jakarta-websocket`, rule
+  `service-contracts.jakarta-websocket-endpoint`). Only a Spring module's
+  context path is joined.
+- **Clients.** In JavaScript and TypeScript, `new WebSocket(url)` and
+  `new SockJS(url)` are GET requests (client `websocket` or `sockjs`). The
+  constructor is the browser's global when the file does not import it.
+  Under any local name, it may also come from `ws`, `isomorphic-ws` or
+  `sockjs-client`; a constructor imported from another module is not read.
+  `ws://` and `wss://` URLs are read like `http://` ones. A relative URL is
+  read against the site root.
+
+A path that is not literal is `route:path_not_literal`. Scripts inside HTML
+pages and `.vue` files are not parsed, so clients written there are not
+found.
+
+Results on 15 repositories (13 cloned for this slice, plus the
+apssouza22/java-microservice corpus):
+
+| Repository | Server endpoints | Clients in parsed JS/TS | Outcome |
+|---|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 1 (`/wchess`) | 1 literal | Linked to the endpoint |
+| camunda-community-hub/zeebe-simple-monitor `0f80785`, zeebe-simple-tasklist `e24fddb` | 1 each | 1 each, `base_path + 'notifications'` | Unresolved: the base comes from the page template |
+| manusa/yakd `203f051` | 1 (`/api/v1/pods/{namespace}/{name}/exec/{container}`) | 1, `${getWsUrl()}/pods/...` | Unresolved: the unknown base holds `/api/v1` |
+| CodeDefenders `135180c`, m-reza-rahman/jakartaee-javascript `9ae218e` | 1 each | 1 each, URL from a field or constant built at run time | Unresolved |
+| ocinpp/springboot-sockjs-stomp-vue-sample, ygunayer/realtime-messaging, ben-rampel/Poker, leansd/cotrip, LianTianNo1/wiki_vue3, zhaxal/java-chess (2), cryostatio/cryostat, apssouza22/java-microservice | 9 | Clients in HTML or `.vue`, or none | Endpoints found; the cotrip path comes from a constant |
+| MicroIoT/iotplatform `8fa6874` | path from configuration | none | `path_not_literal` |
+
+All 15 literal endpoints are found, and the one literal client URL is
+linked to the right endpoint. No link is wrong. On the other corpora, the
+only new edge is apssouza22's `/socket-todos` endpoint.
+
 ### GraphQL root fields
 
 Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL
@@ -2268,6 +2333,50 @@ when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
 destination with unknown text is counted as unread.
+
+### STOMP destinations
+
+STOMP over WebSocket is read as messaging with broker `stomp`. A destination
+is the full STOMP destination a client names, and publishers and consumers
+meet at the `MessageDestination` of the same name:
+
+- **Consumers (Spring).** A method with `@MessageMapping` (from
+  `org.springframework.messaging.handler.annotation`) consumes each literal
+  path. The path is joined with the class's `@MessageMapping` path as
+  `AntPathMatcher.combine` joins slash paths, then put under each prefix that
+  the module's `MessageBrokerRegistry.setApplicationDestinationPrefixes`
+  sets (rule `service-contracts.spring-stomp-message-mapping`). A module that
+  sets no prefix uses the path itself. When the prefixes are not literal or
+  are set in more than one file, the mapping is `consume:application_prefix`.
+  A path that does not start with a slash is `consume:destination_not_literal`.
+- **Publishers (Spring).** `@SendTo` destinations, `@SubscribeMapping`
+  methods (they answer a subscription to the prefixed path), and
+  `convertAndSend(destination, ...)` on a name declared only as
+  `SimpMessagingTemplate`, `SimpMessageSendingOperations` or
+  `SimpMessageOperations` (rule `service-contracts.spring-stomp-send`).
+  `@SendToUser` and `convertAndSendToUser` are `publish:user_destination`. A
+  `@MessageMapping` method's default reply destination, used without
+  `@SendTo`, is not read.
+- **Clients (JavaScript/TypeScript).** These calls name a destination: `send`
+  and `subscribe` with a destination first, and `publish({destination})`.
+  The call must be on a name that every assignment in the file binds to
+  `Stomp.over`, `Stomp.client`, `webstomp.over`/`webstomp.client` or a
+  `@stomp/stompjs` `Client`, or on AngularJS ngStomp's `$stomp` (rules
+  `service-contracts.stompjs-send` and `stompjs-subscribe`).
+
+Destination patterns with `{variables}` are kept as written. A client
+destination with unknown text is not read, so it never meets them.
+
+| Repository | Literal STOMP sites | Outcome |
+|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 14 server mappings (2 prefixes), 10 client sends and subscribes | 9 of the 10 client sites meet their handler or publisher. The 10th subscribes to `/user/queue/chesslobby`, whose publisher is a `convertAndSendToUser` (unread). The 7 client sites built from variables are unread |
+| ben-rampel/Poker `025a147` | 1 mapping, 1 ngStomp send | Linked. The topic is built from a variable on both sides, so it is unread |
+| leansd/cotrip, ygunayer/realtime-messaging | 1 mapping + 1 `@SendTo` each | Found; the clients are in HTML |
+| ocinpp/springboot-sockjs-stomp-vue-sample | 2 `convertAndSend` | Found; the client is in HTML |
+| apssouza22/java-microservice (corpus) | 1 mapping, 1 `@SendTo`, 1 `convertAndSend` | Found; its messaging ground-truth score is unchanged |
+
+No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
+change.
 
 ### Spring Cloud Stream
 

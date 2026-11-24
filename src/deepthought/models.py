@@ -243,6 +243,12 @@ class CallSite:
     coordinate_encoding: str = "utf-8"
     # Java calls: the number of arguments written. None elsewhere.
     arguments: int | None = None
+    # Java calls with arguments: the static type of each argument where it
+    # is written in it (``String`` for a string literal, ``int``, ``Class``
+    # for a class literal, ``Foo`` for ``new Foo()``, ``(Foo) e`` or a
+    # variable declared ``Foo``, ``null``), None for any other argument.
+    # None when no argument's type is written.
+    argument_types: tuple[str | None, ...] | None = None
     # Java calls inside anonymous class bodies (an enum constant's body too):
     # (base type name as written, symbol of the scope the class body's
     # methods are named in, first line, last line) for each such class around
@@ -293,6 +299,15 @@ class CallSite:
             raise ValueError("receiver_steps must be nonempty strings after a type")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
+        if self.argument_types is not None and (
+            type(self.argument_types) is not tuple
+            or len(self.argument_types) != self.arguments
+            or all(t is None for t in self.argument_types)
+            or not all(
+                t is None or (isinstance(t, str) and t) for t in self.argument_types
+            )
+        ):
+            raise ValueError("argument_types must give a type for some argument")
         if self.arguments is not None and (
             type(self.arguments) is not int or self.arguments < 0
         ):
@@ -598,6 +613,8 @@ class AnalysisResult:
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
+            if item["argument_types"] is None:
+                del item["argument_types"]
             if item["anonymous"] is None:
                 del item["anonymous"]
             if item["shadowed"] is None:
@@ -680,6 +697,11 @@ class AnalysisResult:
                 CallSite(
                     **{
                         **item,
+                        **(
+                            {"argument_types": tuple(item["argument_types"])}
+                            if isinstance(item.get("argument_types"), list)
+                            else {}
+                        ),
                         **(
                             {"anonymous": tuple(map(tuple, item["anonymous"]))}
                             if isinstance(item.get("anonymous"), list)

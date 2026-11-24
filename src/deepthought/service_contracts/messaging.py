@@ -13,6 +13,13 @@ as every broker binds each queue to it, and what is published to ``x`` with
 key ``k`` for each ``QueueBind(q, k, x)`` in the same file. Only exact keys
 are read: a binding key with ``*`` or ``#`` (a topic exchange pattern) is
 recorded as unread. Destinations with unknown text are not read.
+
+STOMP (WebSocket messaging): Spring ``@MessageMapping`` methods consume
+``<application prefix><path>``, ``@SendTo``, ``@SubscribeMapping`` and
+``SimpMessagingTemplate.convertAndSend`` publish, and JavaScript STOMP clients
+(``Stomp.over``/``Stomp.client``, webstomp, ``@stomp/stompjs`` ``Client``,
+AngularJS ngStomp ``$stomp``)
+``send``/``publish`` and ``subscribe``. The broker is ``stomp``.
 """
 
 from dataclasses import dataclass
@@ -22,7 +29,7 @@ from ..syntax import identifier
 from .folding import Folder, text
 from .http import PLACEHOLDER
 from .spring import _Imports, _annotations, _arguments, _Values
-from .web import _go_imports, _python_imports
+from .web import _go_imports, _js_modules, _js_object, _python_imports
 
 
 @dataclass(frozen=True)
@@ -185,7 +192,177 @@ _KAFKA_LISTENER = ("org.springframework.kafka.annotation",)
 _RABBIT_LISTENER = ("org.springframework.amqp.rabbit.annotation",)
 
 
-def extract_java(sites, constants=None, template_exchange=None):
+_STOMP_HANDLER = ("org.springframework.messaging.handler.annotation",)
+_STOMP_SIMP = ("org.springframework.messaging.simp.annotation",)
+_STOMP_CONFIG = ("org.springframework.messaging.simp.config",)
+_STOMP_TEMPLATES = {
+    "SimpMessagingTemplate",
+    "SimpMessageSendingOperations",
+    "SimpMessageOperations",
+}
+
+
+def stomp_prefixes(tree, content, constants=None):
+    """The application destination prefixes a file sets: None without a
+    ``setApplicationDestinationPrefixes`` call on a MessageBrokerRegistry
+    parameter, a list of prefixes (PLACEHOLDER marks one not fixed) with it."""
+    root = tree.root_node
+    imports = _Imports(root, content)
+    values = _Values(root, content, constants, imports)
+    found = None
+    for node in _walk(root):
+        if node.type != "method_declaration":
+            continue
+        parameters = node.child_by_field_name("parameters")
+        registries = {
+            text(p.child_by_field_name("name"), content)
+            for p in (parameters.named_children if parameters else ())
+            if p.child_by_field_name("type") is not None
+            and imports.spring_name(
+                text(p.child_by_field_name("type"), content), _STOMP_CONFIG
+            )
+            == "MessageBrokerRegistry"
+        }
+        for call in _walk(node):
+            if call.type != "method_invocation" or not registries:
+                continue
+            target = call.child_by_field_name("object")
+            if (
+                target is None
+                or text(target, content) not in registries
+                or text(call.child_by_field_name("name"), content)
+                != "setApplicationDestinationPrefixes"
+            ):
+                continue
+            found = (found or []) + [
+                values.evaluate(a)
+                for a in call.child_by_field_name("arguments").named_children
+                if a.type not in ("line_comment", "block_comment")
+            ]
+    return found
+
+
+def _stomp_path(prefix, path):
+    """A mapping path joined to a type-level one, as AntPathMatcher.combine
+    does for paths with slashes; None when it does not start with one."""
+    joined = prefix.rstrip("/") + "/" + path.lstrip("/") if prefix else path
+    return joined if joined.startswith("/") else None
+
+
+def _extract_stomp(sites, imports, values, application_prefixes):
+    """STOMP destinations of Spring message-handling methods and of
+    SimpMessagingTemplate sends."""
+    content, root = sites.content, sites.root
+
+    def strings(annotation):
+        found = _arguments(annotation)
+        node = found.get("value", found.get("destination"))
+        return values.strings(node) if node is not None else []
+
+    for declaration in _walk(root):
+        if declaration.type != "class_declaration":
+            continue
+        type_paths = [""]
+        for written, annotation in _annotations(declaration, content):
+            if imports.spring_name(written, _STOMP_HANDLER) == "MessageMapping":
+                type_paths = strings(annotation) or [""]
+        body = declaration.child_by_field_name("body")
+        for node in body.named_children if body is not None else ():
+            if node.type != "method_declaration":
+                continue
+            handler = sites.declaration(node, exact=True)
+            line = node.start_point.row + 1
+            incoming, outgoing = [], []
+            for written, annotation in _annotations(node, content):
+                name = imports.spring_name(written, _STOMP_HANDLER) or (
+                    imports.spring_name(written, _STOMP_SIMP)
+                )
+                if name in ("MessageMapping", "SubscribeMapping"):
+                    paths = strings(annotation)
+                    if not paths:
+                        sites.unread.append(
+                            MessageUnread(sites.file, line, "consume", "no_destination")
+                        )
+                    incoming.extend((name, annotation, p) for p in paths)
+                elif name == "SendTo":
+                    outgoing.append((annotation, strings(annotation)))
+                elif name == "SendToUser":
+                    sites.unread.append(
+                        MessageUnread(sites.file, line, "publish", "user_destination")
+                    )
+            if not incoming:
+                continue
+            if application_prefixes is None:
+                sites.unread.append(
+                    MessageUnread(sites.file, line, "consume", "application_prefix")
+                )
+                continue
+            for name, annotation, path in incoming:
+                for type_path in type_paths:
+                    joined = _stomp_path(type_path, path)
+                    if joined is None or PLACEHOLDER in type_path + path:
+                        sites.unread.append(
+                            MessageUnread(
+                                sites.file, line, "consume", "destination_not_literal"
+                            )
+                        )
+                        continue
+                    for prefix in application_prefixes:
+                        destination = prefix.rstrip("/") + joined
+                        # A subscription is answered by the method's return.
+                        role = "publish" if name == "SubscribeMapping" else "consume"
+                        sites.add(
+                            annotation,
+                            role,
+                            "stomp",
+                            destination,
+                            "spring-stomp",
+                            handler,
+                        )
+            for annotation, destinations in outgoing:
+                if not destinations:
+                    sites.unread.append(
+                        MessageUnread(sites.file, line, "publish", "default_send_to")
+                    )
+                for destination in destinations:
+                    sites.add(
+                        annotation,
+                        "publish",
+                        "stomp",
+                        destination,
+                        "spring-stomp",
+                        handler,
+                    )
+    templates = _typed_names(root, content, imports, _STOMP_TEMPLATES)
+    for node in _walk(root):
+        if node.type != "method_invocation":
+            continue
+        receiver = node.child_by_field_name("object")
+        if receiver is None or receiver.type not in ("identifier", "field_access"):
+            continue
+        if text(receiver, content).removeprefix("this.") not in templates:
+            continue
+        name = text(node.child_by_field_name("name"), content)
+        arguments = [
+            c
+            for c in node.child_by_field_name("arguments").named_children
+            if c.type not in ("line_comment", "block_comment")
+        ]
+        if name == "convertAndSendToUser":
+            sites.unread.append(
+                MessageUnread(
+                    sites.file, node.start_point.row + 1, "publish", "user_destination"
+                )
+            )
+        elif name in ("convertAndSend", "send") and len(arguments) >= 2:
+            sites.add(
+                node, "publish", "stomp", values.evaluate(arguments[0]), "spring-stomp"
+            )
+
+
+def extract_java(
+    sites, constants=None, template_exchange=None, application_prefixes=None
+):
     content, root = sites.content, sites.root
     imports = _Imports(root, content)
     values = _Values(root, content, constants, imports)
@@ -193,6 +370,7 @@ def extract_java(sites, constants=None, template_exchange=None):
     rabbit = _typed_names(
         root, content, imports, {"RabbitTemplate", "AmqpTemplate", "RabbitOperations"}
     )
+    _extract_stomp(sites, imports, values, application_prefixes)
     for node in _walk(root):
         if node.type == "method_declaration":
             handler = sites.declaration(node, exact=True)
@@ -462,6 +640,82 @@ def extract_go(sites, imports):
             )
 
 
+# -- JavaScript / TypeScript -------------------------------------------------
+
+_STOMP_FACTORIES = {"Stomp.over", "Stomp.client", "webstomp.over", "webstomp.client"}
+
+
+def _stomp_names(root, content, modules):
+    """Names (``x`` or ``this.x``) that every assignment in the file binds to
+    a STOMP client."""
+    found = {}
+    for node in _walk(root):
+        if node.type == "variable_declarator":
+            name, value = (
+                node.child_by_field_name("name"),
+                node.child_by_field_name("value"),
+            )
+        elif node.type == "assignment_expression":
+            name, value = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            )
+        else:
+            continue
+        if name is None or value is None:
+            continue
+        written = text(name, content)
+        stomp = False
+        if value.type == "call_expression":
+            stomp = text(value.child_by_field_name("function"), content) in (
+                _STOMP_FACTORIES
+            )
+        elif value.type == "new_expression":
+            constructor = text(value.child_by_field_name("constructor"), content)
+            owner, _, member = constructor.rpartition(".")
+            stomp = modules.get(constructor) == "@stomp/stompjs.Client" or (
+                member == "Client" and modules.get(owner) == "@stomp/stompjs"
+            )
+        found[written] = found.get(written, True) and stomp
+    return {name for name, stomp in found.items() if stomp}
+
+
+def extract_javascript(sites, language):
+    content, root = sites.content, sites.root
+    modules = _js_modules(root, content)
+    # AngularJS ngStomp's injected service, read as $http is in web.py.
+    names = _stomp_names(root, content, modules)
+    if b"$stomp" in content:
+        names.add("$stomp")
+    if not names:
+        return
+    folder = Folder(language, root, content)
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if function.type != "member_expression" or arguments is None:
+            continue
+        if text(function.child_by_field_name("object"), content) not in names:
+            continue
+        verb = text(function.child_by_field_name("property"), content)
+        positional = [c for c in arguments.named_children if c.type != "comment"]
+        if not positional:
+            continue
+        if verb == "publish":
+            options = _js_object(positional[0], content)
+            if "destination" not in options:
+                continue
+            destination = folder.evaluate(options["destination"])
+        elif verb in ("send", "subscribe"):
+            destination = folder.evaluate(positional[0])
+        else:
+            continue
+        role = "consume" if verb == "subscribe" else "publish"
+        sites.add(node, role, "stomp", destination, "stompjs")
+
+
 def extract_messaging(
     tree,
     content,
@@ -472,6 +726,7 @@ def extract_messaging(
     *,
     constants=None,
     template_exchange=None,
+    application_prefixes=None,
 ):
     """Publish and consume sites, and unread ones, of one source file.
 
@@ -480,9 +735,11 @@ def extract_messaging(
     """
     sites = _Sites(tree, content, repository_id, file, definitions)
     if language == "java":
-        extract_java(sites, constants, template_exchange)
+        extract_java(sites, constants, template_exchange, application_prefixes)
     elif language == "python":
         extract_python(sites, _python_imports(sites.root, content))
     elif language == "go":
         extract_go(sites, _go_imports(sites.root, content))
+    elif language in ("javascript", "typescript"):
+        extract_javascript(sites, language)
     return sites.endpoints, sites.unread

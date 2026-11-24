@@ -17,6 +17,11 @@ Each call site is classified by its outcome here against javac's:
 - ``missed``: unresolved, javac bound a repository declaration;
 - ``both_unbound``: neither binds a repository declaration.
 
+A method call is not compared (``not_compared``) when javac reports it
+uncertain: the method is overloaded and an argument's type or a parameter
+type of an overload is one javac could not resolve. The oracle is given no
+class path, so such a choice is javac's error recovery.
+
 Usage:
   python tools/compare_java_calls_with_javac.py ROOT [--bases] [--java JAVA]
 """
@@ -74,7 +79,9 @@ def main():
             if row.get("base", False) != args.bases:
                 continue
             target = (
-                (row["target_file"], row["target_symbol"], row["target_line"])
+                "uncertain"
+                if row.get("uncertain")
+                else (row["target_file"], row["target_symbol"], row["target_line"])
                 if "target_file" in row
                 else None
             )
@@ -94,7 +101,7 @@ def main():
         offset = offsets[site.file]
         column = offset(site.line, site.column) - offset(site.line, 0)
         found = javac.get((site.file, site.line, column))
-        if found is None or len(set(found)) > 1:
+        if found is None or len(set(found)) > 1 or "uncertain" in found:
             outcomes["not_compared"] += 1
             continue
         expected = found[0]

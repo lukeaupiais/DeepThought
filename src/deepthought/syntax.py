@@ -2301,6 +2301,67 @@ def _java_private(node, content):
     )
 
 
+_JAVA_LITERALS = {
+    "string_literal": "String",
+    "text_block": "String",
+    "character_literal": "char",
+    "true": "boolean",
+    "false": "boolean",
+    "null_literal": "null",
+    "class_literal": "Class",
+}
+_JAVA_PRIMITIVES = {"integral_type", "floating_point_type", "boolean_type"}
+
+
+def _java_argument_type(node, content, cache):
+    """The static type a Java expression writes: see
+    ``CallSite.argument_types``; None for any other expression."""
+    while node.type == "parenthesized_expression" and node.named_children:
+        node = node.named_children[0]
+    kind = node.type
+    if kind in _JAVA_LITERALS:
+        return _JAVA_LITERALS[kind]
+    if kind in {
+        "decimal_integer_literal",
+        "hex_integer_literal",
+        "octal_integer_literal",
+        "binary_integer_literal",
+    }:
+        return "long" if _text(node, content)[-1] in "lL" else "int"
+    if kind in {"decimal_floating_point_literal", "hex_floating_point_literal"}:
+        return "float" if _text(node, content)[-1] in "fF" else "double"
+    if kind == "object_creation_expression":
+        return _java_type_name(node.child_by_field_name("type"), content)
+    if kind == "cast_expression":
+        written = node.child_by_field_name("type")
+        if written is not None and written.type in _JAVA_PRIMITIVES:
+            return _text(written, content)
+        typed = _java_type_name(written, content)
+        if typed is not None and typed.split(".")[0] in _java_type_variables(
+            node, content
+        ):
+            return None
+        return typed
+    if kind == "identifier":
+        return _java_receiver_type(node, content, f"{_text(node, content)}.m", cache)
+    return None
+
+
+def _java_argument_types(node, content, cache):
+    """``CallSite.argument_types`` of a Java call or ``new``."""
+    if node.type not in {"method_invocation", "object_creation_expression"}:
+        return None
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    found = tuple(
+        _java_argument_type(c, content, cache)
+        for c in arguments.named_children
+        if c.type not in {"line_comment", "block_comment"}
+    )
+    return found if any(t is not None for t in found) else None
+
+
 def _java_type_variables(node, content, depth=None):
     """Names of the type parameters declared by ``node`` and the
     declarations around it (``<T>`` of a method or class), or only by the
@@ -2996,6 +3057,9 @@ def extract_call_sites(
                         end_column=end[1],
                         caller_id=caller,
                         arguments=_java_arguments(node),
+                        argument_types=_java_argument_types(node, content, receivers)
+                        if java
+                        else None,
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python

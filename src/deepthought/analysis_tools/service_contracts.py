@@ -43,6 +43,7 @@ from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
     extract_messaging,
+    stomp_prefixes,
 )
 from ..service_contracts.openapi import generated_apis
 from ..service_contracts.spring import (
@@ -127,6 +128,28 @@ ROUTE_RULES = {
             "variable before the path is assumed to add no segments.",
         )
     ),
+    "spring-websocket": register_rule(
+        EvidenceRule(
+            "service-contracts.spring-websocket-endpoint",
+            "pattern_matched",
+            "A method with a StompEndpointRegistry or WebSocketHandlerRegistry "
+            "parameter (from org.springframework.web.socket.config.annotation) "
+            "calls addEndpoint or addHandler on it with this literal path; the "
+            "route is the WebSocket handshake (GET), under the servlet context "
+            "path, handled by that method. SockJS fallback paths below it are "
+            "not listed.",
+        )
+    ),
+    "jakarta-websocket": register_rule(
+        EvidenceRule(
+            "service-contracts.jakarta-websocket-endpoint",
+            "pattern_matched",
+            "A class carries @ServerEndpoint (javax or jakarta "
+            ".websocket.server) with this literal path; the route is the "
+            "WebSocket handshake (GET), under the servlet context path, "
+            "handled by the class.",
+        )
+    ),
     "openapi-spring": register_rule(
         EvidenceRule(
             "service-contracts.openapi-spring-route",
@@ -205,6 +228,36 @@ MESSAGE_RULES = {
         "Consume in a file importing an amqp client package consumes a queue "
         "that receives this destination: the default exchange keyed with the "
         "queue name, or a QueueBind of that queue in the same file." + _SAME_NAME,
+    ),
+    ("spring-stomp", "consume"): _message_rule(
+        "service-contracts.spring-stomp-message-mapping",
+        "A method carries @MessageMapping (org.springframework.messaging."
+        "handler.annotation) with this literal path, joined with its class's "
+        "@MessageMapping path, under each application destination prefix that "
+        "its module's MessageBrokerRegistry sets (none when it sets none)."
+        + _SAME_NAME,
+    ),
+    ("spring-stomp", "publish"): _message_rule(
+        "service-contracts.spring-stomp-send",
+        "A @MessageMapping method's @SendTo names this destination, a "
+        "@SubscribeMapping method answers a subscription to it (under the "
+        "application prefix), or convertAndSend on a name declared only as a "
+        "Spring SimpMessagingTemplate or SimpMessageSendingOperations names it."
+        + _SAME_NAME,
+    ),
+    ("stompjs", "publish"): _message_rule(
+        "service-contracts.stompjs-send",
+        "send(destination, ...) or publish({destination}) on a name that every "
+        "assignment in the file binds to Stomp.over, Stomp.client, webstomp or "
+        "a @stomp/stompjs Client, or on AngularJS ngStomp's $stomp, names this "
+        "destination." + _SAME_NAME,
+    ),
+    ("stompjs", "consume"): _message_rule(
+        "service-contracts.stompjs-subscribe",
+        "subscribe(destination, ...) on a name that every assignment in the "
+        "file binds to Stomp.over, Stomp.client, webstomp or a @stomp/stompjs "
+        "Client, or on AngularJS ngStomp's $stomp, names this destination."
+        + _SAME_NAME,
     ),
     ("spring-cloud-stream", "publish"): _message_rule(
         "service-contracts.spring-cloud-stream-output",
@@ -1019,6 +1072,29 @@ class ServiceContractTool(AnalysisTool):
                 return configured[0]
             return None
 
+        # Each module's STOMP application destination prefixes: none ("")
+        # when no file sets them, unknown (None) when they are not literal or
+        # set in more than one place.
+        prefix_lists = {}
+        for coverage, content, tree in sources:
+            if (
+                coverage.language == "java"
+                and b"setApplicationDestinationPrefixes" in content
+            ):
+                found = stomp_prefixes(tree, content, constants)
+                if found is not None:
+                    prefix_lists.setdefault(
+                        _module_root(root, coverage.file), []
+                    ).append(found)
+
+        def application_prefixes(file):
+            lists = prefix_lists.get(_module_root(root, file))
+            if not lists:
+                return [""]
+            if len(lists) > 1 or any(PLACEHOLDER in p for p in lists[0]):
+                return None
+            return lists[0]
+
         nest = _nest_applications(root, sources)
         for coverage, content, tree in sources:
             if coverage.language == "java":
@@ -1050,7 +1126,13 @@ class ServiceContractTool(AnalysisTool):
             routes.extend(found[0])
             requests.extend(found[1])
             unread.extend(found[2])
-            if coverage.language in ("go", "java", "python"):
+            if coverage.language in (
+                "go",
+                "java",
+                "python",
+                "javascript",
+                "typescript",
+            ):
                 found = extract_messaging(
                     tree,
                     content,
@@ -1061,6 +1143,11 @@ class ServiceContractTool(AnalysisTool):
                     constants=constants,
                     template_exchange=(
                         template_exchange(coverage.file)
+                        if coverage.language == "java"
+                        else None
+                    ),
+                    application_prefixes=(
+                        application_prefixes(coverage.file)
                         if coverage.language == "java"
                         else None
                     ),

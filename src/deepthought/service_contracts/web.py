@@ -3,7 +3,8 @@
 Servers: Flask and FastAPI route decorators, Express routes, and Go
 ``net/http``/gorilla ``HandleFunc``/``Handle``. Clients: Python ``requests``
 and ``httpx``, Locust ``client``, JavaScript ``fetch``, ``axios``,
-``request`` and AngularJS ``$http``, and Go ``net/http``. A framework or client object is recognised
+``request`` and AngularJS ``$http``, WebSocket and SockJS handshakes, and
+Go ``net/http``. A framework or client object is recognised
 only through the file's own imports and bindings; URLs are folded by
 ``folding.Folder``.
 """
@@ -384,6 +385,33 @@ def _js_object(node, content):
     return found
 
 
+# Global constructor -> (client, modules that export it under any local
+# name); a name not imported is the browser's global.
+_WEBSOCKET_CLIENTS = {
+    "WebSocket": ("websocket", ("ws", "ws.WebSocket", "isomorphic-ws")),
+    "SockJS": ("sockjs", ("sockjs-client",)),
+}
+
+
+def _websocket_client(node, modules, content):
+    """The client a ``new WebSocket(url)`` or ``new SockJS(url)`` opens, or
+    None: the constructor is the global or imported from its module."""
+    constructor = node.child_by_field_name("constructor")
+    if constructor is None or constructor.type != "identifier":
+        return None
+    written = text(constructor, content)
+    if written in modules:
+        return next(
+            (
+                c
+                for c, sources in _WEBSOCKET_CLIENTS.values()
+                if modules[written] in sources
+            ),
+            None,
+        )
+    return _WEBSOCKET_CLIENTS.get(written, (None,))[0]
+
+
 def extract_javascript(context, nest=None):
     content, root = context.content, context.root
     modules = _js_modules(root, content)
@@ -411,6 +439,18 @@ def extract_javascript(context, nest=None):
         )
 
     for node in _walk(root):
+        if node.type == "new_expression":
+            socket = _websocket_client(node, modules, content)
+            arguments = node.child_by_field_name("arguments")
+            positional = [
+                c
+                for c in (arguments.named_children if arguments is not None else ())
+                if c.type != "comment"
+            ]
+            if socket is not None and positional:
+                url = _browser_url(context.folder.evaluate(positional[0]))
+                context.request(node, "GET", url, socket)
+            continue
         if node.type != "call_expression":
             continue
         function = node.child_by_field_name("function")

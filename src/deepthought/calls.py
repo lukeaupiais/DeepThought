@@ -236,6 +236,67 @@ def _overridden(method, shapes):
     )
 
 
+_JAVA_WIDENING = {
+    "byte": {"short", "int", "long", "float", "double"},
+    "short": {"int", "long", "float", "double"},
+    "char": {"int", "long", "float", "double"},
+    "int": {"long", "float", "double"},
+    "long": {"float", "double"},
+    "float": {"double"},
+    "double": set(),
+    "boolean": set(),
+}
+_JAVA_BOXES = {
+    "boolean": "Boolean",
+    "byte": "Byte",
+    "char": "Character",
+    "short": "Short",
+    "int": "Integer",
+    "long": "Long",
+    "float": "Float",
+    "double": "Double",
+}
+_JAVA_UNBOXES = {box: primitive for primitive, box in _JAVA_BOXES.items()}
+_JAVA_NUMBER = {"Number", "Comparable", "Serializable", "Object", "Constable"}
+# Every supertype of the java.lang types a literal or boxing gives.
+_JAVA_LANG = {
+    "Object": {"Object"},
+    "String": {
+        "String",
+        "Object",
+        "CharSequence",
+        "Comparable",
+        "Serializable",
+        "Constable",
+        "ConstantDesc",
+    },
+    "Class": {
+        "Class",
+        "Object",
+        "Type",
+        "Serializable",
+        "GenericDeclaration",
+        "AnnotatedElement",
+        "TypeDescriptor",
+        "OfField",
+    },
+    "Boolean": {"Boolean", "Object", "Comparable", "Serializable", "Constable"},
+    "Character": {"Character", "Object", "Comparable", "Serializable", "Constable"},
+    "Byte": {"Byte", *_JAVA_NUMBER},
+    "Short": {"Short", *_JAVA_NUMBER},
+    "Integer": {"Integer", "ConstantDesc", *_JAVA_NUMBER},
+    "Long": {"Long", "ConstantDesc", *_JAVA_NUMBER},
+    "Float": {"Float", "ConstantDesc", *_JAVA_NUMBER},
+    "Double": {"Double", "ConstantDesc", *_JAVA_NUMBER},
+}
+
+
+def _java_split(written):
+    """A Java type as written: its element type and array dimensions."""
+    base = written.removesuffix("...").rstrip("[]")
+    return base, (len(written) - len(base)) // 2
+
+
 class _JavaScope:
     """Java name lookup: enclosing types, then imports, then the package."""
 
@@ -259,6 +320,7 @@ class _JavaScope:
             if item.file in self.roots and owner is not None:
                 self.bases[(owner.file, owner.symbol)].append(item.name)
         self._members = {}  # (file, type symbol, name) -> [_Member]
+        self._supertypes = {}
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
         self.static = defaultdict(list)  # (file, member) -> type FQNs
@@ -371,8 +433,9 @@ class _JavaScope:
             or (m.variadic and n >= m.parameters - 1)
         ]
 
-    def methods(self, site, candidates, rule_id, none_reason):
-        """Link among same-named methods by arity; none fits: unresolved.
+    def methods(self, site, candidates, rule_id, none_reason, scope=()):
+        """Link among same-named methods by arity, then by the argument
+        types written in the call (``overloads``); none fits: unresolved.
 
         A link to a method the type inherits rather than declares carries
         the inherited-method rule.
@@ -382,7 +445,10 @@ class _JavaScope:
         declared = {m.id for m in candidates if not m.inherited}
         resolution = _pick(
             site.id,
-            [m.definition for m in self.arity(site, candidates)],
+            [
+                m.definition
+                for m in self.overloads(site, scope, self.arity(site, candidates))
+            ],
             rule_id,
             "no_matching_arity",
         )
@@ -391,6 +457,186 @@ class _JavaScope:
                 site.id, "linked", resolution.target_id, JAVA_INHERITED_METHOD
             )
         return resolution
+
+    def supertypes(self, file, scope, written):
+        """(simple names of a type and of every supertype, whether that set
+        is complete) for a class type written in ``file`` at ``scope``; None
+        when the name denotes more than one type."""
+        key = (file, tuple(scope), written)
+        if key in self._supertypes:
+            return self._supertypes[key]
+        simple = written.split(".")[-1]
+        found = self.type(file, scope, written)
+        if len(found) > 1:
+            result = None
+        elif not found:
+            known = written in {simple, f"java.lang.{simple}"} and simple in _JAVA_LANG
+            result = (
+                (frozenset(_JAVA_LANG[simple]), True)
+                if known
+                else (frozenset({simple, "Object"}), False)
+            )
+        else:
+            names, complete, stack, seen = {"Object"}, True, [found[0]], set()
+            while stack:
+                d = stack.pop()
+                if d.id in seen:
+                    continue
+                seen.add(d.id)
+                names.add(d.symbol.split(".")[-1])
+                if d.kind in {"Enum", "Record"}:
+                    complete = False  # Enum or Record, and what they implement
+                outer = d.symbol.split(".")[:-1]
+                for base in self.bases.get((d.file, d.symbol), ()):
+                    bases = self.type(d.file, outer, base)
+                    if len(bases) == 1:
+                        stack.append(bases[0])
+                        continue
+                    last = base.split(".")[-1]
+                    names.add(last)
+                    if bases or last not in _JAVA_LANG:
+                        complete = False
+                    else:
+                        names |= _JAVA_LANG[last]
+            result = (frozenset(names), complete)
+        self._supertypes[key] = result
+        return result
+
+    def subtype(self, near, near_at, far, far_at, phase=1):
+        """Whether the type ``near`` (an argument's, or a parameter's) is
+        assignable to the parameter type ``far`` in an overload phase: 1
+        without boxing, 2 with it (JLS 15.12.2). True, False, or None when
+        that is not known. ``*_at`` is the (file, scope) a type is written
+        in; a type parameter (``*``, ``?``) has no known bounds."""
+        if near == "null":
+            return far not in _JAVA_WIDENING
+        near_base, near_dims = _java_split(near)
+        far_base, far_dims = _java_split(far)
+        if "*" in near_base or "?" in near_base:
+            return None
+        if "*" in far_base or "?" in far_base:
+            if far_dims or near_dims:
+                return None
+            if near_base in _JAVA_WIDENING:
+                return None if phase > 1 else False
+            return None
+        if near_dims or far_dims:
+            if near_dims == far_dims:
+                if near_base in _JAVA_WIDENING or far_base in _JAVA_WIDENING:
+                    return near_base == far_base
+                return self.subtype(near_base, near_at, far_base, far_at)
+            if near_dims > far_dims and far_dims == 0:
+                if far_base.split(".")[-1] in {"Object", "Cloneable", "Serializable"}:
+                    return True
+                return None if far_base not in _JAVA_WIDENING else False
+            return None if near_dims > far_dims else False
+        if near_base in _JAVA_WIDENING:
+            if far_base in _JAVA_WIDENING:
+                return far_base == near_base or far_base in _JAVA_WIDENING[near_base]
+            if phase == 1:
+                return False
+            return far_base.split(".")[-1] in _JAVA_LANG[_JAVA_BOXES[near_base]]
+        known = self.supertypes(*near_at, near_base)
+        if far_base in _JAVA_WIDENING:
+            if phase == 1:
+                return False
+            if known is not None and known[1]:
+                primitive = _JAVA_UNBOXES.get(near_base.split(".")[-1])
+                if primitive is None:
+                    return False
+                return far_base == primitive or far_base in _JAVA_WIDENING[primitive]
+            return None
+        if known is None:
+            return None
+        names, complete = known
+        if far_base.split(".")[-1] in names:
+            return True
+        return False if complete else None
+
+    def overloads(self, site, scope, methods):
+        """The methods among ``methods`` that the call's written argument
+        types may select, as javac does (JLS 15.12.2): the first phase
+        (strict, then with boxing, then variable arity) with an applicable
+        method, then the most specific of them. Only methods known to be
+        the choice are returned; otherwise ``methods`` is returned."""
+        arguments = site.argument_types
+        if not arguments or len(methods) < 2:
+            return methods
+        at = (site.file, tuple(scope))
+        top = scope[0] if scope else None
+        visible = [
+            m
+            for m in methods
+            # A private method is accessible only in its top-level class.
+            if not m.definition.private
+            or (m.definition.file, m.definition.symbol.split(".")[0])
+            == (site.file, top)
+        ]
+
+        def parameters(m, phase):
+            types = m.definition.parameter_types
+            if types is None:
+                return None
+            if phase < 3:
+                return list(types) if len(types) == len(arguments) else []
+            # A fixed-arity method that got here did not apply in phase 2.
+            if len(arguments) < len(types) - 1:
+                return []
+            last = types[-1].removesuffix("...")
+            return [*types[:-1], *[last] * (len(arguments) - len(types) + 1)]
+
+        def applicable(m, phase):
+            types = parameters(m, phase)
+            if types is None:
+                return None
+            if not types and arguments:
+                return False
+            owner = (m.definition.file, tuple(m.definition.symbol.split(".")[:-1]))
+            checks = [
+                None if a is None else self.subtype(a, at, t, owner, min(phase, 2))
+                for a, t in zip(arguments, types)
+            ]
+            if False in checks:
+                return False
+            return True if all(checks) else None
+
+        def more_specific(m, other):
+            near_at = (m.definition.file, tuple(m.definition.symbol.split(".")[:-1]))
+            far_at = (
+                other.definition.file,
+                tuple(other.definition.symbol.split(".")[:-1]),
+            )
+            return all(
+                self.subtype(p, near_at, q, far_at) is True
+                for p, q in zip(parameters(m, 1), parameters(other, 1))
+            )
+
+        outcomes = [[(m, applicable(m, phase)) for m in visible] for phase in (1, 2, 3)]
+        for phase, outcome in enumerate(outcomes, start=1):
+            definite = [m for m, ok in outcome if ok is True]
+            maybe = [m for m, ok in outcome if ok is None]
+            if not definite and not maybe:
+                continue
+            if not definite:
+                # Whether this phase applies is not known: any method
+                # possible here or later may be the one.
+                possible = {
+                    m.id: m
+                    for later in outcomes[phase - 1 :]
+                    for m, ok in later
+                    if ok is not False
+                }
+                return list(possible.values()) if len(possible) == 1 else methods
+            if phase == 3:
+                return definite if len(definite) == 1 and not maybe else methods
+            pool = definite + maybe
+            best = [
+                m
+                for m in definite
+                if all(more_specific(m, o) for o in pool if o is not m)
+            ]
+            return best if len(best) == 1 else methods
+        return methods
 
     def members(self, file, symbol, name):
         """Methods ``name`` of a type: declared, then inherited through its
@@ -493,7 +739,11 @@ class _JavaScope:
                     # Java stops at the innermost type with a method of that
                     # name, declared or inherited.
                     return self.methods(
-                        site, methods, JAVA_ENCLOSING_METHOD, "no_declaration"
+                        site,
+                        methods,
+                        JAVA_ENCLOSING_METHOD,
+                        "no_declaration",
+                        scope=scope,
                     )
             root = self.roots.get(file)
             imported = (
@@ -509,7 +759,7 @@ class _JavaScope:
             )
             if imported:
                 return self.methods(
-                    site, imported, JAVA_STATIC_IMPORT, "no_declaration"
+                    site, imported, JAVA_STATIC_IMPORT, "no_declaration", scope=scope
                 )
             return CallResolution(site.id, "unresolved", reason="unbound_name")
         head = ".".join(parts[:-1])
@@ -518,7 +768,7 @@ class _JavaScope:
             if innermost is None:
                 return CallResolution(site.id, "unresolved", reason="outside_class")
             return self.methods(
-                site, innermost, CALL_SELF_METHOD, "not_declared_in_class"
+                site, innermost, CALL_SELF_METHOD, "not_declared_in_class", scope=scope
             )
         if site.receiver_type is not None:
             # A variable or field whose declaration writes its type.
@@ -532,6 +782,7 @@ class _JavaScope:
                 [m for t in owners for m in self.members(t.file, t.symbol, name)],
                 JAVA_TYPED_RECEIVER,
                 "not_declared_in_type",
+                scope=scope,
             )
         owners = self.type(file, scope, head)
         if not owners:
@@ -541,6 +792,7 @@ class _JavaScope:
             [m for t in owners for m in self.members(t.file, t.symbol, name)],
             JAVA_TYPE_MEMBER,
             "not_declared_in_type",
+            scope=scope,
         )
 
 
