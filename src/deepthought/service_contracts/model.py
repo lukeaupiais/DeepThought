@@ -57,6 +57,9 @@ class HttpRequest:
     alternatives: int = 1
     # "file:line" of the spec operation a generated client method sends.
     declared_in: str | None = None
+    # The calls ("file:line") whose arguments, given to the parameters of
+    # the function around the site, give this URL and method.
+    argument_from: tuple = ()
 
 
 @dataclass(frozen=True)

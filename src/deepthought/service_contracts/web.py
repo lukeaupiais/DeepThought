@@ -16,6 +16,7 @@ from ..syntax import identifier
 from .folding import Folder, text
 from .http import ANY_METHOD, HTTP_METHODS, PLACEHOLDER, join_paths
 from .model import HttpRequest, HttpRoute, Unread
+from .script_constants import fold_through_calls
 from .stomp_clients import stomp_names, value_kind
 
 _VERBS = {m.lower(): m for m in HTTP_METHODS}
@@ -62,6 +63,7 @@ class _Context:
         self.file = file
         self.language = language
         self.folder = Folder(language, self.root, content, externals)
+        self.calls_of = None
         file_definitions = [d for d in definitions if d.file == file]
         self.spans = {
             (d.line, d.column, d.end_line, d.end_column): d for d in file_definitions
@@ -123,7 +125,7 @@ class _Context:
             )
         )
 
-    def request(self, node, method, url, client):
+    def request(self, node, method, url, client, argument_from=()):
         line = node.start_point.row + 1
         self.requests.append(
             HttpRequest(
@@ -135,8 +137,23 @@ class _Context:
                 method=method,
                 url=url,
                 client=client,
+                argument_from=tuple(argument_from),
             )
         )
+
+    def request_folded(self, node, compute, client):
+        """Add the requests ``compute(folder)`` gives as (method, URL). A
+        request whose method or URL is built from parameters of the
+        module-level function around the site takes, instead, each one that
+        calls of the function give (``self.calls_of``)."""
+        found = fold_through_calls(
+            self.folder,
+            compute,
+            self.calls_of,
+            lambda value: value[0] is None or PLACEHOLDER in value[1],
+        )
+        for (method, url), calls in found:
+            self.request(node, method, url, client, calls)
 
 
 def _walk(node):
@@ -325,6 +342,15 @@ def extract_python(context):
 
 
 # -- JavaScript / TypeScript ------------------------------------------------
+
+
+def _method(folder, node, default="GET"):
+    """The HTTP method a node names, ``default`` without one, None when it
+    is not one fixed method."""
+    if node is None:
+        return default
+    method = folder.evaluate(node).upper()
+    return method if method in HTTP_METHODS else None
 
 
 def _browser_url(url):
@@ -544,8 +570,9 @@ def _stomp_handshake(context, node, modules, stomp):
         value, client = options["host"], "sockjs"
     else:
         return
-    url = _browser_url(context.folder.evaluate(value))
-    context.request(value, "GET", url, client)
+    context.request_folded(
+        value, lambda f: ("GET", _browser_url(f.evaluate(value))), client
+    )
 
 
 def extract_angular(context, modules):
@@ -577,17 +604,21 @@ def extract_angular(context, modules):
                     or text(value, content) == "undefined"
                 ):
                     continue
-                method = "GET"
+                method_node = None
                 if value.type == "object":
                     options = _js_object(value, content)
                     if "url" not in options:
                         continue
-                    if "method" in options:
-                        method = context.folder.evaluate(options["method"]).upper()
-                        method = method if method in HTTP_METHODS else None
+                    method_node = options.get("method")
                     value = options["url"]
-                url = _browser_url(context.folder.evaluate(value))
-                context.request(node, method, url, "angular-http")
+                context.request_folded(
+                    node,
+                    lambda f, m=method_node, u=value: (
+                        _method(f, m),
+                        _browser_url(f.evaluate(u)),
+                    ),
+                    "angular-http",
+                )
             continue
         if function.type != "member_expression":
             continue
@@ -601,13 +632,17 @@ def extract_angular(context, modules):
         if verb == "request":
             if len(positional) < 2:
                 continue  # request(HttpRequest)
-            method = context.folder.evaluate(positional[0]).upper()
-            method = method if method in HTTP_METHODS else None
-            url_node = positional[1]
+            method_node, url_node, fixed = positional[0], positional[1], None
         else:
-            method, url_node = _VERBS[verb], positional[0]
-        url = _browser_url(context.folder.evaluate(url_node))
-        context.request(node, method, url, "angular-http")
+            method_node, url_node, fixed = None, positional[0], _VERBS[verb]
+        context.request_folded(
+            node,
+            lambda f, m=method_node, u=url_node, x=fixed: (
+                x or _method(f, m),
+                _browser_url(f.evaluate(u)),
+            ),
+            "angular-http",
+        )
 
 
 def extract_javascript(context, nest=None):
@@ -650,8 +685,11 @@ def extract_javascript(context, nest=None):
                 if c.type != "comment"
             ]
             if socket is not None and positional:
-                url = _browser_url(context.folder.evaluate(positional[0]))
-                context.request(node, "GET", url, socket)
+                context.request_folded(
+                    node,
+                    lambda f, u=positional[0]: ("GET", _browser_url(f.evaluate(u))),
+                    socket,
+                )
             continue
         if node.type != "call_expression":
             continue
@@ -663,8 +701,11 @@ def extract_javascript(context, nest=None):
         written = text(function, content)
         socket = _websocket_client(node, modules, content)
         if socket is not None and positional:
-            url = _browser_url(context.folder.evaluate(positional[0]))
-            context.request(node, "GET", url, socket)
+            context.request_folded(
+                node,
+                lambda f, u=positional[0]: ("GET", _browser_url(f.evaluate(u))),
+                socket,
+            )
             continue
         if function.type == "member_expression":
             owner = text(function.child_by_field_name("object"), content)
@@ -685,8 +726,14 @@ def extract_javascript(context, nest=None):
                 context.route(node, methods, path, "express", handler)
                 continue
             if owner == "$http" and verb in _VERBS and positional:
-                url = _browser_url(context.folder.evaluate(positional[0]))
-                context.request(node, _VERBS[verb], url, "angularjs-http")
+                context.request_folded(
+                    node,
+                    lambda f, u=positional[0], m=_VERBS[verb]: (
+                        m,
+                        _browser_url(f.evaluate(u)),
+                    ),
+                    "angularjs-http",
+                )
                 continue
             module = modules.get(owner)
             if (
@@ -694,47 +741,51 @@ def extract_javascript(context, nest=None):
                 and verb in _VERBS
                 and positional
             ):
-                context.request(
-                    node, _VERBS[verb], context.folder.evaluate(positional[0]), module
+                context.request_folded(
+                    node,
+                    lambda f, u=positional[0], m=_VERBS[verb]: (m, f.evaluate(u)),
+                    module,
                 )
             continue
         if written == "$http" and positional:
             options = _js_object(positional[0], content)
             if "url" not in options:
                 continue
-            method = "GET"
-            if "method" in options:
-                method = context.folder.evaluate(options["method"]).upper()
-                method = method if method in HTTP_METHODS else None
-            url = _browser_url(context.folder.evaluate(options["url"]))
-            context.request(node, method, url, "angularjs-http")
+            context.request_folded(
+                node,
+                lambda f, m=options.get("method"), u=options["url"]: (
+                    _method(f, m),
+                    _browser_url(f.evaluate(u)),
+                ),
+                "angularjs-http",
+            )
             continue
         if written == "fetch" and positional:
             options = _js_object(
                 positional[1] if len(positional) > 1 else None, content
             )
-            method = "GET"
-            if "method" in options:
-                method = context.folder.evaluate(options["method"]).upper()
-                method = method if method in HTTP_METHODS else None
-            context.request(
-                node, method, context.folder.evaluate(positional[0]), "fetch"
+            context.request_folded(
+                node,
+                lambda f, m=options.get("method"), u=positional[0]: (
+                    _method(f, m),
+                    f.evaluate(u),
+                ),
+                "fetch",
             )
         elif modules.get(written) in ("request", "axios") and positional:
             options = _js_object(positional[0], content)
             if options:
                 url_node = options.get("url", options.get("uri"))
                 method_node = options.get("method")
-                method = "GET"
-                if method_node is not None:
-                    method = context.folder.evaluate(method_node).upper()
-                    method = method if method in HTTP_METHODS else None
                 if url_node is None:
                     continue
-                url = context.folder.evaluate(url_node)
             else:
-                method, url = "GET", context.folder.evaluate(positional[0])
-            context.request(node, method, url, modules[written])
+                method_node, url_node = None, positional[0]
+            context.request_folded(
+                node,
+                lambda f, m=method_node, u=url_node: (_method(f, m), f.evaluate(u)),
+                modules[written],
+            )
 
 
 # -- NestJS -------------------------------------------------------------------
@@ -1029,15 +1080,19 @@ def extract_web(
     package=None,
     nest=None,
     externals=None,
+    calls_of=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
     ``nest`` is the (global prefix, unread reason) of the NestJS application
     a TypeScript file belongs to; ``externals`` the values of names the file
-    imports or has defined (``script_constants``)."""
+    imports or has defined (``script_constants``); ``calls_of(name)`` the
+    calls of its module-level function ``name`` with their arguments, for
+    JavaScript/TypeScript requests built from that function's parameters."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
+    context.calls_of = calls_of
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
