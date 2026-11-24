@@ -319,6 +319,12 @@ class CallSite:
     # ``receiver_type``; the receiver's type is its first result. None
     # elsewhere.
     receiver_function: str | None = None
+    # Go calls ``x.M()`` where nothing in the function or the file declares
+    # ``x``: that name, in place of ``receiver_type``, for the resolver to
+    # find as a package-level variable of another file of the package, or
+    # (with ``receiver_steps``, ``pkg.V.M()``) as the package the file
+    # imports as ``x``. None elsewhere.
+    receiver_variable: str | None = None
     # Go: how the receiver's type follows from ``receiver_type`` (or
     # ``receiver_function``), one step each: a field name ``f``, a method
     # call ``M()`` (its first result), or ``[]`` (an element of a slice).
@@ -401,8 +407,21 @@ class CallSite:
             raise ValueError(
                 "receiver_function must be a nonempty string, without a type"
             )
+        if self.receiver_variable is not None and (
+            not isinstance(self.receiver_variable, str)
+            or not self.receiver_variable
+            or self.receiver_type is not None
+            or self.receiver_function is not None
+        ):
+            raise ValueError(
+                "receiver_variable must be a nonempty string, without a type"
+            )
         if self.receiver_steps is not None and (
-            (self.receiver_type is None and self.receiver_function is None)
+            (
+                self.receiver_type is None
+                and self.receiver_function is None
+                and self.receiver_variable is None
+            )
             or type(self.receiver_steps) is not tuple
             or not self.receiver_steps
             or not all(isinstance(step, str) and step for step in self.receiver_steps)
@@ -516,6 +535,12 @@ class PackageClause:
     end_column: int
     kind: str = "package"
     coordinate_encoding: str = "utf-8"
+    # Go ``package`` clauses: (name, type) for each package-level ``var``
+    # the file declares, the type as for ``Definition.result_type`` (or
+    # ``F()``/``pkg.F()``: the first result of that function) when the
+    # declaration writes it or a value ``T{...}``, ``&T{...}``, ``new(T)``
+    # or a call gives it, else None. None elsewhere, or when there is none.
+    variables: tuple[tuple[str, str | None], ...] | None = None
 
     def __post_init__(self):
         validate_location(
@@ -530,6 +555,19 @@ class PackageClause:
             raise ValueError("Package clause identity and name must be nonempty")
         if self.kind not in PACKAGE_KINDS:
             raise ValueError("Unsupported package clause kind")
+        if self.variables is not None and (
+            type(self.variables) is not tuple
+            or not self.variables
+            or not all(
+                type(item) is tuple
+                and len(item) == 2
+                and isinstance(item[0], str)
+                and item[0]
+                and (item[1] is None or (isinstance(item[1], str) and item[1]))
+                for item in self.variables
+            )
+        ):
+            raise ValueError("variables must be (name, type or None) pairs")
 
 
 @dataclass(frozen=True)
@@ -740,6 +778,8 @@ class AnalysisResult:
                 del item["receiver_type"]
             if item["receiver_function"] is None:
                 del item["receiver_function"]
+            if item["receiver_variable"] is None:
+                del item["receiver_variable"]
             if item["receiver_steps"] is None:
                 del item["receiver_steps"]
             if item["binding"] is None:
@@ -758,6 +798,9 @@ class AnalysisResult:
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
+        for item in data.get("packages", ()):
+            if item["variables"] is None:
+                del item["variables"]
         if not self.packages and "packages" not in self.capabilities:
             del data["packages"]
         if not self.impls and "impls" not in self.capabilities:
@@ -882,7 +925,22 @@ class AnalysisResult:
                 Supertype(**item) for item in data.get("supertypes", [])
             )
             data["packages"] = tuple(
-                PackageClause(**item) for item in data.get("packages", [])
+                PackageClause(
+                    **{
+                        **item,
+                        **(
+                            {
+                                "variables": tuple(
+                                    tuple(v) if isinstance(v, list) else v
+                                    for v in item["variables"]
+                                )
+                            }
+                            if isinstance(item.get("variables"), list)
+                            else {}
+                        ),
+                    }
+                )
+                for item in data.get("packages", [])
             )
             data["impls"] = tuple(
                 ImplBlock(

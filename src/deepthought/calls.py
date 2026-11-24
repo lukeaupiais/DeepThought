@@ -1350,6 +1350,11 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     by_symbol, names, modules = bindings.by_symbol, bindings.names, bindings.modules
     top_level = bindings.top_level
     peers = package_peers(result)
+    go_variables = {
+        clause.file: clause.variables
+        for clause in result.packages
+        if clause.variables is not None
+    }
     languages = {item.file: item.language for item in result.coverage}
     java = _JavaScope(result, by_symbol)
     rust = (
@@ -1450,11 +1455,31 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             if d.kind == "Method"
         ]
 
+    def go_variable(files, name):
+        """(file, type) of the one package-level Go variable ``name``
+        declared in ``files`` whose declaration gives its type. None when
+        none, or more than one (files for other platforms), is declared."""
+        found = [
+            (f, typed)
+            for f in files
+            for variable, typed in go_variables.get(f, ())
+            if variable == name
+        ]
+        if len(found) != 1 or found[0][1] is None:
+            return None
+        file, typed = found[0]
+        return go_result(file, typed[:-2]) if typed.endswith("()") else (file, typed)
+
     def go_result(file, function):
         """(file, type) of the first result of the Go function ``F`` or
         ``pkg.F`` called in ``file``: one function of the package, or of
-        the package the file imports as ``pkg``. None otherwise."""
+        the package the file imports as ``pkg``; or ``v.F``, the first
+        result of the method ``F`` of a package variable ``v`` of another
+        file. None otherwise."""
         *package, function_name = function.split(".")
+        if package and not modules.get((file, package[0])):
+            start = go_variable(peers.get(file, (file,)), package[0])
+            return None if start is None else go_follow(*start, (f"{function_name}()",))
         files = (
             (modules.get((file, package[0])) or [()])[0]
             if package
@@ -1782,19 +1807,34 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     _pick(site.id, methods, CALL_JS_TYPED_RECEIVER, reason)
                 )
                 continue
+        steps = site.receiver_steps or ()
+        variable = None
+        if not script and site.receiver_variable is not None:
+            # Go: `v.M()` on a package variable of another file of the
+            # package, or `pkg.V.M()` on a variable of an imported package.
+            imported = modules.get((site.file, site.receiver_variable))
+            if not imported:
+                variable = go_variable(
+                    peers.get(site.file, (site.file,)), site.receiver_variable
+                )
+            elif steps:
+                variable = go_variable(imported[0], steps[0])
+                steps = steps[1:]
         if not script and (
-            site.receiver_type is not None or site.receiver_function is not None
+            site.receiver_type is not None
+            or site.receiver_function is not None
+            or variable is not None
         ):
             # Go: `x.M()` on a variable whose declaration gives its type,
             # or binds it to the first result of a function.
             start = (
-                (site.file, site.receiver_type)
+                variable
+                if variable is not None
+                else (site.file, site.receiver_type)
                 if site.receiver_function is None
                 else go_result(site.file, site.receiver_function)
             )
-            followed = (
-                None if start is None else go_follow(*start, site.receiver_steps or ())
-            )
+            followed = None if start is None else go_follow(*start, steps)
             if followed is None or followed[1].startswith("[]"):
                 resolutions.append(
                     CallResolution(
