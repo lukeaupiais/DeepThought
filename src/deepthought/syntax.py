@@ -182,6 +182,7 @@ def extract(
     ordinals = {}
     script = file.endswith(_SCRIPT_SUFFIXES)
     defaults = _js_default_names(tree.root_node, content) if script else set()
+    aliases = _js_export_aliases(tree.root_node, content) if script else {}
     types = None
     stack = [(tree.root_node, (), False)]
     while stack:
@@ -290,6 +291,8 @@ def extract(
                 arity = {"static": True}
             elif script and _js_default_export(node, name, defaults):
                 arity = {"default_export": True}
+            if script and aliases.get(name) and _js_top_level(node):
+                arity = {**arity, "export_aliases": aliases[name]}
             if script and kind == "Class":
                 properties = _js_properties(node, content)
                 if properties:
@@ -2317,6 +2320,36 @@ def _js_default_names(root, content):
                     ):
                         found.add(_text(name, content))
     return found
+
+
+def _js_export_aliases(root, content):
+    """{name: aliases} for each ``export { name as alias }`` (no ``from``)
+    of a JavaScript or TypeScript module, ``default`` aside."""
+    found = {}
+    for child in root.named_children:
+        if child.type != "export_statement" or child.child_by_field_name("source"):
+            continue
+        for clause in child.named_children:
+            # Only an export clause's specifiers have an alias.
+            for specifier in clause.named_children:
+                name = specifier.child_by_field_name("name")
+                alias = specifier.child_by_field_name("alias")
+                if name is None or alias is None:
+                    continue
+                name, alias = _text(name, content), _text(alias, content)
+                if alias not in {"default", name}:
+                    found[name] = (*found.get(name, ()), alias)
+    return {name: tuple(dict.fromkeys(names)) for name, names in found.items()}
+
+
+def _js_top_level(node):
+    """Whether a JavaScript or TypeScript declaration is at module level."""
+    parent = node.parent
+    if node.type == "variable_declarator" and parent is not None:
+        parent = parent.parent
+    if parent is not None and parent.type == "export_statement":
+        parent = parent.parent
+    return parent is not None and parent.type == "program"
 
 
 def _js_default_export(node, name, defaults):

@@ -691,16 +691,15 @@ def _constructor_setting(assignment, left, field, content):
     constructor = block.parent if block is not None else None
     if constructor is None or constructor.type != "constructor_declaration":
         return None
+    declared = constructor.child_by_field_name("parameters").named_children
+    # A varargs parameter's name sits in a declarator, not a name field.
+    if any(p.type == "spread_parameter" for p in declared):
+        return None
     parameters = [
         _text(p.child_by_field_name("name"), content)
-        for p in constructor.child_by_field_name("parameters").named_children
-        if p.type in ("formal_parameter", "spread_parameter")
+        for p in declared
+        if p.type == "formal_parameter"
     ]
-    if any(
-        p.type == "spread_parameter"
-        for p in constructor.child_by_field_name("parameters").named_children
-    ):
-        return None
     if left.type == "identifier" and field in parameters:
         return None  # assigns the parameter, not the field
     right = assignment.child_by_field_name("right")

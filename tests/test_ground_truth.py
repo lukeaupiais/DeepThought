@@ -223,6 +223,36 @@ class JavaTruthTest(unittest.TestCase):
             },
         )
 
+    def test_a_call_on_an_erroneous_chain_is_a_possible_call(self):
+        sources = {
+            "src/a/B.java": (
+                "package a;\n"
+                "public class B {\n"
+                "  public B with(Class<?> c) { return this; }\n"
+                "  public String build() { return null; }\n"
+                "  public String build(int n) { return null; }\n"
+                "  void use() {\n"
+                "    new B().with(Missing.class).build();\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in sources.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            expected, _ = ground_truth.derive_java(directory)
+            possible, _ = ground_truth.derive_java(directory, recovered=True)
+        # `Missing` makes the chain erroneous, so javac leaves build()
+        # unbound: not a call it rules on, but a possible call to the
+        # build of B's declared type with no arguments.
+        self.assertNotIn(("src/a/B.java", 7, "build"), expected)
+        self.assertEqual(
+            possible[("src/a/B.java", 7, "build")],
+            {("src/a/B.java", 4, "callable")},
+        )
+
     def test_javac_binds_constructor_chains(self):
         sources = {
             "src/a/Base.java": "package a;\npublic class Base {\n"
@@ -997,4 +1027,23 @@ class GrpcScorerTests(unittest.TestCase):
                 "wrong": [{"contract": "p.S/B", "label": "bidi", "read": ["unary"]}],
                 "unread": ["p.S/C"],
             },
+        )
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_rust"), "Rust grammar is required"
+)
+class RustPatternTest(unittest.TestCase):
+    def test_a_name_opening_a_pattern_is_found_and_a_call_is_not(self):
+        source = b"""fn f(r: Result<u8, E>) -> Option<u8> {
+    match r {
+        Ok(v) => Some(v),
+        Err(E::Io(e)) => None,
+    }
+}
+fn g(p: P) { let P { x } = p; }
+"""
+        self.assertEqual(
+            ground_truth._rust_pattern_paths(source),
+            {(3, 8), (4, 8), (4, 15), (7, 17)},
         )

@@ -2,7 +2,8 @@
 
 Servers: Flask and FastAPI route decorators, Express routes, and Go
 ``net/http``/gorilla ``HandleFunc``/``Handle``. Clients: Python ``requests``
-and ``httpx``, Locust ``client``, JavaScript ``fetch``, ``axios``,
+and ``httpx`` module calls, their ``Session``/``Client`` objects and
+``aiohttp`` sessions, Locust ``client``, JavaScript ``fetch``, ``axios``,
 ``request``, AngularJS ``$http``, Angular ``HttpClient`` and
 ``httpResource``, WebSocket and SockJS handshakes, and
 Go ``net/http``. A framework or client object is recognised
@@ -28,6 +29,17 @@ _PY_FRAMEWORKS = {
 }
 _PY_PREFIX = {"Blueprint": "url_prefix", "APIRouter": "prefix"}
 _PY_CLIENTS = ("requests", "httpx")
+# Client objects whose methods send requests: their client name, and the
+# keyword that sets a base URL. httpx appends the request path to the base
+# path; aiohttp joins it as a relative reference (RFC 3986).
+_PY_SESSIONS = {
+    "requests.Session": ("requests", None),
+    "requests.sessions.Session": ("requests", None),
+    "httpx.Client": ("httpx", "base_url"),
+    "httpx.AsyncClient": ("httpx", "base_url"),
+    "aiohttp.ClientSession": ("aiohttp", "base_url"),
+}
+_URL_SCHEME = re.compile(r"(?i)^[a-z][a-z0-9+.-]*://")
 _GO_METHODS = {f"http.Method{m.capitalize()}": m for m in HTTP_METHODS}
 
 
@@ -64,6 +76,8 @@ class _Context:
         self.language = language
         self.folder = Folder(language, self.root, content, externals)
         self.calls_of = None
+        # Python: {router name: full prefixes} of the file's mounted routers.
+        self.mounts = {}
         file_definitions = [d for d in definitions if d.file == file]
         self.spans = {
             (d.line, d.column, d.end_line, d.end_column): d for d in file_definitions
@@ -204,12 +218,17 @@ def _python_imports(root, content):
                     )
         elif node.type == "import_from_statement":
             module = text(node.child_by_field_name("module_name"), content)
+            # ``from . import x`` names ``.x``, not ``..x``.
+            joint = "" if module.strip(".") == "" else "."
             for child in node.children_by_field_name("name"):
                 if child.type == "dotted_name":
-                    names[text(child, content)] = f"{module}.{text(child, content)}"
+                    names[text(child, content)] = (
+                        f"{module}{joint}{text(child, content)}"
+                    )
                 elif child.type == "aliased_import":
                     names[text(child.child_by_field_name("alias"), content)] = (
-                        f"{module}.{text(child.child_by_field_name('name'), content)}"
+                        f"{module}{joint}"
+                        f"{text(child.child_by_field_name('name'), content)}"
                     )
     return names
 
@@ -222,6 +241,175 @@ def _python_origin(function, imports, content):
     if origin is None:
         return None
     return origin + ("." + rest if rest else "")
+
+
+# Mounting one router in another: (framework, keyword giving the prefix).
+_PY_MOUNTS = {
+    "include_router": ("fastapi", "prefix"),
+    "register_blueprint": ("flask", "url_prefix"),
+}
+
+
+def python_routers(tree, content):
+    """Routers of one Python file and the routers it mounts, for composing
+    route prefixes across files (``compose_python_prefixes``).
+
+    Returns (routers, mounts, imports). ``routers`` maps each name bound
+    exactly once in the file to a Flask/FastAPI application, ``Blueprint``
+    or ``APIRouter`` to (framework, its own prefix). ``mounts`` lists
+    (parent name, child, prefix or None) for each
+    ``parent.include_router(child, prefix=...)`` and
+    ``parent.register_blueprint(child, url_prefix=...)`` whose parent is a
+    name and whose child is a name or ``name.attribute``; the child is the
+    dotted origin through the file's imports, or the local name. ``imports``
+    maps the file's imported names to their origins."""
+    root = tree.root_node
+    folder = Folder("python", root, content)
+    imports = _python_imports(root, content)
+    bound, routers, mounts = {}, {}, []
+    for node in _walk(root):
+        if node.type == "assignment":
+            left = node.child_by_field_name("left")
+            if left is not None and left.type == "identifier":
+                bound.setdefault(text(left, content), []).append(
+                    node.child_by_field_name("right")
+                )
+        elif node.type == "call":
+            function = node.child_by_field_name("function")
+            arguments = node.child_by_field_name("arguments")
+            if function is None or function.type != "attribute" or arguments is None:
+                continue
+            mount = _PY_MOUNTS.get(
+                text(function.child_by_field_name("attribute"), content)
+            )
+            parent = function.child_by_field_name("object")
+            if mount is None or parent.type != "identifier":
+                continue
+            keywords, positional = _keyword_arguments(arguments, content)
+            child = (
+                positional[0]
+                if positional
+                else keywords.get("router", keywords.get("blueprint"))
+            )
+            if child is None or child.type not in ("identifier", "attribute"):
+                continue
+            written = text(child, content)
+            head, dot, rest = written.partition(".")
+            if dot and head not in imports:
+                continue
+            origin = imports[head] + dot + rest if head in imports else written
+            prefix = keywords.get(mount[1])
+            mounts.append(
+                (
+                    text(parent, content),
+                    origin,
+                    None if prefix is None else folder.evaluate(prefix),
+                )
+            )
+    for name, values in bound.items():
+        value = values[0]
+        if len(values) != 1 or value is None or value.type != "call":
+            continue
+        origin = _python_origin(value.child_by_field_name("function"), imports, content)
+        module, _, constructor = (origin or "").rpartition(".")
+        framework = _PY_FRAMEWORKS.get((module, constructor))
+        if framework is None:
+            continue
+        keywords, _ = _keyword_arguments(
+            value.child_by_field_name("arguments"), content
+        )
+        own = ""
+        if _PY_PREFIX.get(constructor) in keywords:
+            own = folder.evaluate(keywords[_PY_PREFIX[constructor]])
+        routers[name] = (framework, own)
+    return routers, mounts, imports
+
+
+def _python_module_file(file, module, files):
+    """The analysed file a dotted ``module`` imported from ``file`` names:
+    relative to the file's package for leading dots, else under the nearest
+    enclosing directory that holds it."""
+    dots = len(module) - len(module.lstrip("."))
+    parts = [p for p in module[dots:].split(".") if p]
+    directory = file.rpartition("/")[0]
+    if dots:
+        for _ in range(dots - 1):
+            if not directory:
+                return None
+            directory = directory.rpartition("/")[0]
+        bases = [directory]
+    else:
+        bases = []
+        while True:
+            bases.append(directory)
+            if not directory:
+                break
+            directory = directory.rpartition("/")[0]
+    for base in bases:
+        path = "/".join(([base] if base else []) + parts)
+        for candidate in (path + "/__init__.py", path + ".py"):
+            if candidate in files:
+                return candidate
+    return None
+
+
+def compose_python_prefixes(found):
+    """Full route prefixes of mounted Python routers.
+
+    ``found`` maps each Python file to its ``python_routers`` result. Returns
+    {(file, router name): sorted full prefixes} for each router mounted in
+    another: FastAPI joins the parent's prefix, the ``include_router`` prefix
+    and the router's own; Flask joins the parent's prefix and the
+    ``register_blueprint`` ``url_prefix``, which replaces the blueprint's own.
+    A mount whose parent is not a known router counts as mounted at the root.
+    Routers that are never mounted are left out, and keep their own prefix."""
+    files = set(found)
+
+    def resolve(file, origin, depth=0):
+        """(file, name) of the router a child origin names, following one
+        re-export per step."""
+        if depth > 4:
+            return None
+        if "." not in origin.lstrip(".") and not origin.startswith("."):
+            return (file, origin) if origin in found[file][0] else None
+        dots = len(origin) - len(origin.lstrip("."))
+        parts = origin[dots:].split(".")
+        module, name = "." * dots + ".".join(parts[:-1]), parts[-1]
+        target = _python_module_file(file, module, files)
+        if target is None:
+            return None
+        routers, _, imports = found[target]
+        if name in routers:
+            return (target, name)
+        if name in imports:
+            return resolve(target, imports[name], depth + 1)
+        return None
+
+    parents = {}
+    for file, (routers, mounts, _) in found.items():
+        for parent, origin, prefix in mounts:
+            child = resolve(file, origin)
+            if child is None:
+                continue
+            framework = found[child[0]][0][child[1]][0]
+            key = (file, parent) if parent in routers else None
+            parents.setdefault(child, []).append((key, framework, prefix))
+
+    def full(key, active):
+        own = found[key[0]][0][key[1]][1]
+        if key not in parents or key in active:
+            return {own}
+        prefixes = set()
+        for parent, framework, prefix in parents[key]:
+            outer = full(parent, active | {key}) if parent is not None else {""}
+            if framework == "flask":
+                tail = own if prefix is None else prefix
+            else:
+                tail = (prefix or "") + own
+            prefixes.update(o.rstrip("/") + tail for o in outer)
+        return prefixes
+
+    return {key: sorted(full(key, frozenset())) for key in parents}
 
 
 def extract_python(context):
@@ -245,10 +433,102 @@ def extract_python(context):
         keywords, _ = _keyword_arguments(
             value.child_by_field_name("arguments"), content
         )
+        mounted = context.mounts.get(text(owner, content))
+        if mounted is not None:
+            return framework, mounted
         prefix = ""
         if _PY_PREFIX.get(constructor) in keywords:
             prefix = context.folder.evaluate(keywords[_PY_PREFIX[constructor]])
-        return framework, prefix
+        return framework, [prefix]
+
+    def session(value):
+        """(client, base URL: "" for none, else text) when ``value`` makes a
+        client object, else None."""
+        if value is None or value.type != "call":
+            return None
+        origin = _python_origin(value.child_by_field_name("function"), imports, content)
+        found = _PY_SESSIONS.get(origin or "")
+        if found is None:
+            return None
+        client, keyword = found
+        base = ""
+        if keyword is not None:
+            keywords, _ = _keyword_arguments(
+                value.child_by_field_name("arguments"), content
+            )
+            if keyword in keywords:
+                base = context.folder.evaluate(keywords[keyword])
+        return client, base
+
+    # self.NAME assigned exactly once in a class, to a client object.
+    members = {}
+    for node in _walk(root):
+        if node.type != "assignment":
+            continue
+        left = node.child_by_field_name("left")
+        if left is None or left.type != "attribute":
+            continue
+        written = text(left, content)
+        if not written.startswith("self."):
+            continue
+        owner = node.parent
+        while owner is not None and owner.type != "class_definition":
+            owner = owner.parent
+        if owner is not None:
+            members.setdefault((owner.id, written), []).append(
+                node.child_by_field_name("right")
+            )
+
+    def receiver(owner_node):
+        """(client, base) of the client object ``owner_node`` names: a name
+        bound once to one, the target of an enclosing ``with ... as name``,
+        or ``self.NAME`` set once in the class to one; else None."""
+        written = text(owner_node, content)
+        if owner_node.type == "identifier":
+            ancestor = owner_node.parent
+            while ancestor is not None:
+                if ancestor.type == "with_statement":
+                    for item in _walk(ancestor):
+                        value = item.child_by_field_name("value")
+                        if (
+                            item.type == "with_item"
+                            and value is not None
+                            and value.type == "as_pattern"
+                        ):
+                            alias = value.child_by_field_name("alias")
+                            if alias is not None and text(alias, content) == written:
+                                return session(value.named_children[0])
+                if ancestor.type in ("function_definition", "class_definition"):
+                    break
+                ancestor = ancestor.parent
+            found = context.folder.binding(owner_node)
+            return session(found[1]) if found is not None else None
+        if owner_node.type == "attribute" and written.startswith("self."):
+            owner = owner_node.parent
+            while owner is not None and owner.type != "class_definition":
+                owner = owner.parent
+            assigned = members.get((owner.id, written)) if owner else None
+            if assigned and len(assigned) == 1:
+                return session(assigned[0])
+        return None
+
+    def joined(client, base, url):
+        """``url`` sent from a ``client`` object with base URL ``base``. An
+        absolute URL, or a base that is not a literal absolute URL, leaves
+        ``url`` as written."""
+        if not _URL_SCHEME.match(base) or _URL_SCHEME.match(url):
+            return url
+        if client == "httpx":
+            return base.rstrip("/") + "/" + url.lstrip("/") if url else base
+        match = _URL_SCHEME.match(base)
+        origin = base[: match.end()] + base[match.end() :].partition("/")[0]
+        if url.startswith("/"):
+            return origin + url
+        return (
+            base.rpartition("/")[0] + "/" + url
+            if "/" in base[match.end() :]
+            else origin + "/" + url
+        )
 
     locust = any(origin.split(".")[0] == "locust" for origin in imports.values())
     for node in _walk(root):
@@ -268,7 +548,7 @@ def extract_python(context):
                 app = app_of(function.child_by_field_name("object"))
                 if app is None:
                     continue
-                framework, prefix = app
+                framework, prefixes = app
                 keywords, positional = _keyword_arguments(
                     call.child_by_field_name("arguments"), content
                 )
@@ -300,10 +580,11 @@ def extract_python(context):
                         methods = [m.upper() for m in methods]
                 else:
                     continue
-                path = _python_path(
-                    prefix + context.folder.evaluate(path_node), framework
-                )
-                context.route(call, methods, path, framework, handler)
+                for prefix in prefixes:
+                    path = _python_path(
+                        prefix + context.folder.evaluate(path_node), framework
+                    )
+                    context.route(call, methods, path, framework, handler)
         elif node.type == "call":
             function = node.child_by_field_name("function")
             if function.type != "attribute":
@@ -315,13 +596,17 @@ def extract_python(context):
             if arguments is None or arguments.type != "argument_list":
                 continue
             keywords, positional = _keyword_arguments(arguments, content)
-            client = None
+            client, base = None, ""
             if imports.get(owner) in _PY_CLIENTS:
                 client = imports[owner]
             elif (
                 locust and owner.endswith(".client") and owner_node.type == "attribute"
             ):
                 client = "locust"
+            elif verb in _VERBS or verb == "request":
+                found = receiver(owner_node)
+                if found is not None:
+                    client, base = found
             if client is None:
                 continue
             if verb in _VERBS:
@@ -338,7 +623,12 @@ def extract_python(context):
                 continue
             if url_node is None:
                 continue
-            context.request(node, method, context.folder.evaluate(url_node), client)
+            context.request(
+                node,
+                method,
+                joined(client, base, context.folder.evaluate(url_node)),
+                client,
+            )
 
 
 # -- JavaScript / TypeScript ------------------------------------------------
@@ -1081,6 +1371,7 @@ def extract_web(
     nest=None,
     externals=None,
     calls_of=None,
+    mounts=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -1088,11 +1379,14 @@ def extract_web(
     a TypeScript file belongs to; ``externals`` the values of names the file
     imports or has defined (``script_constants``); ``calls_of(name)`` the
     calls of its module-level function ``name`` with their arguments, for
-    JavaScript/TypeScript requests built from that function's parameters."""
+    JavaScript/TypeScript requests built from that function's parameters;
+    ``mounts`` the full prefixes of a Python file's mounted routers by name
+    (``compose_python_prefixes``)."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
     context.calls_of = calls_of
+    context.mounts = mounts or {}
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
