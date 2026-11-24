@@ -11,6 +11,7 @@ from deepthought import analyze_repository
 from deepthought.analysis_tools.evidence import registered_rules
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
+    CALL_JS_REEXPORT,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     resolve_calls,
@@ -292,6 +293,107 @@ class JavaScriptCallTests(unittest.TestCase):
                 "this.#store": ("Shelf.#store", CALL_SELF_METHOD),
                 "other.#store": ("Shelf.#store", CALL_PRIVATE_NAME),
             },
+        )
+
+    def test_reexports_are_followed_to_the_declaring_module(self):
+        files = {
+            "a.js": (
+                "export function render() {}\n"
+                "export function hh() {}\n"
+                "export function dup() {}\n"
+            ),
+            "b.js": "export function dup() {}\nexport function only() {}\n",
+            "c.js": "export default function Comp() {}\n",
+            "named.js": (
+                "export { render, hh as h } from './a.js';\n"
+                "export { default as Comp } from './c.js';\n"
+            ),
+            "chain.js": "export { h as hyper } from './named.js';\n",
+            "star.js": "export * from './a.js';\nexport * from './b.js';\n",
+            "ns.js": "export * as ns from './a.js';\n",
+            "cyc1.js": "export { loop } from './cyc2.js';\n",
+            "cyc2.js": "export { loop } from './cyc1.js';\n",
+            "imp.js": "import { render } from './a.js';\nexport { render };\n",
+            "dflt.js": "export { only as default } from './b.js';\n",
+            "star2.js": "export * from './dflt.js';\n",
+            "named2.js": "export { default as D2 } from './dflt.js';\n",
+            "twice.js": (
+                "export { only } from './b.js';\nexport { hh as only } from './a.js';\n"
+            ),
+            "main.js": (
+                "import { render, h, Comp } from './named.js';\n"
+                "import { hyper } from './chain.js';\n"
+                "import { only, dup } from './star.js';\n"
+                "import * as S from './star.js';\n"
+                "import { ns } from './ns.js';\n"
+                "import { loop } from './cyc1.js';\n"
+                "import { render as r2 } from './imp.js';\n"
+                "import { D2 } from './named2.js';\n"
+                "import * as S2 from './star2.js';\n"
+                "import { render as nr } from './ns.js';\n"
+                "import { only as o2 } from './twice.js';\n"
+                "render(); h(); Comp(); hyper(); only(); dup();\n"
+                "S.only(); ns.render(); loop(); r2(); D2(); S2.default(); nr(); o2();\n"
+            ),
+        }
+        result = analyze(files)
+        sites = {site.id: site for site in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                r.status,
+                (
+                    f"{definitions[r.target_id].file}:{definitions[r.target_id].symbol}"
+                    if r.target_id
+                    else r.reason
+                ),
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "main.js"
+        }
+        self.assertEqual(
+            found,
+            {
+                # Named re-exports, with aliases, one and two steps away.
+                "render": ("linked", "a.js:render", CALL_JS_REEXPORT),
+                "h": ("linked", "a.js:hh", CALL_JS_REEXPORT),
+                "hyper": ("linked", "a.js:hh", CALL_JS_REEXPORT),
+                # A star export gives every name but default; a name two
+                # stars give is ambiguous.
+                "only": ("linked", "b.js:only", CALL_JS_REEXPORT),
+                "S.only": ("linked", "b.js:only", CALL_JS_REEXPORT),
+                "dup": ("ambiguous", "multiple_declarations", None),
+                # A default export declared in place, a namespace re-export,
+                # a cycle and an import exported by a separate clause are
+                # not followed.
+                "Comp": ("unresolved", "imported_name_not_declared", None),
+                "ns.render": ("unresolved", "attribute_call", None),
+                "loop": ("unresolved", "imported_name_not_declared", None),
+                "r2": ("unresolved", "imported_name_not_declared", None),
+                # A default that a named re-export gives is followed; a star
+                # export gives no default, and a namespace export no names.
+                "D2": ("linked", "b.js:only", CALL_JS_REEXPORT),
+                "S2.default": ("unresolved", "module_attribute_not_declared", None),
+                "nr": ("unresolved", "imported_name_not_declared", None),
+                # Two re-exports of one name, which the language rejects.
+                "o2": ("unresolved", "imported_name_not_declared", None),
+            },
+        )
+        # The same in TypeScript, through an extensionless index module.
+        result = analyze(
+            {
+                "lib.ts": "export function make(): void {}\n",
+                "index.ts": "export { make } from './lib';\n",
+                "main.ts": "import { make } from './index';\nmake();\n",
+            },
+            languages=("typescript",),
+        )
+        (resolution,) = resolve_calls(result)
+        definitions = {d.id: d for d in result.definitions}
+        self.assertEqual(
+            (resolution.rule_id, definitions[resolution.target_id].file),
+            (CALL_JS_REEXPORT, "lib.ts"),
         )
 
 
