@@ -2,7 +2,8 @@
 
 Servers: Flask and FastAPI route decorators, Express routes, and Go
 ``net/http``/gorilla ``HandleFunc``/``Handle``. Clients: Python ``requests``
-and ``httpx``, Locust ``client``, JavaScript ``fetch``, ``axios``,
+and ``httpx`` module calls, their ``Session``/``Client`` objects and
+``aiohttp`` sessions, Locust ``client``, JavaScript ``fetch``, ``axios``,
 ``request``, AngularJS ``$http``, Angular ``HttpClient`` and
 ``httpResource``, WebSocket and SockJS handshakes, and
 Go ``net/http``. A framework or client object is recognised
@@ -28,6 +29,17 @@ _PY_FRAMEWORKS = {
 }
 _PY_PREFIX = {"Blueprint": "url_prefix", "APIRouter": "prefix"}
 _PY_CLIENTS = ("requests", "httpx")
+# Client objects whose methods send requests: their client name, and the
+# keyword that sets a base URL. httpx appends the request path to the base
+# path; aiohttp joins it as a relative reference (RFC 3986).
+_PY_SESSIONS = {
+    "requests.Session": ("requests", None),
+    "requests.sessions.Session": ("requests", None),
+    "httpx.Client": ("httpx", "base_url"),
+    "httpx.AsyncClient": ("httpx", "base_url"),
+    "aiohttp.ClientSession": ("aiohttp", "base_url"),
+}
+_URL_SCHEME = re.compile(r"(?i)^[a-z][a-z0-9+.-]*://")
 _GO_METHODS = {f"http.Method{m.capitalize()}": m for m in HTTP_METHODS}
 
 
@@ -429,6 +441,95 @@ def extract_python(context):
             prefix = context.folder.evaluate(keywords[_PY_PREFIX[constructor]])
         return framework, [prefix]
 
+    def session(value):
+        """(client, base URL: "" for none, else text) when ``value`` makes a
+        client object, else None."""
+        if value is None or value.type != "call":
+            return None
+        origin = _python_origin(value.child_by_field_name("function"), imports, content)
+        found = _PY_SESSIONS.get(origin or "")
+        if found is None:
+            return None
+        client, keyword = found
+        base = ""
+        if keyword is not None:
+            keywords, _ = _keyword_arguments(
+                value.child_by_field_name("arguments"), content
+            )
+            if keyword in keywords:
+                base = context.folder.evaluate(keywords[keyword])
+        return client, base
+
+    # self.NAME assigned exactly once in a class, to a client object.
+    members = {}
+    for node in _walk(root):
+        if node.type != "assignment":
+            continue
+        left = node.child_by_field_name("left")
+        if left is None or left.type != "attribute":
+            continue
+        written = text(left, content)
+        if not written.startswith("self."):
+            continue
+        owner = node.parent
+        while owner is not None and owner.type != "class_definition":
+            owner = owner.parent
+        if owner is not None:
+            members.setdefault((owner.id, written), []).append(
+                node.child_by_field_name("right")
+            )
+
+    def receiver(owner_node):
+        """(client, base) of the client object ``owner_node`` names: a name
+        bound once to one, the target of an enclosing ``with ... as name``,
+        or ``self.NAME`` set once in the class to one; else None."""
+        written = text(owner_node, content)
+        if owner_node.type == "identifier":
+            ancestor = owner_node.parent
+            while ancestor is not None:
+                if ancestor.type == "with_statement":
+                    for item in _walk(ancestor):
+                        value = item.child_by_field_name("value")
+                        if (
+                            item.type == "with_item"
+                            and value is not None
+                            and value.type == "as_pattern"
+                        ):
+                            alias = value.child_by_field_name("alias")
+                            if alias is not None and text(alias, content) == written:
+                                return session(value.named_children[0])
+                if ancestor.type in ("function_definition", "class_definition"):
+                    break
+                ancestor = ancestor.parent
+            found = context.folder.binding(owner_node)
+            return session(found[1]) if found is not None else None
+        if owner_node.type == "attribute" and written.startswith("self."):
+            owner = owner_node.parent
+            while owner is not None and owner.type != "class_definition":
+                owner = owner.parent
+            assigned = members.get((owner.id, written)) if owner else None
+            if assigned and len(assigned) == 1:
+                return session(assigned[0])
+        return None
+
+    def joined(client, base, url):
+        """``url`` sent from a ``client`` object with base URL ``base``. An
+        absolute URL, or a base that is not a literal absolute URL, leaves
+        ``url`` as written."""
+        if not _URL_SCHEME.match(base) or _URL_SCHEME.match(url):
+            return url
+        if client == "httpx":
+            return base.rstrip("/") + "/" + url.lstrip("/") if url else base
+        match = _URL_SCHEME.match(base)
+        origin = base[: match.end()] + base[match.end() :].partition("/")[0]
+        if url.startswith("/"):
+            return origin + url
+        return (
+            base.rpartition("/")[0] + "/" + url
+            if "/" in base[match.end() :]
+            else origin + "/" + url
+        )
+
     locust = any(origin.split(".")[0] == "locust" for origin in imports.values())
     for node in _walk(root):
         if node.type == "decorated_definition":
@@ -495,13 +596,17 @@ def extract_python(context):
             if arguments is None or arguments.type != "argument_list":
                 continue
             keywords, positional = _keyword_arguments(arguments, content)
-            client = None
+            client, base = None, ""
             if imports.get(owner) in _PY_CLIENTS:
                 client = imports[owner]
             elif (
                 locust and owner.endswith(".client") and owner_node.type == "attribute"
             ):
                 client = "locust"
+            elif verb in _VERBS or verb == "request":
+                found = receiver(owner_node)
+                if found is not None:
+                    client, base = found
             if client is None:
                 continue
             if verb in _VERBS:
@@ -518,7 +623,12 @@ def extract_python(context):
                 continue
             if url_node is None:
                 continue
-            context.request(node, method, context.folder.evaluate(url_node), client)
+            context.request(
+                node,
+                method,
+                joined(client, base, context.folder.evaluate(url_node)),
+                client,
+            )
 
 
 # -- JavaScript / TypeScript ------------------------------------------------

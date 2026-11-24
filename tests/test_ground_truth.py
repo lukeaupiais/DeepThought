@@ -998,3 +998,22 @@ class GrpcScorerTests(unittest.TestCase):
                 "unread": ["p.S/C"],
             },
         )
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_rust"), "Rust grammar is required"
+)
+class RustPatternTest(unittest.TestCase):
+    def test_a_name_opening_a_pattern_is_found_and_a_call_is_not(self):
+        source = b"""fn f(r: Result<u8, E>) -> Option<u8> {
+    match r {
+        Ok(v) => Some(v),
+        Err(E::Io(e)) => None,
+    }
+}
+fn g(p: P) { let P { x } = p; }
+"""
+        self.assertEqual(
+            ground_truth._rust_pattern_paths(source),
+            {(3, 8), (4, 8), (4, 15), (7, 17)},
+        )

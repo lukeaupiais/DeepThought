@@ -13,6 +13,7 @@ from deepthought.service_contracts.deployed import (
     aspire_units,
     command_line,
     deployed_units,
+    dotnet_project,
     locust_host,
 )
 
@@ -285,6 +286,106 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(deployments.service("a/x/y.py"), "a")
         self.assertIsNone(deployments.service("c/y.py"))
         self.assertIsNone(deployments.service("d/y.py"))
+
+
+VS_DOCKERFILE = """#See https://aka.ms/containerfastmode
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY ["src/Catalog.API/Catalog.API.csproj", "src/Catalog.API/"]
+RUN dotnet restore "src/Catalog.API/Catalog.API.csproj"
+COPY . .
+WORKDIR "/src/src/Catalog.API"
+RUN dotnet build "Catalog.API.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "Catalog.API.csproj" -c Release \\
+    -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "Catalog.API.dll"]
+"""
+
+SUBDIRECTORY_DOCKERFILE = """FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src/orders
+COPY src/Ordering.API .
+RUN dotnet publish -c Release -o out
+"""
+
+PATTERN_DOCKERFILE = """FROM mcr.microsoft.com/dotnet/sdk:8.0
+WORKDIR /app
+COPY . ./
+RUN dotnet restore && dotnet publish src/Basket.API/*.csproj -c Release -o out
+"""
+
+
+class DotnetProjectTests(unittest.TestCase):
+    def test_the_published_project_runs(self):
+        files = {
+            "src/Catalog.API/Catalog.API.csproj": "<Project />",
+            "src/Catalog.API/Dockerfile": VS_DOCKERFILE,
+            "src/Ordering.API/Ordering.API.csproj": "<Project />",
+            "src/Ordering.API/Dockerfile": SUBDIRECTORY_DOCKERFILE,
+            "src/Basket.API/Basket.API.csproj": "<Project />",
+            "src/Basket.API/Dockerfile": PATTERN_DOCKERFILE,
+            # Two different projects published: none is chosen.
+            "src/Two/Dockerfile": (
+                "FROM sdk\nWORKDIR /s\nCOPY . .\n"
+                "RUN dotnet publish src/Catalog.API/Catalog.API.csproj\n"
+                "RUN dotnet publish src/Ordering.API/Ordering.API.csproj\n"
+            ),
+            # The project is copied from another image, not the context.
+            "src/Other/Dockerfile": (
+                "FROM sdk\nWORKDIR /s\nCOPY --from=base . .\n"
+                "RUN dotnet publish x.csproj\n"
+            ),
+            # Published from a directory with no project.
+            "src/Empty/Dockerfile": (
+                "FROM sdk\nWORKDIR /s\nCOPY . .\nWORKDIR /s/docs\nRUN dotnet publish\n"
+            ),
+            "docker-compose.yml": (
+                "services:\n"
+                "  catalog-api:\n"
+                "    build:\n"
+                "      context: .\n"
+                "      dockerfile: src/Catalog.API/Dockerfile\n"
+                "  ordering-api:\n"
+                "    build: {context: ., dockerfile: src/Ordering.API/Dockerfile}\n"
+                "  basket-api:\n"
+                "    build: {context: ., dockerfile: src/Basket.API/Dockerfile}\n"
+                "  two:\n"
+                "    build: {context: ., dockerfile: src/Two/Dockerfile}\n"
+                "  other:\n"
+                "    build: {context: ., dockerfile: src/Other/Dockerfile}\n"
+                "  empty:\n"
+                "    build: {context: ., dockerfile: src/Empty/Dockerfile}\n"
+                "  node:\n"
+                "    build: src/web\n"
+            ),
+            "src/web/Dockerfile": "FROM node\nCOPY . .\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, files)
+            units = sorted((u.name, u.context) for u in deployed_units(root))
+            self.assertIsNone(dotnet_project(root, "", None))
+            self.assertIsNone(dotnet_project(root, "", "missing/Dockerfile"))
+        self.assertEqual(
+            units,
+            [
+                ("basket-api", "src/Basket.API"),
+                ("catalog-api", "src/Catalog.API"),
+                ("empty", ""),
+                ("node", "src/web"),
+                ("ordering-api", "src/Ordering.API"),
+                ("other", ""),
+                ("two", ""),
+            ],
+        )
 
 
 APPHOST = """

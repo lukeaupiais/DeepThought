@@ -108,12 +108,21 @@ public class Controller {
 
 
 # Negative cases: one `new` passes unknown text; a constructor sets the
-# field to a literal instead of its parameter.
+# field to a literal instead of its parameter; a varargs constructor is not
+# read (and must not stop the analysis).
 CLIENTS = """
 package shop;
 
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPut;
+
+class Varargs {
+    private String base;
+
+    Varargs(String base, String... rest) {
+        this.base = base;
+    }
+}
 
 class Mixed {
     private String base;

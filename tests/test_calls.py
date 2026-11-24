@@ -23,6 +23,8 @@ from deepthought.calls import (
     CALL_PYTHON_TYPED_RECEIVER,
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
+    PYTHON_CALL_SELF_INHERITED,
+    PYTHON_CALL_SUPER,
     resolve_calls,
 )
 from deepthought.models import AnalysisResult, CallSite, FileCoverage
@@ -282,6 +284,99 @@ class PythonCallTests(unittest.TestCase):
             )
         )
         self.assertEqual(imported[("main.py", 3, "g")][:2], ("linked", "m.py::g"))
+
+    def test_python_super_inherited_self_and_package_imports(self):
+        files = {
+            "pkg/__init__.py": "from .core import echo\n",
+            "pkg/core.py": (
+                "def echo(): pass\n"
+                "class Base:\n"
+                "    def run(self): pass\n"
+                "    def help(self): pass\n"
+                "class Mid(Base):\n"
+                "    def run(self): pass\n"
+            ),
+            "pkg/types.py": "def convert(): pass\n",
+            "pkg/util.py": "def tidy(): pass\n",
+            "pkg/app.py": (
+                "from . import types\n"
+                "from .core import Mid, Base\n"
+                "class Leaf(Mid):\n"
+                "    def run(self):\n"
+                "        super().run()\n"  # 5: Mid's run
+                "        super().help()\n"  # 6: inherited by Mid from Base
+                "        self.help()\n"  # 7: inherited
+                "        types.convert()\n"  # 8: a submodule
+                "        def inner():\n"
+                "            super().run()\n"  # 10: not directly in a method
+                "class Free(object):\n"
+                "    def go(self):\n"
+                "        super().go()\n"  # 13: object declares nothing here
+                "        self.missing()\n"  # 14: declared nowhere
+                "class Outside(Unknown):\n"
+                "    def go(self):\n"
+                "        super().go()\n"  # 17: a base outside the repository
+                "        self.go2()\n"  # 18: same
+            ),
+            "tests/test_echo.py": (
+                "import pkg.util\n"
+                "pkg.echo()\n"  # 2: `import pkg.util` binds pkg
+                "pkg.util.tidy()\n"  # 3
+            ),
+        }
+        found = links(analyze(files, "python"))
+        app = {
+            (line, callee): value
+            for (file, line, callee), value in found.items()
+            if file == "pkg/app.py" and callee != "super"
+        }
+        self.assertEqual(
+            app,
+            {
+                (5, "super().run"): (
+                    "linked",
+                    "pkg/core.py::Mid.run",
+                    PYTHON_CALL_SUPER,
+                    None,
+                ),
+                (6, "super().help"): (
+                    "linked",
+                    "pkg/core.py::Base.help",
+                    PYTHON_CALL_SUPER,
+                    None,
+                ),
+                (7, "self.help"): (
+                    "linked",
+                    "pkg/core.py::Base.help",
+                    PYTHON_CALL_SELF_INHERITED,
+                    None,
+                ),
+                (8, "types.convert"): (
+                    "linked",
+                    "pkg/types.py::convert",
+                    CALL_MODULE_ATTRIBUTE,
+                    None,
+                ),
+                (10, "super().run"): ("unresolved", None, None, "outside_class"),
+                (13, "super().go"): ("unresolved", None, None, "not_declared_on_type"),
+                (14, "self.missing"): (
+                    "unresolved",
+                    None,
+                    None,
+                    "not_declared_in_class",
+                ),
+                (17, "super().go"): ("unresolved", None, None, "base_not_resolved"),
+                (18, "self.go2"): ("unresolved", None, None, "base_not_resolved"),
+            },
+        )
+        self.assertEqual(
+            found[("tests/test_echo.py", 2, "pkg.echo")][:2],
+            ("linked", "pkg/core.py::echo"),
+        )
+        self.assertEqual(
+            found[("tests/test_echo.py", 3, "pkg.util.tidy")][:2],
+            ("linked", "pkg/util.py::tidy"),
+        )
 
     def test_python_overload_signatures_yield_to_the_implementation(self):
         result = analyze(
