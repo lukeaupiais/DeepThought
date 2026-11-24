@@ -2241,6 +2241,63 @@ all have the configured destination. The other 5 are unread, not wrong:
 Samples without a `spring.application.name` are not services here and give
 nothing.
 
+#### Services that Compose builds
+
+A Compose service whose `build` context is a module's directory runs that
+module (`deepthought.service_contracts.compose`). Each Compose file is a
+deployment of its own, and every file name of the `compose*.yml` /
+`docker-compose*.yml` family counts, `docker-compose-kafka.yml` included.
+Such a module is a running service even without its own
+`spring.application.name`, and its name is, in this order:
+
+1. its own `spring.application.name`;
+2. the name every Compose service that builds it gives it:
+   `SPRING_APPLICATION_NAME`, or `spring.application.name` read under the
+   service's active profiles in its `SPRING_CONFIG_LOCATION` files;
+3. the Compose services' name, when they all have the same one;
+4. the module's directory name, when they have several (for example the
+   replicas `product` and `product-p1`).
+
+Message edges of Spring Cloud Stream sites record which step applied as
+`service_identity_rule`: `service-contracts.service-spring-application-name`,
+`service-compose-name` or `service-module-name`. They also record the
+Compose services that deploy them as `deployed_as` (`file:service`).
+
+`SPRING_CONFIG_LOCATION` entries are followed to repository files.
+- A `file:` entry goes through the service's bind mounts. A relative
+  source is relative to the Compose file, and `$PWD` is taken to be the
+  Compose file's directory.
+- A `classpath:` entry is looked up in the module's resources.
+- An `optional:` entry that does not exist is skipped.
+
+When every Compose service that builds the module sets a location, the
+module's own config files are not read, as at run time.
+
+The binder keys are then read per Compose service, with its
+`SPRING_PROFILES_ACTIVE`: the last document that applies decides. So a
+binding gives one endpoint per broker its deployments use, each with its
+own `deployed_as`. A service is `binder_unknown` when:
+- its profiles or location are not literal;
+- a profile expression decides the value;
+- its location cannot be followed.
+
+Environment overrides of other keys are not read.
+
+On PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition (commit `db9e0fa`)
+(Chapter07 and Chapter23), the three core services had been `no_service`,
+since neither chapter sets a name in the module config. Each now consumes
+its destination twice:
+- on RabbitMQ, in `docker-compose.yml` and `docker-compose-partitions.yml`;
+- on Kafka, in `docker-compose-kafka.yml`, whose `kafka` profile switches
+  the default binder.
+
+Chapter23 takes the names (`product`, `recommendation`, `review`) and
+destinations from `config-repo/` through the mounted config location.
+Chapter07 has replicas under two names, so its services are named after
+their module directories. No edges changed on the gated corpora,
+spring-petclinic-rest, train-ticket or the stream samples, apart from the
+two new properties.
+
 ### Validation
 
 `tools/check_contracts_ground_truth.py CORPUS.json CHECKOUT` scores the tool
