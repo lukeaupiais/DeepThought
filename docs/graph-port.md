@@ -155,6 +155,21 @@ SCIP. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 
+A call site that no rule links to exactly one declaration is still stored: an
+`UnresolvedCall` node with its `callee`, `name` (the callee's last name, `param`
+for `c.req.param()`), file, line and column, `status` (`unresolved` or
+`ambiguous`), the `resolver` that left it unlinked (`tree-sitter`) and the
+`reason` it gives and, when ambiguous, the
+`candidates`' qualified names. Its caller (the innermost enclosing declaration,
+or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+query counts the linked, ambiguous and unresolved calls of a name:
+`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+returns those counts and the call sites, each linked one with its target and
+rule. Snapshots written before this change have no such nodes and answer
+`unsupported_or_unobserved`. Calls made through another name (an alias, a
+callback, dynamic dispatch) are not counted.
+
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
@@ -4200,7 +4215,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
