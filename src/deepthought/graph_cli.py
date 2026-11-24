@@ -152,6 +152,7 @@ def parser():
         "component-required-by",
         "component-impact",
         "shared-tables",
+        "call-sites",
         "cypher",
     ):
         q = commands.add_parser(name)
@@ -235,6 +236,11 @@ def parser():
             )
         if name == "explain-edge":
             q.add_argument("--edge-id", required=True)
+        if name == "call-sites":
+            q.add_argument(
+                "--name", required=True, help="Last name of the callee (param)"
+            )
+            q.add_argument("--file", help="Only calls written in this file")
         if name == "components":
             q.add_argument("--kind", help="Only components of this kind")
         if name == "file-components":
@@ -486,6 +492,10 @@ async def execute(args):
             )
         if args.command == "shared-tables":
             return await service.get_shared_tables(args.repository_id, **kwargs)
+        if args.command == "call-sites":
+            return await service.get_call_sites(
+                args.name, args.repository_id, file_path=args.file, **kwargs
+            )
         if args.command == "component-files":
             return await service.get_component_files(
                 args.component,

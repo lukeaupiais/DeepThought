@@ -337,7 +337,12 @@ def extract(
                     "method_declaration",
                     "method_elem",
                 }:
-                    arity = {"result_type": _go_result_type(node, content)}
+                    arity = {
+                        "result_type": _go_result_type(node, content),
+                        "signature": _go_signature(node, content),
+                    }
+                elif kind == "Interface":
+                    arity = {"embeds": _go_embeds(node, content)}
                 elif kind == "Struct":
                     arity = {"fields": _go_fields(node, content)}
                 elif kind == "Type":
@@ -719,6 +724,48 @@ def prepare_source(language: str, content: bytes) -> bytes:
         return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
 
     return _CPP_CLASS_MACRO.sub(blank, content)
+
+
+def parse_source(parser, language: str, suffix: str, content: bytes):
+    """The tree of ``content``, parsed from ``prepare_source``. In a
+    TypeScript file (not TSX) the grammar reads a type member that starts
+    a line with ``<`` (a generic call signature, ``<T>(x: T): T``) after a
+    member without a separator as part of that member's type, and fails.
+    So the blank before each such ``<`` on a line an innermost error spans
+    (or ends the line before) is read as ``;``, which keeps every offset,
+    and that tree is used when it has fewer errors."""
+    source = prepare_source(language, content)
+    tree = parser.parse(source)
+    if language != "typescript" or suffix == ".tsx" or not tree.root_node.has_error:
+        return tree
+    errors = _error_rows(tree)
+    repaired, offset = bytearray(source), 0
+    for row, line in enumerate(source.split(b"\n")):
+        indent = len(line) - len(line.lstrip(b" \t"))
+        if indent and line[indent : indent + 1] == b"<" and row in errors[1]:
+            repaired[offset + indent - 1] = ord(";")
+        offset += len(line) + 1
+    if repaired == source:
+        return tree
+    candidate = parser.parse(bytes(repaired))
+    return candidate if _error_rows(candidate)[0] < errors[0] else tree
+
+
+def _error_rows(tree):
+    """``(count, rows)``: the number of error and missing nodes in ``tree``,
+    and the rows each innermost one spans, with the row after it."""
+    count, rows, stack = 0, set(), [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if not node.has_error:
+            continue
+        inner = [c for c in node.children if c.has_error]
+        if node.type == "ERROR" or node.is_missing:
+            count += 1
+            if not inner:
+                rows.update(range(node.start_point.row, node.end_point.row + 2))
+        stack.extend(inner)
+    return count, rows
 
 
 # C++: declarators that wrap the declared name, beyond C's.
@@ -2871,19 +2918,30 @@ def _js_properties(node, content):
 
 
 def _js_written_class(written, content, types):
-    """The class name a type annotation (``T``, ``T<U>``) or a ``new``
-    expression's constructor writes, or None. A name the file declares as
-    an interface or type alias may not be the class."""
+    """The class or interface name a type annotation (``T``, ``T<U>``,
+    ``T | undefined``, ``T | null``) or a ``new`` expression's constructor
+    writes, or None. A name the file declares as a type alias or type
+    parameter may not be the class."""
     if written is not None and written.type == "type_annotation":
         written = written.named_children[0] if written.named_children else None
+    if written is not None and written.type == "union_type":
+        # `T | undefined` holds a `T` wherever it is called on.
+        members = [
+            m
+            for m in written.named_children
+            if not (
+                m.named_children and m.named_children[0].type in {"undefined", "null"}
+            )
+        ]
+        written = members[0] if len(members) == 1 else None
     if written is not None and written.type == "generic_type":
         written = written.child_by_field_name("name")
     if written is None or written.type not in {"identifier", "type_identifier"}:
         return None
     name = _text(written, content)
     if written.type == "type_identifier" and name in types:
-        # Interfaces and type aliases share the type namespace with classes
-        # but are not scopes' bindings.
+        # Type aliases and type parameters share the type namespace with
+        # classes but are not scopes' bindings.
         return None
     return written, name
 
@@ -3088,16 +3146,23 @@ def _js_fields(node, content, types):
 
 
 def _js_type_names(root, content):
-    """The names of the interfaces, type aliases and type parameters a
-    TypeScript file declares."""
+    """The names of the type aliases and type parameters a TypeScript file
+    declares, and of the interfaces it declares anywhere but at the top
+    level (a namespace's or a function's, which may shadow another type of
+    that name)."""
     found, stack = set(), [root]
     while stack:
         node = stack.pop()
-        if node.type in {
-            "interface_declaration",
-            "type_alias_declaration",
-            "type_parameter",
-        }:
+        if node.type in {"type_alias_declaration", "type_parameter"} or (
+            node.type == "interface_declaration"
+            and not (
+                node.parent.type == "program"
+                or (
+                    node.parent.type == "export_statement"
+                    and node.parent.parent.type == "program"
+                )
+            )
+        ):
             declared = node.child_by_field_name("name")
             if declared is not None:
                 found.add(_text(declared, content))
@@ -4010,16 +4075,42 @@ _JAVA_PRIMITIVE_NAMES = frozenset(
 
 def _java_declared_type(type_node, value, content):
     """The type a Java declaration writes, a primitive (``int``) included."""
+    return _java_declared_type_of(type_node, value, content)
+
+
+def _java_declared_type_of(type_node, value, content):
     if type_node is not None and type_node.type in _JAVA_PRIMITIVES:
         return _text(type_node, content)
     return _java_written_type(type_node, value, content)
 
 
-def _java_declared_here(node, name, content, before):
+def _java_array_type(type_node, content):
+    """An array type as written, ``int[]`` or ``Foo[][]`` (element without
+    type arguments); None for any other type or element."""
+    dims = 0
+    while type_node is not None and type_node.type == "array_type":
+        dims += _text(type_node.child_by_field_name("dimensions"), content).count("[")
+        type_node = type_node.child_by_field_name("element")
+    if not dims or type_node is None:
+        return None
+    if type_node.type in _JAVA_PRIMITIVES:
+        element = _text(type_node, content)
+    else:
+        element = _java_type_name(type_node, content)
+    return None if element is None else element + "[]" * dims
+
+
+def _java_declared_here(node, name, content, before, arrays=False):
     """Declarations of ``name`` that ``node`` brings into scope for what it
     holds, as a list of written types (None for one with no usable type).
-    Statements of a block count when they end before ``before``."""
+    Statements of a block count when they end before ``before``. With
+    ``arrays``, a declaration of an array type gives it (``int[]``)."""
     found = []
+
+    def _java_declared_type(type_node, value, content):
+        if arrays and type_node is not None and type_node.type == "array_type":
+            return _java_array_type(type_node, content)
+        return _java_declared_type_of(type_node, value, content)
 
     def declarators(declaration):
         written = declaration.child_by_field_name("type")
@@ -4056,7 +4147,7 @@ def _java_declared_here(node, name, content, before):
             if child.type in {"field_declaration", "constant_declaration"}:
                 declarators(child)
             elif child.type == "enum_body_declarations":
-                found.extend(_java_declared_here(child, name, content, before))
+                found.extend(_java_declared_here(child, name, content, before, arrays))
             elif child.type == "enum_constant":
                 declared = child.child_by_field_name("name")
                 if declared is not None and _text(declared, content) == name:
@@ -4233,7 +4324,7 @@ def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=
         ):
             outer.append(ancestor)
         if found is None and (body or not fields_only):
-            here = _java_declared_here(ancestor, name, content, before)
+            here = _java_declared_here(ancestor, name, content, before, primitives)
             if here:
                 found = here
             elif body:
@@ -4258,10 +4349,12 @@ def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=
         if cache[key]:
             return None
     written = found[0]
-    if written in _JAVA_PRIMITIVE_NAMES:
-        # A primitive has no methods; as an argument it selects an overload.
-        return written if primitives else None
-    if written.split(".")[0] in _java_type_variables(node, content):
+    if written in _JAVA_PRIMITIVE_NAMES or written.endswith("[]"):
+        # A primitive or array has no methods to call here; as an argument
+        # it selects an overload.
+        if not primitives:
+            return None
+    if written.rstrip("[]").split(".")[0] in _java_type_variables(node, content):
         return None
     return written
 
@@ -4341,6 +4434,120 @@ def _go_type_parameters(node, content):
         else:
             stack.extend(current.named_children)
     return frozenset(names)
+
+
+def _go_type_text(node, content):
+    """A Go type written without spaces or names (``[]*pkg.T``,
+    ``map[string]func(int)error``, ``<-chan T``); None for a type parameter
+    instantiation, a struct type or a non-empty interface type, and for an
+    array whose length is not an integer literal."""
+    if node is None:
+        return None
+    kind = node.type
+    if kind == "type_identifier":
+        return _text(node, content)
+    if kind == "qualified_type":
+        package = node.child_by_field_name("package")
+        name = node.child_by_field_name("name")
+        if package is None or name is None:
+            return None
+        return f"{_text(package, content)}.{_text(name, content)}"
+    if kind == "parenthesized_type":
+        return _go_type_text(node.named_children[0], content)
+    if kind == "pointer_type":
+        inner = _go_type_text(node.named_children[0], content)
+        return None if inner is None else "*" + inner
+    if kind == "slice_type":
+        inner = _go_type_text(node.child_by_field_name("element"), content)
+        return None if inner is None else "[]" + inner
+    if kind == "array_type":
+        length = node.child_by_field_name("length")
+        inner = _go_type_text(node.child_by_field_name("element"), content)
+        if length is None or length.type != "int_literal" or inner is None:
+            return None
+        return f"[{_text(length, content)}]{inner}"
+    if kind == "map_type":
+        key = _go_type_text(node.child_by_field_name("key"), content)
+        value = _go_type_text(node.child_by_field_name("value"), content)
+        return None if key is None or value is None else f"map[{key}]{value}"
+    if kind == "channel_type":
+        value = _go_type_text(node.child_by_field_name("value"), content)
+        if value is None:
+            return None
+        arrows = [c.type for c in node.children if not c.is_named]
+        prefix = {
+            ("chan",): "chan ",
+            ("chan", "<-"): "chan<- ",
+            ("<-", "chan"): "<-chan ",
+        }.get(tuple(arrows))
+        return None if prefix is None else prefix + value
+    if kind == "function_type":
+        written = _go_signature_of(node, content)
+        return None if written is None else "func" + written
+    if kind == "interface_type" and not node.named_children:
+        return "interface{}"
+    return None
+
+
+def _go_parameter_types(node, content):
+    """The types of a Go parameter or result list, one per parameter; None
+    when one is not written by ``_go_type_text``."""
+    found = []
+    for item in node.named_children:
+        if item.type not in {
+            "parameter_declaration",
+            "variadic_parameter_declaration",
+        }:
+            continue
+        written = _go_type_text(item.child_by_field_name("type"), content)
+        if written is None:
+            return None
+        if item.type == "variadic_parameter_declaration":
+            written = "..." + written
+        found.extend([written] * max(1, len(item.children_by_field_name("name"))))
+    return found
+
+
+def _go_signature_of(node, content):
+    """``(params)(results)`` of a Go function, method, interface method or
+    function type, as ``Definition.signature`` writes it."""
+    parameters = node.child_by_field_name("parameters")
+    written = (
+        _go_parameter_types(parameters, content) if parameters is not None else None
+    )
+    result = node.child_by_field_name("result")
+    if result is None:
+        results = []
+    elif result.type == "parameter_list":
+        results = _go_parameter_types(result, content)
+    else:
+        single = _go_type_text(result, content)
+        results = None if single is None else [single]
+    if written is None or results is None:
+        return None
+    return "(" + ",".join(written) + ")(" + ",".join(results) + ")"
+
+
+def _go_signature(node, content):
+    """``Definition.signature`` of a Go function, method or interface method:
+    None when it names a type parameter (its own, its receiver's or its
+    interface's)."""
+    written = _go_signature_of(node, content)
+    generic = _go_type_parameters(node, content)
+    if written is None or generic & set(re.findall(r"(?<![.\w])\w+", written)):
+        return None
+    return written
+
+
+def _go_embeds(node, content):
+    """``Definition.embeds`` of a Go interface type spec."""
+    interface = node.child_by_field_name("type")
+    found = [
+        "".join(_text(item, content).split())
+        for item in interface.named_children
+        if item.type == "type_elem"
+    ]
+    return tuple(found) or None
 
 
 def _go_result_type(node, content):
