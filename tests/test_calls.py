@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from deepthought.calls import (
     CALL_IMPORTED_NAME,
     CALL_LEXICAL_NAME,
     CALL_MODULE_ATTRIBUTE,
+    CALL_PYTHON_REEXPORT,
     CALL_SELF_METHOD,
     resolve_calls,
 )
@@ -274,6 +276,180 @@ class PythonCallTests(unittest.TestCase):
             )
         )
         self.assertEqual(imported[("main.py", 3, "g")][:2], ("linked", "m.py::g"))
+
+    def test_python_overload_signatures_yield_to_the_implementation(self):
+        result = analyze(
+            {
+                "lib.py": (
+                    "import typing\n"
+                    "import typing as t\n"
+                    "from typing import overload\n"
+                    "@overload\n"
+                    "def one(x: int) -> int: ...\n"
+                    "@t.overload\n"
+                    "def one(x: str) -> str: ...\n"
+                    "def one(x): return x\n"
+                    "@typing.overload\n"
+                    "def stub(x: int) -> int: ...\n"
+                    "@typing.overload\n"
+                    "def stub(x: str) -> str: ...\n"
+                    "@overload\n"
+                    "def two(x: int) -> int: ...\n"
+                    "if flag:\n"
+                    "    def two(x): return 1\n"
+                    "else:\n"
+                    "    def two(x): return 2\n"
+                    "@typing_extensions.overload\n"
+                    "def three(x: int) -> int: ...\n"
+                    "@typing.overload\n"
+                    "def three(x: str) -> str: ...\n"
+                    "def three(x): return x\n"
+                    "@cache\n"
+                    "def plain(): pass\n"
+                    "def plain(): pass\n"
+                ),
+                "main.py": (
+                    "from lib import one, stub, two, plain, three\n"
+                    "def go():\n"
+                    "    one(1)\n"
+                    "    stub(1)\n"
+                    "    two(1)\n"
+                    "    plain()\n"
+                    "    three(1)\n"
+                ),
+            },
+            "python",
+        )
+        definitions = {d.id: d for d in result.definitions}
+        self.assertEqual(
+            [(d.line, d.overload) for d in result.definitions if d.symbol == "one"],
+            [(5, True), (7, True), (8, None)],
+        )
+        found = links(result)
+        self.assertEqual(
+            found[("main.py", 3, "one")][:3],
+            ("linked", "lib.py::one", CALL_IMPORTED_NAME),
+        )
+        self.assertEqual(
+            definitions[
+                next(
+                    r.target_id
+                    for r in resolve_calls(result)
+                    if r.target_id and definitions[r.target_id].symbol == "one"
+                )
+            ].line,
+            8,
+        )
+        self.assertEqual(
+            found[("main.py", 7, "three")][:2], ("linked", "lib.py::three")
+        )
+        with self.assertRaises(ValueError):
+            replace(result.definitions[0], overload=False)
+        for line, callee in ((4, "stub"), (5, "two"), (6, "plain")):
+            with self.subTest(callee=callee):
+                self.assertEqual(found[("main.py", line, callee)][0], "ambiguous")
+        serialized = result.to_dict()["definitions"]
+        self.assertEqual(
+            [
+                ("overload" in d, d.get("overload"))
+                for d in serialized
+                if d["symbol"] == "one"
+            ],
+            [(True, True), (True, True), (False, None)],
+        )
+
+    def test_python_reexports_are_followed_to_the_declaring_module(self):
+        result = analyze(
+            {
+                "pkg/__init__.py": (
+                    "from .core import run, Tool as Kit\n"
+                    "from .relay import hop\n"
+                    "from . import core\n"
+                    "try:\n"
+                    "    from .fast import speed\n"
+                    "except ImportError:\n"
+                    "    from .core import speed\n"
+                    "from .loop import spin\n"
+                    "def setup():\n"
+                    "    from .core import late\n"
+                    "class Holder:\n"
+                    "    from .core import held\n"
+                    "import pkg.core as twice\n"
+                    "from .core import twice\n"
+                ),
+                "pkg/core.py": (
+                    "def run(): pass\nclass Tool: pass\n"
+                    "def speed(): pass\ndef late(): pass\ndef held(): pass\n"
+                    "def twice(): pass\n"
+                ),
+                "pkg/fast.py": "def speed(): pass\n",
+                # Two steps: pkg re-exports what pkg.relay re-exports.
+                "pkg/relay.py": "from pkg.core import run as hop\n",
+                "pkg/loop.py": "from pkg import spin\n",
+                "main.py": (
+                    "import pkg\n"
+                    "from pkg import run, Kit\n"
+                    "def go():\n"
+                    "    pkg.run()\n"
+                    "    run()\n"
+                    "    Kit()\n"
+                    "    pkg.hop()\n"
+                    "    pkg.speed()\n"
+                    "    pkg.spin()\n"
+                    "    pkg.core()\n"
+                    "    pkg.late()\n"
+                    "    pkg.held()\n"
+                    "    pkg.twice()\n"
+                ),
+            },
+            "python",
+        )
+        found = links(result)
+        for line, callee, target in (
+            (4, "pkg.run", "pkg/core.py::run"),
+            (5, "run", "pkg/core.py::run"),
+            (6, "Kit", "pkg/core.py::Tool"),
+            (7, "pkg.hop", "pkg/core.py::run"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.py", line, callee)],
+                    ("linked", target, CALL_PYTHON_REEXPORT, None),
+                )
+        for line, callee in (
+            # Bound by two imports.
+            (8, "pkg.speed"),
+            # A cycle of re-exports.
+            (9, "pkg.spin"),
+            # `from . import core` binds a module.
+            (10, "pkg.core"),
+            # Imports in a function or class body are not module attributes.
+            (11, "pkg.late"),
+            (12, "pkg.held"),
+            # Bound twice, once as a module.
+            (13, "pkg.twice"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.py", line, callee)],
+                    ("unresolved", None, None, "module_attribute_not_declared"),
+                )
+
+    def test_javascript_imports_are_not_reexports(self):
+        result = analyze(
+            {
+                "lib.js": "export function make() {}\n",
+                "index.js": "import { make } from './lib.js';\n",
+                "main.js": (
+                    "import { make } from './index.js';\nfunction go() { make(); }\n"
+                ),
+            },
+            "javascript",
+        )
+        self.assertEqual(
+            links(result)[("main.js", 2, "make")],
+            ("unresolved", None, None, "imported_name_not_declared"),
+        )
 
     def test_import_bindings_follow_aliases_and_module_attributes(self):
         result = analyze(

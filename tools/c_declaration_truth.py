@@ -200,6 +200,9 @@ ENGINE_KINDS = {
     "Enum": "type",
     "TypeAlias": "alias",
     "Namespace": "namespace",
+    "Interface": "type",
+    "Trait": "type",
+    "Module": "module",
 }
 
 
