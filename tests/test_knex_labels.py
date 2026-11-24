@@ -44,6 +44,8 @@ export async function down(knex) {
   });
 }
 const recent = (q: Knex.QueryBuilder) => q.from('members').select('id');
+const catalog = () => knex('information_schema.tables').select('table_name');
+const qualified = () => knex('app.audit').insert({ id: 1 });
 """
 
 
@@ -88,9 +90,12 @@ class KnexLabelsTest(unittest.TestCase):
                 (32, "tags", ("READS",)),
                 # A builder typed Knex.QueryBuilder.
                 (35, "members", ("READS",)),
+                # A schema qualifier is dropped.
+                (37, "audit", ("WRITES",)),
             },
         )
-        self.assertEqual(ignored, {(6, "tags")})
+        # Schema calls, and a database's own catalog.
+        self.assertEqual(ignored, {(6, "tags"), (36, "tables")})
         # Only SQL text: given by hand.
         self.assertEqual(unresolved, {(17, "members")})
 

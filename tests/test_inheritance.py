@@ -118,8 +118,12 @@ class PythonBaseTests(unittest.TestCase):
             found[("A", "Base")],
             ("linked", "pkg/base.py::Base", BASE_IMPORTED_NAME, None),
         )
-        # `from pkg import base` binds a submodule; that binding is not followed.
-        self.assertEqual(found[("B", "base.Twice")][0], "unresolved")
+        # `from pkg import base` binds the submodule, which pkg/__init__.py
+        # neither declares nor imports.
+        self.assertEqual(
+            found[("B", "base.Twice")],
+            ("linked", "pkg/base.py::Twice", BASE_MODULE_ATTRIBUTE, None),
+        )
         self.assertEqual(
             found[("C", "pkg.other.Twice")],
             ("linked", "pkg/other.py::Twice", BASE_MODULE_ATTRIBUTE, None),

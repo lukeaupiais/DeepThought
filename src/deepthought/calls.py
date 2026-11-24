@@ -33,6 +33,8 @@ CALL_JS_STATIC_METHOD = "tree-sitter.js-call-static-method"
 CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
+PYTHON_CALL_SUPER = "tree-sitter.python-call-super"
+PYTHON_CALL_SELF_INHERITED = "tree-sitter.python-call-self-inherited"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
 JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
@@ -152,13 +154,19 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
         by_symbol[(d.file, d.symbol)].append(d)
         for alias in d.export_aliases or ():
             aliases[(d.file, alias)].append(d)
-    module_files = {}
+    module_files, submodules = {}, {}
     for resolution in resolve_imports(result):
         module_files[resolution.import_id] = tuple(
             link.target_file
             for link in resolution.links
             if link.rule_id != PYTHON_FROM_IMPORT_SUBMODULE
         )
+        submodules[resolution.import_id] = tuple(
+            link.target_file
+            for link in resolution.links
+            if link.rule_id == PYTHON_FROM_IMPORT_SUBMODULE
+        )
+    python_files = {item.file for item in result.coverage if item.language == "python"}
     declared = {p.file: p.name for p in result.packages if p.kind == "package"}
     # The bodies of each file's functions and classes.
     bodies = defaultdict(list)
@@ -169,6 +177,14 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
     modules = defaultdict(list)
     module_level = defaultdict(list)
     reexports = defaultdict(list)
+
+    def bind_module(file, prefix, targets):
+        # The same module bound twice (`import a.b` and `import a.c` both
+        # bind `a`) is one binding.
+        if targets not in modules[(file, prefix)]:
+            modules[(file, prefix)].append(targets)
+
+    pending = []
     for item in result.imports:
         targets = module_files.get(item.id, ())
         if item.exported_names is not None:
@@ -195,8 +211,26 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
                 prefix = (
                     item.specifier if local == item.specifier.split(".")[0] else local
                 )
-                modules[(item.file, prefix)].append(targets)
+                bind_module(item.file, prefix, targets)
                 names[(item.file, local)].append((None, targets))
+                if (
+                    item.file in python_files
+                    and prefix == item.specifier
+                    and len(targets) == 1
+                ):
+                    # Python: `import a.b.c` binds `a`, and `a.b` names its
+                    # attribute: each package of the path, by the
+                    # `__init__.py` above the module imported.
+                    parts = item.specifier.split(".")
+                    package = posixpath.dirname(targets[0])
+                    if targets[0].endswith("/__init__.py"):
+                        package = posixpath.dirname(package)
+                    for depth in range(len(parts) - 1, 0, -1):
+                        init = f"{package}/__init__.py"
+                        if init not in python_files:
+                            break
+                        bind_module(item.file, ".".join(parts[:depth]), (init,))
+                        package = posixpath.dirname(package)
         for name, local in zip(item.names, item.local_names):
             if name == "*" and local != "*":
                 modules[(item.file, local)].append(targets)
@@ -208,6 +242,23 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
                     for start, end in bodies[item.file]
                 ):
                     module_level[(item.file, local)].append((name, targets))
+                pending.append((item, name, local, targets))
+    # Python `from pkg import m` where m is a submodule of pkg that pkg's
+    # `__init__.py` neither declares nor imports: m is that module.
+    for item, name, local, targets in pending:
+        found = [
+            f
+            for f in submodules.get(item.id, ())
+            if f.endswith((f"/{name}.py", f"/{name}/__init__.py"))
+            or f in (f"{name}.py", f"{name}/__init__.py")
+        ]
+        if (
+            len(found) != 1
+            or item.file not in python_files
+            or any(by_symbol.get((t, name)) or names.get((t, name)) for t in targets)
+        ):
+            continue
+        bind_module(item.file, local, (found[0],))
     return NameBindings(by_symbol, names, modules, module_level, reexports, aliases)
 
 
@@ -1686,6 +1737,34 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             return [], str(error)
         return found, "not_declared_on_type"
 
+    def python_super(site, scope, name):
+        """``super().m()`` in a method of the Python class ``C`` around it:
+        the method ``m`` the bases of ``C`` declare or inherit, in the
+        method resolution order after ``C``."""
+        owner = next(
+            (
+                d
+                for depth in range(len(scope) - 1, 0, -1)
+                for d in by_symbol.get((site.file, ".".join(scope[:depth])), ())
+                if d.kind == "Class"
+            ),
+            None,
+        )
+        # Only directly in a method: a nested function has no implicit
+        # `__class__`.
+        if owner is None or owner.symbol != ".".join(scope[:-1]):
+            return CallResolution(site.id, "unresolved", reason="outside_class")
+        _, reason = python_method(owner, name)
+        if reason == "diamond":
+            return CallResolution(site.id, "unresolved", reason=reason)
+        for _, base in python_bases.get(owner.id, ()):
+            if base.status != "linked":
+                return CallResolution(site.id, "unresolved", reason="base_not_resolved")
+            methods, reason = python_method(by_id[base.target_id], name)
+            if methods or reason != "not_declared_on_type":
+                return _pick(site.id, methods, PYTHON_CALL_SUPER, reason)
+        return CallResolution(site.id, "unresolved", reason="not_declared_on_type")
+
     def script_class(site, head):
         """The class that the first name of a JavaScript or TypeScript call
         ``head.m()`` denotes: declared where the call's scopes see ``head``,
@@ -1984,6 +2063,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 )
             )
             continue
+        if head == "super()" and languages.get(site.file) == "python":
+            resolutions.append(python_super(site, scope, name))
+            continue
         if head in {"self", "this"} or name.startswith("#"):
             owner = next(
                 (
@@ -1996,9 +2078,40 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 ),
                 None,
             )
+            own = (
+                []
+                if owner is None
+                else [
+                    d
+                    for d in by_symbol.get((site.file, f"{owner}.{name}"), ())
+                    if d.kind in _METHOD
+                ]
+            )
+            classes = (
+                [d for d in by_symbol.get((site.file, owner), ()) if d.kind == "Class"]
+                if owner is not None
+                and not own
+                and head == "self"
+                and languages.get(site.file) == "python"
+                else []
+            )
             if owner is None:
                 resolutions.append(
                     CallResolution(site.id, "unresolved", reason="outside_class")
+                )
+            elif len(classes) == 1:
+                # Python `self.m()` where the class around it declares no
+                # `m`: the one its declared bases give.
+                methods, reason = python_method(classes[0], name)
+                resolutions.append(
+                    _pick(
+                        site.id,
+                        methods,
+                        PYTHON_CALL_SELF_INHERITED,
+                        "not_declared_in_class"
+                        if reason == "not_declared_on_type"
+                        else reason,
+                    )
                 )
             else:
                 resolutions.append(

@@ -28,10 +28,8 @@
 # indexed	tests/test_repr.rs
 # indexed	tests/test_source.rs
 build.rs	18	compile_probe	build.rs	86	callable
-build.rs	24	Some	-	0	external
 build.rs	24	var_os	-	0	external
 build.rs	25	compile_probe	build.rs	86	callable
-build.rs	61	Some	-	0	external
 build.rs	61	rustc_minor_version	build.rs	175	callable
 build.rs	87	is_some	-	0	external
 build.rs	87	var_os	-	0	external
@@ -41,7 +39,6 @@ build.rs	100	join	-	0	external
 build.rs	100	new	-	0	external
 build.rs	101	join	-	0	external
 build.rs	101	new	-	0	external
-build.rs	103	Err	-	0	external
 build.rs	103	create_dir	-	0	external
 build.rs	104	kind	-	0	external
 build.rs	105	display	-	0	external
@@ -72,19 +69,14 @@ build.rs	130	arg	-	0	external
 build.rs	131	arg	-	0	external
 build.rs	132	arg	-	0	external
 build.rs	133	arg	-	0	external
-build.rs	135	Some	-	0	external
 build.rs	135	var_os	-	0	external
 build.rs	136	arg	-	0	external
-build.rs	140	Ok	-	0	external
 build.rs	140	var	-	0	external
 build.rs	141	is_empty	-	0	external
 build.rs	142	split	-	0	external
 build.rs	143	arg	-	0	external
 build.rs	148	status	-	0	external
-build.rs	149	Ok	-	0	external
 build.rs	149	success	-	0	external
-build.rs	150	Err	-	0	external
-build.rs	156	Err	-	0	external
 build.rs	156	remove_dir_all	-	0	external
 build.rs	164	kind	-	0	external
 build.rs	164	not	-	0	external
@@ -117,13 +109,11 @@ src/chain.rs	46	next	-	0	external
 src/chain.rs	51	len	src/chain.rs	77	callable
 src/chain.rs	52	Some	-	0	external
 src/chain.rs	61	new	-	0	external
-src/chain.rs	62	Some	-	0	external
 src/chain.rs	63	source	-	0	external
 src/chain.rs	64	push	-	0	external
 src/chain.rs	66	into_iter	-	0	external
 src/chain.rs	67	next_back	-	0	external
 src/chain.rs	71	next_back	-	0	external
-src/chain.rs	81	Some	-	0	external
 src/chain.rs	82	source	-	0	external
 src/chain.rs	88	len	-	0	external
 src/chain.rs	98	into_iter	-	0	external
@@ -139,12 +129,10 @@ src/context.rs	65	Err	-	0	external
 src/context.rs	65	context	src/context.rs	58	local
 src/context.rs	65	ext_context	src/context.rs	13	callable
 src/context.rs	98	Ok	-	0	external
-src/context.rs	98	Some	-	0	external
 src/context.rs	99	Err	-	0	external
 src/context.rs	99	construct_from_display	src/error.rs	192	callable
 src/context.rs	106	FnOnce	-	0	external
 src/context.rs	109	Ok	-	0	external
-src/context.rs	109	Some	-	0	external
 src/context.rs	110	Err	-	0	external
 src/context.rs	110	construct_from_display	src/error.rs	192	callable
 src/context.rs	110	context	src/context.rs	103	local
@@ -232,7 +220,6 @@ src/error.rs	476	of	-	0	external
 src/error.rs	477	by_mut	src/ptr.rs	55	callable
 src/error.rs	481	by_ref	src/ptr.rs	155	callable
 src/error.rs	481	vtable	src/error.rs	927	callable
-src/error.rs	482	Some	-	0	external
 src/error.rs	482	by_mut	src/ptr.rs	108	callable
 src/error.rs	482	extend	src/ptr.rs	162	callable
 src/error.rs	483	Err	-	0	external
@@ -343,7 +330,6 @@ src/error.rs	974	as_ref	-	0	external
 src/error.rs	975	or_else	-	0	external
 src/error.rs	979	vtable	src/error.rs	927	callable
 src/error.rs	981	expect	-	0	external
-src/error.rs	986	Some	-	0	external
 src/error.rs	994	error	src/error.rs	950	callable
 src/error.rs	994	new	src/chain.rs	28	callable
 src/error.rs	1003	erase	src/error.rs	941	callable
@@ -365,7 +351,6 @@ src/fmt.rs	17	Ok	-	0	external
 src/fmt.rs	21	error	src/error.rs	950	callable
 src/fmt.rs	23	alternate	-	0	external
 src/fmt.rs	24	fmt	-	0	external
-src/fmt.rs	29	Some	-	0	external
 src/fmt.rs	29	source	-	0	external
 src/fmt.rs	31	is_some	-	0	external
 src/fmt.rs	31	source	-	0	external
@@ -383,7 +368,6 @@ src/fmt.rs	60	truncate	-	0	external
 src/fmt.rs	65	Ok	-	0	external
 src/fmt.rs	80	enumerate	-	0	external
 src/fmt.rs	80	split	-	0	external
-src/fmt.rs	84	Some	-	0	external
 src/fmt.rs	85	write_str	-	0	external
 src/fmt.rs	88	write_char	-	0	external
 src/fmt.rs	89	is_some	-	0	external
@@ -408,7 +392,6 @@ src/kind.rs	119	construct_from_boxed	src/error.rs	248	callable
 src/lib.rs	414	derive	-	0	external
 src/lib.rs	627	FnOnce	-	0	external
 src/lib.rs	651	Ok	-	0	external
-src/lib.rs	685	Some	-	0	external
 src/lib.rs	685	as_str	-	0	external
 src/lib.rs	687	msg	src/error.rs	77	callable
 src/lib.rs	690	format	-	0	external
@@ -1095,9 +1078,7 @@ tests/test_repr.rs	28	new	src/error.rs	30	callable
 tests/test_repr.rs	28	new	tests/drop/mod.rs	31	callable
 tests/test_repr.rs	29	get	tests/drop/mod.rs	20	callable
 tests/test_source.rs	6	derive	-	0	external
-tests/test_source.rs	14	Io	tests/test_source.rs	8	callable
 tests/test_source.rs	14	fmt	-	0	external
-tests/test_source.rs	22	Io	tests/test_source.rs	8	callable
 tests/test_source.rs	22	Some	-	0	external
 tests/test_source.rs	30	is_none	-	0	external
 tests/test_source.rs	30	source	-	0	external
