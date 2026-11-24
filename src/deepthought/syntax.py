@@ -42,9 +42,10 @@ LANGUAGES = {
     ),
     "ruby": ((".rb",), "tree_sitter_ruby", "language"),
     "php": ((".php",), "tree_sitter_php", "language_php"),
+    "csharp": ((".cs",), "tree_sitter_c_sharp", "language"),
 }
 # Languages analyzed when none are selected. JavaScript, Go, Java, Rust, C, C++,
-# Ruby and PHP are opt-in so that existing Python/TypeScript analyses keep their
+# Ruby, PHP and C# are opt-in so that existing Python/TypeScript analyses keep their
 # output and do not need their grammars; select them with languages=("go", ...)
 # or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
@@ -1072,6 +1073,92 @@ def _python_overload(node, content) -> bool:
         and _text(child, content).lstrip("@").strip() in _PYTHON_OVERLOADS
         for child in parent.children
     )
+
+
+_CSHARP_TYPES = {
+    "class_declaration": "Class",
+    "struct_declaration": "Struct",
+    "interface_declaration": "Interface",
+    "record_declaration": "Record",
+    "enum_declaration": "Enum",
+}
+_CSHARP_MEMBERS = {
+    "method_declaration": "Method",
+    "constructor_declaration": "Constructor",
+}
+
+
+def extract_csharp(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """C# classes, structs, interfaces, records and enums, and their methods
+    and constructors, in source order.
+
+    Symbols join the namespace (``namespace A.B { }``, or a file-scoped
+    ``namespace A.B;`` for the declarations after it) and the enclosing
+    type declarations with ``.``; type parameters are not part of a name.
+    Local functions, lambdas, properties, operators, delegates and enum
+    members are not recorded. ``nodes`` receives id -> (node, name).
+    """
+    found, ordinals = [], {}
+
+    def add(node, name_node, symbol, kind):
+        ordinal = ordinals.get((symbol, kind), 0)
+        ordinals[(symbol, kind)] = ordinal + 1
+        definition = Definition(
+            id=identifier(repository_id, file, symbol, kind, ordinal),
+            file=file,
+            symbol=symbol,
+            kind=kind,
+            line=node.start_point.row + 1,
+            column=node.start_point.column,
+            end_line=node.end_point.row + 1,
+            end_column=node.end_point.column,
+        )
+        found.append(definition)
+        if nodes is not None:
+            nodes[definition.id] = (node, name_node)
+
+    def names(node):
+        return tuple(_text(node, content).replace(" ", "").split(".")) if node else ()
+
+    def members(node, scope):
+        """Named children with their scope; a file-scoped namespace scopes
+        the declarations after it."""
+        items = []
+        for child in node.named_children:
+            if child.type == "file_scoped_namespace_declaration":
+                scope = (*scope, *names(child.child_by_field_name("name")))
+                continue
+            items.append((child, scope))
+        return items
+
+    stack = list(reversed(members(tree.root_node, ())))
+    while stack:
+        node, scope = stack.pop()
+        if node.type == "namespace_declaration":
+            inner = (*scope, *names(node.child_by_field_name("name")))
+            body = node.child_by_field_name("body")
+            if body is not None:
+                stack.extend(reversed(members(body, inner)))
+            continue
+        if node.type == "declaration_list":
+            stack.extend(reversed(members(node, scope)))
+            continue
+        kind = _CSHARP_TYPES.get(node.type)
+        if kind is not None:
+            name = node.child_by_field_name("name")
+            inner = (*scope, _text(name, content))
+            add(node, name, ".".join(inner), kind)
+            body = node.child_by_field_name("body")
+            if body is not None and body.type == "declaration_list":
+                stack.extend(reversed(members(body, inner)))
+            continue
+        kind = _CSHARP_MEMBERS.get(node.type)
+        if kind is not None and scope:
+            name = node.child_by_field_name("name")
+            add(node, name, ".".join((*scope, _text(name, content))), kind)
+    return found
 
 
 def _rust_macro_export(node):
@@ -3925,6 +4012,8 @@ def declaration_sources(
         extract_ruby(tree, content, repository_id, file, nodes=nodes)
     elif language == "php":
         extract_php(tree, content, repository_id, file, nodes=nodes)
+    elif language == "csharp":
+        extract_csharp(tree, content, repository_id, file, nodes=nodes)
     else:
         extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")

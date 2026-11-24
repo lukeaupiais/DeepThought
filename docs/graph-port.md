@@ -1613,6 +1613,30 @@ guzzle's `src/Handler/StreamHandler.php` imports `Openssl\Session`, which the
 repository declares only in a test file (the real class comes from an
 extension), and it is linked there.
 
+## C#
+
+C# is an opt-in language (`--language csharp`, the `csharp` extra with
+tree-sitter-c-sharp 0.24.0). Declarations only so far
+(`syntax.extract_csharp`): classes, structs, interfaces, records and enums,
+and their methods and constructors. Symbols join the namespace (a braced
+`namespace A.B { }`, or a file-scoped `namespace A.B;` for the declarations
+after it) and the enclosing types with `.`, without type parameters. A
+declaration starts at its first attribute, as a Java declaration starts at
+its first annotation. Local functions, lambdas, properties, operators,
+delegates and enum members are not recorded; imports and calls are not read
+yet.
+
+`tools/compare_csharp_declarations.py` checks this against an independent walk of the same trees (each declaration's
+namespace and types read from its ancestors rather than the extractor's
+scope stack, and declarations inside bodies dropped), and a lexical count of
+type keywords with comments and strings removed:
+
+| Corpus | Files | Declarations | Differences | Types: lexical / extracted |
+|---|---|---|---|---|
+| dotnet-architecture/eShopOnWeb `4da8212` | 254 | 724 | 0 | 255 / 257 (the 2 are generic interfaces with a `where` clause the keyword count misses) |
+| jasontaylordev/CleanArchitecture `f7f9771` | 110 | 357 | 0 | 124 / 124 (2 files have grammar errors) |
+| GoogleCloudPlatform/microservices-demo `src/cartservice` | 9 | 40 | 0 | 8 / 8 |
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a

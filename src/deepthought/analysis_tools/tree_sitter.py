@@ -483,6 +483,7 @@ class TreeSitterTool(AnalysisTool):
             supported_languages={
                 "c",
                 "cpp",
+                "csharp",
                 "go",
                 "java",
                 "javascript",
