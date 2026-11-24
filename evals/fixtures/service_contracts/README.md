@@ -16,6 +16,8 @@ matcher could find.
 | msecend-piggymetrics.json | sqshq/piggymetrics @ fd5ee3c555ea9cd6067eacf3f2a3e8b85fe4fe77 | MIT | Java Spring Cloud (Feign, Zuul, Hystrix stream) | HTTP (Feign), framework RabbitMQ |
 | msecend-spring-petclinic-microservices.json | spring-petclinic/spring-petclinic-microservices @ 0ab2e953e0e23761593a80cd17d7525e3ae32f9d | Apache-2.0 | Java WebClient, Spring Cloud Gateway, AngularJS | HTTP |
 | msecend-apssouza22-java-microservice.json | apssouza22/java-microservice @ 9274eeb9189dfea0722ac0263814822b94b83ecc | MIT | Java Feign, Spring Cloud Stream (Kafka) | HTTP (Feign), Kafka |
+| graphql-apollo-fullstack-tutorial.json | apollographql/fullstack-tutorial @ fca98dec747244a6cd08e3611f826db01617e208 | MIT | React + Apollo Client, Apollo Server | GraphQL |
+| graphql-apollo-spotify-showcase.json | apollographql/spotify-showcase @ 5a9afc5c96ef5a60f07d438dab5088bf0f6d661e | MIT | React + Apollo Client, two Apollo Federation subgraphs behind Apollo Router | GraphQL |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).
@@ -40,6 +42,24 @@ artifact URLs. Clone each repository at its pinned commit into `$CORPORA/<dir>` 
    from source. Every entry in each `*_traceability.json` was resolved against the pinned
    checkout, and the application-level edges were read by hand. Disagreements are listed in
    each corpus's `notes`.
+
+## GraphQL client labels
+
+The `graphql-*` corpora are labelled by a parser, not by reading every call.
+`tools/graphql_client_oracle.py` parses each `gql`/`graphql` template literal
+and `.graphql`/`.gql` file under a client root with graphql-core, takes each
+root field of each operation as a call site, and links it to the server scope
+whose Query, Mutation or Subscription type declares that field. The judgment
+calls live in `graphql-specs.json` and were made by reading the deployment
+config: which scopes a client can reach, which roots are not clients (a
+client's copy of the supergraph schema, its local-state schema), and which
+sites don't count (a server's own tests). `@client` fields, `__typename` and
+introspection fields are not call sites. A field declared by more than one
+reachable scope is listed under `ambiguous_clients`; one declared by none is
+listed under `unmatched_clients`, so a link from it is wrong. To regenerate:
+
+    pip install graphql-core==3.2.6
+    python tools/graphql_client_oracle.py evals/fixtures/service_contracts/graphql-specs.json CORPUS CHECKOUT
 
 ## JSON fields beyond the requested schema
 
