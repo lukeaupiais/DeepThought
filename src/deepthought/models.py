@@ -47,11 +47,19 @@ class Definition:
     # the last one is variable-arity (``T...``). None elsewhere.
     parameters: int | None = None
     variadic: bool = False
+    # Java methods and constructors: each parameter's type as written,
+    # without type arguments (``List``, ``int[]``, ``T``). None elsewhere.
+    parameter_types: tuple[str, ...] | None = None
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
 
     def __post_init__(self):
+        if self.parameter_types is not None and (
+            type(self.parameter_types) is not tuple
+            or not all(isinstance(t, str) and t for t in self.parameter_types)
+        ):
+            raise ValueError("parameter_types must be a tuple of nonempty strings")
         if self.macro_export is not None and type(self.macro_export) is not bool:
             raise ValueError("macro_export must be a boolean or None")
         if self.parameters is not None and (
@@ -212,8 +220,16 @@ class CallSite:
     # or comprehension around the call (a parameter, an assignment, a loop
     # variable): True. None elsewhere.
     shadowed: bool | None = None
+    # Java calls ``x.m()`` and ``this.x.m()`` where the declaration of the
+    # variable or field ``x`` in scope writes a class type: that type as
+    # written (``Foo``, ``Map.Entry``). None elsewhere.
+    receiver_type: str | None = None
 
     def __post_init__(self):
+        if self.receiver_type is not None and (
+            not isinstance(self.receiver_type, str) or not self.receiver_type
+        ):
+            raise ValueError("receiver_type must be a nonempty string or None")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
         if self.arguments is not None and (
@@ -506,6 +522,8 @@ class AnalysisResult:
         for item in data["definitions"]:
             if item["parameters"] is None:
                 del item["parameters"], item["variadic"]
+            if item["parameter_types"] is None:
+                del item["parameter_types"]
             if item["macro_export"] is None:
                 del item["macro_export"]
         for item in data["call_sites"]:
@@ -515,6 +533,8 @@ class AnalysisResult:
                 del item["anonymous"]
             if item["shadowed"] is None:
                 del item["shadowed"]
+            if item["receiver_type"] is None:
+                del item["receiver_type"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -614,7 +634,15 @@ class AnalysisResult:
                 for item in data.get("impls", [])
             )
             data["definitions"] = tuple(
-                Definition(**item) for item in data["definitions"]
+                Definition(
+                    **{
+                        **item,
+                        "parameter_types": tuple(item["parameter_types"])
+                        if isinstance(item.get("parameter_types"), list)
+                        else item.get("parameter_types"),
+                    }
+                )
+                for item in data["definitions"]
             )
             data["coverage"] = tuple(FileCoverage(**item) for item in data["coverage"])
             data["diagnostics"] = tuple(

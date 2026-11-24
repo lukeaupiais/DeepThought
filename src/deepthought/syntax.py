@@ -230,6 +230,9 @@ def extract(
                     "parameters": len(declared),
                     "variadic": bool(declared)
                     and declared[-1].type == "spread_parameter",
+                    "parameter_types": tuple(
+                        _java_parameter_type(c, content) for c in declared
+                    ),
                 }
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
@@ -1795,6 +1798,272 @@ def _java_anonymous(node, content, spans, symbols):
     return tuple(found) or None
 
 
+_JAVA_CLASS_BODIES = {
+    "class_body",
+    "interface_body",
+    "enum_body",
+    "annotation_type_body",
+}
+_JAVA_METHODS = {
+    "method_declaration",
+    "constructor_declaration",
+    "compact_constructor_declaration",
+}
+
+
+def _java_parameter_type(parameter, content):
+    """A Java parameter's type as written, without type arguments,
+    annotations or spaces (``List``, ``int[]``, ``T``, ``String...``)."""
+    if parameter.type == "spread_parameter":
+        written = next(
+            (
+                c
+                for c in parameter.named_children
+                if c.type not in {"modifiers", "variable_declarator"}
+            ),
+            None,
+        )
+        suffix = "..."
+    else:
+        written, suffix = parameter.child_by_field_name("type"), ""
+        if parameter.child_by_field_name("dimensions") is not None:
+            suffix = "[]"
+    if written is None:
+        return "?"
+    dims = ""
+    while written.type == "array_type":
+        dims += "[]"
+        written = written.child_by_field_name("element")
+    if written.type == "generic_type":
+        written = next(
+            (c for c in written.named_children if c.type != "type_arguments"),
+            written,
+        )
+    text = (
+        "".join(
+            _text(c, content)
+            for c in (
+                [written] if not written.named_children else written.named_children
+            )
+            if c.type not in {"annotation", "marker_annotation", "type_arguments"}
+        )
+        if written.type == "scoped_type_identifier"
+        else _text(written, content)
+    )
+    if written.type == "scoped_type_identifier":
+        text = ".".join(
+            _text(c, content)
+            for c in written.named_children
+            if c.type == "type_identifier"
+        )
+    return "".join(text.split()) + dims + suffix
+
+
+def _java_type_name(node, content):
+    """A Java class or interface type as written (``Foo``, ``Map.Entry``),
+    without type arguments; None for primitive, array and other types."""
+    if node is not None and node.type == "generic_type":
+        node = next(
+            (c for c in node.named_children if c.type != "type_arguments"), None
+        )
+    if node is None or node.type not in {"type_identifier", "scoped_type_identifier"}:
+        return None
+    text = _text(node, content)
+    return None if text == "var" else text
+
+
+def _java_written_type(type_node, value, content):
+    """The type a Java declaration writes: its declared type, or for ``var``
+    the class it creates (``var x = new Foo()``)."""
+    if type_node is not None and _text(type_node, content) == "var":
+        if value is not None and value.type == "object_creation_expression":
+            return _java_type_name(value.child_by_field_name("type"), content)
+        return None
+    return _java_type_name(type_node, content)
+
+
+def _java_declared_here(node, name, content, before):
+    """Declarations of ``name`` that ``node`` brings into scope for what it
+    holds, as a list of written types (None for one with no usable type).
+    Statements of a block count when they end before ``before``."""
+    found = []
+
+    def declarators(declaration):
+        written = declaration.child_by_field_name("type")
+        for declarator in declaration.children_by_field_name("declarator"):
+            declared = declarator.child_by_field_name("name")
+            if declared is not None and _text(declared, content) == name:
+                if declarator.child_by_field_name("dimensions") is not None:
+                    found.append(None)  # `Foo x[]` is an array
+                else:
+                    value = declarator.child_by_field_name("value")
+                    found.append(_java_written_type(written, value, content))
+
+    def parameter(child):
+        declared = child.child_by_field_name("name")
+        if child.type == "spread_parameter":
+            for c in child.named_children:
+                if c.type == "variable_declarator":
+                    inner = c.child_by_field_name("name")
+                    if inner is not None and _text(inner, content) == name:
+                        found.append(None)  # `Foo... xs` is an array
+        elif declared is not None and _text(declared, content) == name:
+            if child.child_by_field_name("dimensions") is not None:
+                found.append(None)
+            else:
+                found.append(
+                    _java_type_name(child.child_by_field_name("type"), content)
+                )
+
+    kind = node.type
+    if kind in _JAVA_CLASS_BODIES or kind == "enum_body_declarations":
+        for child in node.named_children:
+            if child.type in {"field_declaration", "constant_declaration"}:
+                declarators(child)
+            elif child.type == "enum_body_declarations":
+                found.extend(_java_declared_here(child, name, content, before))
+            elif child.type == "enum_constant":
+                declared = child.child_by_field_name("name")
+                if declared is not None and _text(declared, content) == name:
+                    found.append(None)
+        owner = node.parent
+        if owner is not None and owner.type == "record_declaration":
+            components = owner.child_by_field_name("parameters")
+            for child in components.named_children if components else ():
+                parameter(child)
+    elif kind in {"block", "switch_block_statement_group", "constructor_body"}:
+        for child in node.named_children:
+            if (
+                child.type == "local_variable_declaration"
+                and (child.end_point.row, child.end_point.column) <= before
+            ):
+                declarators(child)
+    elif kind == "for_statement":
+        for child in node.children_by_field_name("init"):
+            if child.type == "local_variable_declaration":
+                declarators(child)
+    elif kind == "enhanced_for_statement":
+        declared = node.child_by_field_name("name")
+        if declared is not None and _text(declared, content) == name:
+            if node.child_by_field_name("dimensions") is not None:
+                found.append(None)
+            else:
+                found.append(_java_type_name(node.child_by_field_name("type"), content))
+    elif kind == "try_with_resources_statement":
+        resources = node.child_by_field_name("resources")
+        for child in resources.named_children if resources else ():
+            declared = child.child_by_field_name("name")
+            if declared is not None and _text(declared, content) == name:
+                found.append(
+                    _java_written_type(
+                        child.child_by_field_name("type"),
+                        child.child_by_field_name("value"),
+                        content,
+                    )
+                )
+    elif kind == "catch_clause":
+        for child in node.named_children:
+            if child.type == "catch_formal_parameter":
+                declared = child.child_by_field_name("name")
+                if declared is not None and _text(declared, content) == name:
+                    types = [c for c in child.named_children if c.type == "catch_type"]
+                    alternatives = types[0].named_children if types else []
+                    found.append(
+                        _java_type_name(alternatives[0], content)
+                        if len(alternatives) == 1
+                        else None
+                    )
+    elif kind == "lambda_expression":
+        parameters = node.child_by_field_name("parameters")
+        if parameters is not None and parameters.type == "identifier":
+            if _text(parameters, content) == name:
+                found.append(None)
+        elif parameters is not None:
+            for child in parameters.named_children:
+                if child.type == "identifier":
+                    if _text(child, content) == name:
+                        found.append(None)
+                elif child.type in {"formal_parameter", "spread_parameter"}:
+                    parameter(child)
+    elif kind in _JAVA_METHODS:
+        parameters = node.child_by_field_name("parameters")
+        for child in parameters.named_children if parameters else ():
+            if child.type in {"formal_parameter", "spread_parameter"}:
+                parameter(child)
+    return found
+
+
+def _java_binds_pattern(node, name, content):
+    """Whether a pattern (``o instanceof Foo x``, ``case Foo x``) in ``node``
+    binds ``name``: such a variable's scope depends on control flow."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        declared = None
+        if current.type == "instanceof_expression":
+            declared = current.child_by_field_name("name")
+        elif current.type == "type_pattern":
+            declared = next(
+                (c for c in current.named_children if c.type == "identifier"), None
+            )
+        if declared is not None and _text(declared, content) == name:
+            return True
+        stack.extend(current.named_children)
+    return False
+
+
+def _java_receiver_type(node, content, callee, cache):
+    """For a Java call ``x.m()`` or ``this.x.m()``, the type that the
+    declaration of the variable or field ``x`` in scope writes (``Foo``,
+    ``Map.Entry``); None when no such declaration is in scope or it writes
+    no class type (``var`` without ``new``, a lambda's inferred parameter,
+    an array, a primitive, a type parameter)."""
+    parts = callee.split(".")
+    if len(parts) == 2:
+        name, fields_only = parts[0], False
+    elif len(parts) == 3 and parts[0] == "this":
+        name, fields_only = parts[1], True
+    else:
+        return None
+    before = (node.start_point.row, node.start_point.column)
+    found, method, type_parameters = None, None, set()
+    ancestor = node.parent
+    while ancestor is not None:
+        body = ancestor.type in _JAVA_CLASS_BODIES
+        if found is None and (body or not fields_only):
+            here = _java_declared_here(ancestor, name, content, before)
+            if here:
+                found = here
+            elif body:
+                owner = ancestor.parent
+                if fields_only or (
+                    owner is not None
+                    and owner.type == "class_declaration"
+                    and owner.child_by_field_name("superclass") is not None
+                ):
+                    # `this.x` names a field of the innermost class; and a
+                    # field a class inherits may be the one named.
+                    return None
+        if ancestor.type in _JAVA_METHODS and method is None:
+            method = ancestor
+        parameters = ancestor.child_by_field_name("type_parameters")
+        for child in parameters.named_children if parameters else ():
+            type_parameters.add(_text(child.named_children[0], content))
+        ancestor = ancestor.parent
+    if not found or found[0] is None:
+        return None
+    if method is not None:
+        key = ("patterns", method.id, name)
+        if key not in cache:
+            cache[key] = _java_binds_pattern(method, name, content)
+        if cache[key]:
+            return None
+    written = found[0]
+    if written.split(".")[0] in type_parameters:
+        return None
+    return written
+
+
 def extract_call_sites(
     tree,
     content: bytes,
@@ -1823,7 +2092,8 @@ def extract_call_sites(
     )
     symbols = {d.id: d.symbol for d in definitions if d.file == file}
     python = tree.root_node.type == "module"
-    sites, ordinals, bindings = [], {}, {}
+    java = tree.root_node.type == "program"
+    sites, ordinals, bindings, receivers = [], {}, {}, {}
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
@@ -1852,6 +2122,11 @@ def extract_call_sites(
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python
+                        else None,
+                        receiver_type=_java_receiver_type(
+                            node, content, callee, receivers
+                        )
+                        if java
                         else None,
                     )
                 )

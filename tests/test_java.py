@@ -15,6 +15,7 @@ from deepthought.calls import (
     JAVA_INHERITED_METHOD,
     JAVA_STATIC_IMPORT,
     JAVA_TYPE_MEMBER,
+    JAVA_TYPED_RECEIVER,
     JAVA_TYPE_NAME,
     resolve_calls,
 )
@@ -377,7 +378,8 @@ class JavaTests(unittest.TestCase):
                 ("Peer", 22): ("Peer", JAVA_TYPE_NAME),
                 ("Strings.Builder", 23): ("util:Strings.Builder", JAVA_TYPE_NAME),
                 ("Inner", 24): ("Main.Inner", JAVA_TYPE_NAME),
-                ("s.trim", 25): (None, "attribute_call"),
+                # `String s`: String is not declared in the repository.
+                ("s.trim", 25): (None, "receiver_type_not_declared"),
                 ("java.util.List.of", 26): (None, "attribute_call"),
                 ("missing", 27): (None, "unbound_name"),
                 ("Tools", 28): ("Tools", JAVA_TYPE_NAME),
@@ -653,6 +655,119 @@ class JavaTests(unittest.TestCase):
                 (28, "name", None, "multiple_declarations"),
             ],
         )
+
+    def test_calls_on_variables_whose_declaration_writes_the_type(self):
+        files = {
+            "src/p/Foo.java": (
+                "package p;\n"
+                "class Foo extends Root {\n"
+                "  void go() {}\n"
+                "  static class Inner { void in() {} }\n"
+                "}\n"
+                "class Root { void up() {} }\n"
+                "class Box<T> { void open() {} }\n"
+            ),
+            "src/p/Main.java": (
+                "package p;\n"
+                "class Main<T> {\n"
+                "  Foo field;\n"
+                "  T held;\n"
+                "  <U> void m(Foo p, U u, Foo[] arr, Foo... more) {\n"  # 5
+                "    p.go();\n"  # 6: parameter
+                "    Foo x = new Foo();\n"
+                "    x.go();\n"  # 8: local
+                "    var y = new Foo();\n"
+                "    y.up();\n"  # 10: var, inherited method
+                "    field.go();\n"  # 11: field
+                "    this.field.go();\n"  # 12
+                "    for (Foo z : arr) { z.go(); }\n"  # 13: enhanced for
+                "    try (Foo w = make()) { w.go(); }\n"  # 14: resource
+                "    catch (Foo e) { e.go(); }\n"  # 15: catch
+                "    Runnable r = (Foo a) -> a.go();\n"  # 16: typed lambda
+                "    Box<Foo> b = null;\n"
+                "    b.open();\n"  # 18: generic type
+                "    Foo.Inner i = null;\n"
+                "    i.in();\n"  # 20: qualified type
+                "    arr.clone();\n"  # 21: array
+                "    more.clone();\n"  # 22: variable arity
+                "    u.go();\n"  # 23: type parameter
+                "    held.go();\n"  # 24: class type parameter
+                "    later.go();\n"  # 25: declared after
+                "    Foo later = null;\n"
+                "    { Foo hidden = null; }\n"
+                "    hidden.go();\n"  # 28: in a block that ended
+                "    if (p instanceof Foo g) { g.go(); }\n"  # 29: pattern
+                "    Runnable s = q -> q.go();\n"  # 30: inferred lambda
+                "    x.go(1);\n"  # 31: no such arity
+                "    new Runnable() { public void run() { x.go(); } };\n"  # 32
+                "  }\n"
+                "  class Sub extends Root { void s() { field.go(); } }\n"  # 34
+                "  Foo make() { return null; }\n"
+                "  void n(Object o) {\n"
+                "    if (o instanceof Box field) { field.open(); }\n"  # 37
+                "    switch (o) { case Box field -> field.open(); default -> {} }\n"
+                "    Foo c[] = null;\n"
+                "    c.clone();\n"  # 40: an array declarator
+                "    try { } catch (Foo | Root e2) { e2.go(); }\n"  # 41: multi-catch
+                "    var v = make();\n"
+                "    v.go();\n"  # 43: var without new
+                "    Runnable t = (var d) -> d.go();\n"  # 44
+                "  }\n"
+                "  class In { void t() { this.field.go(); } }\n"  # 46
+                "  enum E { field; void f() { field.go(); } }\n"  # 47
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/p/Main.java"
+        }
+        typed = ("Foo.go", JAVA_TYPED_RECEIVER)
+        self.assertEqual(found[(6, "p.go")], typed)
+        self.assertEqual(found[(8, "x.go")], typed)
+        self.assertEqual(found[(10, "y.up")], ("Root.up", JAVA_INHERITED_METHOD))
+        self.assertEqual(found[(11, "field.go")], typed)
+        self.assertEqual(found[(12, "this.field.go")], typed)
+        self.assertEqual(found[(13, "z.go")], typed)
+        self.assertEqual(found[(14, "w.go")], typed)
+        self.assertEqual(found[(15, "e.go")], typed)
+        self.assertEqual(found[(16, "a.go")], typed)
+        self.assertEqual(found[(18, "b.open")], ("Box.open", JAVA_TYPED_RECEIVER))
+        self.assertEqual(found[(20, "i.in")], ("Foo.Inner.in", JAVA_TYPED_RECEIVER))
+        self.assertEqual(found[(32, "x.go")], typed)
+        self.assertEqual(found[(31, "x.go")], (None, "no_matching_arity"))
+        for line, callee in (
+            (21, "arr.clone"),
+            (22, "more.clone"),
+            (23, "u.go"),
+            (24, "held.go"),
+            (25, "later.go"),
+            (28, "hidden.go"),
+            (29, "g.go"),
+            (30, "q.go"),
+            # A class with a superclass may inherit a field of that name.
+            (34, "field.go"),
+            # Pattern variables: their scope follows control flow.
+            (37, "field.open"),
+            (38, "field.open"),
+            (40, "c.clone"),
+            (41, "e2.go"),
+            (43, "v.go"),
+            (44, "d.go"),
+            # `this.field` is a field of the innermost class only.
+            (46, "this.field.go"),
+            # An enum constant hides the outer field.
+            (47, "field.go"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], (None, "attribute_call"))
 
     def test_calls_in_anonymous_classes_look_there_first(self):
         files = {
