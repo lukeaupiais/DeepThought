@@ -22,6 +22,10 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 import re
 
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
+
 from .service_contracts.http import PLACEHOLDER
 from .service_contracts.spring import (
     _Imports,
@@ -191,6 +195,10 @@ class Statement:
 
     reads: tuple[str, ...]
     writes: tuple[str, ...]
+    # Who read it: "sqlglot"; "tokens" for SQL with text the code does not
+    # fix, or JPQL, which no SQL parser reads; "tokens_not_parsed" for SQL
+    # sqlglot rejects in every dialect.
+    reader: str = "sqlglot"
 
 
 def _word(token):
@@ -245,7 +253,109 @@ def is_catalog(parts):
     )
 
 
+# Dialects sqlglot tries, in order; the first that parses the text reads it.
+SQL_DIALECTS = ("postgres", "mysql", "sqlite", "tsql", "oracle", None)
+
+
 def statement_tables(text, jpql=False):
+    """The tables a SQL statement reads and writes, from sqlglot.
+
+    SQL that holds text the code does not fix (PLACEHOLDER), which no
+    parser accepts, and JPQL, which is not SQL, are read by the token
+    reader (``_token_statement_tables``). Other SQL is parsed by sqlglot in
+    the first of SQL_DIALECTS that accepts it; SQL no dialect accepts is
+    read by the token reader with ``reader="tokens_not_parsed"``.
+
+    INSERT/REPLACE/MERGE targets, UPDATE and DELETE targets (an alias in a
+    multi-table DELETE resolved to its table) and TRUNCATE are written;
+    every other table is read. Common table expression names, ``dual`` and
+    system catalogs (is_catalog) are left out; ``schema.table`` gives
+    ``table``."""
+    if jpql or PLACEHOLDER in text:
+        return replace(_token_statement_tables(text, jpql), reader="tokens")
+    # JDBC and JPA positional parameters (?1), which no dialect reads, are
+    # bind markers like ``?``.
+    masked = _COMMENT_OR_STRING.sub(_blank, text)
+    for match in reversed(list(re.finditer(r"\?\d+", masked))):
+        text = (
+            text[: match.start()]
+            + "?"
+            + " " * (len(match.group()) - 1)
+            + text[match.end() :]
+        )
+    found = _sqlglot_tables(text)
+    if found is None:
+        # Syntax sqlglot does not know yet (PostgreSQL 18's RETURNING WITH
+        # (OLD AS o), SQLite's VARYING CHARACTER): read by the token
+        # reader and counted as such.
+        return replace(_token_statement_tables(text), reader="tokens_not_parsed")
+    return Statement(*found)
+
+
+def _sqlglot_tables(text):
+    """(reads, writes) of SQL text by sqlglot, or None."""
+    for dialect in SQL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        reads, writes = [], []
+        for tree in trees:
+            ctes = {table_key(c.alias_or_name) for c in tree.find_all(exp.CTE)}
+            aliases = {
+                table_key(t.alias): t
+                for t in tree.find_all(exp.Table)
+                if t.alias and t.name
+            }
+            written = set()
+            for node in tree.walk():
+                targets = []
+                if isinstance(node, (exp.Insert, exp.Update, exp.Merge)):
+                    targets = [node.this]
+                elif isinstance(node, exp.Delete):
+                    targets = [node.this, *(node.args.get("tables") or ())]
+                elif isinstance(node, exp.TruncateTable):
+                    targets = list(node.expressions)
+                for target in targets:
+                    if isinstance(target, exp.Schema):
+                        target = target.this
+                    if not isinstance(target, exp.Table) or not target.name:
+                        continue
+                    written.add(id(target))
+                    if not target.db and table_key(target.name) in aliases:
+                        target = aliases[table_key(target.name)]
+                        written.add(id(target))
+                    name = _sqlglot_name(target, ctes)
+                    if name is not None:
+                        writes.append(name)
+            for table in tree.find_all(exp.Table):
+                if id(table) in written or table.find_ancestor(exp.Lock):
+                    continue  # FOR UPDATE OF t names a table already read.
+                name = _sqlglot_name(table, ctes)
+                if name is not None:
+                    reads.append(name)
+        return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes))
+    return None
+
+
+def _sqlglot_name(table, ctes):
+    """The table key of a sqlglot Table, or None for a CTE, ``dual``, a
+    catalog or a table-valued function."""
+    if not table.name or not isinstance(
+        table.this, __import__("sqlglot").exp.Identifier
+    ):
+        return None
+    parts = [table_key(p) for p in (table.catalog, table.db, table.name) if p]
+    if len(parts) == 1 and parts[0] in ctes:
+        return None
+    if parts[-1] == "dual" or is_catalog(parts):
+        return None
+    return parts[-1]
+
+
+def _token_statement_tables(text, jpql=False):
     """The tables a SQL statement (or entities a JPQL one) names after FROM,
     JOIN, USING, INTO, UPDATE and TRUNCATE.
 
