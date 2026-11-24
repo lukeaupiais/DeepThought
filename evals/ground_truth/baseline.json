@@ -1242,8 +1242,8 @@
     "tables-countly-mongodb": {
       "expected": 1148,
       "extra": 0,
-      "found": 16,
-      "missed": 1132,
+      "found": 577,
+      "missed": 571,
       "wrong": 0
     },
     "tables-discourse": {
