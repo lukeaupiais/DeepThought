@@ -62,6 +62,7 @@ from ..service_contracts.openapi import generated_apis
 from ..service_contracts.aspnet import extract_aspnet
 from ..service_contracts.csharp_http import (
     extract_csharp_requests,
+    extract_refit_requests,
     global_usings,
     typed_client_bases,
     typed_client_registrations,
@@ -1405,14 +1406,22 @@ class ServiceContractTool(AnalysisTool):
             for coverage, content, tree in sources
             if coverage.language == "csharp"
         ]
+        csharp_usings = global_usings(
+            root, (c for c in csharp if b"global using" in c[2])
+        )
         client_bases = typed_client_bases(
-            typed_client_registrations(c for c in csharp if b"AddHttpClient" in c[2]),
+            typed_client_registrations(
+                c
+                for c in csharp
+                if re.search(rb"AddHttpClient|AddRefitClient|RestService", c[2])
+            ),
             [
                 d.symbol
                 for d in result.definitions
-                if d.kind in ("Class", "Struct", "Record") and d.file.endswith(".cs")
+                if d.kind in ("Class", "Struct", "Record", "Interface")
+                and d.file.endswith(".cs")
             ],
-            global_usings(root, (c for c in csharp if b"global using" in c[2])),
+            csharp_usings,
         )
         # Spring interfaces openapi-generator makes from specs at build time.
         # Java API classes it makes for clients, and the modules that set a
@@ -1489,6 +1498,19 @@ class ServiceContractTool(AnalysisTool):
                         coverage.file,
                         result.definitions,
                         client_bases,
+                    )
+                    + (
+                        extract_refit_requests(
+                            tree,
+                            content,
+                            repo_url,
+                            coverage.file,
+                            result.definitions,
+                            client_bases,
+                            csharp_usings,
+                        )
+                        if b"interface" in content
+                        else []
                     ),
                     unread_found,
                 )

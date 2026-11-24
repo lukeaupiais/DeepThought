@@ -1,4 +1,4 @@
-"""C# HttpClient requests.
+"""C# HttpClient and Refit requests.
 
 A request is a call on a value of type ``HttpClient``: a parameter (primary
 constructor parameters included), field, property or local declared with
@@ -145,10 +145,32 @@ def _namespaces(root, node, content):
     return found
 
 
+def _configured(node, content):
+    """The argument lists that configure the client a registration call
+    makes: its own, and that of a ``.ConfigureHttpClient(...)`` chained
+    directly on it."""
+    lists = [node.child_by_field_name("arguments")]
+    parent = node.parent
+    if parent is not None and parent.type == "member_access_expression":
+        name = parent.child_by_field_name("name")
+        outer = parent.parent
+        if (
+            name is not None
+            and _text(name, content) == "ConfigureHttpClient"
+            and outer is not None
+            and outer.type == "invocation_expression"
+        ):
+            lists.append(outer.child_by_field_name("arguments"))
+    return [a for a in lists if a is not None]
+
+
 def typed_client_registrations(trees):
     """(file, written class, namespaces in scope, base URL or None) of each
-    ``AddHttpClient<T>(...)`` (or ``<I, T>``) that assigns ``BaseAddress``;
-    the base is None when it is not a literal."""
+    ``AddHttpClient<T>(...)`` (or ``<I, T>``) or Refit
+    ``AddRefitClient<T>()`` that assigns ``BaseAddress``, in its arguments or
+    a chained ``.ConfigureHttpClient(...)``, and of each Refit
+    ``RestService.For<T>(url)``; the base is None when it is not a
+    literal."""
     found = []
     for file, tree, content in trees:
         for node in _walk(tree.root_node):
@@ -160,7 +182,15 @@ def typed_client_registrations(trees):
             name = function.child_by_field_name("name")
             if name is None or name.type != "generic_name":
                 continue
-            if _name_text(name, content) != "AddHttpClient":
+            called = _name_text(name, content)
+            rest_service = (
+                called == "For"
+                and _text(
+                    function.child_by_field_name("expression"), content
+                ).rpartition(".")[2]
+                == "RestService"
+            )
+            if called not in ("AddHttpClient", "AddRefitClient") and not rest_service:
                 continue
             arguments = [
                 c for c in name.named_children if c.type == "type_argument_list"
@@ -169,8 +199,25 @@ def typed_client_registrations(trees):
             if not types:
                 continue
             target = re.sub(r"\s+", "", _text(types[-1], content))
-            call_arguments = node.child_by_field_name("arguments")
-            for child in _walk(call_arguments) if call_arguments else []:
+            if rest_service:
+                given = node.child_by_field_name("arguments")
+                given = [
+                    a
+                    for a in (given.named_children if given else [])
+                    if a.type == "argument"
+                ]
+                if given:
+                    value = _unwrap(given[0])
+                    found.append(
+                        (
+                            file,
+                            target,
+                            _namespaces(tree.root_node, node, content),
+                            None if value is None else _literal(value, content),
+                        )
+                    )
+                continue
+            for child in (c for a in _configured(node, content) for c in _walk(a)):
                 if child.type != "assignment_expression":
                     continue
                 left = child.child_by_field_name("left")
@@ -681,3 +728,115 @@ def _literal_escape(text):
     if text in ("{{", "}}"):
         return text[0]
     return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m[1], m[1]), text)
+
+
+REFIT = "refit"
+_REFIT_VERBS = {m: m.upper() for m in _METHODS}
+
+
+def _refit_verb(written, refit_in_scope):
+    """The HTTP method of a Refit attribute written ``written``, or None."""
+    written = re.sub(r"\s+", "", written).removeprefix("global::")
+    namespace, _, name = written.rpartition(".")
+    name = name.removesuffix("Attribute")
+    if name not in _REFIT_VERBS:
+        return None
+    if namespace == "Refit" or (not namespace and refit_in_scope):
+        return _REFIT_VERBS[name]
+    return None
+
+
+def extract_refit_requests(
+    tree, content, repository_id, file, definitions, bases, global_namespaces=None
+):
+    """Requests of Refit interfaces declared in one C# file: each interface
+    method with a ``[Get("/path")]``, ``[Post(...)]``, ... attribute from the
+    ``Refit`` namespace (imported by ``using Refit;``, a ``global using`` of
+    the project, or written ``Refit.Get``). Refit appends the path to the
+    client's ``BaseAddress``: ``bases`` (``typed_client_bases``) gives it for
+    an interface registered with a literal one, else the path is under an
+    unknown base."""
+    root = tree.root_node
+    scope = _namespaces(root, root, content) | (
+        global_namespaces(file) if global_namespaces else set()
+    )
+    refit_in_scope = "Refit" in scope
+    spans = {
+        (d.line, d.column, d.end_line, d.end_column): d
+        for d in definitions
+        if d.file == file
+    }
+
+    def definition(node):
+        return spans.get(
+            (
+                node.start_point.row + 1,
+                node.start_point.column,
+                node.end_point.row + 1,
+                node.end_point.column,
+            )
+        )
+
+    requests, ordinals = [], {}
+    for declaration in _walk(root):
+        if declaration.type != "interface_declaration":
+            continue
+        interface = definition(declaration)
+        base = bases.get(interface.symbol) if interface is not None else None
+        body = declaration.child_by_field_name("body")
+        for member in [] if body is None else body.named_children:
+            if member.type != "method_declaration":
+                continue
+            for attributes in member.named_children:
+                if attributes.type != "attribute_list":
+                    continue
+                for attribute in attributes.named_children:
+                    if attribute.type != "attribute":
+                        continue
+                    name = attribute.child_by_field_name("name")
+                    method = (
+                        None
+                        if name is None
+                        else _refit_verb(_text(name, content), refit_in_scope)
+                    )
+                    if method is None:
+                        continue
+                    arguments = [
+                        c
+                        for c in attribute.named_children
+                        if c.type == "attribute_argument_list"
+                    ]
+                    given = [
+                        c
+                        for c in (arguments[0].named_children if arguments else [])
+                        if c.type == "attribute_argument"
+                    ]
+                    value = given[0].named_children[-1] if given else None
+                    path = "" if value is None else _literal(value, content)
+                    if path is None:
+                        path = PLACEHOLDER
+                    if base is None or PLACEHOLDER in path:
+                        url = resolve_url(None, path) if path else PLACEHOLDER
+                    else:
+                        url = base.rstrip("/") + "/" + path.lstrip("/")
+                        url = resolve_url(None, url)
+                    line = attribute.start_point.row + 1
+                    key = f"{REFIT} {line}"
+                    ordinal = ordinals.get(key, 0)
+                    ordinals[key] = ordinal + 1
+                    caller = definition(member)
+                    requests.append(
+                        HttpRequest(
+                            id=identifier(
+                                repository_id, file, key, "HttpRequest", ordinal
+                            ),
+                            file=file,
+                            line=line,
+                            column=attribute.start_point.column,
+                            caller_id=None if caller is None else caller.id,
+                            method=method,
+                            url=url,
+                            client=REFIT,
+                        )
+                    )
+    return requests
