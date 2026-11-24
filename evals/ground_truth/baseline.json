@@ -37,7 +37,7 @@
     "unresolved_unjudged": 363
   },
   "click": {
-    "ambiguous_includes": 22,
+    "ambiguous_includes": 483,
     "ambiguous_no_candidates": 14,
     "ambiguous_unjudged": 29,
     "by_rule": {
@@ -52,9 +52,12 @@
       },
       "tree-sitter.call-self-method": {
         "confirmed": 159
+      },
+      "tree-sitter.python-call-reexport": {
+        "confirmed": 1261
       }
     },
-    "confirmed": 927,
+    "confirmed": 2188,
     "contradicted": 0,
     "expected": 3313,
     "imports": {
@@ -76,20 +79,18 @@
       "unjudged": 9,
       "unresolved": 95
     },
-    "missed": 2400,
+    "missed": 1141,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 14,
-      "ambiguous:multiple_declarations": 22,
+      "ambiguous:multiple_declarations": 483,
       "no_call_site": 67,
       "unresolved:attribute_call": 225,
-      "unresolved:imported_name_not_declared": 3,
       "unresolved:local_binding": 316,
-      "unresolved:module_attribute_not_declared": 1717,
       "unresolved:not_declared_in_class": 36
     },
     "precision": 1.0,
-    "recall": 0.2756,
-    "unresolved_expected": 2299,
+    "recall": 0.6556,
+    "unresolved_expected": 577,
     "unresolved_unjudged": 3556
   },
   "cobra": {
@@ -299,32 +300,32 @@
     "fmt": {
       "by_kind": {
         "alias": {
-          "found": 71,
-          "missed": 36
+          "found": 99,
+          "missed": 8
         },
         "function": {
-          "found": 237,
-          "missed": 117
+          "found": 395,
+          "missed": 17
         },
         "method": {
-          "found": 330,
-          "missed": 186
+          "found": 496,
+          "missed": 58
         },
         "namespace": {
-          "found": 15,
-          "missed": 25
+          "found": 23,
+          "missed": 17
         },
         "type": {
-          "found": 132,
-          "missed": 98
+          "found": 194,
+          "missed": 36
         }
       },
       "expected": 1346,
-      "extra": 101,
-      "found": 785,
-      "kind_mismatch": 99,
-      "missed": 462,
-      "recall": 0.5832
+      "extra": 95,
+      "found": 1207,
+      "kind_mismatch": 3,
+      "missed": 136,
+      "recall": 0.8967
     },
     "rack": {
       "by_kind": {

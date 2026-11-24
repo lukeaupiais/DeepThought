@@ -483,6 +483,52 @@ class RouteTruthTests(unittest.TestCase):
         )
 
 
+class OverloadTargetTests(unittest.TestCase):
+    """Every declaration of an @overload group is a target of its calls."""
+
+    SOURCE = (
+        "@overload\n"
+        "def f(x: int) -> int: ...\n"
+        "@overload\n"
+        "def f(x: str) -> str: ...\n"
+        "def f(x):\n"
+        "    return x\n"
+        "f(1)\n"
+    )
+
+    def test_overloads_and_implementation_are_targets(self):
+        from deepthought._scip import scip_pb2
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        (root / "m.py").write_text(self.SOURCE)
+        symbol = "scip-python python pkg 1.0 `m`/f()."
+        index = scip_pb2.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        doc = index.documents.add(relative_path="m.py", position_encoding=1)
+        # The first stub is the definition; the others, implementation
+        # included, are references on their `def` lines; then the call.
+        for line, roles in ((1, 1), (3, 8), (4, 8), (6, 8)):
+            doc.occurrences.add(
+                range=[line, 4 if line < 6 else 0, 5 if line < 6 else 1],
+                symbol=symbol,
+                symbol_roles=roles,
+            )
+        (root / "index.scip").write_bytes(index.SerializeToString())
+        expected, _ = ground_truth.derive(root, root / "index.scip")
+        self.assertEqual(
+            expected,
+            {
+                ("m.py", 7, "f"): {
+                    ("m.py", 2, "callable"),
+                    ("m.py", 4, "callable"),
+                    ("m.py", 5, "callable"),
+                }
+            },
+        )
+
+
 class ContractRegressionTests(unittest.TestCase):
     BASE = {
         "http": {

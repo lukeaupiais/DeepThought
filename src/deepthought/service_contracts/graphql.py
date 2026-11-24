@@ -14,7 +14,11 @@ Read here:
 Root fields are scoped to the Node package (the nearest ``package.json``)
 of the file: one GraphQL server per package. A schema that renames its root
 types (``schema { query: Root }``) is counted as unread, as is a resolver
-whose field name is not literal.
+whose field name is not literal. JavaScript and TypeScript files of a
+package that depends on a server taking resolver maps add two more sources:
+the members of ``{Query: {...}}`` objects resolve fields, and GraphQL
+templates (tagged ``gql``/``graphql``, marked ``/* GraphQL */`` or starting
+``#graphql``) declare them.
 """
 
 from dataclasses import dataclass
@@ -140,8 +144,15 @@ def schema_fields(source, file):
     stripped = re.sub(r'"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*', _blank, source)
     # A directive's name is not a field; its arguments are skipped by depth.
     stripped = re.sub(r"@[_A-Za-z]\w*", _blank, stripped)
-    if re.search(r"\b(schema|extend\s+schema)\s*(@\w+[^{]*)?\{", stripped):
-        return [], [Unread(file, 1, "graphql", "schema_root_renamed")]
+    # A schema definition that names its root types other than Query,
+    # Mutation and Subscription renames them: nothing here is read then.
+    for match in re.finditer(r"\bschema\s*\{([^}]*)\}", stripped):
+        roots = re.findall(
+            r"\b(query|mutation|subscription)\s*:\s*(\w+)", match.group(1)
+        )
+        if any(name != operation.capitalize() for operation, name in roots):
+            line = stripped.count("\n", 0, match.start()) + 1
+            return [], [Unread(file, line, "graphql", "schema_root_renamed")]
     declared = []
     for match in re.finditer(
         r"\btype\s+(Query|Mutation|Subscription)\b[^{]*\{",
@@ -181,3 +192,396 @@ def schema_fields(source, file):
             line = stripped.count("\n", 0, start + token.start()) + 1
             declared.append(GraphqlDeclaration(file, line, operation, value.strip()))
     return declared, []
+
+
+# Node packages whose servers take a resolver map: {Query: {field: fn}}.
+RESOLVER_MAP_SERVERS = frozenset(
+    {
+        "@apollo/server",
+        "@apollo/subgraph",
+        "@graphql-tools/schema",
+        "apollo-server",
+        "apollo-server-express",
+        "apollo-server-fastify",
+        "apollo-server-hapi",
+        "apollo-server-koa",
+        "apollo-server-lambda",
+        "graphql-tools",
+        "graphql-yoga",
+        "mercurius",
+    }
+)
+_FUNCTIONS = ("arrow_function", "function_expression", "function")
+
+
+def _key_name(key, content):
+    """The literal name of an object key, or None."""
+    if key is None:
+        return None
+    if key.type in ("property_identifier", "identifier"):
+        return text(key, content)
+    if key.type == "string":
+        return text(key, content)[1:-1]
+    return None
+
+
+@dataclass(frozen=True)
+class ResolverMapReference:
+    """A root key of a resolver map whose fields are in another module:
+    ``{Query}`` or ``{Query: require('./query')}``. ``export`` is
+    ``default`` (the module's exports object), ``*`` (its named exports) or
+    the name of one export."""
+
+    file: str
+    line: int
+    operation: str
+    module: str
+    export: str
+
+
+def _members(context, value, operation, file, resolvers, unread):
+    """Fields of the members of one root type's resolver object."""
+    content = context.content
+    for member in value.named_children:
+        member_line = member.start_point.row + 1
+        if member.type == "comment":
+            continue
+        if member.type == "method_definition":
+            field = _key_name(member.child_by_field_name("name"), content)
+            handler = context.definition_of(member)
+        elif member.type == "shorthand_property_identifier":
+            field = text(member, content)
+            handler = context.named_function(field)
+        elif member.type == "pair":
+            field = _key_name(member.child_by_field_name("key"), content)
+            found = member.child_by_field_name("value")
+            if found is not None and found.type == "object":
+                # A subscription or a field with options: {subscribe, resolve}.
+                options = _js_object(found, content)
+                found = options.get("subscribe") or options.get("resolve")
+            if found is None:
+                handler = None
+            elif found.type in _FUNCTIONS:
+                handler = context.definition_of(found)
+            elif found.type == "identifier":
+                handler = context.named_function(text(found, content))
+            else:
+                handler = None
+        else:  # a spread or anything else: fields not listed here
+            unread.append(Unread(file, member_line, "graphql", "resolver_spread"))
+            continue
+        if field is None or not re.fullmatch(r"[_A-Za-z]\w*", field):
+            unread.append(Unread(file, member_line, "graphql", "field_not_literal"))
+            continue
+        resolvers.append(
+            GraphqlResolver(
+                file,
+                member_line,
+                member.start_point.column,
+                handler,
+                operation,
+                field,
+                "resolver-map",
+            )
+        )
+
+
+def _require(node, content):
+    """The module of ``require('m')``, or None."""
+    if node is None or node.type != "call_expression":
+        return None
+    function = node.child_by_field_name("function")
+    arguments = node.child_by_field_name("arguments")
+    if function is None or text(function, content) != "require" or arguments is None:
+        return None
+    found = [c for c in arguments.named_children if c.type != "comment"]
+    if len(found) == 1 and found[0].type == "string":
+        return text(found[0], content)[1:-1]
+    return None
+
+
+def _bindings(root, content):
+    """Top-level names bound to an object literal or to a module:
+    name -> ("object", node) | ("module", module, export)."""
+    found = {}
+    for node in root.named_children:
+        if node.type == "export_statement":
+            node = node.child_by_field_name("declaration") or node
+        if node.type == "import_statement":
+            source = node.child_by_field_name("source")
+            if source is None:
+                continue
+            module = text(source, content)[1:-1]
+            for clause in node.named_children:
+                if clause.type != "import_clause":
+                    continue
+                for item in clause.named_children:
+                    if item.type == "identifier":
+                        found[text(item, content)] = ("module", module, "default")
+                    elif item.type == "namespace_import":
+                        name = text(item.named_children[-1], content)
+                        found[name] = ("module", module, "*")
+                    elif item.type == "named_imports":
+                        for spec in item.named_children:
+                            if spec.type != "import_specifier":
+                                continue
+                            imported = spec.child_by_field_name("name")
+                            alias = spec.child_by_field_name("alias") or imported
+                            found[text(alias, content)] = (
+                                "module",
+                                module,
+                                text(imported, content),
+                            )
+        elif node.type in ("lexical_declaration", "variable_declaration"):
+            for declarator in node.named_children:
+                if declarator.type != "variable_declarator":
+                    continue
+                name = declarator.child_by_field_name("name")
+                value = declarator.child_by_field_name("value")
+                if name is None or value is None:
+                    continue
+                if name.type == "identifier" and value.type == "object":
+                    found[text(name, content)] = ("object", value)
+                    continue
+                export = "default"
+                if value.type == "member_expression":
+                    # require('./resolvers').Query
+                    export = text(value.child_by_field_name("property"), content)
+                    value = value.child_by_field_name("object")
+                module = _require(value, content)
+                if module is None:
+                    continue
+                if name.type == "identifier":
+                    found[text(name, content)] = ("module", module, export)
+                elif name.type == "object_pattern" and export == "default":
+                    # const { Query, Mutation: M } = require('./resolvers')
+                    for item in name.named_children:
+                        if item.type == "shorthand_property_identifier_pattern":
+                            local = text(item, content)
+                            found[local] = ("module", module, local)
+                        elif item.type == "pair_pattern":
+                            key = _key_name(item.child_by_field_name("key"), content)
+                            local = item.child_by_field_name("value")
+                            if key and local is not None and local.type == "identifier":
+                                found[text(local, content)] = ("module", module, key)
+    return found
+
+
+def _is_resolver_map(node, content):
+    """An object holding root keys that stands alone or is the server's
+    ``resolvers`` option. Other nested objects with the same keys are not
+    resolvers: Apollo Client's {typePolicies: {Query}} and
+    {cacheRedirects: {Query}}."""
+    outer = node.parent
+    if outer is None or outer.type != "pair":
+        return True
+    return _key_name(outer.child_by_field_name("key"), content) == "resolvers"
+
+
+def extract_resolver_maps(tree, content, repository_id, file, definitions, language):
+    """Root fields of the resolver maps of one JavaScript or TypeScript file:
+    the members of an object under a ``Query``, ``Mutation`` or
+    ``Subscription`` key, written in place or bound to a name in the file.
+    A key bound to another module is returned as a reference for the caller
+    to follow. The caller reads only the files of Node packages that depend
+    on a server taking such maps."""
+    context = _Context(tree, content, repository_id, file, definitions, language)
+    bindings = _bindings(context.root, content)
+    resolvers, unread, references = [], [], []
+    for node in _walk(context.root):
+        if node.type == "pair":
+            operation = _key_name(node.child_by_field_name("key"), content)
+            value = node.child_by_field_name("value")
+        elif node.type == "shorthand_property_identifier":
+            operation = text(node, content)
+            value = node
+        else:
+            continue
+        if operation not in ROOT_TYPES or not _is_resolver_map(node.parent, content):
+            continue
+        line = node.start_point.row + 1
+        if value is not None and value.type in (
+            "identifier",
+            "shorthand_property_identifier",
+        ):
+            bound = bindings.get(text(value, content))
+            if bound is not None and bound[0] == "object":
+                value = bound[1]
+            elif bound is not None:
+                references.append(
+                    ResolverMapReference(file, line, operation, bound[1], bound[2])
+                )
+                continue
+        elif _require(value, content) is not None:
+            references.append(
+                ResolverMapReference(
+                    file, line, operation, _require(value, content), "default"
+                )
+            )
+            continue
+        if value is None or value.type != "object":
+            unread.append(Unread(file, line, "graphql", "resolver_map_not_literal"))
+            continue
+        _members(context, value, operation, file, resolvers, unread)
+    return resolvers, unread, references
+
+
+def _exported_object(root, content, export):
+    """The object literal a module exports as ``export``: ``module.exports``
+    or ``export default`` for ``default``, a named export otherwise."""
+    bindings = _bindings(root, content)
+
+    def literal(node):
+        if node is not None and node.type == "identifier":
+            bound = bindings.get(text(node, content))
+            node = bound[1] if bound is not None and bound[0] == "object" else None
+        return node if node is not None and node.type == "object" else None
+
+    for node in root.named_children:
+        if node.type == "expression_statement" and node.named_children:
+            assignment = node.named_children[0]
+            if assignment.type != "assignment_expression":
+                continue
+            left = text(assignment.child_by_field_name("left"), content)
+            right = assignment.child_by_field_name("right")
+            if left == "module.exports":
+                found = literal(right)
+                if found is None:
+                    return None
+                if export == "default":
+                    return found
+                member = _js_object(found, content).get(export)
+                if member is not None:
+                    return literal(member)
+                if any(
+                    c.type == "shorthand_property_identifier"
+                    and text(c, content) == export
+                    for c in found.named_children
+                ):
+                    bound = bindings.get(export)
+                    return bound[1] if bound and bound[0] == "object" else None
+            elif left in (f"module.exports.{export}", f"exports.{export}"):
+                return literal(right)
+        elif node.type == "export_statement":
+            value = node.child_by_field_name("value")
+            if value is not None and export == "default":
+                return literal(value)
+            declaration = node.child_by_field_name("declaration")
+            if declaration is not None and declaration.type in (
+                "lexical_declaration",
+                "variable_declaration",
+            ):
+                for declarator in declaration.named_children:
+                    name = declarator.child_by_field_name("name")
+                    if name is not None and text(name, content) == export:
+                        return literal(declarator.child_by_field_name("value"))
+    return None
+
+
+def _named_exports(root, content):
+    """(name, node) of a module's exported functions and constants."""
+    for node in root.named_children:
+        if node.type != "export_statement":
+            continue
+        declaration = node.child_by_field_name("declaration")
+        if declaration is None:
+            continue
+        if declaration.type in (
+            "function_declaration",
+            "generator_function_declaration",
+        ):
+            yield text(declaration.child_by_field_name("name"), content), declaration
+        elif declaration.type in ("lexical_declaration", "variable_declaration"):
+            for declarator in declaration.named_children:
+                name = declarator.child_by_field_name("name")
+                if declarator.type == "variable_declarator" and name is not None:
+                    if name.type == "identifier":
+                        yield text(name, content), declarator
+
+
+def follow_reference(
+    reference, tree, content, repository_id, file, definitions, language
+):
+    """Root fields of the module a resolver map reference names, and unread
+    facts: its exports object, one of its named exports as an object
+    literal, or all its named exports for a namespace import."""
+    context = _Context(tree, content, repository_id, file, definitions, language)
+    resolvers, unread = [], []
+    if reference.export == "*":
+        for name, node in _named_exports(context.root, content):
+            value = (
+                node.child_by_field_name("value")
+                if node.type == "variable_declarator"
+                else node
+            )
+            handler = context.definition_of(value) if value is not None else None
+            resolvers.append(
+                GraphqlResolver(
+                    file,
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                    handler or context.named_function(name),
+                    reference.operation,
+                    name,
+                    "resolver-map",
+                )
+            )
+        if resolvers or "module.exports" not in content.decode("utf-8", "replace"):
+            return resolvers, unread
+        reference = ResolverMapReference(
+            reference.file,
+            reference.line,
+            reference.operation,
+            reference.module,
+            "default",
+        )
+    found = _exported_object(context.root, content, reference.export)
+    if found is None:
+        unread.append(
+            Unread(
+                reference.file, reference.line, "graphql", "resolver_map_not_literal"
+            )
+        )
+        return resolvers, unread
+    _members(context, found, reference.operation, file, resolvers, unread)
+    return resolvers, unread
+
+
+def template_schemas(tree, content, file):
+    """Root fields declared in GraphQL templates: tagged ``gql`` or
+    ``graphql``, marked by a ``/* GraphQL */`` comment before them, or
+    starting with ``#graphql``."""
+    declared, unread = [], []
+    for argument in _walk(tree.root_node):
+        if argument.type != "template_string":
+            continue
+        source = text(argument, content)[1:-1]
+        parent = argument.parent
+        function = None
+        if parent is not None and parent.type == "call_expression":
+            function = parent.child_by_field_name("function")
+        before = argument.prev_sibling
+        if not (
+            (
+                function is not None
+                and function.type == "identifier"
+                and text(function, content) in ("gql", "graphql")
+            )
+            or (
+                before is not None
+                and before.type == "comment"
+                and re.fullmatch(r"/\*\s*graphql\s*\*/", text(before, content), re.I)
+            )
+            or re.match(r"\s*#graphql\b", source)
+        ):
+            continue
+        # A substitution (${fragment}) is blanked: its fields are not read.
+        source = re.sub(r"\$\{[^}]*\}", _blank, source)
+        offset = argument.start_point.row
+        found, problems = schema_fields(source, file)
+        declared += [
+            GraphqlDeclaration(file, d.line + offset, d.operation, d.field)
+            for d in found
+        ]
+        unread += [Unread(file, p.line + offset, p.kind, p.reason) for p in problems]
+    return declared, unread
