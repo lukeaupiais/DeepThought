@@ -1502,8 +1502,8 @@
     "tables-miniflux-storage": {
       "expected": 29,
       "extra": 0,
-      "found": 7,
-      "missed": 22,
+      "found": 25,
+      "missed": 4,
       "wrong": 0
     },
     "tables-node-express-boilerplate": {
@@ -1537,8 +1537,8 @@
     "tables-simplebank-sqlc": {
       "expected": 20,
       "extra": 0,
-      "found": 0,
-      "missed": 20,
+      "found": 20,
+      "missed": 0,
       "wrong": 0
     }
   }
