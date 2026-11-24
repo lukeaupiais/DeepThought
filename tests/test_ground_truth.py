@@ -235,6 +235,82 @@ class AppliedTest(unittest.TestCase):
         self.assertEqual(ground_truth._slice(line, 5, 6, "utf-8"), "f")
 
 
+@unittest.skipUnless(READY, "tree-sitter and grammars are required")
+class ImportTruthTests(unittest.TestCase):
+    """Module references in a hand-built index give each import's target."""
+
+    SOURCES = {
+        "pkg/__init__.py": "",
+        "pkg/b.py": "def f():\n    return 1\n",
+        "pkg/a.py": "from .b import f\nimport os\nfrom pkg import b\nb.f()\n",
+    }
+
+    def setUp(self):
+        from deepthought._scip import scip_pb2
+
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+        for name, text in self.SOURCES.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text)
+        head = "scip-python python pkg "
+        index = scip_pb2.Index()
+
+        def document(path, *occurrences):
+            doc = index.documents.add(relative_path=path)
+            for line, column, symbol, roles in occurrences:
+                doc.occurrences.add(
+                    range=[line, column, column + 1], symbol=symbol, symbol_roles=roles
+                )
+
+        document("pkg/__init__.py", (0, 0, head + "abc `pkg`/__init__:", 1))
+        document("pkg/b.py", (0, 0, head + "abc `pkg.b`/__init__:", 1))
+        document(
+            "pkg/a.py",
+            (0, 0, head + "abc `pkg.a`/__init__:", 1),
+            # scip-python names a relative import's module without its
+            # package, and an installed package's version, not the commit.
+            (0, 5, head + "1.0 b/__init__:", 0),
+            (1, 7, "scip-python python python-stdlib 3.11 os/__init__:", 0),
+            (2, 5, head + "1.0 `pkg`/__init__:", 0),
+            (2, 16, head + "1.0 `pkg.b`/__init__:", 0),
+            # A module used in code is not an import.
+            (3, 0, head + "1.0 `pkg.b`/__init__:", 0),
+        )
+        self.index = self.root / "index.scip"
+        self.index.write_bytes(index.SerializeToString())
+
+    def test_derive_imports(self):
+        expected, indexed = ground_truth.derive_imports(self.root, self.index, "python")
+        self.assertEqual(indexed, set(self.SOURCES))
+        self.assertEqual(
+            expected,
+            {
+                ("pkg/a.py", 1, "import"): {("pkg/b.py", 0, "module")},
+                ("pkg/a.py", 2, "import"): {("-", 0, "external")},
+                ("pkg/a.py", 3, "import"): {("pkg/b.py", 0, "module")},
+            },
+        )
+
+    def test_score_imports(self):
+        truth = ground_truth.derive_imports(self.root, self.index, "python")
+        result = ground_truth.analyze(self.root, ["python"])
+        report, samples = ground_truth.score_imports(result, truth)
+        self.assertEqual(report["expected"], 2)
+        self.assertEqual(report["contradicted"], 0)
+        self.assertEqual(report["recall"], 1.0)
+        self.assertEqual(report["confirmed"], 2)
+        self.assertEqual(samples["missed"], [])
+        # A truth naming another module contradicts the engine's link.
+        wrong = (
+            {**truth[0], ("pkg/a.py", 1, "import"): {("pkg/__init__.py", 0, "module")}},
+            truth[1],
+        )
+        report, samples = ground_truth.score_imports(result, wrong)
+        self.assertEqual(report["contradicted"], 1)
+        self.assertEqual(samples["missed"], [["pkg/a.py", 1]])
+
+
 class CorpusFilesTest(unittest.TestCase):
     def test_every_corpus_is_pinned_and_has_truth_and_baseline(self):
         corpus = ROOT / "evals" / "ground_truth"
@@ -250,6 +326,15 @@ class CorpusFilesTest(unittest.TestCase):
                 for targets in expected.values()
             )
             self.assertEqual(callable_keys, baseline[entry["name"]]["expected"])
+            if "imports" in entry:
+                imports, _ = ground_truth.read_truth(corpus / entry["imports"])
+                repository = sum(
+                    any(t[2] == "module" for t in targets)
+                    for targets in imports.values()
+                )
+                self.assertEqual(
+                    repository, baseline[entry["name"]]["imports"]["expected"]
+                )
 
     def test_every_contract_corpus_matches_its_labels_and_baseline(self):
         corpus = ROOT / "evals" / "ground_truth"
@@ -334,6 +419,103 @@ class DeclarationRegressionTests(unittest.TestCase):
             self.assertEqual(
                 len(rows), baseline["declarations"][entry["name"]]["expected"]
             )
+
+
+class SummaryTests(unittest.TestCase):
+    def test_changed_scores_show_their_difference(self):
+        base = {
+            "a": {
+                "confirmed": 10,
+                "contradicted": 0,
+                "recall": 0.5,
+                "impact": {"confirmed": 4, "extra": 1, "recall": 0.2, "precision": 0.8},
+            },
+            "declarations": {"d": {"found": 5, "kind_mismatch": 1, "extra": 0}},
+        }
+        reports = {
+            "a": {
+                "confirmed": 12,
+                "contradicted": 0,
+                "recall": 0.6,
+                "impact": {
+                    "confirmed": 6,
+                    "extra": 1,
+                    "recall": 0.3,
+                    "precision": 0.8571,
+                },
+                "regressions": [],
+            },
+            "d": {
+                "declarations": {"found": 5, "kind_mismatch": 2, "extra": 0},
+                "regressions": ["kind_mismatch 1 -> 2"],
+            },
+        }
+        text = ground_truth.summary(reports, base)
+        self.assertIn(
+            "| a | calls | confirmed 12 (**+2**), contradicted 0, recall 0.6 (**+0.1**) |",
+            text,
+        )
+        self.assertIn("| a | impact | confirmed 6 (**+2**), extra 1,", text)
+        self.assertIn("| d | **regressions** | kind_mismatch 1 -> 2 |", text)
+
+    def test_route_corpora_show_each_kind(self):
+        base = {"routes": {"r": {"http": {"expected": 3, "found": 2, "extra": 0}}}}
+        reports = {
+            "r": {
+                "routes": {"http": {"expected": 3, "found": 3, "extra": 0}},
+                "regressions": [],
+            }
+        }
+        self.assertIn(
+            "| r | routes (http) | found 3 (**+1**), extra 0, expected 3 |",
+            ground_truth.summary(reports, base),
+        )
+
+
+class OverloadTargetTests(unittest.TestCase):
+    """Every declaration of an @overload group is a target of its calls."""
+
+    SOURCE = (
+        "@overload\n"
+        "def f(x: int) -> int: ...\n"
+        "@overload\n"
+        "def f(x: str) -> str: ...\n"
+        "def f(x):\n"
+        "    return x\n"
+        "f(1)\n"
+    )
+
+    def test_overloads_and_implementation_are_targets(self):
+        from deepthought._scip import scip_pb2
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        (root / "m.py").write_text(self.SOURCE)
+        symbol = "scip-python python pkg 1.0 `m`/f()."
+        index = scip_pb2.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        doc = index.documents.add(relative_path="m.py", position_encoding=1)
+        # The first stub is the definition; the others, implementation
+        # included, are references on their `def` lines; then the call.
+        for line, roles in ((1, 1), (3, 8), (4, 8), (6, 8)):
+            doc.occurrences.add(
+                range=[line, 4 if line < 6 else 0, 5 if line < 6 else 1],
+                symbol=symbol,
+                symbol_roles=roles,
+            )
+        (root / "index.scip").write_bytes(index.SerializeToString())
+        expected, _ = ground_truth.derive(root, root / "index.scip")
+        self.assertEqual(
+            expected,
+            {
+                ("m.py", 7, "f"): {
+                    ("m.py", 2, "callable"),
+                    ("m.py", 4, "callable"),
+                    ("m.py", 5, "callable"),
+                }
+            },
+        )
 
 
 class ContractRegressionTests(unittest.TestCase):
