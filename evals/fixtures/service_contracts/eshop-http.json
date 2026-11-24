@@ -1,0 +1,322 @@
+{
+  "corpus": "eshop-http",
+  "repo": "https://github.com/dotnet/eShop",
+  "commit": "669682e724306a48f6c6ec4c8afea941658bf3a7",
+  "license": "MIT",
+  "languages": [
+    "C#"
+  ],
+  "sources": [
+    "src/eShop.AppHost/AppHost.cs AddDotnetProject resource names (catalog-api, ordering-api, webhooks-api, webapp, webhooksclient)",
+    "src/WebApp/Extensions/Extensions.cs AddHttpClient<CatalogService>(https+http://catalog-api, AddApiVersion(2.0)) and AddHttpClient<OrderingService>(https+http://ordering-api, AddApiVersion(1.0))",
+    "src/WebhookClient/Extensions/Extensions.cs AddHttpClient<WebhooksClient>(http://webhooks-api)",
+    "minimal API route groups: CatalogApi.cs MapGroup(api/catalog) with v1/v2 groups, OrdersApi.cs MapGroup(api/orders), WebHooksApi.cs MapGroup(/api/webhooks)",
+    "manual reading of every HttpClient call at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "catalog-api",
+      "root": "src/Catalog.API"
+    },
+    {
+      "name": "ordering-api",
+      "root": "src/Ordering.API"
+    },
+    {
+      "name": "webhooks-api",
+      "root": "src/Webhooks.API"
+    },
+    {
+      "name": "webapp",
+      "root": "src/WebApp"
+    },
+    {
+      "name": "webapp",
+      "root": "src/WebAppComponents/Services/CatalogService.cs"
+    },
+    {
+      "name": "webhooksclient",
+      "root": "src/WebhookClient"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 11,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "webapp",
+        "catalog-api",
+        "http"
+      ],
+      [
+        "webapp",
+        "ordering-api",
+        "http"
+      ],
+      [
+        "webhooksclient",
+        "webhooks-api",
+        "http"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/items/{id}",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 14
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 37
+      },
+      "evidence": "GetCatalogItem: $\"{remoteServiceBaseUrl}items/{id}\" -> GET /api/catalog/items/{id}",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#1"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/items",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 20
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 27
+      },
+      "evidence": "GetCatalogItems: GetAllCatalogItemsUri -> {baseUri}items?...; api-version 2.0 -> GET /api/catalog/items",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#2"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/items/by",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 27
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 32
+      },
+      "evidence": "GetCatalogItems(ids): items/by?ids=... -> GET /api/catalog/items/by",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#3"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/items/withsemanticrelevance",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 34
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 67
+      },
+      "evidence": "GetCatalogItemsWithSemanticRelevance: items/withsemanticrelevance?text=...; api-version 2.0 -> GET /api/catalog/items/withsemanticrelevance",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#4"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/catalogbrands",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 41
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 91
+      },
+      "evidence": "GetBrands: catalogBrands -> GET /api/catalog/catalogbrands",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#5"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/catalogtypes",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 48
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 84
+      },
+      "evidence": "GetTypes: catalogTypes -> GET /api/catalog/catalogtypes",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#6"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "catalog-api",
+      "contract": "GET /api/catalog/items/facets",
+      "client": {
+        "file": "src/WebAppComponents/Services/CatalogService.cs",
+        "line": 65
+      },
+      "server": {
+        "file": "src/Catalog.API/Apis/CatalogApi.cs",
+        "line": 53
+      },
+      "evidence": "GetCatalogFacets: items/facets?... -> GET /api/catalog/items/facets",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#7"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "ordering-api",
+      "contract": "GET /api/orders",
+      "client": {
+        "file": "src/WebApp/Services/OrderingService.cs",
+        "line": 9
+      },
+      "server": {
+        "file": "src/Ordering.API/Apis/OrdersApi.cs",
+        "line": 13
+      },
+      "evidence": "GetOrders: /api/Orders/ -> GET /api/orders",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#8"
+    },
+    {
+      "kind": "http",
+      "from_service": "webapp",
+      "to_service": "ordering-api",
+      "contract": "POST /api/orders",
+      "client": {
+        "file": "src/WebApp/Services/OrderingService.cs",
+        "line": 17
+      },
+      "server": {
+        "file": "src/Ordering.API/Apis/OrdersApi.cs",
+        "line": 15
+      },
+      "evidence": "CreateOrder: HttpRequestMessage(HttpMethod.Post, /api/Orders/) -> POST /api/orders",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#9"
+    },
+    {
+      "kind": "http",
+      "from_service": "webhooksclient",
+      "to_service": "webhooks-api",
+      "contract": "POST /api/webhooks",
+      "client": {
+        "file": "src/WebhookClient/Services/WebHooksClient.cs",
+        "line": 7
+      },
+      "server": {
+        "file": "src/Webhooks.API/Apis/WebHooksApi.cs",
+        "line": 35
+      },
+      "evidence": "AddWebHookAsync -> POST /api/webhooks",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#10"
+    },
+    {
+      "kind": "http",
+      "from_service": "webhooksclient",
+      "to_service": "webhooks-api",
+      "contract": "GET /api/webhooks",
+      "client": {
+        "file": "src/WebhookClient/Services/WebHooksClient.cs",
+        "line": 12
+      },
+      "server": {
+        "file": "src/Webhooks.API/Apis/WebHooksApi.cs",
+        "line": 13
+      },
+      "evidence": "LoadWebhooks -> GET /api/webhooks",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "eshop-http#11"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "tests",
+      "reason": "test clients and in-process host calls"
+    },
+    {
+      "file": "e2e",
+      "reason": "Playwright end-to-end tests"
+    },
+    {
+      "file": "src/HybridApp",
+      "reason": "MAUI app; base address is a localhost port of the mobile-bff YARP proxy, not a named resource"
+    },
+    {
+      "file": "src/ClientApp",
+      "reason": "MAUI app; endpoints come from user settings at runtime (SettingsService preferences)"
+    },
+    {
+      "file": "src/Webhooks.API/Services/WebhooksSender.cs",
+      "reason": "posts to subscriber-registered URLs"
+    },
+    {
+      "file": "src/Webhooks.API/Services/GrantUrlTesterService.cs",
+      "reason": "probes subscriber-registered URLs"
+    },
+    {
+      "file": "src/eShop.ServiceDefaults/HttpClientExtensions.cs",
+      "reason": "delegating handler, not a request site"
+    }
+  ],
+  "notes": [
+    "client is the line of the HttpClient call (GetFromJsonAsync, PostAsJsonAsync, SendAsync). Most URLs are interpolated a line above from a remoteServiceBaseUrl field; the path is the field plus the literal suffix, with the query string dropped.",
+    "server is the line of the Map<Verb>( call in the minimal API group.",
+    "WebAppComponents/Services/CatalogService.cs is a shared-library class registered as a typed client only by WebApp, so its calls belong to webapp. HybridApp has its own CatalogService.",
+    "Catalog.API is versioned by the api-version query parameter. WebApp's catalog client adds api-version=2.0 (AddApiVersion(2.0)), so GET /items and /items/withsemanticrelevance resolve to the v2 handlers, not the v1 ones.",
+    "ASP.NET Core route matching is case-insensitive: catalogBrands matches /catalogbrands, catalogTypes /catalogtypes, and /api/Orders/ the api/orders group.",
+    "OrderingService.CreateOrder posts through new HttpRequestMessage(HttpMethod.Post, remoteServiceBaseUrl) and SendAsync; the client line is the SendAsync line."
+  ]
+}
