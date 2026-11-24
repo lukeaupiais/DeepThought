@@ -981,6 +981,7 @@ compat/test/browser/render.test.jsx	890	String	-	0	external
 compat/test/browser/render.test.jsx	890	endsWith	-	0	external
 compat/test/browser/render.test.jsx	899	render	compat/src/render.js	128	callable
 compat/test/browser/render.test.jsx	912	FakeSignal	compat/test/browser/render.test.jsx	906	local
+compat/test/browser/render.test.jsx	912	FakeSignal	compat/test/browser/render.test.jsx	907	local
 compat/test/browser/render.test.jsx	929	render	compat/src/render.js	128	callable
 compat/test/browser/scheduler.test.js	16	unstable_runWithPriority	-	0	local
 compat/test/browser/scheduler.test.js	19	unstable_runWithPriority	-	0	local
@@ -8648,6 +8649,7 @@ test/browser/render.test.jsx	2176	defineProperties	-	0	external
 test/browser/render.test.jsx	2177	for	-	0	external
 test/browser/render.test.jsx	2181	get	-	0	external
 test/browser/render.test.jsx	2188	Test	test/browser/render.test.jsx	2166	local
+test/browser/render.test.jsx	2188	Test	test/browser/render.test.jsx	2167	local
 test/browser/render.test.jsx	2192	render	src/render.js	12	callable
 test/browser/render.test.jsx	2193	expect	-	0	local
 test/browser/render.test.jsx	2198	Error	-	0	external

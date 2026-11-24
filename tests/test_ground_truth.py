@@ -289,6 +289,37 @@ class InheritsTruthTest(unittest.TestCase):
         self.assertEqual(report["contradicted"], 0)
 
 
+class LocalConstructorTest(unittest.TestCase):
+    def test_finds_the_constructor_of_the_class_body(self):
+        lines = [
+            "describe('x', () => {",
+            "  class Test extends Base {",
+            "    name = '{ not a brace';",
+            "    method() { return `}`; }",
+            "    constructor(text) {",
+            "      super(text);",
+            "    }",
+            "  }",
+            "  const t = new Test('a');",
+            "});",
+        ]
+        self.assertEqual(ground_truth._local_constructor(lines, 2), 5)
+
+    def test_ignores_nested_and_absent_constructors(self):
+        lines = [
+            "class Outer {",
+            "  make() {",
+            "    return class { constructor() {} };",
+            "  }",
+            "}",
+            "class Next {",
+            "  constructor() {}",
+            "}",
+        ]
+        self.assertIsNone(ground_truth._local_constructor(lines, 1))
+        self.assertEqual(ground_truth._local_constructor(lines, 6), 7)
+
+
 class AppliedTest(unittest.TestCase):
     def test_argument_lists_after_generics(self):
         for rest in ("(x)", " (x)", "::<u8>(x)", "<T>(x)", "<Map<K, V>>()"):
@@ -898,7 +929,7 @@ class JavaScriptTruthTests(unittest.TestCase):
     @unittest.skipUnless(
         READY and shutil.which("scip-typescript"), "scip-typescript is required"
     )
-    def test_a_local_class_construction_binds_the_class(self):
+    def test_a_local_class_construction_binds_the_class_or_its_constructor(self):
         import subprocess
 
         import javascript_tsconfig
@@ -916,8 +947,11 @@ class JavaScriptTruthTests(unittest.TestCase):
             )
             expected, _ = ground_truth.derive(root, root / "index.scip")
         # scip-typescript names the constructor of a local class without
-        # defining it; the construction binds the class itself.
-        self.assertEqual(expected[("a.js", 5, "Local")], {("a.js", 2, "local")})
+        # defining it; the construction binds the class or the constructor
+        # the class body declares.
+        self.assertEqual(
+            expected[("a.js", 5, "Local")], {("a.js", 2, "local"), ("a.js", 3, "local")}
+        )
 
 
 class GrpcScorerTests(unittest.TestCase):
