@@ -1150,15 +1150,25 @@ def _typescript_imports(node, content):
         return
     clause = next((c for c in node.named_children if c.type == "export_clause"), None)
     if clause is None:
+        namespace = next(
+            (c for c in node.named_children if c.type == "namespace_export"), None
+        )
         names = ("*",)
+        exported = (
+            ("*",)
+            if namespace is None or not namespace.named_children
+            else (_text(namespace.named_children[0], content),)
+        )
     else:
-        names = tuple(
-            _bound(c, content)[0]
+        pairs = [
+            _bound(c, content)
             for c in clause.named_children
             if c.type == "export_specifier"
-        )
+        ]
+        names = tuple(name for name, _ in pairs)
+        exported = tuple(alias for _, alias in pairs)
     # A re-export binds no local name in the exporting module.
-    yield _text(fragments[0], content), "export_from", names, ()
+    yield _text(fragments[0], content), "export_from", names, (), exported
 
 
 def _go_imports(node, content):
@@ -1527,7 +1537,7 @@ def extract_imports(
             if node.type in {"use_declaration", "extern_crate_declaration"}
             else None
         )
-        for specifier, kind, names, local_names in found:
+        for specifier, kind, names, local_names, *exported in found:
             ordinal = ordinals.get(specifier, 0)
             ordinals[specifier] = ordinal + 1
             imports.append(
@@ -1543,6 +1553,7 @@ def extract_imports(
                     names=names,
                     local_names=local_names,
                     block=block,
+                    exported_names=exported[0] if exported else None,
                 )
             )
         stack.extend(reversed(children(node)))

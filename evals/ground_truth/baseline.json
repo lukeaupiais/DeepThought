@@ -657,6 +657,9 @@
       },
       "tree-sitter.js-call-private-name": {
         "confirmed": 9
+      },
+      "tree-sitter.js-call-reexport": {
+        "not_indexed": 184
       }
     },
     "confirmed": 322,
@@ -709,12 +712,12 @@
       "unresolved:attribute_call": 4,
       "unresolved:unsupported_binding": 5
     },
-    "not_indexed": 661,
+    "not_indexed": 845,
     "precision": 1.0,
     "recall": 0.9371,
     "unjudged": 1,
     "unresolved_expected": 9,
-    "unresolved_unjudged": 11587
+    "unresolved_unjudged": 11403
   },
   "ripgrep": {
     "ambiguous_includes": 18,
