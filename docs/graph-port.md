@@ -150,8 +150,9 @@ Tree-sitter extraction records each call whose callee is a plain or dotted name
 enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
-inheritance and dynamic dispatch are not checked. Resolved call edges come from
-SCIP. The original builder's `confidence` floats and its `resolved_method` label
+inheritance and dynamic dispatch are not checked. No CALLS edge comes from SCIP
+yet: the `scip` tool records references, file dependencies and implementations,
+and the original's SCIP tool did not write CALLS either. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 
@@ -2139,7 +2140,18 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  route unread. chi routes (rule `chi-route`) are `Get`/`Post`/`Put`/
+  `Patch`/`Delete`/`Head`/`Options`/`Connect`/`Trace(path, handler)`,
+  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc(path,
+  handler)` (any method) calls on a router made by `chi.NewRouter()`/
+  `chi.NewMux()`, typed `*chi.Mux`, returned by `With(...)` or
+  `Route(prefix, ...)`, or the `chi.Router` parameter of a function literal
+  passed to `Route(prefix, fn)` (the prefix is joined) or `Group(fn)` (no
+  prefix); any other `chi.Router` parameter is a router passed in, as for
+  Gin. chi's `{id}` and `{id:regex}` are route variables and a trailing `*`
+  matches the rest of the path. A handler passed as a method value
+  (`r.Route("/api", api.Routes)`) is not followed.
+  Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
   `src/pages/api/**`) is one route for any method, handled by the default
   export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
@@ -2182,8 +2194,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   `locust`. A literal `base_url` prefixes the path: httpx appends it to the
   base path and aiohttp joins it as a relative reference; an absolute URL, or
   a base that is not a literal, leaves the URL as written. JavaScript `fetch` (with `options.method`), `axios`, `request` and
-  `superagent` (`.get(url)`, or `request({uri, method})`); Angular
-  `HttpClient` and `httpResource` (below); Go `http.Get`,
+  `superagent` (`.get(url)`, or `request({uri, method})`), and the same
+  verb calls, `request({url, method})` or a call of the instance itself on an
+  axios instance: a name bound once to `axios.create(config)`, `this.NAME`
+  given that call as its one value in the class (a field initializer or a
+  `this.NAME =` assignment), or a name imported from a repository module
+  that exports one (`export default NAME`, `export const NAME =`, `export {
+  NAME }` or `export default axios.create(...)`). The config's literal
+  `baseURL` is joined to the request URL with one slash, unless the URL is
+  absolute or protocol-relative, and a protocol-relative URL is read as
+  http; a config that is not an object literal, or spreads one, gives an
+  unknown base. Angular `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
 - **URL values.** String literals, `+`, template strings and f-strings,
   `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names

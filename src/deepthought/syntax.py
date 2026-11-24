@@ -726,6 +726,48 @@ def prepare_source(language: str, content: bytes) -> bytes:
     return _CPP_CLASS_MACRO.sub(blank, content)
 
 
+def parse_source(parser, language: str, suffix: str, content: bytes):
+    """The tree of ``content``, parsed from ``prepare_source``. In a
+    TypeScript file (not TSX) the grammar reads a type member that starts
+    a line with ``<`` (a generic call signature, ``<T>(x: T): T``) after a
+    member without a separator as part of that member's type, and fails.
+    So the blank before each such ``<`` on a line an innermost error spans
+    (or ends the line before) is read as ``;``, which keeps every offset,
+    and that tree is used when it has fewer errors."""
+    source = prepare_source(language, content)
+    tree = parser.parse(source)
+    if language != "typescript" or suffix == ".tsx" or not tree.root_node.has_error:
+        return tree
+    errors = _error_rows(tree)
+    repaired, offset = bytearray(source), 0
+    for row, line in enumerate(source.split(b"\n")):
+        indent = len(line) - len(line.lstrip(b" \t"))
+        if indent and line[indent : indent + 1] == b"<" and row in errors[1]:
+            repaired[offset + indent - 1] = ord(";")
+        offset += len(line) + 1
+    if repaired == source:
+        return tree
+    candidate = parser.parse(bytes(repaired))
+    return candidate if _error_rows(candidate)[0] < errors[0] else tree
+
+
+def _error_rows(tree):
+    """``(count, rows)``: the number of error and missing nodes in ``tree``,
+    and the rows each innermost one spans, with the row after it."""
+    count, rows, stack = 0, set(), [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if not node.has_error:
+            continue
+        inner = [c for c in node.children if c.has_error]
+        if node.type == "ERROR" or node.is_missing:
+            count += 1
+            if not inner:
+                rows.update(range(node.start_point.row, node.end_point.row + 2))
+        stack.extend(inner)
+    return count, rows
+
+
 # C++: declarators that wrap the declared name, beyond C's.
 _CPP_WRAPPERS = _C_WRAPPERS | {"reference_declarator"}
 _CPP_CLASSES = {

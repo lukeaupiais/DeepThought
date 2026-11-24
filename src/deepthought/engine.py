@@ -44,7 +44,7 @@ from .syntax import (
     extract_packages,
     extract_supertypes,
     make_parser,
-    prepare_source,
+    parse_source,
     rust_macro_rules,
     RustExpander,
 )
@@ -462,7 +462,7 @@ def analyze_repository(
                     impls.extend(facts.impls)
                     continue
                 stats["parsed"] += 1
-                tree = parsers[key].parse(prepare_source(language, content))
+                tree = parse_source(parsers[key], language, suffix, content)
                 if tree.root_node.has_error:
                     coverage.append(
                         FileCoverage(
