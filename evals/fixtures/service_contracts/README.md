@@ -18,6 +18,7 @@ matcher could find.
 | msecend-apssouza22-java-microservice.json | apssouza22/java-microservice @ 9274eeb9189dfea0722ac0263814822b94b83ecc | MIT | Java Feign, Spring Cloud Stream (Kafka) | HTTP (Feign), Kafka |
 | graphql-apollo-fullstack-tutorial.json | apollographql/fullstack-tutorial @ fca98dec747244a6cd08e3611f826db01617e208 | MIT | React + Apollo Client, Apollo Server | GraphQL |
 | graphql-apollo-spotify-showcase.json | apollographql/spotify-showcase @ 5a9afc5c96ef5a60f07d438dab5088bf0f6d661e | MIT | React + Apollo Client, two Apollo Federation subgraphs behind Apollo Router | GraphQL |
+| packt-chapter07.json, packt-chapter23.json | PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition @ db9e0fa7d41756224a149a5a870647e0f0426b2e (one chapter each; paths relative to it) | MIT | Java Spring Cloud Stream (StreamBridge, functional consumers), Gradle, Compose | RabbitMQ, Kafka |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).

@@ -152,6 +152,25 @@ class ImpactTruthTests(unittest.TestCase):
 
 
 @unittest.skipUnless(READY, "git and the Python grammar are required")
+class DecoratorTests(unittest.TestCase):
+    def test_a_decorator_call_belongs_to_the_enclosing_function(self):
+        # def outer at 1-6; its nested def inner at 4 is decorated at 2-3,
+        # an index range that starts at the first decorator.
+        nodes = {
+            ("t.py", 1): ("outer", 1, 6),
+            ("t.py", 4): ("inner", 2, 6),
+            ("lib.py", 1): ("command", 1, 2),
+            ("lib.py", 3): ("helper", 3, 4),
+        }
+        calls = {
+            ("t.py", 2, "command"): {("lib.py", 1, "callable")},
+            ("t.py", 5, "helper"): {("lib.py", 3, "callable")},
+        }
+        incoming = impact_truth.call_graph(nodes, calls)
+        self.assertEqual(incoming[("lib.py", 1)], {("t.py", 1)})
+        self.assertEqual(incoming[("lib.py", 3)], {("t.py", 4)})
+
+
 class SameNameTests(unittest.TestCase):
     def test_a_function_is_not_folded_onto_a_method_of_the_same_name(self):
         import deepthought

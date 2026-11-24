@@ -1,0 +1,302 @@
+{
+ "repository": "https://github.com/lobsters/lobsters",
+ "commit": "d23941fd73b7a0a7280f1f40c54013b4e4db5328",
+ "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+ "models": [
+  {
+   "class": "AddDomainToStories::Domain",
+   "files": [
+    "db/old_migrations/20191227234358_add_domain_to_stories.rb"
+   ],
+   "table": "domains"
+  },
+  {
+   "class": "AddDomainToStories::Story",
+   "files": [
+    "db/old_migrations/20191227234358_add_domain_to_stories.rb"
+   ],
+   "table": "stories"
+  },
+  {
+   "class": "Category",
+   "files": [
+    "app/models/category.rb"
+   ],
+   "table": "categories"
+  },
+  {
+   "class": "Comment",
+   "files": [
+    "app/models/comment.rb"
+   ],
+   "table": "comments"
+  },
+  {
+   "class": "CommentStat",
+   "files": [
+    "app/models/comment_stat.rb"
+   ],
+   "table": "comment_stats"
+  },
+  {
+   "class": "CreateCategories::Category",
+   "files": [
+    "db/old_migrations/20200809023435_create_categories.rb"
+   ],
+   "table": "categories"
+  },
+  {
+   "class": "CreateCategories::Tag",
+   "files": [
+    "db/old_migrations/20200809023435_create_categories.rb"
+   ],
+   "table": "tags"
+  },
+  {
+   "class": "Domain",
+   "files": [
+    "app/models/domain.rb"
+   ],
+   "table": "domains"
+  },
+  {
+   "class": "Hat",
+   "files": [
+    "app/models/hat.rb"
+   ],
+   "table": "hats"
+  },
+  {
+   "class": "HatRequest",
+   "files": [
+    "app/models/hat_request.rb"
+   ],
+   "table": "hat_requests"
+  },
+  {
+   "class": "HiddenStory",
+   "files": [
+    "app/models/hidden_story.rb"
+   ],
+   "table": "hidden_stories"
+  },
+  {
+   "class": "HotspotDoc",
+   "files": [
+    "app/models/hotspot_doc.rb"
+   ],
+   "table": "hotspot_docs"
+  },
+  {
+   "class": "HotspotTerm",
+   "files": [
+    "app/models/hotspot_term.rb"
+   ],
+   "table": "hotspot_terms"
+  },
+  {
+   "class": "HotspotTermCount",
+   "files": [
+    "app/models/hotspot_term_count.rb"
+   ],
+   "table": "hotspot_term_counts"
+  },
+  {
+   "class": "Invitation",
+   "files": [
+    "app/models/invitation.rb"
+   ],
+   "table": "invitations"
+  },
+  {
+   "class": "InvitationRequest",
+   "files": [
+    "app/models/invitation_request.rb"
+   ],
+   "table": "invitation_requests"
+  },
+  {
+   "class": "Keystore",
+   "files": [
+    "app/models/keystore.rb"
+   ],
+   "table": "keystores"
+  },
+  {
+   "class": "Link",
+   "files": [
+    "app/models/link.rb"
+   ],
+   "table": "links"
+  },
+  {
+   "class": "MastodonApp",
+   "files": [
+    "app/models/mastodon_app.rb"
+   ],
+   "table": "mastodon_apps"
+  },
+  {
+   "class": "Message",
+   "files": [
+    "app/models/message.rb"
+   ],
+   "table": "messages"
+  },
+  {
+   "class": "ModActivity",
+   "files": [
+    "app/models/mod_activity.rb"
+   ],
+   "table": "mod_activities"
+  },
+  {
+   "class": "ModMail",
+   "files": [
+    "app/models/mod_mail.rb"
+   ],
+   "table": "mod_mails"
+  },
+  {
+   "class": "ModMailMessage",
+   "files": [
+    "app/models/mod_mail_message.rb"
+   ],
+   "table": "mod_mail_messages"
+  },
+  {
+   "class": "ModMailRecipient",
+   "files": [
+    "app/models/mod_mail_recipient.rb"
+   ],
+   "table": "mod_mail_recipients"
+  },
+  {
+   "class": "ModMailReference",
+   "files": [
+    "app/models/mod_mail_reference.rb"
+   ],
+   "table": "mod_mail_references"
+  },
+  {
+   "class": "ModNote",
+   "files": [
+    "app/models/mod_note.rb"
+   ],
+   "table": "mod_notes"
+  },
+  {
+   "class": "ModNotification",
+   "files": [
+    "app/models/mod_notification.rb"
+   ],
+   "table": "mod_notifications"
+  },
+  {
+   "class": "Moderation",
+   "files": [
+    "app/models/moderation.rb"
+   ],
+   "table": "moderations"
+  },
+  {
+   "class": "Notification",
+   "files": [
+    "app/models/notification.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "Origin",
+   "files": [
+    "app/models/origin.rb"
+   ],
+   "table": "origins"
+  },
+  {
+   "class": "ReadRibbon",
+   "files": [
+    "app/models/read_ribbon.rb"
+   ],
+   "table": "read_ribbons"
+  },
+  {
+   "class": "SavedStory",
+   "files": [
+    "app/models/saved_story.rb"
+   ],
+   "table": "saved_stories"
+  },
+  {
+   "class": "Story",
+   "files": [
+    "app/models/story.rb"
+   ],
+   "table": "stories"
+  },
+  {
+   "class": "StoryText",
+   "files": [
+    "app/models/story_text.rb"
+   ],
+   "table": "story_texts"
+  },
+  {
+   "class": "SuggestedTagging",
+   "files": [
+    "app/models/suggested_tagging.rb"
+   ],
+   "table": "suggested_taggings"
+  },
+  {
+   "class": "SuggestedTitle",
+   "files": [
+    "app/models/suggested_title.rb"
+   ],
+   "table": "suggested_titles"
+  },
+  {
+   "class": "Tag",
+   "files": [
+    "app/models/tag.rb"
+   ],
+   "table": "tags"
+  },
+  {
+   "class": "TagFilter",
+   "files": [
+    "app/models/tag_filter.rb"
+   ],
+   "table": "tag_filters"
+  },
+  {
+   "class": "Tagging",
+   "files": [
+    "app/models/tagging.rb"
+   ],
+   "table": "taggings"
+  },
+  {
+   "class": "User",
+   "files": [
+    "app/models/user.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Username",
+   "files": [
+    "app/models/username.rb"
+   ],
+   "table": "usernames"
+  },
+  {
+   "class": "Vote",
+   "files": [
+    "app/models/vote.rb"
+   ],
+   "table": "votes"
+  }
+ ],
+ "not_counted": []
+}

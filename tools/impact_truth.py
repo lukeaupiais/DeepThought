@@ -172,9 +172,10 @@ def call_graph(nodes, calls, aliases=None):
 
     def caller(file, line):
         for _, name_line, first, last in by_file.get(file, ()):
-            # The definition line itself holds decorators' and defaults'
-            # calls, which run where the declaration is, not in its body.
-            if first <= line <= last and line != name_line:
+            # Decorators (above the name line, though scip-python's range
+            # starts at the first one) and the definition line itself run
+            # where the declaration is, not in its body.
+            if name_line < line <= last:
                 return (aliases or {}).get((file, name_line), (file, name_line))
         return None
 

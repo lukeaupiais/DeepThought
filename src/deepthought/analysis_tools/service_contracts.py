@@ -44,7 +44,7 @@ from ..service_contracts.messaging import (
     MessageUnread,
     extract_messaging,
 )
-from ..service_contracts.openapi import generated_spring_apis
+from ..service_contracts.openapi import generated_apis
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
@@ -275,6 +275,48 @@ REQUEST_RULES = {
             "declares, its method and path fit this route of the route's "
             "target service (or of any service, when the target is not a "
             "known service name) more specifically than any other.",
+        )
+    ),
+}
+_OPENAPI_CLIENT = (
+    "A call of a method of a Java API class that an "
+    "openapi-generator-maven-plugin execution (generator java, version 4 or "
+    "later) in a pom.xml of the repository makes from a spec sends that "
+    "operation: on a name declared once in the file with that class as its "
+    "type, or on a new instance. The method and path are the operation's, "
+    "under the spec's first server URL, or under an unknown base when the "
+    "module calls setBasePath, setServers or setServerIndex. "
+)
+OPENAPI_REQUEST_RULES = {
+    contract_rules.HTTP_SERVICE_PATH: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-service-path",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The server URL's literal host equals exactly one service's "
+            "spring.application.name, and the request fits this route of that "
+            "service more specifically than any other.",
+        )
+    ),
+    contract_rules.HTTP_PATH: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-path",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The host names no known service, and the request fits this "
+            "route more specifically than any other route in the repository; "
+            "the host and port are not checked.",
+        )
+    ),
+    contract_rules.HTTP_GATEWAY: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-gateway",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "With an unknown base, the path starts with the literal prefix "
+            "of a gateway route and, with that prefix replaced, fits this "
+            "route of the route's target service more specifically than any "
+            "other.",
         )
     ),
 }
@@ -836,11 +878,20 @@ class ServiceContractTool(AnalysisTool):
                     seen.add(qualified)
                     constants[qualified] = fields
         # Spring interfaces openapi-generator makes from specs at build time.
-        generated, openapi_unread = (
-            generated_spring_apis(root)
+        # Java API classes it makes for clients, and the modules that set a
+        # client's base URL at run time (ApiClient.setBasePath / setServers).
+        generated, generated_clients, openapi_unread = (
+            generated_apis(root)
             if any(c.language == "java" for c, _, _ in sources)
-            else ({}, [])
+            else ({}, {}, [])
         )
+        base_set = {
+            _module_root(root, coverage.file)
+            for coverage, content, _ in sources
+            if coverage.language == "java"
+            and generated_clients
+            and re.search(rb"\.(setBasePath|setServers|setServerIndex)\(", content)
+        }
         # A module whose Java code calls setExchange has no fixed template
         # exchange; otherwise it is spring.rabbitmq.template.exchange, or the
         # default exchange "" when that key is not set.
@@ -875,6 +926,8 @@ class ServiceContractTool(AnalysisTool):
                     context_path=context_path,
                     constants=constants,
                     generated=generated,
+                    clients=generated_clients,
+                    client_base_fixed=_module_root(root, coverage.file) not in base_set,
                 )
             else:
                 found = extract_web(
@@ -1214,7 +1267,18 @@ class ServiceContractTool(AnalysisTool):
                             if resolution.gateway
                             else {}
                         ),
-                        **_evidence(REQUEST_RULES[resolution.rule_id]),
+                        **(
+                            {"declared_in": request.declared_in}
+                            if request.declared_in
+                            else {}
+                        ),
+                        **_evidence(
+                            (
+                                OPENAPI_REQUEST_RULES
+                                if request.client == "openapi-java"
+                                else REQUEST_RULES
+                            )[resolution.rule_id]
+                        ),
                     },
                 )
             )
@@ -1515,12 +1579,18 @@ class ServiceContractTool(AnalysisTool):
             key = f"{item.kind}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         handled = {r.declared_in for r in routes if r.declared_in}
-        for operations in generated.values():
-            for operation in operations:
-                if f"{operation.spec_file}:{operation.spec_line}" not in handled:
-                    # No controller in the repository overrides it.
-                    key = "openapi:operation_not_handled"
-                    unread_counts[key] = unread_counts.get(key, 0) + 1
+        # An operation in several interfaces (several tags) counts once.
+        for declared in sorted(
+            {
+                f"{operation.spec_file}:{operation.spec_line}"
+                for operations in generated.values()
+                for operation in operations
+            }
+            - handled
+        ):
+            # No controller in the repository overrides it.
+            key = "openapi:operation_not_handled"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
         for reason, count in graphql_unread.items():
             unread_counts[f"graphql:{reason}"] = count
         for item in openapi_unread:
