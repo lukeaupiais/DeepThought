@@ -303,7 +303,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS and REQUESTS, and forwards over HANDLES. A route a changed
+  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  interface method DISPATCHES_TO each implementation (see "Interface
+  implementations"), so a changed implementation reaches the interface
+  method and its callers, but not the other implementations. A route a changed
   handler HANDLES is affected, and so is every declaration (or file) that
   REQUESTS that route, so impact crosses service boundaries along the HTTP
   contracts the `service-contracts` tool records (see "Service contracts").
@@ -743,6 +746,43 @@ The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
 so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
+
+### Interface implementations
+
+Nothing in Go declares that a type implements an interface, so
+`deepthought.go_interfaces` compares method sets
+(`tree-sitter.go-interface-method-set`, `name_matched`). Each Go function,
+method and interface method records `Definition.signature`, its parameter and
+result types without names (`(string,[]byte)(error)`, `...T` for a variadic
+parameter), and each interface records `Definition.embeds`, the elements it
+embeds as written. A named type in a signature is tied to its package: a
+package of the analyzed files by its directory, another by the one import of
+the file whose alias, or conventional name (the last path element without a
+`/vN` or `.vN` suffix or `go-` prefix), is the qualifier. `byte` and `uint8`,
+`rune` and `int32`, and `any` and `interface{}` are the same type.
+
+A struct or other named type (or a pointer to it) implements an interface of
+its own module when, for every method of the interface, it declares exactly one
+method of that name with the same signature; an unexported method matches only
+in the interface's package. The interface's methods are its own and those of
+what it embeds: an interface of the same module, `error`, or an exported
+standard library interface listed in `src/deepthought/go_std_interfaces.json`
+(`go list std | grep -v -e internal -e vendor | go run
+tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
+interface, and each interface method DISPATCHES_TO the type's method, so
+impact reaches the callers of an interface method from a changed
+implementation (see "Impact").
+
+Nothing is guessed. An interface is left out when an embedded element is a
+type constraint, another module's or a third-party interface, or names no one
+interface; when a method's signature names a type parameter, an instantiated
+generic type, a struct or a non-empty interface literal; or when a named type
+cannot be tied to a package (a qualifier no import binds, a bare name in a file
+with a dot import). A type is left out when its name is declared more than
+once in its package, as files for different platforms may. Methods promoted
+from embedded fields are not counted, so a type that relies on them is missed,
+not wrongly matched. `tools/go_interface_dispatch.go` lists the pairs go/types
+gives, for comparison.
 
 ## Java
 
@@ -2099,7 +2139,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Flask `<id>`, Express
+  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  package whose `package.json` depends on `next`: `pages/api/**` (or
+  `src/pages/api/**`) is one route for any method, handled by the default
+  export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
+  `src/app`) is one route per HTTP verb the module exports (a function, a
+  `const`, or `export { local as VERB }`), handled by that definition. Route
+  groups `(name)` and parallel slots `@name` add no segment; `_private`
+  directories and intercepting routes `(.)name` are not routes; `[x]` is a
+  route variable and `[...x]`/`[[...x]]` match the rest of the path. A
+  single literal `basePath` in `next.config.{js,mjs,cjs,ts}` prefixes every
+  route; rewrites and middleware are not read. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no

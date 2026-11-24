@@ -857,7 +857,9 @@ class GraphQueryService:
 
         The change set is the declaration and every declaration it CONTAINS.
         Dependents are reached backwards over CALLS, INHERITS_FROM,
-        IMPLEMENTS, REQUESTS, CONSUMES and READS edges, and forwards over
+        IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
+        a call through it can run, so a changed implementation reaches the
+        interface's callers), REQUESTS, CONSUMES and READS edges, and forwards over
         HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
@@ -876,7 +878,7 @@ class GraphQueryService:
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
             "WHERE part.repo_url=$repo_url AND part.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT part) AS parts ",
-            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS|CONSUMES|READS",
+            "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS",
             qname,
             repo_url,
             snapshot_id,
@@ -1064,8 +1066,8 @@ class GraphQueryService:
         if reverse:
             response["forward_relations"] = reverse.split("|")
         response["semantics"] = (
-            "Dependents reachable backwards over observed "
-            + ", ".join(relations.split("|"))
+            # The backward relations are listed in `relations`.
+            "Dependents reachable backwards over observed `relations`"
             + (
                 " edges and forwards over " + ", ".join(reverse.split("|"))
                 if reverse
