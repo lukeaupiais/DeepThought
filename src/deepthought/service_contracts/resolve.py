@@ -46,7 +46,16 @@ def resolve_requests(routes, requests, gateways=(), hosts=None):
     target narrows the candidates as a host would (rule ``http-gateway``).
     Prefixes tied in length with different forwards are ambiguous.
     """
-    templates = [(r.id, r.methods, route_template(r.path), r.service) for r in routes]
+    templates = [
+        (
+            r.id,
+            r.methods,
+            route_template(r.path.lower() if r.case_insensitive else r.path),
+            r.service,
+            r.case_insensitive,
+        )
+        for r in routes
+    ]
     services = {r.service for r in routes if r.service}
     resolutions = []
     for request in requests:
@@ -76,10 +85,10 @@ def resolve_requests(routes, requests, gateways=(), hosts=None):
                 gateway, forwarded = f"{route.file}:{route.line}", True
                 service = route.target
         if service in services:
-            candidates = [t[:3] for t in templates if t[3] == service]
+            candidates = [t[:3] + t[4:] for t in templates if t[3] == service]
             rule, none_reason = HTTP_SERVICE_PATH, "no_route_in_service"
         else:
-            candidates = [t[:3] for t in templates]
+            candidates = [t[:3] + t[4:] for t in templates]
             rule, none_reason = HTTP_PATH, "no_route"
             service = None
         if forwarded:

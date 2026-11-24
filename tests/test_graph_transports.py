@@ -358,6 +358,14 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             self.assertEqual(
                                 callers["status"], "unsupported_or_unobserved"
                             )
+                            paged = await call(
+                                "getImpact",
+                                qualified_name=edge["target_qname"],
+                                offset=5,
+                            )
+                            self.assertEqual(
+                                (paged["offset"], paged["next_offset"]), (5, None)
+                            )
                             listed = await session.call_tool(
                                 "listSnapshots", {"repository_id": self.repo}
                             )

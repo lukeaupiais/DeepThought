@@ -8296,6 +8296,378 @@ def extract_mongodb_collections(tree, content, file, definitions, project=False)
     return found
 
 
+# Knex query builder -----------------------------------------------------------
+KNEX_MODULES = ("knex",)
+# Builder methods whose first argument names a table.
+KNEX_TABLE_METHODS = frozenset(
+    "table from into join innerJoin leftJoin leftOuterJoin rightJoin "
+    "rightOuterJoin fullOuterJoin crossJoin joinRaw".split()
+) - {"joinRaw"}
+# Builder methods that write to the query's table.
+KNEX_WRITES = frozenset(
+    "insert update del delete truncate increment decrement upsert merge".split()
+)
+# Builder methods that read rows, alongside a write on a held query.
+KNEX_READS = frozenset(
+    "select first pluck count countDistinct min max sum avg distinct".split()
+)
+KNEX_TYPES = ("Knex", "Knex.Transaction", "Transaction")
+
+
+@dataclass(frozen=True)
+class KnexUse:
+    """A table a Knex query names, or a ``createTable`` that declares one."""
+
+    file: str
+    caller_id: str | None
+    table: str
+    reads: bool
+    writes: bool
+    declares: bool
+    line: int
+    column: int
+
+
+def _unwrap_type(node):
+    """The expression without await and parentheses (type assertions kept)."""
+    while node is not None and node.type in (
+        "await_expression",
+        "parenthesized_expression",
+    ):
+        node = node.named_children[0] if node.named_children else None
+    return node
+
+
+def _knex_table(name):
+    """The table of a Knex table argument: alias (``t as x``) and schema
+    dropped; None for an empty name."""
+    name = re.split(r"\s+as\s+", name.strip(), maxsplit=1, flags=re.I)[0]
+    name = name.rsplit(".", 1)[-1].strip()
+    return name or None
+
+
+def extract_knex(tree, content, file, definitions, project=False):
+    """Tables of Knex queries in a file that imports knex or lies below a
+    package.json depending on it (``project``). A Knex instance is a name
+    ``knex`` or a ``.knex`` (or private ``.#knex``) property, a name the file binds to a call of the
+    imported knex factory, a parameter typed ``Knex``/``Knex.Transaction``,
+    or a parameter of a callback passed to an instance's ``transaction``.
+    ``K('t')``, ``K.table('t')`` and ``K.batchInsert('t', ...)`` name a
+    table, and so do ``table``/``from``/``into``/``*join`` in a chain rooted
+    at an instance (outside ``K.schema``). A chain with ``insert``,
+    ``update``, ``del``, ``truncate``, ``increment``, ``decrement``,
+    ``upsert`` or ``merge`` (or a query held in a variable that one of
+    those is later called on, in the same function) writes its table, and
+    also reads it with select, first, pluck or an aggregate; any other
+    reads, and a joined table is always read. Names of common table
+    expressions the file defines (``.with('x', ...)``) are not tables.
+    ``K.schema.createTable('t')`` declares the table. A use's position is
+    its table argument's."""
+    if b"knex" not in content and b"Knex" not in content:
+        return []
+    root = tree.root_node
+    bindings = script_bindings(root, content)
+    factories = {
+        local for local, (source, _) in bindings.items() if source in KNEX_MODULES
+    }
+    if not project and not factories:
+        return []
+
+    instances = {"knex"}
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        value = _unwrap(declarator.child_by_field_name("value"))
+        if target is None or target.type != "identifier" or value is None:
+            continue
+        if value.type == "call_expression":
+            function = value.child_by_field_name("function")
+            if (
+                function is not None
+                and function.type == "identifier"
+                and _text(function, content) in factories
+            ):
+                instances.add(_text(target, content))
+            # require('knex')(config)
+            elif (
+                function is not None
+                and function.type == "call_expression"
+                and _text(function, content).replace('"', "'") in ("require('knex')",)
+            ):
+                instances.add(_text(target, content))
+
+    def knex_type(annotation):
+        """Whether a type annotation is Knex, Knex.Transaction or a union
+        of them."""
+        if annotation is None:
+            return False
+        text = _text(annotation, content).lstrip(": ").strip()
+        return all(part.strip() in KNEX_TYPES for part in text.split("|"))
+
+    # Fields and properties the file types as Knex: x.f and this.f are
+    # instances, and so is a name destructured as f.
+    fields = set()
+    for kind, name_field in (
+        ("required_parameter", "pattern"),
+        ("optional_parameter", "pattern"),
+        ("property_signature", "name"),
+        ("public_field_definition", "name"),
+    ):
+        for node in _descendants(root, kind):
+            target = node.child_by_field_name(name_field)
+            if target is None or not knex_type(node.child_by_field_name("type")):
+                continue
+            if target.type == "identifier" and kind.endswith("_parameter"):
+                instances.add(_text(target, content))
+            # Properties, and constructor parameter properties
+            # (private readonly db: Knex).
+            if not kind.endswith("_parameter") or any(
+                c.type in ("accessibility_modifier", "readonly")
+                or _text(c, content) == "readonly"
+                for c in node.children
+            ):
+                fields.add(_text(target, content))
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        value = _unwrap_type(declarator.child_by_field_name("value"))
+        if (
+            target is not None
+            and target.type == "identifier"
+            and value is not None
+            and value.type == "as_expression"
+            and knex_type(value.named_children[-1])
+        ):
+            instances.add(_text(target, content))
+    for pattern in _descendants(root, "shorthand_property_identifier_pattern"):
+        if _text(pattern, content) in fields:
+            instances.add(_text(pattern, content))
+    instances -= factories - {"knex"}
+
+    def instance(node):
+        node = _unwrap(node)
+        if node is None:
+            return False
+        if node.type == "identifier":
+            return _text(node, content) in instances
+        if node.type == "member_expression":
+            prop = _text(node.child_by_field_name("property"), content)
+            return prop in ("knex", "#knex") or prop in fields
+        return False
+
+    # Parameters of callbacks passed to K.transaction(...).
+    for call in _descendants(root, "call_expression"):
+        function = call.child_by_field_name("function")
+        if (
+            function is None
+            or function.type != "member_expression"
+            or _text(function.child_by_field_name("property"), content) != "transaction"
+            or not instance(function.child_by_field_name("object"))
+        ):
+            continue
+        arguments = call.child_by_field_name("arguments")
+        for callback in arguments.named_children if arguments is not None else []:
+            if callback.type not in ("arrow_function", "function_expression"):
+                continue
+            parameters = callback.child_by_field_name(
+                "parameters"
+            ) or callback.child_by_field_name("parameter")
+            if parameters is None:
+                continue
+            first = (
+                parameters
+                if parameters.type == "identifier"
+                else next(iter(parameters.named_children), None)
+            )
+            if first is not None and first.type in (
+                "required_parameter",
+                "optional_parameter",
+            ):
+                first = first.child_by_field_name("pattern")
+            if first is not None and first.type == "identifier":
+                instances.add(_text(first, content))
+
+    def method(call):
+        function = call.child_by_field_name("function")
+        if function is not None and function.type == "member_expression":
+            return _text(function.child_by_field_name("property"), content)
+        return None
+
+    def chain_root(node):
+        """(root expression, methods called below it) of a builder chain,
+        or None when the chain passes through ``.schema``."""
+        methods = []
+        node = _unwrap(node)
+        while node is not None:
+            if instance(node):
+                return node, methods
+            if node.type == "call_expression":
+                function = _unwrap(node.child_by_field_name("function"))
+                if instance(function):
+                    return function, methods
+                node = function
+            elif node.type == "member_expression":
+                prop = _text(node.child_by_field_name("property"), content)
+                if prop == "schema":
+                    return None
+                methods.append(prop)
+                node = _unwrap(node.child_by_field_name("object"))
+            else:
+                return None
+        return None
+
+    def chain_above(call):
+        """The methods called on the chain above this call, and its top."""
+        methods, top = [], call
+        while True:
+            parent = top.parent
+            while parent is not None and parent.type in (
+                "await_expression",
+                "parenthesized_expression",
+                "non_null_expression",
+                "as_expression",
+            ):
+                top, parent = parent, parent.parent
+            if (
+                parent is not None
+                and parent.type == "member_expression"
+                and parent.parent is not None
+                and parent.parent.type == "call_expression"
+                and parent.parent.child_by_field_name("function") == parent
+            ):
+                methods.append(_text(parent.child_by_field_name("property"), content))
+                top = parent.parent
+            else:
+                return methods, top
+
+    def held_methods(top):
+        """Methods later called on a variable a query is assigned to, in the
+        same function; None when the query is not held."""
+        holder = top.parent
+        if holder is None or holder.type != "variable_declarator":
+            return None
+        target = holder.child_by_field_name("name")
+        if target is None or target.type != "identifier":
+            return None
+        local = _text(target, content)
+        scope = holder
+        while scope.parent is not None and scope.type not in (
+            "function_declaration",
+            "function_expression",
+            "arrow_function",
+            "method_definition",
+            "program",
+        ):
+            scope = scope.parent
+        found = set()
+        for use in _descendants(scope, "member_expression"):
+            obj = use.child_by_field_name("object")
+            if (
+                obj is not None
+                and obj.type == "identifier"
+                and (_text(obj, content) == local)
+            ):
+                outer = use
+                while (
+                    outer.parent is not None
+                    and outer.parent.type == "call_expression"
+                    and outer.parent.child_by_field_name("function") == outer
+                ):
+                    found.add(_text(outer.child_by_field_name("property"), content))
+                    call = outer.parent
+                    if (
+                        call.parent is not None
+                        and call.parent.type == "member_expression"
+                    ):
+                        outer = call.parent
+                    else:
+                        break
+        return found
+
+    # Common table expressions the file names (.with('x', ...)) are not
+    # tables.
+    ctes = set()
+    for call in _descendants(root, "call_expression"):
+        if method(call) in ("with", "withRecursive", "withMaterialized"):
+            arguments = call.child_by_field_name("arguments")
+            first = next(iter(arguments.named_children), None) if arguments else None
+            name = _script_string(first, content)
+            if name:
+                ctes.add(name.strip().lower())
+
+    found = []
+    for call in _descendants(root, "call_expression"):
+        function = _unwrap(call.child_by_field_name("function"))
+        arguments = call.child_by_field_name("arguments")
+        args = arguments.named_children if arguments is not None else []
+        if not args or function is None:
+            continue
+        name = _script_string(args[0], content)
+        if not name:
+            continue
+        declares, joined = False, False
+        if instance(function):
+            below = []
+        elif function.type == "member_expression":
+            prop = _text(function.child_by_field_name("property"), content)
+            obj = _unwrap(function.child_by_field_name("object"))
+            if prop in ("createTable", "createTableIfNotExists"):
+                schema = obj
+                while (
+                    schema is not None
+                    and schema.type == "call_expression"
+                    and method(schema) == "withSchema"
+                ):
+                    schema = _unwrap(
+                        schema.child_by_field_name("function").child_by_field_name(
+                            "object"
+                        )
+                    )
+                if not (
+                    schema is not None
+                    and schema.type == "member_expression"
+                    and _text(schema.child_by_field_name("property"), content)
+                    == "schema"
+                    and instance(schema.child_by_field_name("object"))
+                ):
+                    continue
+                declares, below = True, []
+            elif prop == "batchInsert" and instance(obj):
+                below = ["insert"]
+            elif prop in KNEX_TABLE_METHODS:
+                rooted = chain_root(obj)
+                if rooted is None:
+                    continue
+                below = rooted[1]
+                joined = prop not in ("table", "from", "into")
+            else:
+                continue
+        else:
+            continue
+        table = _knex_table(name)
+        if table is None or (not declares and table.lower() in ctes):
+            continue
+        above, top = chain_above(call)
+        methods = set(below) | set(above)
+        held = None if declares else held_methods(top)
+        if held:
+            methods |= held
+        # A joined table is read whatever the query does to its own table.
+        writes = not declares and not joined and bool(methods & KNEX_WRITES)
+        reads = not declares and (not writes or bool(methods & KNEX_READS))
+        found.append(
+            KnexUse(
+                file,
+                _innermost(definitions, file, call),
+                table,
+                reads,
+                writes,
+                declares,
+                args[0].start_point.row + 1,
+                args[0].start_point.column,
+            )
+        )
+    return found
+
+
 # Node SQL drivers and query builders whose query methods take SQL text.
 SCRIPT_SQL_MODULES = (
     "pg",

@@ -198,6 +198,44 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(small["truncated"])
         self.assertLess(small["returned"], 4)
+        # No item fits, so no page would make progress.
+        if not small["returned"]:
+            self.assertIsNone(small["next_offset"])
+
+    async def test_pages_continue_where_a_truncated_answer_stops(self):
+        repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
+        whole = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual((whole["offset"], whole["next_offset"]), (0, None))
+        pages, offset = [], 0
+        while offset is not None:
+            page = await self.service.get_impact(
+                names["helper"], repo, snapshot_id=snapshot, limit=1, offset=offset
+            )
+            self.assertEqual(page["offset"], offset)
+            pages.extend(page["items"])
+            offset = page["next_offset"]
+            self.assertEqual(page["truncated"], offset is not None)
+        self.assertEqual(pages, whole["items"])
+        # A byte budget that cuts the list leaves the rest to the next page.
+        small = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot, max_output_bytes=2048
+        )
+        self.assertTrue(small["truncated"])
+        self.assertEqual(small["next_offset"], small["returned"])
+        rest = await self.service.get_impact(
+            names["helper"],
+            repo,
+            snapshot_id=snapshot,
+            offset=small["next_offset"],
+        )
+        self.assertEqual(small["items"] + rest["items"], whole["items"])
+        for offset in (-1, 100_001, "1"):
+            with self.assertRaises(ValueError):
+                await self.service.get_impact(
+                    names["helper"], repo, snapshot_id=snapshot, offset=offset
+                )
 
     async def test_strongest_path_wins_over_shortest(self):
         # c.py imports pkg.a directly by absolute name (name_matched) and

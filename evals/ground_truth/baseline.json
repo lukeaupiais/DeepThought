@@ -72,10 +72,10 @@
         "confirmed": 377
       },
       "tree-sitter.go-call-typed-receiver": {
-        "confirmed": 670
+        "confirmed": 696
       }
     },
-    "confirmed": 1321,
+    "confirmed": 1347,
     "contradicted": 0,
     "expected": 1223,
     "impact": {
@@ -85,22 +85,23 @@
           "expected": 106
         },
         "2": {
-          "confirmed": 205,
+          "confirmed": 206,
           "expected": 206
         },
         "3": {
-          "confirmed": 86,
+          "confirmed": 87,
           "expected": 87
         }
       },
-      "confirmed": 397,
+      "confirmed": 399,
       "expected": 399,
       "extra": 0,
-      "missed": 2,
+      "missed": 0,
       "precision": 1.0,
-      "recall": 0.995,
+      "recall": 1.0,
       "seeds": 87,
-      "seeds_undeclared": 0
+      "seeds_undeclared": 0,
+      "unjudged": 0
     },
     "imports": {
       "confirmed": 31,
@@ -110,17 +111,17 @@
       "recall": 1.0,
       "unresolved_external": 276
     },
-    "missed": 26,
+    "missed": 12,
     "missed_by_engine_outcome": {
-      "no_call_site": 15,
+      "no_call_site": 1,
       "unresolved:no_declaration": 3,
       "unresolved:not_declared_on_type": 4,
       "unresolved:receiver_type_unknown": 4
     },
     "precision": 1.0,
-    "recall": 0.9787,
+    "recall": 0.9902,
     "unresolved_expected": 11,
-    "unresolved_unjudged": 2276
+    "unresolved_unjudged": 2354
   },
   "click": {
     "ambiguous_includes": 5,
@@ -221,36 +222,37 @@
         "confirmed": 566
       },
       "tree-sitter.go-call-typed-receiver": {
-        "confirmed": 1086,
+        "confirmed": 1128,
         "not_indexed": 2
       }
     },
-    "confirmed": 2130,
+    "confirmed": 2172,
     "contradicted": 0,
     "expected": 2197,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 303,
+          "confirmed": 305,
           "expected": 309
         },
         "2": {
-          "confirmed": 523,
+          "confirmed": 527,
           "expected": 531
         },
         "3": {
-          "confirmed": 905,
+          "confirmed": 917,
           "expected": 924
         }
       },
-      "confirmed": 1731,
+      "confirmed": 1749,
       "expected": 1764,
       "extra": 0,
-      "missed": 33,
+      "missed": 15,
       "precision": 1.0,
-      "recall": 0.9813,
+      "recall": 0.9915,
       "seeds": 107,
-      "seeds_undeclared": 0
+      "seeds_undeclared": 0,
+      "unjudged": 0
     },
     "imports": {
       "confirmed": 12,
@@ -261,17 +263,17 @@
       "recall": 1.0,
       "unresolved_external": 174
     },
-    "missed": 79,
+    "missed": 37,
     "missed_by_engine_outcome": {
-      "no_call_site": 32,
-      "unresolved:attribute_call": 41,
-      "unresolved:no_declaration": 6
+      "unresolved:attribute_call": 27,
+      "unresolved:no_declaration": 6,
+      "unresolved:receiver_type_unknown": 4
     },
     "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.964,
-    "unresolved_expected": 47,
-    "unresolved_unjudged": 1932
+    "recall": 0.9832,
+    "unresolved_expected": 39,
+    "unresolved_unjudged": 2195
   },
   "contracts": {
     "contracts-eshop-grpc": {

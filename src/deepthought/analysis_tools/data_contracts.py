@@ -49,6 +49,8 @@ from ..data_contracts import (
     extract_typeorm,
     extract_sequelize,
     extract_mongodb_collections,
+    extract_knex,
+    KNEX_MODULES,
     _MONGODB_MODULES as MONGODB_MODULES,
     extract_mongoose,
     extract_php_doctrine,
@@ -699,6 +701,34 @@ MONGODB_COLLECTION_RULE = register_rule(
         "gives READS, a write method (insertOne, updateMany, ensureIndex, "
         "drop, ...) gives WRITES, and any other use gives both. The name is "
         "the collection itself; no pluralizing applies.",
+    )
+)
+
+KNEX_QUERY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.knex-query",
+        "pattern_matched",
+        "In a file importing knex or below a package.json depending on it, "
+        "a Knex query names this table by a literal: K('t'), K.table('t'), "
+        "K.batchInsert('t', ...), or table/from/into/join (and the other "
+        "*join methods) in a builder chain rooted at a Knex instance, outside "
+        "K.schema. An instance is a name knex or a .knex property, a name "
+        "bound to a call of the imported knex factory, a parameter typed "
+        "Knex or Knex.Transaction, or the parameter of a callback passed to "
+        "an instance's transaction(). Alias (t as x) and schema are dropped. "
+        "insert, update, del/delete, truncate, increment, decrement, upsert "
+        "or merge on the chain, or on a variable holding the query in the "
+        "same function, gives WRITES; otherwise READS. Joined tables are "
+        "READS.",
+    )
+)
+KNEX_CREATE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.knex-create-table",
+        "pattern_matched",
+        "K.schema.createTable('t', ...) or createTableIfNotExists (also after "
+        "withSchema) on a Knex instance, as data-contracts.knex-query defines "
+        "one, declares this table.",
     )
 )
 
@@ -1721,8 +1751,9 @@ class DataContractTool(AnalysisTool):
                     )
         # Mongoose: models, their collections and static calls.
         mongoose_files, mongoose_specs = {}, []
-        # Directories of package.json files depending on a MongoDB module.
-        mongodb_packages = set()
+        # {directory of a package.json: (its content, the modules it depends
+        # on)}, for gates on a package's dependencies.
+        node_manifests = {}
         for path in _sql_files(root, include, exclude, "package.json"):
             if not path.endswith("package.json"):
                 continue
@@ -1738,18 +1769,44 @@ class DataContractTool(AnalysisTool):
                 if isinstance(spec, str):
                     digests[path] = sha256(content).hexdigest()
                     mongoose_specs.append(spec)
-            if any(
-                isinstance(manifest.get(section), dict)
-                and any(m in manifest[section] for m in MONGODB_MODULES)
-                for section in (
-                    "dependencies",
-                    "devDependencies",
-                    "peerDependencies",
-                    "optionalDependencies",
-                )
-            ):
-                digests[path] = sha256(content).hexdigest()
-                mongodb_packages.add(path.rpartition("/")[0])
+            node_manifests[path.rpartition("/")[0]] = (
+                path,
+                content,
+                {
+                    module
+                    for section in (
+                        "dependencies",
+                        "devDependencies",
+                        "peerDependencies",
+                        "optionalDependencies",
+                    )
+                    if isinstance(manifest.get(section), dict)
+                    for module in manifest[section]
+                },
+            )
+
+        def dependents(modules):
+            """Directories of package.json files depending on one of the
+            modules; each such manifest becomes evidence of the analysis."""
+            found = set()
+            for directory, (path, content, used) in node_manifests.items():
+                if used & set(modules):
+                    digests[path] = sha256(content).hexdigest()
+                    found.add(directory)
+            return found
+
+        def enclosing(directories, path):
+            """The nearest directory of the set enclosing the file (Node
+            resolves a dependency from there), or None."""
+            directory = path.rpartition("/")[0]
+            while True:
+                if directory in directories:
+                    return directory
+                if not directory:
+                    return None
+                directory = directory.rpartition("/")[0]
+
+        mongodb_packages = dependents(MONGODB_MODULES)
         for file, content, tree in script_trees:
             found = extract_mongoose(tree, content, file, result.definitions)
             if found is not None:
@@ -1840,24 +1897,13 @@ class DataContractTool(AnalysisTool):
         # MongoDB driver collections opened by name.
         mongodb_counts = {"linked": 0}
 
-        def mongodb_package(path):
-            """The nearest enclosing directory whose package.json depends on
-            a MongoDB module (Node resolves the module from there), or None."""
-            directory = path.rpartition("/")[0]
-            while True:
-                if directory in mongodb_packages:
-                    return directory
-                if not directory:
-                    return None
-                directory = directory.rpartition("/")[0]
-
         for file, content, tree in script_trees:
             for use in extract_mongodb_collections(
                 tree,
                 content,
                 file,
                 result.definitions,
-                project=mongodb_package(file) is not None,
+                project=enclosing(mongodb_packages, file) is not None,
             ):
                 mongodb_counts["linked"] += 1
                 target = table(use.file, table_key(use.collection))
@@ -1875,6 +1921,34 @@ class DataContractTool(AnalysisTool):
                                 "column": use.column,
                             },
                         )
+        # Knex query builder.
+        knex_counts = {"queries": 0, "created": 0}
+        knex_packages = dependents(KNEX_MODULES)
+        for file, content, tree in script_trees:
+            for use in extract_knex(
+                tree,
+                content,
+                file,
+                result.definitions,
+                project=enclosing(knex_packages, file) is not None,
+            ):
+                target = table(use.file, table_key(use.table))
+                extra = {"line": use.line, "column": use.column}
+                if use.declares:
+                    knex_counts["created"] += 1
+                    link(
+                        "DECLARES",
+                        code(use.file, None),
+                        target,
+                        KNEX_CREATE_RULE,
+                        extra,
+                    )
+                    continue
+                knex_counts["queries"] += 1
+                source = code(use.file, use.caller_id)
+                for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                    if used:
+                        link(kind, source, target, KNEX_QUERY_RULE, extra)
         # Doctrine ORM: entities, repositories and EntityManager calls.
         doctrine_classes, doctrine_uses, doctrine_renames = [], [], False
         php_texts = []
@@ -2299,6 +2373,7 @@ class DataContractTool(AnalysisTool):
                     "typeorm_entities": len(typeorm_mappings),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
+                    "knex": knex_counts,
                     "orm_access_resolution": orm_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),

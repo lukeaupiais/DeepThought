@@ -10,6 +10,7 @@ from deepthought.analysis_tools import ServiceContractTool
 from deepthought.service_contracts.deployed import (
     Deployed,
     Deployments,
+    aspire_units,
     command_line,
     deployed_units,
     locust_host,
@@ -284,6 +285,46 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(deployments.service("a/x/y.py"), "a")
         self.assertIsNone(deployments.service("c/y.py"))
         self.assertIsNone(deployments.service("d/y.py"))
+
+
+APPHOST = """
+var builder = DistributedApplication.CreateBuilder(args);
+var catalog = builder.AddProject<Projects.Catalog_API>("catalog-api");
+builder.AddProject("ordering-api", "../Ordering.API/Ordering.API.csproj");
+builder.AddDotnetProject("webapp", "../WebApp")
+    .WithReference(catalog);
+// builder.AddProject("commented", "../WebApp");
+builder.AddProject<Projects.Missing>("missing");
+builder.AddDotnetProject("dynamic", Paths.Of("WebApp"));
+builder.Build().Run();
+"""
+
+
+class AspireTests(unittest.TestCase):
+    def test_projects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(
+                root,
+                {
+                    "src/AppHost/AppHost.cs": APPHOST,
+                    "src/AppHost/AppHost.csproj": "<Project />",
+                    "src/Catalog.API/Catalog.API.csproj": "<Project />",
+                    "src/Ordering.API/Ordering.API.csproj": "<Project />",
+                    "src/WebApp/WebApp.csproj": "<Project />",
+                    # Not an AppHost: no CreateBuilder call.
+                    "tests/Fixture.cs": 'x.AddProject("other", "../src/WebApp");',
+                },
+            )
+            units = sorted((u.name, u.context, u.hosts) for u in aspire_units(root))
+        self.assertEqual(
+            units,
+            [
+                ("catalog-api", "src/Catalog.API", ("catalog-api",)),
+                ("ordering-api", "src/Ordering.API", ("ordering-api",)),
+                ("webapp", "src/WebApp", ("webapp",)),
+            ],
+        )
 
 
 if __name__ == "__main__":

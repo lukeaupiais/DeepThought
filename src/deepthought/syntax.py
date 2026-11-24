@@ -3563,7 +3563,48 @@ def _go_visible(name, node, outer, content, cache):
         # In one scope, a later `x, err :=` reuses the first x.
         if level > depth_seen:
             best, depth_seen = (kind, value), level
+    if best is None:
+        best = _go_package_variable(name, outer, content, cache)
     return best
+
+
+def _go_package_variable(name, node, content, cache):
+    """(type, value) of a package-level ``var`` of this file named
+    ``name``, or None. Other files of the package are not read."""
+    root = node
+    while root.parent is not None:
+        root = root.parent
+    key = ("package", root.id)
+    if key not in cache:
+        found = {}
+        for declaration in root.named_children:
+            if declaration.type != "var_declaration":
+                continue
+            specs = [
+                spec
+                for child in declaration.named_children
+                for spec in (
+                    child.named_children if child.type == "var_spec_list" else [child]
+                )
+                if spec.type == "var_spec"
+            ]
+            for spec in specs:
+                names = spec.children_by_field_name("name")
+                written = spec.child_by_field_name("type")
+                value = spec.child_by_field_name("value")
+                values = value.named_children if value is not None else []
+                kind = _go_type(written, content) if written is not None else None
+                for index, declared in enumerate(names):
+                    entry = (
+                        kind,
+                        values[index] if len(values) == len(names) else None,
+                    )
+                    # A name declared twice is a compile error: read neither.
+                    text = _text(declared, content)
+                    found[text] = None if text in found else entry
+        cache[key] = found
+    entry = cache[key].get(name)
+    return None if entry is None or entry == (None, None) else entry
 
 
 def _go_expression_type(node, outer, content, cache, depth=0):
@@ -3670,6 +3711,66 @@ def _go_receiver_type(node, content, callee, cache):
     found = _go_variable_type(parts[0], node, outer, content, cache, 0)
     for field in parts[1:-1]:
         found = _go_step(found, field)
+    return _go_receiver_result(found, node, outer, content, cache)
+
+
+def _go_chain_callee(node, content):
+    """``a.M().f.N`` or ``a[].N`` for a Go callee built of names,
+    selectors, calls (arguments dropped) and index expressions (index
+    dropped) whose receiver is a call or index; None for any other
+    shape."""
+
+    def chain(node):
+        if node is None:
+            return None
+        if node.type == "identifier":
+            return _text(node, content)
+        if node.type == "selector_expression":
+            head = chain(node.child_by_field_name("operand"))
+            field = node.child_by_field_name("field")
+            return (
+                None
+                if head is None or field is None
+                else f"{head}.{_text(field, content)}"
+            )
+        if node.type == "call_expression":
+            head = chain(node.child_by_field_name("function"))
+            return None if head is None else f"{head}()"
+        if node.type == "index_expression":
+            head = chain(node.child_by_field_name("operand"))
+            return None if head is None else f"{head}[]"
+        if node.type == "parenthesized_expression" and node.named_children:
+            return chain(node.named_children[0])
+        return None
+
+    if node.type != "selector_expression":
+        return None
+    operand = node.child_by_field_name("operand")
+    if operand is None or operand.type not in {"call_expression", "index_expression"}:
+        return None
+    return chain(node)
+
+
+def _go_chain_receiver(node, content, cache):
+    """CallSite fields for a Go call ``e.M()`` whose receiver ``e`` is a
+    call or index (``c.Parent().M()``, ``F().M()``, ``c[i].M()``): the type
+    ``_go_expression_type`` gives ``e``, as ``_go_receiver_type`` does."""
+    function = node.child_by_field_name("function")
+    outer, ancestor = None, node.parent
+    while ancestor is not None:
+        if ancestor.type in _GO_FUNCTIONS:
+            outer = ancestor
+        ancestor = ancestor.parent
+    if outer is None or function is None:
+        return {}
+    found = _go_expression_type(
+        function.child_by_field_name("operand"), outer, content, cache
+    )
+    return _go_receiver_result(found, node, outer, content, cache) or {}
+
+
+def _go_receiver_result(found, node, outer, content, cache):
+    """CallSite receiver fields of a (type, steps) pair, or None."""
     if found is None:
         return None
     typed, steps = found
@@ -3746,6 +3847,13 @@ def extract_call_sites(
     while stack:
         node = stack.pop()
         found = _callee(node, content, rust)
+        chained = False
+        if go and found is not None and found[0] is None:
+            # `c.Parent().M()`: a method called on a call's result.
+            target = node.child_by_field_name("function")
+            callee = None if target is None else _go_chain_callee(target, content)
+            if callee is not None:
+                found, chained = (callee, found[1]), True
         if found is not None:
             callee, kind = found
             if callee is not None:
@@ -3799,6 +3907,8 @@ def extract_call_sites(
                                 )
                             }
                             if python
+                            else _go_chain_receiver(node, content, receivers)
+                            if chained
                             else _go_receiver_fields(node, content, callee, receivers)
                             if go
                             else {}

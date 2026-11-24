@@ -482,6 +482,150 @@ class SpringContractTests(unittest.TestCase):
             ("request", "url_not_string"), {(u.kind, u.reason) for u in unread}
         )
 
+    def test_http_interfaces_and_rest_client_chains(self):
+        _write(
+            self.root,
+            {
+                "account/src/main/java/a/StatsApi.java": (
+                    "package a;\n"
+                    "import org.springframework.web.service.annotation.*;\n"
+                    '@HttpExchange("/stats")\n'
+                    "interface StatsApi {\n"
+                    '  @GetExchange("/{name}") String get(String name);\n'
+                    '  @PostExchange(url = "/{name}/notes") void note(String name);\n'
+                    '  @HttpExchange(value = "/latest", method = "GET") String latest();\n'
+                    '  @HttpExchange("/{name}") void any(String name);\n'
+                    '  default String local() { return ""; }\n'
+                    "}\n"
+                ),
+                "account/src/main/java/a/Direct.java": (
+                    "package a;\n"
+                    "import org.springframework.web.service.annotation.GetExchange;\n"
+                    "interface Direct {\n"
+                    '  @GetExchange("http://statistics-service/stats/latest")\n'
+                    "  String latest();\n"
+                    '  @GetExchange("${stats.url}/stats/latest")\n'
+                    "  String configured();\n"
+                    "}\n"
+                ),
+                "account/src/main/java/a/NotSpring.java": (
+                    "package a;\n"
+                    "import com.example.GetExchange;\n"
+                    "interface NotSpring {\n"
+                    '  @GetExchange("/stats/latest") String latest();\n'
+                    "}\n"
+                ),
+                "account/src/main/java/a/Rest.java": (
+                    "package a;\n"
+                    "import org.springframework.http.HttpMethod;\n"
+                    "import org.springframework.web.client.RestClient;\n"
+                    "class Rest {\n"
+                    "  private final RestClient client;\n"
+                    "  void f(String id) {\n"
+                    '    client.put().uri("http://statistics-service/stats/{id}", id);\n'
+                    "    RestClient.create().method(HttpMethod.POST)\n"
+                    '        .uri("/stats/" + id + "/notes");\n'
+                    '    other.get().uri("/stats/latest");\n'
+                    "  }\n"
+                    "}\n"
+                ),
+            },
+        )
+        tool, _ = self.analyze()
+        _, routes, requests, unread, resolutions = tool.last_facts
+        route_by_id = {r.id: r for r in routes}
+        found = sorted(
+            (
+                q.client,
+                q.file.rpartition("/")[2],
+                q.line,
+                q.method or "",
+                q.url,
+                r.rule_id or r.reason,
+                route_by_id[r.route_id].path if r.route_id else "",
+            )
+            for q, r in zip(requests, resolutions)
+            if q.client in ("http-interface", "rest-client")
+        )
+        self.assertEqual(
+            found,
+            [
+                (
+                    "http-interface",
+                    "Direct.java",
+                    4,
+                    "GET",
+                    "http://statistics-service/stats/latest",
+                    "service-contracts.http-service-path",
+                    "/stats/latest",
+                ),
+                (
+                    "http-interface",
+                    "Direct.java",
+                    6,
+                    "GET",
+                    U + "/stats/latest",
+                    "service-contracts.http-path",
+                    "/stats/latest",
+                ),
+                (
+                    "http-interface",
+                    "StatsApi.java",
+                    5,
+                    "GET",
+                    U + "/stats/{name}",
+                    "service-contracts.http-path",
+                    "/stats/{accountName}",
+                ),
+                (
+                    "http-interface",
+                    "StatsApi.java",
+                    6,
+                    "POST",
+                    U + "/stats/{name}/notes",
+                    "service-contracts.http-path",
+                    "/stats/{accountName}/notes",
+                ),
+                (
+                    "http-interface",
+                    "StatsApi.java",
+                    7,
+                    "GET",
+                    U + "/stats/latest",
+                    "service-contracts.http-path",
+                    "/stats/latest",
+                ),
+                # No method: the GET and the PUT route both fit.
+                (
+                    "http-interface",
+                    "StatsApi.java",
+                    8,
+                    "",
+                    U + "/stats/{name}",
+                    "several_routes",
+                    "",
+                ),
+                (
+                    "rest-client",
+                    "Rest.java",
+                    7,
+                    "PUT",
+                    "http://statistics-service/stats/{id}",
+                    "service-contracts.http-service-path",
+                    "/stats/{accountName}",
+                ),
+                (
+                    "rest-client",
+                    "Rest.java",
+                    8,
+                    "POST",
+                    "/stats/" + U + "/notes",
+                    "service-contracts.http-path",
+                    "/stats/{accountName}/notes",
+                ),
+            ],
+        )
+
     def test_a_later_local_is_not_folded_into_an_earlier_use(self):
         _write(
             self.root,

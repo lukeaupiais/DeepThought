@@ -160,7 +160,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
-| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call or, when nothing in the function declares it, by exactly one top-level `var` of the same file (a name declared twice, or a `var` with neither type nor value, gives no type; package variables in other files are not read yet). The receiver may also be a call or index chain, `a.F().M()`, `a.f[i].M()` or `F().M()`: the call is then named after the chain (`CallSite.callee` `a.F().M`, `a.f[].M`) and each call or index is one receiver step. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
@@ -304,8 +304,10 @@ its path (type, edge ID, evidence type, rule ID) and the path's evidence,
 which is its weakest edge. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
 the answer is the same on every run. Results are ordered by depth, evidence
-and name; a response that exceeds its byte budget drops whole items and says
-it was truncated. The answer is a lower bound: dynamic dispatch, reflection,
+and name; a response that exceeds its byte budget or its limit drops whole
+items, says it was truncated and gives `next_offset`, where the next page
+starts (`--offset`, MCP `offset`; a snapshot does not change, so pages do not
+overlap or skip). Component impact pages the same way. The answer is a lower bound: dynamic dispatch, reflection,
 unanalyzed files and relations no tool records are not seen, and a
 `name_matched` path is only as good as its weakest name match.
 
@@ -1836,8 +1838,22 @@ Facts are read from Java sources outside test source sets (`src/test/`):
   `url`, then each method's mapping), `RestTemplate`/`RestOperations` calls
   (`getForObject`, `postForEntity`, `exchange` with an `HttpMethod` argument,
   and the rest) on a name the file declares with that type only, and WebClient
-  `.get()/.post()/.method(HttpMethod.X)...uri(...)` chains that start at a name
-  declared as `WebClient` or `WebClient.Builder`, or at `WebClient` itself.
+  and RestClient `.get()/.post()/.method(HttpMethod.X)...uri(...)` chains that
+  start at a name declared as `WebClient`, `WebClient.Builder`, `RestClient`
+  or `RestClient.Builder`, or at `WebClient` or `RestClient` itself (clients
+  `web-client` and `rest-client`).
+- **HTTP interfaces.** Methods of an interface annotated with
+  `@HttpExchange`, `@GetExchange`, `@PostExchange`, `@PutExchange`,
+  `@DeleteExchange` or `@PatchExchange` from
+  `org.springframework.web.service.annotation` (client `http-interface`),
+  placed on the method's annotation. The URL is the interface's
+  `@HttpExchange` URL joined with the method's (`url` or `value`); the
+  method is the annotation's, or `@HttpExchange`'s literal `method`, else the
+  interface's, else unknown. The base URL the proxy gets from its
+  `RestClient`/`WebClient` (`baseUrl`, set where `HttpServiceProxyFactory`
+  creates it) is not read, so a URL without a scheme starts with unknown text,
+  as does a `${...}` property. Exchange annotations on controllers, which
+  Spring MVC also serves as routes, are not read.
 - **URL values.** String literals, `+`, `String.format` with `%s`/`%d`, String
   fields of the file with an initializer, no `@Value` injection and no
   assignment anywhere in the file, String locals declared once and never
@@ -2006,6 +2022,15 @@ their file (`service_contracts.deployed`), when those share one:
   Helm templates and manifests that are not plain YAML are not read; images
   that no Skaffold artifact builds (a registry path in a release manifest)
   place nothing.
+- A .NET Aspire AppHost (a C# file calling
+  `DistributedApplication.CreateBuilder`) names the projects it adds:
+  `AddProject<Projects.X>("name")` runs the one `.csproj` whose file name,
+  with characters other than letters, digits and `_` replaced by `_`, is
+  `X`; `AddProject("name", "path")` and `AddDotnetProject("name", "path")`
+  run the project at `path` (directory or `.csproj`, relative to the
+  AppHost's directory). Each answers to its name (`catalog-api`). Project
+  paths that are not literals, and the environment the AppHost sets, are
+  not read.
 
 A host name that deployments of two different services answer to names
 neither. A request whose literal host is one of these names has only that
@@ -2104,9 +2129,9 @@ C# files are read for routes (`service_contracts.aspnet`):
   unread (`path_not_literal`).
 
 Constraints and defaults (`{id:int}`, `{id?}`, `{*rest}`) are read as plain
-parameters. Matching is case-sensitive, so a request to `/api/catalog` does
-not meet `[controller]` read as `Catalog`, although ASP.NET Core matches
-both.
+parameters. As in ASP.NET Core, a request meets these routes' literal
+segments without regard to case (`/api/Orders` meets `[controller]` read as
+`orders`); routes of other frameworks stay case-sensitive.
 
 Checked by hand against a lexical count of route attributes and `Map*`
 calls: eShopOnWeb `4da8212` 33 of 33 (26 attribute routes, 7 minimal API),
@@ -2120,6 +2145,52 @@ online-boutique's cartservice maps `GET /` to a notice that it only speaks
 gRPC. The load generator's `l.client.get("/")` written without a host meets
 both that route and the frontend's `GET /`; the host its deployment gives
 it picks the frontend (see "Services named by their deployments").
+
+### C# HttpClient requests
+
+C# files are read for `HttpClient` requests (`service_contracts.csharp_http`,
+client `dotnet-httpclient`):
+
+- **Clients.** A call on a value of type `HttpClient`: a parameter (primary
+  constructor parameters included), field, property or local declared with
+  that type, or `new HttpClient(...)`, looked up in the innermost enclosing
+  member, function or type that declares the name. `GetAsync`,
+  `GetStringAsync`, `GetFromJsonAsync`, `PostAsync`, `PostAsJsonAsync`,
+  `PutAsync`, `PatchAsync`, `DeleteAsync` and their JSON variants fix the
+  method; `SendAsync` takes it from `new HttpRequestMessage(HttpMethod.X,
+  url)`, in place or through a local bound once to one.
+- **URLs.** Folded from string literals, interpolated strings, `+`,
+  `new Uri(...)`, locals assigned once, fields of the class that nothing
+  assigns but their initializer, `TrimEnd`/`TrimStart`/`Trim` with
+  character literals, and calls of a method of the file (the only one of
+  its name) that returns one expression, with its parameters bound to the
+  call's arguments. Anything else is unknown text.
+- **Typed clients.** `AddHttpClient<T>(o => o.BaseAddress = new("..."))`
+  (or `new Uri(...)`, or `AddHttpClient<I, T>`) anywhere in the repository
+  gives class `T` a base address. `T` is the one class of that name whose
+  namespace is in scope at the registration (enclosing namespaces, `using`
+  directives, and the `global using`s of the registering file's project,
+  the nearest `.csproj` directory). The base applies to the `HttpClient`
+  fields, properties and constructor parameters of `T`, not to locals. A
+  relative URL is resolved against it as a URI (`https+http://` service
+  discovery addresses count as `http://`). A class registered with a base
+  that is not literal, or with different bases, has none, and its relative
+  URLs are paths under an unknown base.
+
+Requests are resolved like any other (`http-service-path`, `http-path`,
+`http-gateway`). Wrappers that take the URL as a parameter of a public
+method (eShopOnWeb's `HttpService`), `IHttpClientFactory.CreateClient`
+results assigned to `var`, Refit interfaces and API version query
+parameters are not read.
+
+dotnet/eShop `669682e`: the WebApp's `CatalogService` and
+`OrderingService` (bases `https+http://catalog-api` and
+`https+http://ordering-api`, registered in another project) and the
+WebhookClient's `WebhooksClient` give 10 of 11 labelled call sites and 3 of
+3 service pairs of `contracts-eshop-http`, none wrong. The miss is
+`GET /api/catalog/items?...`, which both API versions of Catalog.API serve
+at the same path; the version is chosen by a query parameter the client
+adds through a message handler, so it stays ambiguous.
 
 ### NestJS controllers
 
@@ -3205,6 +3276,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongodb-collection` | pattern_matched | a MongoDB driver collection opened by its literal name, `<db>.collection('name')`, in a file importing `mongodb`, `mongoose` or `mongoskin` (or typing `typeof import('mongoose')`) or below a `package.json` that depends on one (Node resolves the module from there; NodeBB keeps its manifest in `install/package.json` and stays unread), on a database handle: `x.db`, `x.db(...)`, `x.connection`, `a \|\| b` or `a ?? b` of handles, or a name the file binds (declarations and plain assignments; `let db;` alone binds nothing) only to handles or types as mongodb's `Db`. The method on the collection, directly, through a variable holding it in the same function, or through `this.f` anywhere in the file when the collection is assigned to `this.f`, gives READS (`find`, `aggregate`, `watch`, `stats`, ...) or WRITES (`insertOne`, `updateMany`, `drop`, `ensureIndex`, `initializeUnorderedBulkOp`, ...), and any other use both. On Countly (labels of #197) this links 577 of 1,148 accesses with 0 wrong, up from 16; the rest go through function parameters and names bound to values the file cannot see (`countlyDb = dbs[0]`). The collection is the same DbTable as a Mongoose model's |
+| File -[:DECLARES]-> DbTable | `data-contracts.knex-create-table` | pattern_matched | `K.schema.createTable('t', ...)` or `createTableIfNotExists` (also after `withSchema`) on a Knex instance as `data-contracts.knex-query` defines one; `K.schema.table` (an alter) is not a declaration |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.knex-query` | pattern_matched | in a file importing `knex` or below a `package.json` depending on it, a Knex query names the table by a literal: `K('t')` (type arguments allowed), `K.table('t')`, `K.batchInsert('t', ...)`, or `table`, `from`, `into` and the `*join` methods in a builder chain rooted at a Knex instance outside `K.schema`. An instance is a name `knex` or a `.knex`/`.#knex` property, a name bound to a call of the imported knex factory, a parameter, property or constructor parameter property typed `Knex`, `Knex.Transaction` or a union of them (and a name destructured as such a property, or cast `as Knex.Transaction`), or the parameter of a callback passed to an instance's `transaction()`. Alias (`t as x`) and schema are dropped, and names of common table expressions the file defines (`.with('x', ...)`) are not tables. `insert`, `update`, `del`/`delete`, `truncate`, `increment`, `decrement`, `upsert` or `merge` on the chain (or on a variable holding the query, in the same function) gives WRITES, plus READS with `select`, `first`, `pluck` or an aggregate; anything else gives READS, and a joined table is always READS. Query-builder callbacks (`function () { this.from('t') }`, `qb => qb.from('t')`) and builders kept in other object fields (Ghost's seeders' `this.transaction`) are not read. The position is the table argument's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -3798,6 +3871,12 @@ environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
 `findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
+
+`searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.
+The index keeps a member's dotted name (`Command.Flags`) as one token, so a
+query that is one identifier also returns, first and marked `name_match`, the
+declarations named by it or by `.` and it. `Flags` finds `Command.Flags`; `lags`
+and `Command.Flags` use only the index.
 
 ## Cypher scope and access
 

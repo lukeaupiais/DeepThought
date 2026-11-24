@@ -800,6 +800,9 @@ The gate fails on fewer confirmed, more extra, or changed seeds. TypeScript
 and JavaScript truths also list every oracle callable (`# node` rows): an
 engine dependent that is none of them, a declaration the index does not name,
 is *unjudged* rather than extra, and the search still goes through it.
+An engine dependent in a file the call oracle did not index (a Go file behind
+a build tag the index was not built with) is unjudged for the same reason:
+the oracle never saw its calls.
 
 Engine declarations are matched to oracle nodes by name and span. The truth
 file lists only seeds and their dependents, so a declaration with no node

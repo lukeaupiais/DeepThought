@@ -14,6 +14,9 @@ from hashlib import sha256
 
 from .components import PACKAGE_KINDS
 
+# A query that is one identifier also finds members named by it.
+_IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
+
 
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
@@ -492,12 +495,29 @@ class GraphQueryService:
         if file_path is not None:
             _text(file_path, "file_path")
         if query:
+            # The index keeps a member's dotted name (`Command.Flags`) as one
+            # token, so a bare identifier also matches declarations whose
+            # name is it or ends with `.` and it; those name matches come
+            # first, and a declaration found only that way has score 0.
             statement = """CALL db.index.fulltext.queryNodes('code_search',$query) YIELD node,score
                 WHERE node.repo_url=$repo_url AND node.snapshot_id=$snapshot_id
-                  AND score > 0.1 AND ($file_path IS NULL OR node.file_path=$file_path)
+                  AND score > 0.1
+                WITH collect({node:node,score:score}) AS hits
+                OPTIONAL MATCH (named:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
+                WHERE $member IS NOT NULL
+                  AND (named.name = $query OR named.name ENDS WITH $member)
+                WITH hits,collect({node:named,score:0.0}) AS named
+                UNWIND hits + named AS hit
+                WITH hit.node AS node,max(hit.score) AS score
+                WHERE node IS NOT NULL
+                  AND ($file_path IS NULL OR node.file_path=$file_path)
+                WITH node,score,$member IS NOT NULL
+                    AND (node.name = $query OR node.name ENDS WITH $member) AS name_match
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element,score
-                ORDER BY score DESC,element.file_path,element.start_line,element.qualified_name
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element,
+                    score,name_match
+                ORDER BY name_match DESC,score DESC,element.file_path,element.start_line,
+                    element.qualified_name
                 LIMIT $fetch_limit"""
         else:
             statement = """MATCH (node:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
@@ -508,7 +528,11 @@ class GraphQueryService:
                 LIMIT $fetch_limit"""
         return await self._read(
             statement,
-            {"query": query, "file_path": file_path},
+            {
+                "query": query,
+                "file_path": file_path,
+                "member": "." + query if _IDENTIFIER.fullmatch(query) else None,
+            },
             repo_url,
             snapshot_id,
             limit=limit,
@@ -742,6 +766,7 @@ class GraphQueryService:
         limit=20,
         max_output_bytes=16000,
         timeout=5,
+        offset=0,
     ):
         """Declarations and files that depend on a declaration, transitively.
 
@@ -769,6 +794,7 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
+            offset=offset,
             reverse="HANDLES|PUBLISHES|WRITES",
         )
 
@@ -783,6 +809,7 @@ class GraphQueryService:
         limit=20,
         max_output_bytes=16000,
         timeout=5,
+        offset=0,
     ):
         """Files that depend on a file, transitively, over IMPORTS and DEPENDS_ON."""
         return await self._impact(
@@ -797,6 +824,7 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
+            offset=offset,
         )
 
     async def get_component_impact(
@@ -810,6 +838,7 @@ class GraphQueryService:
         limit=20,
         max_output_bytes=16000,
         timeout=5,
+        offset=0,
     ):
         """Components that depend on a component, transitively.
 
@@ -833,6 +862,7 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
+            offset=offset,
         )
 
     async def _impact(
@@ -848,9 +878,12 @@ class GraphQueryService:
         budget,
         timeout,
         *,
+        offset=0,
         reverse=None,
     ):
         _text(subject, "subject")
+        if type(offset) is not int or not 0 <= offset <= 100_000:
+            raise ValueError("offset must be an integer from 0 to 100000")
         if type(max_depth) is not int or not 1 <= max_depth <= 5:
             raise ValueError("max_depth must be an integer from 1 to 5")
         evidence = _evidence_filter(evidence)
@@ -888,7 +921,8 @@ class GraphQueryService:
                 "best.target.qualified_name AS changed, "
                 "[r IN relationships(best.path) | {type:type(r),edge_id:r._dt_edge_id,"
                 "evidence_type:r.evidence_type,rule_id:r.rule_id}] AS edges "
-                "ORDER BY depth, best.weakness, dependent.qualified_name LIMIT $fetch_limit"
+                "ORDER BY depth, best.weakness, dependent.qualified_name "
+                "SKIP $offset LIMIT $fetch_limit"
             )
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
@@ -898,6 +932,7 @@ class GraphQueryService:
             statement,
             {
                 "subject": subject,
+                "offset": offset,
                 "evidence": evidence,
                 "reverse": (reverse or "").split("|") if reverse else [],
             },
@@ -926,8 +961,19 @@ class GraphQueryService:
             "not prove that nothing else is affected: dynamic dispatch, "
             "reflection, unanalyzed files and unrecorded relations are not seen."
         )
-        # The description fields count toward the budget too; drop whole items.
-        while response["items"] and len(_json(response).encode()) > budget:
+        # Results are ordered and a snapshot does not change, so a truncated
+        # list continues at `next_offset`.
+        response["offset"] = offset
+        while True:
+            response["next_offset"] = (
+                offset + response["returned"]
+                if response["truncated"] and response["returned"]
+                else None
+            )
+            # The description fields count toward the budget too; drop
+            # whole items.
+            if not response["items"] or len(_json(response).encode()) <= budget:
+                break
             response["items"].pop()
             response["returned"] = len(response["items"])
             response["truncated"] = True
