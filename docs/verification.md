@@ -492,15 +492,20 @@ declaration already spans: a function `run` is not merged with a method
 
 | Corpus | Seeds | Oracle dependents | Confirmed | Extra | Recall | Precision |
 |---|---|---|---|---|---|---|
-| click | 144 | 1151 | 123 | 0 | 0.107 | 1.0 |
+| click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
-| cobra | 107 | 1764 | 119 | 0 | 0.068 | 1.0 |
+| cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
 Recall falls with depth because each missing link cuts off everything behind
-it (click confirms 60 of 351 direct callers, but 21 of 295 at depth 3).
+it.
+A decorator call runs where the decorated function is declared, not in its
+body. scip-python's range for a function starts at its first decorator, so
+the lines from there to the `def` line belong to the enclosing function: a
+test that runs `@cli.command()` on a nested def depends on `Group.command`,
+and the nested def does not.
 ripgrep's one extra is a caller of the `#[cfg(windows)]` `from_path`, which
 the Linux index does not analyze, and 84 of its seeds are test functions
 that macros expand to, which the engine does not declare. scip-go
