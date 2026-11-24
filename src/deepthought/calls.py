@@ -770,7 +770,9 @@ class _JavaScope:
             if near_dims > far_dims and far_dims == 0:
                 if far_base.split(".")[-1] in {"Object", "Cloneable", "Serializable"}:
                     return True
-                return None if far_base not in _JAVA_WIDENING else False
+                # An array's only supertypes that are no arrays are those
+                # three (JLS 4.10.3).
+                return False
             return None if near_dims > far_dims else False
         if near_base in _JAVA_WIDENING:
             if far_base in _JAVA_WIDENING:

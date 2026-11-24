@@ -904,6 +904,16 @@ confirmed 5 more links (10,941), none contradicted, and impact rose from
 4,421 to 4,763 of 5,070, since `Gson.toJson(Object)` reaches most of the
 library's callers.
 
+A variable, parameter or field declared with an array type (`int[] xs`,
+`Elem[][] grid`) gives an argument that array type, element without type
+arguments; an array of a type parameter, and the C-style `Foo x[]`, stay
+unknown. An array is assignable to `Object`, `Cloneable` and `Serializable`,
+to an array of a supertype of its element, and to nothing else that is no
+array (JLS 4.10.3), so `toJson(Object)` is chosen over `toJson(JsonElement)`
+for one. Array types are recorded only for arguments: an array is no
+receiver type. On gson this confirmed 32 more links (10,973), none
+contradicted, and impact rose to 4,836 of 5,070.
+
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
 writes as the call's `receiver_type` (`Foo`, `Map.Entry`; type arguments
