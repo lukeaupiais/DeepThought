@@ -475,6 +475,194 @@ def extract_calls(
     return calls
 
 
+# Grpc.Tools nests the client class XClient in the static class X.
+_CSHARP_CLIENT = re.compile(r"(?:.*\.)?(\w+)\.\1Client")
+_CSHARP_TYPES = {
+    "class_declaration",
+    "struct_declaration",
+    "record_declaration",
+    "interface_declaration",
+}
+_CSHARP_SCOPES = _CSHARP_TYPES | {
+    "compilation_unit",
+    "method_declaration",
+    "constructor_declaration",
+    "local_function_statement",
+    "lambda_expression",
+    "anonymous_method_expression",
+    "accessor_declaration",
+    "operator_declaration",
+}
+
+
+def _csharp_aliases(root, content):
+    """{alias: target} of a C# file's ``using A = X.Y;`` directives."""
+    aliases = {}
+    for node in _csharp_walk(root):
+        if node.type != "using_directive":
+            continue
+        alias = node.child_by_field_name("name")
+        targets = [c for c in node.named_children if c != alias]
+        if alias is not None and len(targets) == 1:
+            aliases[_text(alias, content)] = _text(targets[0], content)
+    return aliases
+
+
+def _csharp_walk(node):
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        yield current
+        stack.extend(reversed(current.named_children))
+
+
+def extract_csharp_calls(tree, content, repository_id, file, definitions):
+    """Stub calls of one C# file.
+
+    A stub is a value of a generated client type ``X.XClient`` (written
+    out, or through a ``using`` alias): ``new X.XClient(...)``, a
+    parameter, field, property or local declared with that type (``var``
+    takes the type of a ``new``), or a call to a method of the file that
+    returns it. A name is looked up in the innermost enclosing member,
+    function or type that declares it (``this.x`` in types only); a name
+    declared there with any other type, or with clients of two services,
+    is not a stub, and neither is a method name declared with two return
+    types. Each ``stub.M(...)`` is a call
+    of ``M``; ``MAsync`` denotes rpc ``M`` when the proto has no
+    ``MAsync`` (see ``resolve_call``).
+    """
+    root = tree.root_node
+    aliases = _csharp_aliases(root, content)
+
+    def service_of(type_node):
+        if type_node is None:
+            return None
+        written = re.sub(r"\s+", "", _text(type_node, content))
+        written = aliases.get(written, written).removeprefix("global::")
+        match = _CSHARP_CLIENT.fullmatch(written)
+        return match.group(1) if match else None
+
+    def created(node):
+        while node is not None and node.type == "parenthesized_expression":
+            node = node.named_children[0] if node.named_children else None
+        if node is not None and node.type == "object_creation_expression":
+            return service_of(node.child_by_field_name("type"))
+        return None
+
+    def scope(node):
+        """The innermost member, function or type that encloses ``node``."""
+        node = node.parent
+        while node is not None and node.type not in _CSHARP_SCOPES:
+            node = node.parent
+        return node
+
+    def span(node):
+        return None if node is None else (node.start_byte, node.end_byte, node.type)
+
+    def declare(where, name, service):
+        declared.setdefault((span(scope(where)), _text(name, content)), set()).add(
+            service
+        )
+
+    declared, returns = {}, {}
+    for node in _csharp_walk(root):
+        if node.type in ("parameter", "property_declaration"):
+            name = node.child_by_field_name("name")
+            if name is not None:
+                declare(node, name, service_of(node.child_by_field_name("type")))
+        elif node.type == "variable_declaration":
+            type_node = node.child_by_field_name("type")
+            implicit = type_node is not None and type_node.type == "implicit_type"
+            for declarator in node.named_children:
+                if declarator.type != "variable_declarator":
+                    continue
+                name = declarator.child_by_field_name("name")
+                if name is None:
+                    continue
+                if implicit:
+                    values = [c for c in declarator.named_children if c != name]
+                    service = created(values[-1]) if values else None
+                else:
+                    service = service_of(type_node)
+                declare(node, name, service)
+        elif node.type in ("method_declaration", "local_function_statement"):
+            name = node.child_by_field_name("name")
+            if name is not None:
+                returns.setdefault(_text(name, content), set()).add(
+                    service_of(node.child_by_field_name("returns"))
+                )
+
+    def one(services):
+        if services is None or len(services) != 1 or None in services:
+            return None
+        return next(iter(services))
+
+    def lookup(at, name, members_only):
+        """The service of the innermost declaration of ``name`` seen from
+        ``at``, or None; ``this.name`` skips locals and parameters."""
+        where = scope(at)
+        while where is not None:
+            if not members_only or where.type in _CSHARP_TYPES:
+                found = declared.get((span(where), name))
+                if found is not None:
+                    return one(found)
+            where = scope(where)
+        return one(declared.get((None, name)))
+
+    def own(node):
+        """(identifier, written with this.) of ``x`` or ``this.x``, else None."""
+        members_only = False
+        if node is not None and node.type == "member_access_expression":
+            if not _text(node, content).startswith("this."):
+                return None
+            node, members_only = node.child_by_field_name("name"), True
+        if node is not None and node.type == "identifier":
+            return _text(node, content), members_only
+        return None
+
+    def stub(receiver):
+        service = created(receiver)
+        if service is not None:
+            return service
+        if receiver.type == "invocation_expression":
+            found = own(receiver.child_by_field_name("function"))
+            return one(returns.get(found[0])) if found is not None else None
+        found = own(receiver)
+        return lookup(receiver, *found) if found is not None else None
+
+    find = _enclosing(definitions, file)
+    calls, ordinals = [], {}
+    for node in _csharp_walk(root):
+        if node.type != "invocation_expression":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "member_access_expression":
+            continue
+        receiver = function.child_by_field_name("expression")
+        name = function.child_by_field_name("name")
+        if receiver is None or name is None or name.type != "identifier":
+            continue
+        service = stub(receiver)
+        if service is None:
+            continue
+        method = _text(name, content)
+        key = f"{service}.{method}"
+        ordinal = ordinals.get(key, 0)
+        ordinals[key] = ordinal + 1
+        calls.append(
+            GrpcCall(
+                id=identifier(repository_id, file, key, "GrpcCall", ordinal),
+                file=file,
+                line=name.start_point.row + 1,
+                column=name.start_point.column,
+                caller_id=find(node),
+                service=service,
+                method=method,
+            )
+        )
+    return calls
+
+
 GO_REGISTER = "service-contracts.grpc-go-register"
 GO_REGISTER_CONSTRUCTOR = "service-contracts.grpc-go-register-constructor"
 PYTHON_SERVICER = "service-contracts.grpc-python-servicer"
@@ -869,6 +1057,9 @@ def resolve_call(call, index):
     if service is None:
         return CallResolution(call.id, "unresolved", reason)
     method = index.method(service, call.method)
+    if method is None and call.file.endswith(".cs") and call.method.endswith("Async"):
+        # Grpc.Tools gives rpc M a blocking M and an asynchronous MAsync.
+        method = index.method(service, call.method.removesuffix("Async"))
     if method is None:
         return CallResolution(call.id, "unresolved", "no_proto_method", service)
     return CallResolution(call.id, "linked", None, service, method)
@@ -917,8 +1108,13 @@ def collect(root, sources, definitions, repository_id, protos):
         )
         handlers.update(found)
         unread.extend((path, line, "server", reason) for line, reason in skipped)
+        if language == "csharp":
+            calls.extend(
+                extract_csharp_calls(tree, content, repository_id, path, definitions)
+            )
+            continue
         if language not in _CALL:
-            continue  # C#: servers only so far
+            continue
         calls.extend(
             extract_calls(
                 tree,
