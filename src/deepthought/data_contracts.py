@@ -3742,3 +3742,642 @@ def mybatis_script(text):
         root = _parse_xml(text.encode("utf-8"))
         text = PLACEHOLDER if root is None else _mybatis_text(root, {})
     return None if text is None else mybatis_sql(text)
+
+
+# Laravel Eloquent default table names ---------------------------------------
+
+# Generated from doctrine/inflector 2.0.10 lib/Doctrine/Inflector/Rules/English
+_DOCTRINE_PLURALS = (
+    ("(s)tatus$", "\\1\\2tatuses"),
+    ("(quiz)$", "\\1zes"),
+    ("^(ox)$", "\\1\\2en"),
+    ("([m|l])ouse$", "\\1ice"),
+    ("(matr|vert|ind)(ix|ex)$", "\\1ices"),
+    ("(x|ch|ss|sh)$", "\\1es"),
+    ("([^aeiouy]|qu)y$", "\\1ies"),
+    ("(hive|gulf)$", "\\1s"),
+    ("(?:([^f])fe|([lr])f)$", "\\1\\2ves"),
+    ("sis$", "ses"),
+    ("([ti])um$", "\\1a"),
+    ("(tax)on$", "\\1a"),
+    ("(c)riterion$", "\\1riteria"),
+    ("(p)erson$", "\\1eople"),
+    ("(m)an$", "\\1en"),
+    ("(c)hild$", "\\1hildren"),
+    ("(f)oot$", "\\1eet"),
+    ("(buffal|her|potat|tomat|volcan)o$", "\\1\\2oes"),
+    ("(alumn|bacill|cact|foc|fung|nucle|radi|stimul|syllab|termin|vir)us$", "\\1i"),
+    ("us$", "uses"),
+    ("(alias)$", "\\1es"),
+    ("(analys|ax|cris|test|thes)is$", "\\1es"),
+    ("s$", "s"),
+    ("^$", ""),
+    ("$", "s"),
+)
+_DOCTRINE_UNINFLECTED_PLURAL = (
+    "\\w+media",
+    "advice",
+    "aircraft",
+    "amoyese",
+    "art",
+    "audio",
+    "baggage",
+    "bison",
+    "borghese",
+    "bream",
+    "breeches",
+    "britches",
+    "buffalo",
+    "butter",
+    "cantus",
+    "carp",
+    "cattle",
+    "chassis",
+    "clippers",
+    "clothing",
+    "coal",
+    "cod",
+    "coitus",
+    "compensation",
+    "congoese",
+    "contretemps",
+    "coreopsis",
+    "corps",
+    "cotton",
+    "data",
+    "debris",
+    "deer",
+    "diabetes",
+    "djinn",
+    "education",
+    "eland",
+    "elk",
+    "emoji",
+    "equipment",
+    "evidence",
+    "faroese",
+    "feedback",
+    "fish",
+    "flounder",
+    "flour",
+    "foochowese",
+    "food",
+    "furniture",
+    "gallows",
+    "genevese",
+    "genoese",
+    "gilbertese",
+    "gold",
+    "headquarters",
+    "herpes",
+    "hijinks",
+    "homework",
+    "hottentotese",
+    "impatience",
+    "information",
+    "innings",
+    "jackanapes",
+    "jeans",
+    "jedi",
+    "kin",
+    "kiplingese",
+    "knowledge",
+    "kongoese",
+    "leather",
+    "love",
+    "lucchese",
+    "luggage",
+    "mackerel",
+    "Maltese",
+    "management",
+    "metadata",
+    "mews",
+    "money",
+    "moose",
+    "mumps",
+    "music",
+    "nankingese",
+    "news",
+    "nexus",
+    "niasese",
+    "nutrition",
+    "offspring",
+    "oil",
+    "patience",
+    "pekingese",
+    "piedmontese",
+    "pincers",
+    "pistoiese",
+    "plankton",
+    "pliers",
+    "pokemon",
+    "police",
+    "polish",
+    "portuguese",
+    "proceedings",
+    "progress",
+    "rabies",
+    "rain",
+    "research",
+    "rhinoceros",
+    "rice",
+    "salmon",
+    "sand",
+    "sarawakese",
+    "scissors",
+    "sea[- ]bass",
+    "series",
+    "shavese",
+    "shears",
+    "sheep",
+    "siemens",
+    "silk",
+    "sms",
+    "soap",
+    "social media",
+    "spam",
+    "species",
+    "staff",
+    "sugar",
+    "swine",
+    "talent",
+    "toothpaste",
+    "traffic",
+    "travel",
+    "trousers",
+    "trout",
+    "tuna",
+    "us",
+    "vermontese",
+    "vinegar",
+    "weather",
+    "wenchowese",
+    "wheat",
+    "whiting",
+    "wildebeest",
+    "wood",
+    "wool",
+    "yengeese",
+    "people",
+    "trivia",
+    "\\w+ware$",
+    "media",
+)
+_DOCTRINE_IRREGULAR = (
+    ("atlas", "atlases"),
+    ("axis", "axes"),
+    ("axe", "axes"),
+    ("beef", "beefs"),
+    ("blouse", "blouses"),
+    ("brother", "brothers"),
+    ("cafe", "cafes"),
+    ("cave", "caves"),
+    ("chateau", "chateaux"),
+    ("niveau", "niveaux"),
+    ("child", "children"),
+    ("canvas", "canvases"),
+    ("cookie", "cookies"),
+    ("brownie", "brownies"),
+    ("corpus", "corpuses"),
+    ("cow", "cows"),
+    ("criterion", "criteria"),
+    ("curriculum", "curricula"),
+    ("demo", "demos"),
+    ("domino", "dominoes"),
+    ("echo", "echoes"),
+    ("epoch", "epochs"),
+    ("foot", "feet"),
+    ("fungus", "fungi"),
+    ("ganglion", "ganglions"),
+    ("gas", "gases"),
+    ("genie", "genies"),
+    ("genus", "genera"),
+    ("goose", "geese"),
+    ("graffito", "graffiti"),
+    ("hippopotamus", "hippopotami"),
+    ("hoof", "hoofs"),
+    ("human", "humans"),
+    ("iris", "irises"),
+    ("larva", "larvae"),
+    ("leaf", "leaves"),
+    ("lens", "lenses"),
+    ("loaf", "loaves"),
+    ("man", "men"),
+    ("medium", "media"),
+    ("memorandum", "memoranda"),
+    ("money", "monies"),
+    ("mongoose", "mongooses"),
+    ("motto", "mottoes"),
+    ("move", "moves"),
+    ("mythos", "mythoi"),
+    ("niche", "niches"),
+    ("nucleus", "nuclei"),
+    ("numen", "numina"),
+    ("occiput", "occiputs"),
+    ("octopus", "octopuses"),
+    ("opus", "opuses"),
+    ("ox", "oxen"),
+    ("passerby", "passersby"),
+    ("penis", "penises"),
+    ("person", "people"),
+    ("plateau", "plateaux"),
+    ("runner-up", "runners-up"),
+    ("safe", "safes"),
+    ("sex", "sexes"),
+    ("sieve", "sieves"),
+    ("soliloquy", "soliloquies"),
+    ("son-in-law", "sons-in-law"),
+    ("syllabus", "syllabi"),
+    ("testis", "testes"),
+    ("thief", "thieves"),
+    ("tooth", "teeth"),
+    ("tornado", "tornadoes"),
+    ("trilby", "trilbys"),
+    ("turf", "turfs"),
+    ("valve", "valves"),
+    ("volcano", "volcanoes"),
+    ("abuse", "abuses"),
+    ("avalanche", "avalanches"),
+    ("cache", "caches"),
+    ("criterion", "criteria"),
+    ("curve", "curves"),
+    ("emphasis", "emphases"),
+    ("foe", "foes"),
+    ("grave", "graves"),
+    ("hoax", "hoaxes"),
+    ("medium", "media"),
+    ("neurosis", "neuroses"),
+    ("save", "saves"),
+    ("wave", "waves"),
+    ("oasis", "oases"),
+    ("valve", "valves"),
+    ("zombie", "zombies"),
+)
+
+
+def _php_replacement(template, groups):
+    """A preg_replace template for re.sub: ``\\N`` of a group the pattern
+    does not have is empty, as in PHP."""
+    return re.sub(
+        r"\\(\d+)",
+        lambda m: f"\\g<{m.group(1)}>" if int(m.group(1)) <= groups else "",
+        template.replace("\\\\", "\x01"),
+    ).replace("\x01", "\\\\")
+
+
+_DOCTRINE_PLURAL_RULES = tuple(
+    (rule, _php_replacement(template, rule.groups))
+    for pattern, template in _DOCTRINE_PLURALS
+    for rule in [re.compile(pattern, re.IGNORECASE | re.ASCII)]
+)
+_DOCTRINE_UNINFLECTED = re.compile(
+    "^(?:" + "|".join(_DOCTRINE_UNINFLECTED_PLURAL) + ")$", re.IGNORECASE | re.ASCII
+)
+# Substitutions keys by the lower-case word; a later pair replaces an
+# earlier one, as PHP array assignment does.
+_DOCTRINE_IRREGULAR_PLURAL = {}
+for _singular, _plural_word in _DOCTRINE_IRREGULAR:
+    _DOCTRINE_IRREGULAR_PLURAL[_singular] = _plural_word
+
+
+def doctrine_pluralize(word):
+    """doctrine/inflector 2.0's English ``Inflector::pluralize``: words
+    left uninflected, then irregular words (keeping an upper-case first
+    letter), then the first matching transformation."""
+    if word == "":
+        return ""
+    if _DOCTRINE_UNINFLECTED.search(word):
+        return word
+    lower = word.lower()
+    if lower in _DOCTRINE_IRREGULAR_PLURAL:
+        to = _DOCTRINE_IRREGULAR_PLURAL[lower]
+        return to[0].upper() + to[1:] if lower[0] != word[0] else to
+    for rule, replacement in _DOCTRINE_PLURAL_RULES:
+        if rule.search(word):
+            return rule.sub(replacement, word)
+    return word
+
+
+_LARAVEL_UNCOUNTABLE = ("recommended", "related")
+
+
+def _php_ucwords(text):
+    return re.sub(
+        r"(^|[ \t\r\n\f\v])([a-z])", lambda m: m.group(1) + m.group(2).upper(), text
+    )
+
+
+def laravel_plural(value):
+    """Laravel's ``Pluralizer::plural`` (count 2): Doctrine's plural with
+    the case of the original word."""
+    if value.lower() in _LARAVEL_UNCOUNTABLE or not re.search(
+        r"[A-Za-z0-9\u0080-\uffff]$", value
+    ):
+        return value
+    plural = doctrine_pluralize(value)
+    for function in (
+        str.lower,
+        str.upper,
+        lambda t: t[:1].upper() + t[1:],
+        _php_ucwords,
+    ):
+        if function(value) == value:
+            return function(plural)
+    return plural
+
+
+def laravel_table_name(class_name):
+    """Eloquent's default ``getTable()``: ``Str::snake(Str::pluralStudly(
+    class_basename))`` (``UserProfile`` is ``user_profiles``,
+    ``HTTPLog`` is ``h_t_t_p_logs``)."""
+    value = class_name.rpartition("\\")[2]
+    parts = re.split(r"(.)(?=[A-Z])", value)
+    plural = "".join(parts[:-1]) + laravel_plural(parts[-1])
+    if re.fullmatch(r"[a-z]+", plural):
+        return plural
+    plural = re.sub(r"\s+", "", _php_ucwords(plural))
+    return re.sub(r"(.)(?=[A-Z])", r"\1_", plural).lower()
+
+
+ELOQUENT_BASES = {
+    "Illuminate\\Database\\Eloquent\\Model",
+    "Illuminate\\Foundation\\Auth\\User",
+}
+ELOQUENT_PIVOTS = {
+    "Illuminate\\Database\\Eloquent\\Relations\\Pivot",
+    "Illuminate\\Database\\Eloquent\\Relations\\MorphPivot",
+}
+LARAVEL_SCHEMA = {"Illuminate\\Support\\Facades\\Schema", "Schema"}
+LARAVEL_DB = {"Illuminate\\Support\\Facades\\DB", "DB"}
+# Query builder methods: reading, and writing (anywhere in a chain).
+ELOQUENT_READS = {
+    "all", "find", "findOrFail", "findMany", "findOr", "first", "firstOrFail",
+    "firstWhere", "sole", "where", "whereIn", "whereNotIn", "whereKey",
+    "whereNull", "whereNotNull", "whereHas", "whereBetween", "orWhere", "query",
+    "get", "count", "exists", "doesntExist", "pluck", "value", "paginate",
+    "simplePaginate", "cursorPaginate", "cursor", "chunk", "chunkById", "each",
+    "lazy", "latest", "oldest", "orderBy", "orderByDesc", "with", "withCount",
+    "has", "select", "sum", "max", "min", "avg", "distinct", "groupBy", "limit",
+    "take", "skip", "firstOrNew", "join", "leftJoin",
+}  # fmt: skip
+ELOQUENT_WRITES = {
+    "create", "forceCreate", "insert", "insertGetId", "insertOrIgnore",
+    "upsert", "update", "updateOrInsert", "delete", "forceDelete", "destroy",
+    "truncate", "increment", "decrement", "incrementEach", "decrementEach",
+    "firstOrCreate", "updateOrCreate", "createMany", "restore",
+}  # fmt: skip
+ELOQUENT_READ_WRITES = {"firstOrCreate", "updateOrCreate", "updateOrInsert"}
+
+
+@dataclass(frozen=True)
+class PhpClass:
+    file: str
+    class_id: str | None
+    path: str  # fully qualified, without a leading backslash
+    superclass: str | None  # fully qualified
+    table: str | None  # protected $table = literal; PLACEHOLDER if not literal
+    abstract: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class PhpAccess:
+    file: str
+    caller_id: str | None
+    model: str | None  # fully qualified class, or None for DB::table
+    table: str | None  # DB::table's literal table
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+def _php_literal(node, content):
+    if node is None:
+        return None
+    if node.type in ("string", "encapsed_string"):
+        parts = []
+        for child in node.named_children:
+            if child.type == "string_content":
+                parts.append(_text(child, content))
+            else:
+                return None
+        return "".join(parts)
+    return None
+
+
+def _php_arguments(node):
+    arguments = node.child_by_field_name("arguments")
+    return [
+        a.named_children[0] if a.type == "argument" and a.named_children else a
+        for a in (arguments.named_children if arguments is not None else ())
+        if a.type != "comment"
+    ]
+
+
+def extract_php_eloquent(tree, content, file, definitions):
+    """(classes, accesses, tables) of one PHP file: classes with their
+    resolved superclass and ``$table``, static Eloquent calls
+    (``Model::where(...)``) and ``DB::table('t')`` chains, and the tables
+    ``Schema::create`` (or ``Schema::rename``'s target) makes."""
+    classes, accesses, tables = [], [], []
+    namespace, uses = "", {}
+
+    def resolve(written):
+        if written is None:
+            return None
+        if written.startswith("\\"):
+            return written[1:]
+        head, _, rest = written.partition("\\")
+        if head in uses:
+            return uses[head] + ("\\" + rest if rest else "")
+        if written in ("self", "static", "parent"):
+            return None
+        return f"{namespace}\\{written}" if namespace else written
+
+    def use_clauses(declaration):
+        prefix = ""
+        for child in declaration.named_children:
+            if child.type == "namespace_name":
+                prefix = _text(child, content) + "\\"
+            elif child.type == "namespace_use_clause":
+                add_clause(child, "")
+            elif child.type == "namespace_use_group":
+                for clause in child.named_children:
+                    if clause.type == "namespace_use_clause":
+                        add_clause(clause, prefix)
+
+    def add_clause(clause, prefix):
+        if any(c.type in ("function", "const") for c in clause.children):
+            return
+        alias = clause.child_by_field_name("alias")
+        target = next(
+            (c for c in clause.named_children if c.type in ("qualified_name", "name")),
+            None,
+        )
+        if target is None:
+            return
+        path = (prefix + _text(target, content)).lstrip("\\")
+        uses[
+            _text(alias, content) if alias is not None else path.rpartition("\\")[2]
+        ] = path
+
+    def chain_methods(call):
+        names, node = [], call
+        while node.parent is not None and node.parent.type == "member_call_expression":
+            if node.parent.child_by_field_name("object") != node:
+                break
+            node = node.parent
+            names.append(_text(node.child_by_field_name("name"), content))
+        return names
+
+    def access(call, model, table, method):
+        chain = [method, *chain_methods(call)]
+        writes = any(m in ELOQUENT_WRITES for m in chain)
+        reads = any(m in ELOQUENT_READS | ELOQUENT_READ_WRITES for m in chain) or (
+            not writes
+        )
+        accesses.append(
+            PhpAccess(
+                file,
+                _innermost(definitions, file, call),
+                model,
+                table,
+                reads,
+                writes,
+                call.start_point.row + 1,
+                call.start_point.column,
+            )
+        )
+
+    def walk(node):
+        nonlocal namespace
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                namespace = _text(name, content) if name is not None else ""
+                uses.clear()
+                body = child.child_by_field_name("body")
+                if body is not None:
+                    walk(body)
+                continue
+            if child.type == "namespace_use_declaration":
+                use_clauses(child)
+                continue
+            if child.type == "class_declaration":
+                name = child.child_by_field_name("name")
+                base = next(
+                    (c for c in child.named_children if c.type == "base_clause"), None
+                )
+                written = (
+                    _text(base.named_children[0], content)
+                    if base is not None and base.named_children
+                    else None
+                )
+                table = None
+                body = child.child_by_field_name("body")
+                for member in body.named_children if body is not None else ():
+                    if member.type != "property_declaration":
+                        continue
+                    if any(c.type == "static_modifier" for c in member.named_children):
+                        continue
+                    for element in member.named_children:
+                        if element.type != "property_element":
+                            continue
+                        variable = element.child_by_field_name("name")
+                        if variable is None or _text(variable, content) != "$table":
+                            continue
+                        values = [c for c in element.named_children if c != variable]
+                        table = (
+                            (_php_literal(values[-1], content) or PLACEHOLDER)
+                            if values
+                            else None
+                        )
+                path = (
+                    f"{namespace}\\{_text(name, content)}"
+                    if namespace
+                    else _text(name, content)
+                )
+                classes.append(
+                    PhpClass(
+                        file,
+                        _innermost(definitions, file, name),
+                        path,
+                        resolve(written),
+                        table,
+                        any(
+                            c.type == "abstract_modifier" for c in child.named_children
+                        ),
+                        name.start_point.row + 1,
+                        name.start_point.column,
+                    )
+                )
+            if child.type == "scoped_call_expression":
+                scope = resolve(_text(child.child_by_field_name("scope"), content))
+                method = _text(child.child_by_field_name("name"), content)
+                arguments = _php_arguments(child)
+                first = _php_literal(arguments[0], content) if arguments else None
+                if scope in LARAVEL_SCHEMA and method == "create" and first:
+                    tables.append((table_key(first), child.start_point.row + 1))
+                elif (
+                    scope in LARAVEL_SCHEMA
+                    and method == "rename"
+                    and len(arguments) > 1
+                ):
+                    target = _php_literal(arguments[1], content)
+                    if target:
+                        tables.append((table_key(target), child.start_point.row + 1))
+                elif scope in LARAVEL_DB and method == "table" and arguments:
+                    # DB::table('schema.users as u'): the table is users.
+                    name = re.split(r"\s+as\s+", first or "", flags=re.I)[0].strip()
+                    access(
+                        child,
+                        None,
+                        table_key(name.rpartition(".")[2]) if name else PLACEHOLDER,
+                        method,
+                    )
+                elif scope is not None and method in ELOQUENT_READS | ELOQUENT_WRITES:
+                    access(child, scope, None, method)
+            walk(child)
+
+    walk(tree.root_node)
+    return classes, accesses, tables
+
+
+def resolve_eloquent(classes):
+    """({class path: (table, how)}, unresolved paths) of the concrete
+    Eloquent models: classes whose superclass chain, through classes of the
+    repository, reaches Eloquent's Model or Authenticatable (or a pivot).
+    The table is the nearest ``$table`` up the chain ("explicit"), else the
+    default name of the class itself ("default"); a pivot without
+    ``$table`` (Laravel singularizes its name) and a ``$table`` that is not
+    a literal are unresolved."""
+    by_path = {}
+    for c in classes:
+        by_path.setdefault(c.path, []).append(c)
+    single = {p: cs[0] for p, cs in by_path.items() if len(cs) == 1}
+
+    def chain(path, seen=()):
+        c = single.get(path)
+        if c is None or path in seen or c.superclass is None:
+            return None
+        if c.superclass in ELOQUENT_BASES | ELOQUENT_PIVOTS:
+            return [c], c.superclass in ELOQUENT_PIVOTS
+        found = chain(c.superclass, (*seen, path))
+        return None if found is None else ([c, *found[0]], found[1])
+
+    tables, unresolved = {}, []
+    for path, c in sorted(single.items()):
+        found = chain(path)
+        if found is None or c.abstract:
+            continue
+        ancestors, pivot = found
+        written = next((a.table for a in ancestors if a.table is not None), None)
+        if written == PLACEHOLDER or (written is None and pivot):
+            unresolved.append(path)
+        elif written is not None:
+            tables[path] = (table_key(written.rpartition(".")[2]), "explicit")
+        else:
+            tables[path] = (laravel_table_name(path), "default")
+    return tables, unresolved

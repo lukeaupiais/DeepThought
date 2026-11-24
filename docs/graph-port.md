@@ -2025,7 +2025,7 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --language python --language typescript --language go --language ruby --snapshot
+tree-sitter --tool data-contracts --language java --language python --language typescript --language go --language ruby --language php --snapshot
 REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
@@ -2056,6 +2056,11 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
+| File -[:DECLARES]-> DbTable | `data-contracts.laravel-migration-table` | resolved | `Schema::create('name', ...)` or the target of `Schema::rename(..., 'name')` (`Illuminate\Support\Facades\Schema`) with a fixed string, in PHP outside `test/`, `tests/` and `spec/` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-table-name` | pattern_matched | an Eloquent model (a class whose `extends` chain, resolved through `namespace` and `use` statements, reaches `Illuminate\Database\Eloquent\Model` or `Illuminate\Foundation\Auth\User`) with a fixed `protected $table`, its own or the nearest ancestor's in the repository |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-default-table-name` | name_matched | an Eloquent model without `$table`: Laravel's `Str::snake(Str::pluralStudly(class_basename))`, the last word pluralized by doctrine/inflector 2.0's English rules (`PlaylistFolder` is `playlist_folders`, `Person` is `people`); a `Pivot` without `$table` is left unresolved, because Laravel names it from the relation |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.eloquent-call` | pattern_matched | a static call `Model::method(...)` on an Eloquent model, reading (`find`, `where`, `all`, `first`, `count`, ...) or writing (`create`, `insert`, `upsert`, `destroy`, `updateOrCreate`, ...); a reading start whose chain reaches `update`, `delete`, `increment`, ... also WRITES |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.laravel-db-table` | pattern_matched | `DB::table('name')` (`Illuminate\Support\Facades\DB`) with a fixed string, its alias (`as x`) and schema dropped, READS, and WRITES when the chain reaches a writing method |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2091,8 +2096,8 @@ arguments, comments and string literals are skipped, and a name holding text
 the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
-Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
-`spec/`) are skipped.
+Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
+`tests/` and `spec/`) are skipped.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2237,6 +2242,18 @@ struct field) and `query := db.Model(...)`, whose chain continues in
 another statement. Four grep lines are calls the tool reports at the line
 where their chain starts, and it also links one chain that `grep` misses
 because it spans lines.
+
+On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
+they map is one its migrations create. One `Pivot` without `$table` is left
+unresolved, and classes extending vendor bases other than Eloquent's are not
+models. It links 317 static calls; the 375 static calls it does not link are
+on facades and helpers (`Arr`, `Route`, `Cache`, ...). A single-line `grep`
+for `Model::` calls on the mapped classes finds 313 lines, and the tool links
+all of them, plus 2 calls through an aliased `use ... as Episode`. The
+default-name port gives doctrine/inflector 2.0.10's own plural for all 351
+English words of its `EnglishFunctionalTest` samples. Raw SQL in
+`DB::select` and `DB::statement`, query builders held in variables and
+relations are not read yet.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
