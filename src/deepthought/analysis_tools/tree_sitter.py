@@ -10,6 +10,7 @@ output or claim additional languages.
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
+import posixpath
 import time
 from copy import deepcopy
 
@@ -19,7 +20,7 @@ from .. import imports as import_rules
 from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
-from .. import scip_calls
+from .. import go_callgraph, scip_calls
 from ..scip_calls import bind_calls
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -587,6 +588,16 @@ GO_INTERFACE_RULE = register_rule(
         "interface, and each interface method DISPATCHES_TO the type's method.",
     )
 )
+GO_CALL_VTA_RULE = register_rule(
+    EvidenceRule(
+        go_callgraph.GO_CALL_VTA,
+        "resolved",
+        "A Go call through an interface method or a function value links to "
+        "each function or method that the pinned golang.org/x/tools call "
+        "graph (variable type analysis over the module's SSA form, tests "
+        "included) says may be called there.",
+    )
+)
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_IMPL_TRAIT,
@@ -624,6 +635,26 @@ CALL_RULES.update(
         }.items()
     }
 )
+
+
+def _go_dynamic_calls(result, root):
+    """{"targets": {call site id: declaration ids}, "failures": {module
+    directory: error}} from the pinned Go call graph tool, for the Go
+    modules of the analyzed files; none without Go modules. The tool is
+    required where there are any."""
+    modules = sorted(
+        posixpath.dirname(p.file)
+        for p in result.packages
+        if p.kind == "module" and p.file.endswith("go.mod")
+    )
+    if not modules:
+        return {"targets": {}, "failures": {}}
+    binary = go_callgraph.locate_go_callgraph()
+    calls, failures = go_callgraph.dynamic_calls(root, modules, binary)
+    return {
+        "targets": go_callgraph.bind_dynamic_calls(result, calls),
+        "failures": failures,
+    }
 
 
 def _call_name(callee):
@@ -1096,6 +1127,35 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(GO_INTERFACE_RULE),
                 )
             )
+        go_dynamic = _go_dynamic_calls(result, self.repo_path)
+        for site_id, targets in go_dynamic["targets"].items():
+            site = sites[site_id]
+            source = (
+                (["File"], files[site.file])
+                if site.caller_id is None
+                else ([kinds[site.caller_id], "Symbol"], qualified[site.caller_id])
+            )
+            for target in targets:
+                relationships.append(
+                    RelationshipData(
+                        "CALLS",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        [kinds[target], "Symbol"],
+                        {"qualified_name": qualified[target], "repo_url": repo_url},
+                        {
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "line": site.line,
+                            "column": site.column,
+                            "dispatch": "vta",
+                            "producer": go_callgraph.GO_CALLGRAPH_TOOL,
+                            **_evidence(GO_CALL_VTA_RULE),
+                        },
+                    )
+                )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -1110,9 +1170,13 @@ class TreeSitterTool(AnalysisTool):
             errors=[d["message"] for d in diagnostics]
             if result.status == "failed"
             else [],
-            warnings=[d["message"] for d in diagnostics]
-            if result.status != "failed"
-            else [],
+            warnings=(
+                [d["message"] for d in diagnostics] if result.status != "failed" else []
+            )
+            + [
+                f"go call graph: module {directory or '.'} not loaded: {error}"
+                for directory, error in sorted(go_dynamic["failures"].items())
+            ],
             custom_metrics={
                 "analysis_status": result.status,
                 "model_tokens": 0,
@@ -1133,6 +1197,11 @@ class TreeSitterTool(AnalysisTool):
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
                 "go_implementations": len(implementations),
+                "go_dynamic_calls": {
+                    "sites": len(go_dynamic["targets"]),
+                    "edges": sum(len(t) for t in go_dynamic["targets"].values()),
+                    "failed_modules": go_dynamic["failures"],
+                },
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,
