@@ -4663,12 +4663,18 @@ def _php_assignments(variable, content):
     ]
 
 
-def _php_sql_text(node, content, depth=0):
+def _php_sql_text(node, content, depth=0, classes=None):
     """The text of a PHP string expression: literals, heredocs and nowdocs,
     ``.`` joins, ``sprintf`` templates and local variables built from them;
     what the code does not fix becomes PLACEHOLDER. None when the
-    expression is not text."""
+    expression is not text. ``classes(written)``, when given, resolves the
+    class an ``X::class`` part names, for DQL."""
     if node is None or depth > 4:
+        return None
+    if node.type == "class_constant_access_expression" and classes is not None:
+        parts = node.named_children
+        if len(parts) == 2 and _text(parts[1], content) == "class":
+            return classes(_text(parts[0], content))
         return None
     if node.type in ("string", "encapsed_string", "heredoc", "nowdoc"):
         parts = []
@@ -4688,13 +4694,13 @@ def _php_sql_text(node, content, depth=0):
                 parts.append(PLACEHOLDER)
         return "".join(parts)
     if node.type == "parenthesized_expression" and node.named_children:
-        return _php_sql_text(node.named_children[0], content, depth)
+        return _php_sql_text(node.named_children[0], content, depth, classes)
     if node.type == "binary_expression":
         operator = node.child_by_field_name("operator")
         if operator is None or _text(operator, content) != ".":
             return None
         sides = [
-            _php_sql_text(node.child_by_field_name(side), content, depth)
+            _php_sql_text(node.child_by_field_name(side), content, depth, classes)
             for side in ("left", "right")
         ]
         return "".join(PLACEHOLDER if p is None else p for p in sides)
@@ -4702,7 +4708,7 @@ def _php_sql_text(node, content, depth=0):
         name = _text(node.child_by_field_name("function"), content).lstrip("\\")
         arguments = _php_arguments(node)
         if name.lower() == "sprintf" and arguments:
-            template = _php_sql_text(arguments[0], content, depth)
+            template = _php_sql_text(arguments[0], content, depth, classes)
             if template is not None:
                 return re.sub(
                     r"%(?:\d+\$)?[-+ 0]*(?:'.)?\d*(?:\.\d+)?[bcdeEfFgGosuxX]",
@@ -4713,7 +4719,7 @@ def _php_sql_text(node, content, depth=0):
     if node.type == "variable_name":
         texts = []
         for values in _php_assignments(node, content) or ():
-            parts = [_php_sql_text(v, content, depth + 1) for v in values]
+            parts = [_php_sql_text(v, content, depth + 1, classes) for v in values]
             if parts[0] is None:
                 return None
             texts.append("".join(PLACEHOLDER if p is None else p for p in parts))
@@ -6364,6 +6370,7 @@ class DoctrineUse:
     line: int
     column: int
     finder: str | None = None
+    how: str = "call"  # "call", or "dql" when ``entity`` is as DQL writes it
 
 
 def _doc_annotations(text):
@@ -6751,7 +6758,7 @@ def extract_php_doctrine(tree, content, file, definitions):
                 return properties.get(_text(node.child_by_field_name("name"), content))
         return None
 
-    def use(call, entity, repository, reads, writes, finder=None):
+    def use(call, entity, repository, reads, writes, finder=None, how="call"):
         where = call.child_by_field_name("name") or call
         uses.append(
             DoctrineUse(
@@ -6764,6 +6771,7 @@ def extract_php_doctrine(tree, content, file, definitions):
                 where.start_point.row + 1,
                 where.start_point.column,
                 finder,
+                how,
             )
         )
 
@@ -6784,6 +6792,20 @@ def extract_php_doctrine(tree, content, file, definitions):
             arguments = _php_arguments(call)
             if name in ("setPrimaryTable", "setTableName"):
                 renames = True
+            elif name in ("createQuery", "setDQL") and len(arguments) == 1:
+                text = _php_sql_text(arguments[0], content, classes=resolve)
+                if text is not None:
+                    reads, writes = dql_entities(text)
+                    for entity in sorted(set(reads) | set(writes)):
+                        use(
+                            call,
+                            entity,
+                            None,
+                            entity in reads,
+                            entity in writes,
+                            None,
+                            "dql",
+                        )
             elif name == "getRepository" and arguments:
                 entity = class_of(arguments[0])
                 following = chain(call)
@@ -7009,3 +7031,33 @@ def resolve_doctrine(classes, strategies, renames=False):
         else:
             tables[path] = (c, table_key(found[0]), found[1])
     return tables, unresolved, repositories
+
+
+def dql_entities(text):
+    """(reads, writes) of a DQL statement: the entity names (fully
+    qualified, or ``Bundle:Entity`` aliases) its FROM, JOIN, UPDATE and
+    DELETE clauses name. Association paths (``JOIN p.tags t``) are not
+    entities, and names holding text the code does not fix are dropped."""
+    text = re.sub(r"'(?:[^']|'')*'", "''", text)
+    reads, writes = [], []
+    for statement in text.split(" ;\n"):
+        verb = (re.match(r"\s*(\w+)", statement) or [None, ""])[1].upper()
+        refs = re.finditer(
+            r"\b(FROM|JOIN|UPDATE|DELETE)\s+(?!FROM\b)"
+            r"([A-Za-z_\\][\w\\]*(?::[\w\\]+)?[^\s,()]*)",
+            statement,
+            re.I,
+        )
+        for match in refs:
+            keyword, name = match.group(1).upper(), match.group(2)
+            if "." in name or PLACEHOLDER in name:
+                continue
+            name = name.lstrip("\\")
+            written = (verb == "UPDATE" and keyword == "UPDATE") or (
+                verb == "DELETE"
+                and keyword in ("DELETE", "FROM")
+                and not reads
+                and not writes
+            )
+            (writes if written else reads).append(name)
+    return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes))

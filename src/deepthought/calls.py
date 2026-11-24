@@ -27,6 +27,7 @@ CALL_PRIVATE_NAME = "tree-sitter.js-call-private-name"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
 GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
+CALL_JS_REEXPORT = "tree-sitter.js-call-reexport"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -83,6 +84,9 @@ class NameBindings:
     # (file, local) -> [(imported name, target files)], for imports outside
     # any function or class body: the module's own attributes.
     module_level: dict = field(default_factory=dict)
+    # JavaScript/TypeScript file -> [(exported name, name, target files)],
+    # one per name an ``export ... from`` re-exports.
+    reexports: dict = field(default_factory=dict)
 
     def top_level(self, files, name, kinds):
         return [
@@ -132,8 +136,14 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
     names = defaultdict(list)
     modules = defaultdict(list)
     module_level = defaultdict(list)
+    reexports = defaultdict(list)
     for item in result.imports:
         targets = module_files.get(item.id, ())
+        if item.exported_names is not None:
+            reexports[item.file].extend(
+                (exported, name, targets)
+                for name, exported in zip(item.names, item.exported_names)
+            )
         local_names = item.local_names
         if not local_names and not item.names and targets:
             # A Go import without an alias binds the package's declared name.
@@ -158,7 +168,7 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
                     for start, end in bodies[item.file]
                 ):
                     module_level[(item.file, local)].append((name, targets))
-    return NameBindings(by_symbol, names, modules, module_level)
+    return NameBindings(by_symbol, names, modules, module_level, reexports)
 
 
 def package_peers(result: AnalysisResult) -> dict:
@@ -1217,16 +1227,52 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         else None
     )
 
+    def js_exported(module, name, seen):
+        """Declarations a JavaScript or TypeScript module exports as
+        ``name`` without declaring it: through ``export { name } from``
+        (aliases applied), or else every ``export * from``, which never
+        gives ``default``. A name that several star exports give is
+        ambiguous, as in the language. An imported name exported by a
+        separate ``export { name }`` is not followed."""
+        if (module, name) in seen:
+            return []
+        seen = seen | {(module, name)}
+        declared = top_level((module,), name, _CALLABLE)
+        if declared:
+            return declared
+        forwards = bindings.reexports.get(module, ())
+        named = [(n, t) for e, n, t in forwards if e == name]
+        if named:
+            if len(named) != 1 or named[0][0] in (None, "*"):
+                return []
+            original, targets = named[0]
+            return js_exported(targets[0], original, seen) if len(targets) == 1 else []
+        found = {}
+        for exported, original, targets in forwards if name != "default" else ():
+            if (exported, original) == ("*", "*") and len(targets) == 1:
+                for d in js_exported(targets[0], name, seen):
+                    found[d.id] = d
+        return list(found.values())
+
     def exported(files, name, rule, reason):
         """The resolution of ``name`` as an attribute of the modules in
         ``files``: declared there at top level, or else (Python only) bound
-        there by a ``from M import name`` that is followed to M."""
+        there by a ``from M import name`` that is followed to M, or
+        (JavaScript and TypeScript) re-exported (``js_exported``)."""
         rule_used, seen = rule, set()
         while True:
             declared = top_level(files, name, _CALLABLE)
             if declared or len(files) != 1:
                 return _pick(site.id, declared, rule_used, reason)
             (module,) = files
+            if languages.get(module) in {"javascript", "typescript"}:
+                forwarded = js_exported(module, name, frozenset())
+                return _pick(
+                    site.id,
+                    forwarded,
+                    CALL_JS_REEXPORT if forwarded else rule_used,
+                    reason,
+                )
             bound = bindings.module_level.get((module, name), [])
             if (
                 languages.get(module) != "python"
