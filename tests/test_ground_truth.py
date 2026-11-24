@@ -421,6 +421,57 @@ class DeclarationRegressionTests(unittest.TestCase):
             )
 
 
+class SummaryTests(unittest.TestCase):
+    def test_changed_scores_show_their_difference(self):
+        base = {
+            "a": {
+                "confirmed": 10,
+                "contradicted": 0,
+                "recall": 0.5,
+                "impact": {"confirmed": 4, "extra": 1, "recall": 0.2, "precision": 0.8},
+            },
+            "declarations": {"d": {"found": 5, "kind_mismatch": 1, "extra": 0}},
+        }
+        reports = {
+            "a": {
+                "confirmed": 12,
+                "contradicted": 0,
+                "recall": 0.6,
+                "impact": {
+                    "confirmed": 6,
+                    "extra": 1,
+                    "recall": 0.3,
+                    "precision": 0.8571,
+                },
+                "regressions": [],
+            },
+            "d": {
+                "declarations": {"found": 5, "kind_mismatch": 2, "extra": 0},
+                "regressions": ["kind_mismatch 1 -> 2"],
+            },
+        }
+        text = ground_truth.summary(reports, base)
+        self.assertIn(
+            "| a | calls | confirmed 12 (**+2**), contradicted 0, recall 0.6 (**+0.1**) |",
+            text,
+        )
+        self.assertIn("| a | impact | confirmed 6 (**+2**), extra 1,", text)
+        self.assertIn("| d | **regressions** | kind_mismatch 1 -> 2 |", text)
+
+    def test_route_corpora_show_each_kind(self):
+        base = {"routes": {"r": {"http": {"expected": 3, "found": 2, "extra": 0}}}}
+        reports = {
+            "r": {
+                "routes": {"http": {"expected": 3, "found": 3, "extra": 0}},
+                "regressions": [],
+            }
+        }
+        self.assertIn(
+            "| r | routes (http) | found 3 (**+1**), extra 0, expected 3 |",
+            ground_truth.summary(reports, base),
+        )
+
+
 class OverloadTargetTests(unittest.TestCase):
     """Every declaration of an @overload group is a target of its calls."""
 

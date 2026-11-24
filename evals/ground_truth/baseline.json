@@ -61,50 +61,50 @@
     "unresolved_unjudged": 363
   },
   "click": {
-    "ambiguous_includes": 483,
+    "ambiguous_includes": 5,
     "ambiguous_no_candidates": 14,
     "ambiguous_unjudged": 29,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 379
+        "confirmed": 387
       },
       "tree-sitter.call-lexical-name": {
-        "confirmed": 386
+        "confirmed": 392
       },
       "tree-sitter.call-module-attribute": {
         "confirmed": 3
       },
       "tree-sitter.call-self-method": {
-        "confirmed": 159
+        "confirmed": 162
       },
       "tree-sitter.python-call-reexport": {
-        "confirmed": 1261
+        "confirmed": 1722
       }
     },
-    "confirmed": 2188,
+    "confirmed": 2666,
     "contradicted": 0,
     "expected": 3313,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 60,
+          "confirmed": 104,
           "expected": 351
         },
         "2": {
-          "confirmed": 42,
+          "confirmed": 380,
           "expected": 505
         },
         "3": {
-          "confirmed": 21,
+          "confirmed": 51,
           "expected": 295
         }
       },
-      "confirmed": 123,
+      "confirmed": 535,
       "expected": 1151,
       "extra": 0,
-      "missed": 1028,
+      "missed": 616,
       "precision": 1.0,
-      "recall": 0.1069,
+      "recall": 0.4648,
       "seeds": 144,
       "seeds_undeclared": 0
     },
@@ -127,17 +127,17 @@
       "unjudged": 9,
       "unresolved": 95
     },
-    "missed": 1141,
+    "missed": 663,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 14,
-      "ambiguous:multiple_declarations": 483,
+      "ambiguous:multiple_declarations": 5,
       "no_call_site": 67,
       "unresolved:attribute_call": 225,
       "unresolved:local_binding": 316,
       "unresolved:not_declared_in_class": 36
     },
     "precision": 1.0,
-    "recall": 0.6556,
+    "recall": 0.7999,
     "unresolved_expected": 577,
     "unresolved_unjudged": 3556
   },

@@ -211,6 +211,13 @@ RESOLVER_MAP_SERVERS = frozenset(
         "mercurius",
     }
 )
+# Node packages that serve GraphQL: a package depending on one is a server.
+SERVERS = RESOLVER_MAP_SERVERS | {
+    "@nestjs/graphql",
+    "apollo-server-micro",
+    "express-graphql",
+    "graphql-http",
+}
 _FUNCTIONS = ("arrow_function", "function_expression", "function")
 
 

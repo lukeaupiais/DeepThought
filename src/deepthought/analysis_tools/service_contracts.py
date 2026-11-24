@@ -14,6 +14,7 @@ from pathlib import PurePosixPath
 import json
 import posixpath
 import importlib.util
+import itertools
 import re
 import time
 
@@ -25,6 +26,7 @@ from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.graphql import (
     CLIENTS as GRAPHQL_CLIENTS,
+    SERVERS as GRAPHQL_SERVERS,
     GraphqlDeclaration,
     RESOLVER_MAP_SERVERS,
     client_operations,
@@ -650,6 +652,7 @@ class ServiceContractTool(AnalysisTool):
         graphql_requests = []
         graphql_documents = {}
         client_packages = {}
+        server_packages = {}
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -1154,22 +1157,60 @@ class ServiceContractTool(AnalysisTool):
                         },
                     )
                 )
-        # Each root field a client selects, to the one server that resolves
-        # it (or else declares it).
-        resolving_scopes, declaring_servers = {}, {}
+        # Each root field a client selects, to a server of the group nearest
+        # the client: the server packages whose common directory with the
+        # client's package is deepest. In that group, the one server that
+        # resolves the field, or else the one that declares it.
         server_scopes = {
             scope
             for (scope, _, _), (_, resolving) in graphql_fields.items()
             if resolving
         } | opaque_scopes
+        for coverage, _, _ in sources:
+            if coverage.language not in ("javascript", "typescript"):
+                continue
+            package = _node_package(root, coverage.file)
+            if package not in server_packages:
+                server_packages[package] = bool(
+                    _package_dependencies(root, package) & GRAPHQL_SERVERS
+                )
+            if server_packages[package]:
+                server_scopes.add(package or ".")
+        resolving_scopes, declaring_scopes_by_field = {}, {}
         for (scope, operation, field), (declared, resolving) in graphql_fields.items():
             if resolving:
-                resolving_scopes.setdefault((operation, field), []).append(scope)
-            elif declared and scope in server_scopes:
-                declaring_servers.setdefault((operation, field), []).append(scope)
+                resolving_scopes.setdefault((operation, field), set()).add(scope)
+            elif declared:
+                declaring_scopes_by_field.setdefault((operation, field), set()).add(
+                    scope
+                )
+
+        def nearest(package):
+            parts = PurePosixPath(package or ".").parts
+            depth = {
+                scope: len(
+                    list(
+                        itertools.takewhile(
+                            lambda pair: pair[0] == pair[1],
+                            zip(parts, PurePosixPath(scope).parts),
+                        )
+                    )
+                )
+                for scope in server_scopes
+            }
+            deepest = max(depth.values(), default=0)
+            return {scope for scope, d in depth.items() if d == deepest}
+
+        groups = {}
         for request in graphql_requests:
+            package = _node_package(root, request.file)
+            if package not in groups:
+                groups[package] = nearest(package)
+            group = groups[package]
             key = (request.operation, request.field)
-            scopes = resolving_scopes.get(key) or declaring_servers.get(key) or []
+            scopes = sorted(resolving_scopes.get(key, set()) & group) or sorted(
+                declaring_scopes_by_field.get(key, set()) & group
+            )
             if len(scopes) != 1:
                 reason = "client_field_ambiguous" if scopes else "client_field_unknown"
                 graphql_unread[reason] = graphql_unread.get(reason, 0) + 1

@@ -156,7 +156,11 @@ arbitrary object gets no edge.
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
 A name bound both by an import and a local declaration, or declared more than
-once, is ambiguous and gets no edge. CALLS edges start at the calling
+once, is ambiguous and gets no edge. Python `typing.overload` signatures
+(`@overload`, `@typing.overload`, `@t.overload`, `@typing_extensions.overload`)
+are recorded with `overload: true` and declare call forms only: when the
+candidates are such signatures and one other declaration, the call links to
+that declaration, the function that runs. CALLS edges start at the calling
 declaration, or at the File for module-level calls, and carry the call ID,
 callee text, line and column. Tool metadata counts call resolutions by status
 and reason. The `calls` capability is not advertised, so an empty callers or
@@ -798,6 +802,7 @@ line); a `new` binds the class it creates.
 | google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
 | apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
 | google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
+| junit-team/junit5 | 18,630 / 19,306 | 8 | 668 | 9,343 | 6,233 |
 
 Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
 36,756) and methods inherited from library types (`unbound_name`). Most of guava's
@@ -811,9 +816,13 @@ to the statically imported `LangAssertions` methods of the same name. The 37
 contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
 mostly overloads with the same arity elsewhere in the hierarchy that fit the
 argument types better (`putBytes`, `hashBytes`, `append`), which a count of
-arguments cannot tell apart. junit5 is not reported: javac
-stops attributing most of its roots without their libraries, leaving
-nothing to compare.
+arguments cannot tell apart. junit5's 8 contradictions are the same case
+(`ReflectionUtils.getFullyQualifiedMethodName`), and javac binds none for 657
+of its links for the same reason as in commons-lang: the statically imported
+`PreconditionAssertions` methods take lambdas typed by libraries that are
+not on javac's class path. junit5 indents with tabs; the oracle counts a tab
+as one column, as the analysis does, rather than expanding it to the next
+tab stop as javac's `LineMap.getColumnNumber` would.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -829,9 +838,12 @@ type lookup as calls, and links with `tree-sitter.java-base-type`
 | google/gson | 210 / 210 | 0 | 0 | 0 | 61 |
 | apache/commons-lang | 588 / 588 | 0 | 0 | 0 | 159 |
 | google/guava | 3,336 / 3,336 | 0 | 594 | 0 | 2,301 |
+| junit-team/junit5 | 1,370 / 1,370 | 0 | 0 | 1 | 158 |
 
 Guava's 594 ambiguous bases are test roots extending a type both
-`guava/src` and `android/guava/src` declare.
+`guava/src` and `android/guava/src` declare. junit5's one missed base is in a
+default-package file (`DefaultPackageTest extends VintageTest`, imported from
+`com.example.vintage`); why its import is not followed is not yet explained.
 
 ## Rust
 
@@ -1823,9 +1835,13 @@ they select. An alias requests its field, and `__typename` and fields marked
 requested field links by `REQUESTS` (rule
 `service-contracts.graphql-client-operation`, pattern_matched; properties
 `request`, `operation_name`, `line`, `column`) from the declaration that
-holds the operation, or its file, to the field of the one server in the
-repository that resolves it. When no server resolves it, the edge goes to
-the one server package that declares it. A `.graphql` document with
+holds the operation, or its file, to a field of the servers nearest the
+client. Those are the server packages (packages that depend on a GraphQL
+server library, or that resolve fields) whose common directory with the
+client's package is deepest. A client in `start/client` thus belongs to
+`start/server` and not to `final/server`, while a top-level `client/` sees
+every server. Among them, the edge goes to the one that resolves the
+field, or else to the one that declares it. A `.graphql` document with
 requests gets a `File` node (language `graphql`) that the repository
 `CONTAINS` (rule `service-contracts.repository-contains-graphql`).
 
@@ -1849,14 +1865,14 @@ Counted as unread:
   that has schema files;
 - `graphql:client_fragment_root`: a fragment spread or inline fragment among
   an operation's root fields;
-- `graphql:client_field_unknown`: a requested field that no server of the
-  repository resolves or declares (an outside API, or drift);
-- `graphql:client_field_ambiguous`: a requested field that several servers
+- `graphql:client_field_unknown`: a requested field that none of the
+  client's nearest servers resolves or declares (an outside API, or drift);
+- `graphql:client_field_ambiguous`: a requested field that several of them
   resolve.
 
 Field resolvers of object types, and fragments at the root of an
-operation, are not read yet. Clients link by field name across the
-repository, not by the server URL they are configured with.
+operation, are not read yet. Clients link by field name among their
+nearest servers, not by the server URL they are configured with.
 
 On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
 GraphQL servers, 23 of them also declared in schema files. The two
@@ -1893,9 +1909,12 @@ schemas declare and the resolver files read by hand:
 
 Clients were checked the same way. On `fullstack-tutorial` the two client
 packages hold 10 operations. Two are `@client`-only and request nothing.
-The other 8 are read and each links to the server field it names. One of
-these is the starter client's `GetLaunch`: it links to the finished server,
-the only one in the repository that resolves `launch`. On `spectrum` the
+The other 8 are read. The 7 in the finished client each link to the server
+field they name. The starter client's `GetLaunch` is
+`graphql:client_field_unknown`: its nearest server, the starter's own, does
+not declare `launch` yet. On `apollographql/spotify-showcase` (commit
+`5a9afc5`) all 46 client root fields link to the right one of its two
+subgraphs. On `spectrum` the
 four client operations in files the grammar parses fully are read. Three
 link to their mutations, and `subscribeWebPush` is
 `graphql:client_field_unknown`: the server no longer declares it.

@@ -3,8 +3,9 @@
 // Parses, enters and attributes the .java files of one source root with the
 // given source path (nothing is written), then prints one JSON line per method
 // invocation and `new` expression: the file, the start line and UTF-16 column
-// of the expression, and, when javac bound it to a declaration in a source
-// file, that file, the declaration's lexically qualified name and start line.
+// of the expression (counted from the line start, so a tab is one column,
+// unlike LineMap.getColumnNumber, which expands tabs), and, when javac bound
+// it to a declaration in a source file, that file, the declaration's lexically qualified name and start line.
 // A `new` expression is reported by the class it creates. Each extends or
 // implements entry of a class, interface, enum or record is reported too,
 // marked "base", by the type it names. Attribution errors
@@ -128,7 +129,7 @@ public class JavaCallOracle {
                         bound = null;
                     }
                     System.out.println("{\"file\":" + quote(file) + ",\"line\":" + lines.getLineNumber(start)
-                        + ",\"column\":" + (lines.getColumnNumber(start) - 1) + marker
+                        + ",\"column\":" + (start - lines.getStartPosition(lines.getLineNumber(start))) + marker
                         + (bound == null ? "" : "," + bound) + "}");
                 }
 
