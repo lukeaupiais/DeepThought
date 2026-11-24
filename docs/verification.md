@@ -639,9 +639,14 @@ tests with tree-sitter and lists each literal table a Knex call names:
 handle, the `join` family (always READS), `batchInsert` (WRITES), and
 `schema.createTable` / `createTableIfNotExists` (DECLARES). A handle is a
 name or property `knex`, `trx`, `transaction`, `connection`, `db` or
-`transacting` (`#` and `_` prefixes aside), or a name the file declares with
-the type `Knex` or `Knex.Transaction`; every file's use of those names was
-checked by hand. Access follows Knex's execution model: one query per
+`transacting` (`#` and `_` prefixes aside), a name the file declares with
+the type `Knex` or `Knex.Transaction`, or the parameter of a callback passed
+to a handle's `transaction(...)`; every file's use of those names was checked
+by hand. The parameter of a callback passed to a builder method
+(`.whereIn('id', (q) => q.from('t'))`, `.union(...)`, `.whereExists(...)`)
+and a name typed `Knex.QueryBuilder` are builders. A table may be a string
+literal or a top-level `const` string, the file's own or imported by name
+from a relative module. Access follows Knex's execution model: one query per
 execution, which writes the table when its chain calls `insert`, `update`,
 `del`, `delete`, `increment`, `decrement`, `truncate`, `upsert` or `merge`
 and reads it otherwise; a builder held in a variable takes the union over the
@@ -654,13 +659,17 @@ that line name exactly the labelled (table, access) pairs.
 
 | Corpus | Commit | Lines | Found | Wrong | Missed | Extra |
 |---|---|---|---|---|---|---|
-| Ghost | 7ada5b0 | 800 | 0 | 0 | 800 | 0 |
+| Ghost | 7ada5b0 | 873 | 642 | 0 | 231 | 0 |
+| Backstage | b3ed969 | 399 | 328 | 1 | 70 | 0 |
 
 The labels were made without reading the engine's Knex reader. Ghost reaches
 Knex through migration callbacks whose untyped parameter is named
 `connection` or `transaction`, through `options.transacting`, and through
 its data seeders' `this.transaction` field, as well as through `knex`
-itself.
+itself. Backstage hands its transactions to callbacks named `tx` and keeps most
+table names in constants, some imported from a sibling `tables.ts`. A
+schema-qualified table keeps its schema in the label
+(`information_schema.statistics`).
 
 ## Metamorphic checks
 

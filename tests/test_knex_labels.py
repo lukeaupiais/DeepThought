@@ -35,6 +35,15 @@ class Repo {
     return this.executor('settings').first();
   }
 }
+
+import { TAGS } from './tables';
+const POSTS = 'posts';
+export async function down(knex) {
+  await knex.transaction(async (tx) => {
+    await tx(POSTS).whereIn('id', (q) => q.select('post_id').from(TAGS)).del();
+  });
+}
+const recent = (q: Knex.QueryBuilder) => q.from('members').select('id');
 """
 
 
@@ -43,6 +52,7 @@ class KnexLabelsTest(unittest.TestCase):
         self.repo = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.repo)
         (self.repo / "m.ts").write_text(SOURCE, "utf-8")
+        (self.repo / "tables.ts").write_text("export const TAGS = 'tags';\n", "utf-8")
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
 
     def sites(self):
@@ -72,6 +82,12 @@ class KnexLabelsTest(unittest.TestCase):
                 (14, "members", ("READS", "WRITES")),
                 # A parameter property typed Knex is a handle.
                 (24, "settings", ("READS",)),
+                # The transaction a callback gets is a handle; a table may be
+                # a constant, imported or not; a subquery callback reads.
+                (32, "posts", ("WRITES",)),
+                (32, "tags", ("READS",)),
+                # A builder typed Knex.QueryBuilder.
+                (35, "members", ("READS",)),
             },
         )
         self.assertEqual(ignored, {(6, "tags")})
