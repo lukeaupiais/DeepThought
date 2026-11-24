@@ -1062,6 +1062,67 @@ func Get(c Cache) { c.Get("SELECT * FROM nothing") }
 }
 
 
+SCRIPT_SQL = {
+    "result/package.json": "{}",
+    "result/server.js": """const { Pool } = require('pg');
+const pool = new Pool({ connectionString: 'postgres://postgres@db/postgres' });
+
+function getVotes(client) {
+  client.query('SELECT vote, COUNT(id) AS count FROM votes GROUP BY vote', [], () => {});
+}
+
+async function record(id, vote) {
+  await pool.query({ text: 'INSERT INTO votes (id, vote) VALUES ($1, $2)', values: [id, vote] });
+  await pool.query(`UPDATE votes SET vote = $1 WHERE id = ${id}`);
+  await pool.query('DELETE FROM ' + 'audit' + ' WHERE id = $1', [id]);
+}
+
+function dynamic(table) {
+  return pool.query(`SELECT * FROM ${table}`);
+}
+
+function notSql(cache) {
+  return cache.get('select the cached value');
+}
+""",
+    "other/package.json": "{}",
+    "other/map.js": """// No SQL driver: a query method here is not read.
+export const run = (db) => db.query('SELECT * FROM votes');
+""",
+}
+
+
+@unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
+class ScriptSqlTests(unittest.TestCase):
+    def test_query_calls_in_files_importing_a_driver(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SCRIPT_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["javascript"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        rule = "data-contracts.script-sql"
+        self.assertEqual(
+            rows,
+            [
+                ("READS", "getVotes", "votes", rule),
+                ("WRITES", "record", "audit", rule),
+                ("WRITES", "record", "votes", rule),
+                ("WRITES", "record", "votes", rule),
+            ],
+        )
+        self.assertEqual(output.metadata.custom_metrics["sql_text"]["not_fixed"], 1)
+
+
 @unittest.skipUnless(GO, "Install the go grammar")
 class GoSqlTests(unittest.TestCase):
     def test_sql_text_and_gorm_table_names(self):

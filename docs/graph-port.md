@@ -2954,6 +2954,7 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.script-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `query`, `execute`, `raw`, `prepare`, `exec`, `run`, `all`, `get`, `each` or a pg-promise query method, in a JavaScript or TypeScript file importing a Node SQL driver (`pg`, `mysql`, `mysql2`, `mariadb`, `sqlite3`, `better-sqlite3`, `mssql`, `oracledb`, `@libsql/client`, ...) or `knex`: a literal, a template string or `+` concatenation (unfixed parts dropped), or pg's `{ text }` config. Tagged templates (`sql\`...\``) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
@@ -3204,6 +3205,19 @@ through `PartKeeprPartBundle:Part`-style aliases. Entities whose type is not
 declared where they are persisted, PHP and YAML mapping drivers and custom
 repository base classes are not read yet. Symfony's `Tests/` directories
 are skipped with the other PHP test trees.
+
+Node SQL text is read where a file imports a driver. On
+dockersamples/example-voting-app the result service's
+`SELECT ... FROM votes` is read. On mx-space `06e732e` it reads 22
+statements in migrations, upgrade checks and scripts outside tests (22 more
+than before), and links them to the same tables as the Drizzle schema
+(`accounts`, `options`, `api_keys`). The 3 it leaves unfixed name their table
+through a `${...}` substitution (`${table}`, `${MIGRATIONS_TABLE}`). Every
+literal `query('SELECT|INSERT|UPDATE|DELETE ...')` line that a `grep` finds
+in its pg-importing files outside tests is read, and those with no table
+(`SELECT pg_advisory_lock($1)`) link nothing. vendure (2 load-test reads) and
+openstatus (1 probe script) gain those edges only, and librechat, nest,
+prisma-examples, awesome-compose, OneStopShop and mastodon are unchanged.
 
 The MongoDB driver reader finds the collections that scripts and migrations
 open by name, bypassing the models. On habitica it links 44 of the 80
