@@ -3262,6 +3262,31 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   streaming kinds as the fallback reader on every one; the rest import
   protos the repositories do not vendor or are deliberately broken test
   inputs.
+- **HTTP annotations.** An rpc's `google.api.http` option, read from its
+  protoc descriptor (with `googleapis-common-protos` supplying
+  `google/api/annotations.proto` when the repository does not vendor it),
+  is an `HttpRoute` (framework `grpc-http-annotation`) per binding,
+  `additional_bindings` included: grpc-gateway and Kratos generate an HTTP
+  handler for each. `{x}` and `{x=*}` are variables, `{x=**}` the rest of
+  the path, `{x=shelves/*}` its own segments, and a `:verb` suffix stays
+  literal. The `GrpcMethod` `HANDLES` the route (rule
+  `service-contracts.grpc-http-annotation-route`), so impact runs from the
+  route to the rpc and on to its servers. The route is served by the Go
+  files that call the generated `RegisterXHTTPServer` (Kratos) or
+  `RegisterXHandler[FromEndpoint|Server|Client]` (grpc-gateway) of its
+  service, which matters for loopback requests (below).
+- **Loopback ports.** A request whose literal host is `localhost`,
+  `127.0.0.1`, `0.0.0.0` or `[::1]` and whose literal port a program of the
+  repository is configured to listen on goes to that program: only routes
+  served from files under its directory are candidates (rule
+  `service-contracts.http-local-port`), else it is unresolved as
+  `no_route_on_port`. Ports come from Kratos configuration
+  (`configs/*.yaml` with `server.http.addr: host:port`; the program is the
+  directory holding `configs`). A port no program declares changes nothing.
+  In go-kratos/beer-shop the admin frontend calls `localhost:8100`, the
+  admin service; its stale `/v1/login` call is left unresolved instead of
+  linking to the shop service's `/v1/login` on port 8000, while its
+  `/admin/v1/...` calls link to the admin rpcs.
 - **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
 
   | Rule | Server |
@@ -3893,6 +3918,9 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-statement` | pattern_matched | SQLAlchemy's `select` (READS) or `insert`, `update`, `delete` (WRITES) on a mapped class |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlmodel-default-table` | pattern_matched | a class with the `table=True` class keyword and no `__tablename__` that inherits from `sqlmodel.SQLModel` (bases followed through a SCIP index, or by name in the same file): SQLModel's default name, the class name lowercased |
+| Symbol\|File -[:READS]-> DbTable | `data-contracts.flask-sqlalchemy-model-query` | pattern_matched | Flask-SQLAlchemy's `Model.query` (an attribute read, not a call) on the one mapped class of the repository with that name |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class; they replace the name rules in the files the index covers |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
@@ -4414,6 +4442,44 @@ statement calls are linked to a table; 919 are left unlinked, mostly
 `.query()` calls on names that are not mapped classes. Declarative
 `__table__`, imperative mappers, `session.add`/`delete` on instances and
 textual SQL are not read.
+
+**Python model names through SCIP.** Where a scip-python index covers a
+file (`scip_indexes`, the same pairs of ingested index and receipt digest
+the tree-sitter tool takes), a model name written in `.query(...)`,
+`select`/`insert`/`update`/`delete`, `Model.query`, `.get(Model, key)` or
+`.select_from(Model)` links to the table of the class the index resolves
+it to (`deepthought.scip_calls.ScipReferences`), and to nothing when that
+class is not mapped. Each access edge's `line` and `column` are where the
+model name is written, which in a statement spanning lines can be after
+the call's first line. A resolved declaration must carry the written name,
+as in call binding. Files no index covers keep the name rules, which link
+only when one mapped class of the repository has the name; `.get` and
+`.select_from` are linked only through an index, since `get` is the
+method of every mapping. The metric `sqlalchemy_access_resolution` counts
+`linked`, `linked_scip`, `not_a_mapped_class` and
+`scip_not_a_mapped_class`.
+
+Why not hand rules: the misses were name resolution. Superset's migrations
+redefine `Slice`, `Dashboard` and other models under the same names, so the
+name rule found several classes and linked none, and Flask-SQLAlchemy
+models are imported across modules. A type checker resolves both exactly.
+
+Measured with scip-python 0.6.8, against main, on three apps outside the
+corpora (the index built without installing the apps' dependencies; no
+link made by name was lost or moved to another table):
+
+| App | READS/WRITES links | Mapped classes |
+|---|---|---|
+| apache/superset | 428 → 2,984 | 238 → 238 |
+| getredash/redash (Flask-SQLAlchemy) | 6 → 92 | 19 → 19 |
+| fastapi/full-stack-fastapi-template (SQLModel) | 0 → 28 | 0 → 2 |
+
+Without an index, Redash gets the same 92 links by name and the SQLModel
+template 16 of its 28. 30 sampled new Superset links and every `get` call
+whose receiver is not named like a session were read in the source and are
+right. Still not read: `session.add`/`delete` of an instance (the index
+records no types of locals), `cls.query` in a model's class methods, and
+Superset's index is 124 MB, past `ingest_scip`'s default 50 MB cap.
 
 ## Commit-linked snapshots
 

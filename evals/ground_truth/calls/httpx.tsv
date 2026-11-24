@@ -155,8 +155,6 @@ httpx/_auth.py	325	to_str	httpx/_utils.py	83	callable
 httpx/_auth.py	332	split	-	0	external
 httpx/_auth.py	337	NotImplementedError	-	0	external
 httpx/_auth.py	340	ProtocolError	httpx/_exceptions.py	216	callable
-httpx/_client.py	58	TypeVar	-	0	external
-httpx/_client.py	59	TypeVar	-	0	external
 httpx/_client.py	71	_port_or_default	httpx/_client.py	77	callable
 httpx/_client.py	73	_port_or_default	httpx/_client.py	77	callable
 httpx/_client.py	80	get	-	0	external
@@ -1188,20 +1186,14 @@ httpx/_transports/asgi.py	159	is_set	-	0	local
 httpx/_transports/asgi.py	160	get	-	0	external
 httpx/_transports/asgi.py	161	get	-	0	external
 httpx/_transports/asgi.py	164	append	-	0	external
-httpx/_transports/asgi.py	167	set	-	0	external
 httpx/_transports/asgi.py	170	app	httpx/_transports/asgi.py	94	value
-httpx/_transports/asgi.py	175	set	-	0	external
 httpx/_transports/asgi.py	181	is_set	-	0	local
 httpx/_transports/asgi.py	185	ASGIResponseStream	httpx/_transports/asgi.py	55	callable
 httpx/_transports/asgi.py	187	Response	httpx/_models.py	515	callable
-httpx/_transports/base.py	8	TypeVar	-	0	external
-httpx/_transports/base.py	9	TypeVar	-	0	external
 httpx/_transports/base.py	24	close	httpx/_transports/base.py	61	callable
 httpx/_transports/base.py	57	NotImplementedError	-	0	external
 httpx/_transports/base.py	75	aclose	httpx/_transports/base.py	85	callable
 httpx/_transports/base.py	81	NotImplementedError	-	0	external
-httpx/_transports/default.py	60	TypeVar	-	0	external
-httpx/_transports/default.py	61	TypeVar	-	0	external
 httpx/_transports/default.py	98	len	-	0	local
 httpx/_transports/default.py	99	_load_httpcore_exceptions	httpx/_transports/default.py	74	callable
 httpx/_transports/default.py	105	items	-	0	external
@@ -1264,7 +1256,6 @@ httpx/_transports/mock.py	26	TypeError	-	0	external
 httpx/_transports/mock.py	33	aread	httpx/_models.py	482	callable
 httpx/_transports/mock.py	34	handler	httpx/_transports/mock.py	17	value
 httpx/_transports/mock.py	40	isinstance	-	0	local
-httpx/_transports/wsgi.py	16	TypeVar	-	0	external
 httpx/_transports/wsgi.py	23	iter	-	0	external
 httpx/_transports/wsgi.py	26	chain	-	0	external
 httpx/_transports/wsgi.py	32	getattr	-	0	external
@@ -1456,7 +1447,6 @@ httpx/_urls.py	305	unquote	-	0	local
 httpx/_urls.py	317	bool	-	0	external
 httpx/_urls.py	340	URL	httpx/_urls.py	15	callable
 httpx/_urls.py	343	copy_with	httpx/_urls.py	327	callable
-httpx/_urls.py	343	set	-	0	external
 httpx/_urls.py	346	add	httpx/_urls.py	552	callable
 httpx/_urls.py	346	copy_with	httpx/_urls.py	327	callable
 httpx/_urls.py	349	copy_with	httpx/_urls.py	327	callable
@@ -2410,7 +2400,6 @@ tests/conftest.py	240	super	-	0	external
 tests/conftest.py	241	create_task	-	0	local
 tests/conftest.py	241	watch_restarts	tests/conftest.py	256	callable
 tests/conftest.py	243	wait	-	0	external
-tests/conftest.py	252	set	-	0	external
 tests/conftest.py	254	sleep	tests/concurrency.py	11	callable
 tests/conftest.py	262	wait	-	0	local
 tests/conftest.py	262	wait_for	-	0	external
@@ -2434,7 +2423,6 @@ tests/models/test_cookies.py	19	dict	-	0	external
 tests/models/test_cookies.py	20	bool	-	0	external
 tests/models/test_cookies.py	24	Cookies	httpx/_models.py	1079	callable
 tests/models/test_cookies.py	25	Cookies	httpx/_models.py	1079	callable
-tests/models/test_cookies.py	26	set	-	0	external
 tests/models/test_cookies.py	28	update	httpx/_models.py	1205	callable
 tests/models/test_cookies.py	29	dict	-	0	external
 tests/models/test_cookies.py	30	get	httpx/_models.py	1143	callable
@@ -2588,7 +2576,6 @@ tests/models/test_queryparams.py	93	update	httpx/_urls.py	631	callable
 tests/models/test_queryparams.py	97	QueryParams	httpx/_urls.py	420	callable
 tests/models/test_queryparams.py	98	raises	-	0	external
 tests/models/test_queryparams.py	103	QueryParams	httpx/_urls.py	420	callable
-tests/models/test_queryparams.py	104	set	-	0	external
 tests/models/test_queryparams.py	105	QueryParams	httpx/_urls.py	420	callable
 tests/models/test_queryparams.py	109	QueryParams	httpx/_urls.py	420	callable
 tests/models/test_queryparams.py	110	add	httpx/_urls.py	552	callable

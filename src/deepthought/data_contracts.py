@@ -18,7 +18,7 @@ SQL and JPQL that Java code runs (``@Query``, ``createQuery``, JdbcTemplate
 and JdbcClient) name the tables they read and write (``SqlUse``).
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 import re
 
@@ -1281,9 +1281,30 @@ class SaAccess:
     caller_id: str | None
     model: str
     writes: bool
-    how: str  # "query" (Session.query) or "statement" (select/insert/...)
+    how: str  # "query", "model_query", "get" or "statement"
     line: int
     column: int
+    model_line: int = 0  # where the model's name is written (byte column)
+    model_column: int = 0
+
+
+@dataclass(frozen=True)
+class SaClass:
+    """A class of a module importing SQLAlchemy, Flask-SQLAlchemy or
+    SQLModel, with what its declared bases are written as."""
+
+    file: str
+    model_id: str
+    name: str
+    line: int
+    column: int
+    # (written name, line, byte column of its last name, imported origin)
+    bases: tuple[tuple[str, int, int, str | None], ...]
+    table: bool  # SQLModel's ``table=True`` class keyword
+    tablename: str | None
+
+
+SQLMODEL_BASE = "sqlmodel.SQLModel"
 
 
 def _module_aliases(root, content):
@@ -1309,7 +1330,8 @@ def _from_sqlalchemy(origin):
 
 
 def extract_sqlalchemy(tree, content, file, definitions):
-    """(mappings, tables, accesses) of one Python file that imports SQLAlchemy."""
+    """(mappings, tables, accesses, classes) of one Python file that imports
+    SQLAlchemy."""
     root = tree.root_node
     imports = _python_imports(root, content)
     aliases = _module_aliases(root, content)
@@ -1335,7 +1357,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     return _text(function.child_by_field_name("attribute"), content)
         return None
 
-    mappings, tables, accesses = [], [], []
+    mappings, tables, accesses, classes = [], [], [], []
     for node in root.named_children:
         if node.type == "decorated_definition":
             node = node.child_by_field_name("definition")
@@ -1351,6 +1373,44 @@ def extract_sqlalchemy(tree, content, file, definitions):
         )
         values = dict(_assignments(node.child_by_field_name("body"), content))
         name = _string(values.get("__tablename__"), content)
+        if importing and definition is not None:
+            bases, table = [], False
+            superclasses = node.child_by_field_name("superclasses")
+            for base in superclasses.named_children if superclasses else ():
+                if base.type == "keyword_argument":
+                    value = base.child_by_field_name("value")
+                    table = table or (
+                        _text(base.child_by_field_name("name"), content) == "table"
+                        and value is not None
+                        and value.type == "true"
+                    )
+                    continue
+                last = base
+                if base.type == "attribute":
+                    last = base.child_by_field_name("attribute")
+                elif base.type != "identifier":
+                    continue
+                written = _text(base, content)
+                bases.append(
+                    (
+                        written,
+                        last.start_point.row + 1,
+                        last.start_point.column,
+                        imports.get(written),
+                    )
+                )
+            classes.append(
+                SaClass(
+                    file,
+                    definition.id,
+                    _text(node.child_by_field_name("name"), content),
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                    tuple(bases),
+                    table,
+                    name.lower() if name else None,
+                )
+            )
         if importing and definition is not None and name:
             mappings.append(
                 SaMapping(
@@ -1362,10 +1422,42 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     node.start_point.column,
                 )
             )
+
+    def access(node, model, writes, how):
+        accesses.append(
+            SaAccess(
+                file,
+                _innermost(definitions, file, node),
+                _text(model, content),
+                writes,
+                how,
+                node.start_point.row + 1,
+                node.start_point.column,
+                model.start_point.row + 1,
+                model.start_point.column,
+            )
+        )
+
     stack = [root]
     while stack:
         node = stack.pop()
         stack.extend(node.named_children)
+        if node.type == "attribute":
+            # Flask-SQLAlchemy's ``Model.query``, other than a call of it.
+            target = node.child_by_field_name("object")
+            parent = node.parent
+            if (
+                target is not None
+                and target.type == "identifier"
+                and _text(node.child_by_field_name("attribute"), content) == "query"
+                and not (
+                    parent is not None
+                    and parent.type == "call"
+                    and parent.child_by_field_name("function") == node
+                )
+            ):
+                access(node, target, False, "model_query")
+            continue
         if node.type != "call":
             continue
         function = node.child_by_field_name("function")
@@ -1391,31 +1483,79 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     )
                 )
             continue
+        method = (
+            _text(function.child_by_field_name("attribute"), content)
+            if function.type == "attribute"
+            else None
+        )
         if called in SQLALCHEMY_READS | SQLALCHEMY_WRITES:
-            how, writes = "statement", called in SQLALCHEMY_WRITES
-        elif (
-            function.type == "attribute"
-            and _text(function.child_by_field_name("attribute"), content) == "query"
-        ):
-            how, writes = "query", False
+            how, writes, considered = (
+                "statement",
+                called in SQLALCHEMY_WRITES,
+                positional[:1] if called in SQLALCHEMY_WRITES else positional,
+            )
+        elif method == "query":
+            how, writes, considered = "query", False, positional
+        elif method in ("get", "select_from"):
+            # Session.get(Model, key) and select_from(Model): linked only
+            # where a SCIP index resolves the name to a mapped class.
+            how, writes, considered = "get", False, positional[:1]
         else:
             continue
-        for argument in positional[:1] if writes else positional:
+        for argument in considered:
             while argument.type == "attribute":
                 argument = argument.child_by_field_name("object")
             if argument.type == "identifier":
-                accesses.append(
-                    SaAccess(
-                        file,
-                        _innermost(definitions, file, node),
-                        _text(argument, content),
-                        writes,
-                        how,
-                        node.start_point.row + 1,
-                        node.start_point.column,
-                    )
-                )
-    return mappings, tables, accesses
+                access(node, argument, writes, how)
+    return mappings, tables, accesses, classes
+
+
+def sqlmodel_default_mappings(classes, references, mappings):
+    """SaMappings, by SQLModel's default name (the class name lowercased),
+    of the ``table=True`` classes without ``__tablename__`` that inherit
+    from ``sqlmodel.SQLModel``. A base is followed to the class a SCIP index
+    (``references``, a ``ScipReferences``) resolves it to, or, in a file no
+    index covers, to the class of that name in the same file."""
+    by_id = {c.model_id: c for c in classes}
+    by_name = defaultdict(list)
+    for c in classes:
+        by_name[(c.file, c.name)].append(c)
+    explicit = {m.model_id for m in mappings}
+    known = {}
+
+    def derived(c, seen):
+        if c.model_id in known:
+            return known[c.model_id]
+        if c.model_id in seen:
+            return False
+        seen.add(c.model_id)
+        found = False
+        for name, line, column, origin in c.bases:
+            if origin == SQLMODEL_BASE:
+                found = True
+                break
+            declared = references.declarations(
+                c.file, line, column, name.rsplit(".", 1)[-1]
+            )
+            bases = (
+                by_name.get((c.file, name), ())
+                if declared is None
+                else [by_id[d.id] for d in declared if d.id in by_id]
+            )
+            if any(derived(b, seen) for b in bases):
+                found = True
+                break
+        known[c.model_id] = found
+        return found
+
+    return [
+        SaMapping(c.file, c.model_id, c.name, c.name.lower(), c.line, c.column, False)
+        for c in classes
+        if c.table
+        and c.tablename is None
+        and c.model_id not in explicit
+        and derived(c, set())
+    ]
 
 
 # Modules whose import marks a Python module as one that runs SQL.

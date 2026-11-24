@@ -468,7 +468,152 @@ class SqlAlchemyTests(unittest.TestCase):
         )
         self.assertEqual(
             output.metadata.custom_metrics["sqlalchemy_access_resolution"],
-            {"linked": 3, "not_a_mapped_class": 1},
+            {
+                "linked": 3,
+                "linked_scip": 0,
+                "not_a_mapped_class": 1,
+                "scip_not_a_mapped_class": 0,
+            },
+        )
+
+
+SQLMODEL = {
+    "pyproject.toml": '[project]\nname = "app"\n',
+    "app/models.py": "from sqlmodel import SQLModel\n"
+    "class ItemBase(SQLModel):\n"
+    "    title: str\n"
+    "class Item(ItemBase, table=True):\n"
+    "    id: int\n"
+    "class Hero(SQLModel, table=True):\n"
+    '    __tablename__ = "heroes"\n'
+    "class ItemPublic(ItemBase):\n"
+    "    pass\n"
+    "class Other(Unknown, table=True):\n"
+    "    pass\n",
+    # A migration's frozen copy of a model of the same name.
+    "app/migrations/v1.py": "from sqlalchemy.orm import declarative_base\n"
+    "Base = declarative_base()\n"
+    "class Item(Base):\n"
+    '    __tablename__ = "old_items"\n',
+    "app/routes.py": "from sqlmodel import select\n"
+    "from .models import Item, Hero\n"
+    "def list_items(session):\n"
+    "    return session.exec(select(Item)).all()\n"
+    "def one(session, key):\n"
+    "    return session.get(Item, key)\n"
+    "def heroes():\n"
+    "    return Hero.query.all()\n"
+    "def missing(session):\n"
+    "    return session.get(Missing, 1)\n",
+}
+
+
+@unittest.skipUnless(PYTHON, "Provision the python grammar")
+class SqlModelTests(unittest.TestCase):
+    def analyze(self, with_index):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SQLMODEL)
+            indexes = (self.index(directory),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["python"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+        )
+        return edges, output.metadata.custom_metrics
+
+    def index(self, directory):
+        """A scip-python index of SQLMODEL's names, ingested."""
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        package = "scip-python python app 0 "
+        models = package + "`app.models`/"
+        documents = {
+            "app/models.py": [
+                (1, "ItemBase", models + "ItemBase#", True),
+                (3, "Item", models + "Item#", True),
+                (3, "ItemBase", models + "ItemBase#", False),
+                (5, "Hero", models + "Hero#", True),
+            ],
+            "app/migrations/v1.py": [
+                (2, "Item", package + "`app.migrations.v1`/Item#", True),
+            ],
+            "app/routes.py": [
+                (3, "Item", models + "Item#", False),
+                (5, "Item", models + "Item#", False),
+                (7, "Hero", models + "Hero#", False),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        for path, occurrences in documents.items():
+            lines = SQLMODEL[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition in occurrences:
+                column = lines[line].index(text)
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, column, column + len(text)],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_names_without_an_index(self):
+        edges, metrics = self.analyze(False)
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "Hero", "heroes", "sqlalchemy-tablename"),
+                ("MAPS_TO", "Item", "item", "sqlmodel-default-table"),
+                ("MAPS_TO", "Item", "old_items", "sqlalchemy-tablename"),
+                ("READS", "heroes", "heroes", "flask-sqlalchemy-model-query"),
+            ],
+        )
+        # select(Item) names two mapped classes; get() needs an index.
+        self.assertEqual(
+            metrics["sqlalchemy_access_resolution"],
+            {
+                "linked": 1,
+                "linked_scip": 0,
+                "not_a_mapped_class": 3,
+                "scip_not_a_mapped_class": 0,
+            },
+        )
+
+    def test_names_resolved_through_a_scip_index(self):
+        edges, metrics = self.analyze(True)
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "Hero", "heroes", "sqlalchemy-tablename"),
+                ("MAPS_TO", "Item", "item", "sqlmodel-default-table"),
+                ("MAPS_TO", "Item", "old_items", "sqlalchemy-tablename"),
+                ("READS", "heroes", "heroes", "sqlalchemy-scip-model-query"),
+                ("READS", "list_items", "item", "sqlalchemy-scip-statement"),
+                ("READS", "one", "item", "sqlalchemy-scip-get"),
+            ],
+        )
+        # Missing has no occurrence in the index and no mapped class.
+        self.assertEqual(
+            metrics["sqlalchemy_access_resolution"],
+            {
+                "linked": 0,
+                "linked_scip": 3,
+                "not_a_mapped_class": 1,
+                "scip_not_a_mapped_class": 0,
+            },
         )
 
 
