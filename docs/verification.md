@@ -54,7 +54,11 @@ scored against a yardstick its own rules cannot move.
   (another in-repository symbol, such as `const f = () => ...`), `local` (a
   parameter, loop variable or local function, at its binding line) or
   `external` (a library or builtin). `# indexed` rows list the files the
-  oracle indexed.
+  oracle indexed. scip-python gives every later declaration of an
+  `@overload` group (the implementation too), and a redefinition of a name
+  in one scope, the first declaration's symbol, so a call to that symbol
+  lists each of those `def` lines as a target: a link to the implementation
+  confirms.
 - `baseline.json` is the current score of each corpus.
 
 Java has no SCIP indexer in this setup, so `derive-java` takes the truth from
