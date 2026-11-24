@@ -2050,7 +2050,9 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package; GORM's default pluralized names are not computed |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
@@ -2085,7 +2087,8 @@ arguments, comments and string literals are skipped, and a name holding text
 the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
-Test sources (`src/test/`, and for Ruby `test/` and `spec/`) are skipped.
+Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
+`spec/`) are skipped.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2192,6 +2195,20 @@ table names. A single-line `grep` for a query method followed by SQL finds
 that name no table (`SELECT 'null' AS raw`), and 6 pass the text through a
 local alias of `Rebind` (`r := db.Rebind`), which is not followed. The tool
 also reads the statements that span lines.
+
+On gothinkster/golang-gin-realworld-example-app the tool maps its 7 GORM
+models (`user_models`, `follow_models`, `article_models`, ...) and links 32
+calls. The default-name port gives GORM's own result for all 1,786 struct
+and word names tried (the type names of several Go corpora and GORM itself,
+and the camel-cased words of Rails' inflector cases), checked against
+`schema.NamingStrategy{}.TableName` of gorm.io/gorm 1.25.12. A single-line
+`grep` for the GORM methods outside tests finds 36 lines: the tool links
+every one except two `Save(data)` calls whose argument is an
+`interface{}`, two `Association` chains (`Replace`, and a `Find` into a
+struct field) and `query := db.Model(...)`, whose chain continues in
+another statement. Four grep lines are calls the tool reports at the line
+where their chain starts, and it also links one chain that `grep` misses
+because it spans lines.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
