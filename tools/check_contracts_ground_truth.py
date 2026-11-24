@@ -77,6 +77,11 @@ def _score_sites(predicted, labelled, corpus, tolerance):
     true_positive, false_positive, neutral = [], [], []
     dont_care = corpus.get("dont_care_call_sites", [])
     for item in sorted(predicted, key=lambda i: (i["file"], i["line"], i["route"])):
+        if item.get("same_service"):
+            # Labels are links between services; one within a service is
+            # neither confirmed nor contradicted.
+            neutral.append(item)
+            continue
         best = None
         for index, link in enumerate(labelled):
             if index in used or not _near(
@@ -227,22 +232,44 @@ def _message_pairs(endpoints, roots):
             consumers.setdefault((endpoint.broker, endpoint.destination), []).append(
                 endpoint
             )
-    pairs = []
+    pairs, seen = [], set()
     for endpoint in endpoints:
         if endpoint.role != "publish":
             continue
         for consumer in consumers.get((endpoint.broker, endpoint.destination), []):
+            # Library code run by several services sends from one site; the
+            # service is the one that runs it.
+            sender = _service_of(
+                f"{endpoint.module}/" if endpoint.module else endpoint.file, roots
+            )
+            receiver = _service_of(
+                f"{consumer.module}/" if consumer.module else consumer.file, roots
+            )
+            key = (
+                endpoint.file,
+                endpoint.line,
+                consumer.file,
+                consumer.line,
+                sender,
+                receiver,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
             pairs.append(
                 {
                     "kind": "messaging",
-                    "from_service": _service_of(endpoint.file, roots),
-                    "to_service": _service_of(consumer.file, roots),
+                    "from_service": sender,
+                    "to_service": receiver,
                     "file": endpoint.file,
                     "line": endpoint.line,
                     "server_file": consumer.file,
                     "server_line": consumer.line,
                     "route": f"{endpoint.broker} {endpoint.destination}",
                     "rule_id": endpoint.client,
+                    # The corpora label links between services: a link within
+                    # one service is neutral.
+                    "same_service": sender is not None and sender == receiver,
                 }
             )
     return pairs
