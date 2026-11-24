@@ -85,7 +85,12 @@ from ..service_contracts.script_constants import (
     ScriptConstants,
     angular_defines,
 )
-from ..service_contracts.web import extract_web, nest_settings
+from ..service_contracts.web import (
+    compose_python_prefixes,
+    extract_web,
+    nest_settings,
+    python_routers,
+)
 from ..syntax import identifier, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -1285,6 +1290,21 @@ def _follow_resolver_maps(root, sources, references, repo_url, definitions):
     return resolvers, unread
 
 
+def _python_mounts(sources):
+    """{file: {router name: full prefixes}} of Python routers mounted in
+    other routers (``include_router``, ``register_blueprint``)."""
+    found = {
+        coverage.file: python_routers(tree, content)
+        for coverage, content, tree in sources
+        if coverage.language == "python"
+    }
+    mounts = {}
+    if any(m for _, m, _ in found.values()):
+        for (file, name), prefixes in compose_python_prefixes(found).items():
+            mounts.setdefault(file, {})[name] = prefixes
+    return mounts
+
+
 def _nest_applications(root, sources):
     """(global prefix, unread reason) of each Node package's NestJS
     application, from the setGlobalPrefix, enableVersioning and RouterModule
@@ -1525,6 +1545,7 @@ class ServiceContractTool(AnalysisTool):
             return lists[0]
 
         nest = _nest_applications(root, sources)
+        python_mounts = _python_mounts(sources)
         scripts = _script_constants(root, sources)
         calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
@@ -1587,6 +1608,7 @@ class ServiceContractTool(AnalysisTool):
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
                     nest=nest.get(_node_package(root, coverage.file)),
+                    mounts=python_mounts.get(coverage.file),
                     externals=(
                         scripts.externals(coverage.file)
                         if scripts is not None
