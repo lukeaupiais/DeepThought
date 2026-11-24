@@ -2211,8 +2211,10 @@ Python, JavaScript/TypeScript and Go sources are read too
   bound once in their function, else at module level, before the use (Python
   assignments, `const`/`let`/`var`, Go `var`/`const`/`:=`). A name bound more
   than once, assigned in another function, or declared `global` and assigned
-  there is unknown text. JavaScript and TypeScript also read `this.NAME` and
-  constants shared between modules (below).
+  there is unknown text. A conditional (`c ? a : b`, `a if c else b`) whose
+  two branches fold to the same text has that text, whatever the condition;
+  otherwise it is unknown text. JavaScript and TypeScript also read
+  `this.NAME` and constants shared between modules (below).
 
 #### Angular HttpClient
 
