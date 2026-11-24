@@ -246,6 +246,65 @@ class ResolverMapReference:
     export: str
 
 
+def _field_option(node, content):
+    """(value node, None) of a field's ``subscribe`` (else ``resolve``)
+    option, or (None, member) when it is a method (``subscribe() {}``) or a
+    shorthand (``{ subscribe }``); (None, None) without either."""
+    options = {}
+    for member in node.named_children:
+        if member.type == "pair":
+            name = _key_name(member.child_by_field_name("key"), content)
+            options.setdefault(name, (member.child_by_field_name("value"), None))
+        elif member.type == "method_definition":
+            name = _key_name(member.child_by_field_name("name"), content)
+            options.setdefault(name, (None, member))
+        elif member.type == "shorthand_property_identifier":
+            options.setdefault(text(member, content), (None, member))
+    return options.get("subscribe") or options.get("resolve") or (None, None)
+
+
+def _option_handler(context, value, option):
+    """The handler of a field option: a method or shorthand ``option``, or
+    a ``value`` that is a function, a function name, or
+    ``withFilter(subscribe, filter)`` with either as its first argument."""
+    content = context.content
+    if option is not None:
+        if option.type == "method_definition":
+            return context.definition_of(option)
+        return context.named_function(text(option, content))
+    if value is None:
+        return None
+    if value.type == "call_expression":
+        if text(value.child_by_field_name("function"), content) != "withFilter":
+            return None
+        arguments = [
+            a
+            for a in value.child_by_field_name("arguments").named_children
+            if a.type != "comment"
+        ]
+        value = arguments[0] if arguments else None
+        if value is None:
+            return None
+    if value.type in _FUNCTIONS:
+        return context.definition_of(value)
+    if value.type == "identifier":
+        return context.named_function(text(value, content))
+    return None
+
+
+def _bound_object(context, name):
+    """The object literal a name is bound to once in the file, or None."""
+    found = [
+        node.child_by_field_name("value")
+        for node in _walk(context.root)
+        if node.type == "variable_declarator"
+        and text(node.child_by_field_name("name"), context.content) == name
+    ]
+    if len(found) == 1 and found[0] is not None and found[0].type == "object":
+        return found[0]
+    return None
+
+
 def _members(context, value, operation, file, resolvers, unread):
     """Fields of the members of one root type's resolver object."""
     content = context.content
@@ -259,21 +318,18 @@ def _members(context, value, operation, file, resolvers, unread):
         elif member.type == "shorthand_property_identifier":
             field = text(member, content)
             handler = context.named_function(field)
+            bound = None if handler is not None else _bound_object(context, field)
+            if bound is not None:
+                # const newLink = { subscribe: newLinkSubscribe, resolve }
+                handler = _option_handler(context, *_field_option(bound, content))
         elif member.type == "pair":
             field = _key_name(member.child_by_field_name("key"), content)
             found = member.child_by_field_name("value")
+            option = None
             if found is not None and found.type == "object":
                 # A subscription or a field with options: {subscribe, resolve}.
-                options = _js_object(found, content)
-                found = options.get("subscribe") or options.get("resolve")
-            if found is None:
-                handler = None
-            elif found.type in _FUNCTIONS:
-                handler = context.definition_of(found)
-            elif found.type == "identifier":
-                handler = context.named_function(text(found, content))
-            else:
-                handler = None
+                found, option = _field_option(found, content)
+            handler = _option_handler(context, found, option)
         else:  # a spread or anything else: fields not listed here
             unread.append(Unread(file, member_line, "graphql", "resolver_spread"))
             continue
