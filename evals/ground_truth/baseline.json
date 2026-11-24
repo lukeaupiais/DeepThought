@@ -21,6 +21,30 @@
     "confirmed": 223,
     "contradicted": 0,
     "expected": 444,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 49,
+          "expected": 88
+        },
+        "2": {
+          "confirmed": 38,
+          "expected": 58
+        },
+        "3": {
+          "confirmed": 10,
+          "expected": 25
+        }
+      },
+      "confirmed": 97,
+      "expected": 171,
+      "extra": 9,
+      "missed": 74,
+      "precision": 0.9151,
+      "recall": 0.5673,
+      "seeds": 45,
+      "seeds_undeclared": 0
+    },
     "missed": 226,
     "missed_by_engine_outcome": {
       "no_call_site": 154,
@@ -60,6 +84,30 @@
     "confirmed": 2188,
     "contradicted": 0,
     "expected": 3313,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 60,
+          "expected": 351
+        },
+        "2": {
+          "confirmed": 42,
+          "expected": 505
+        },
+        "3": {
+          "confirmed": 21,
+          "expected": 295
+        }
+      },
+      "confirmed": 123,
+      "expected": 1151,
+      "extra": 0,
+      "missed": 1028,
+      "precision": 1.0,
+      "recall": 0.1069,
+      "seeds": 144,
+      "seeds_undeclared": 0
+    },
     "imports": {
       "confirmed": 331,
       "contradicted": 0,
@@ -108,6 +156,30 @@
     "confirmed": 1044,
     "contradicted": 0,
     "expected": 2197,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 52,
+          "expected": 309
+        },
+        "2": {
+          "confirmed": 50,
+          "expected": 531
+        },
+        "3": {
+          "confirmed": 17,
+          "expected": 924
+        }
+      },
+      "confirmed": 119,
+      "expected": 1764,
+      "extra": 0,
+      "missed": 1645,
+      "precision": 1.0,
+      "recall": 0.0675,
+      "seeds": 107,
+      "seeds_undeclared": 0
+    },
     "imports": {
       "confirmed": 12,
       "contradicted": 0,
@@ -334,8 +406,8 @@
           "missed": 0
         },
         "method": {
-          "found": 691,
-          "missed": 4
+          "found": 755,
+          "missed": 0
         },
         "module": {
           "found": 69,
@@ -348,20 +420,20 @@
       },
       "expected": 1014,
       "extra": 0,
-      "found": 950,
-      "kind_mismatch": 60,
-      "missed": 4,
-      "recall": 0.9369
+      "found": 1014,
+      "kind_mismatch": 0,
+      "missed": 0,
+      "recall": 1.0
     },
     "slim": {
       "by_kind": {
         "function": {
-          "found": 0,
-          "missed": 3
+          "found": 3,
+          "missed": 0
         },
         "method": {
-          "found": 739,
-          "missed": 10
+          "found": 749,
+          "missed": 0
         },
         "type": {
           "found": 124,
@@ -370,10 +442,10 @@
       },
       "expected": 876,
       "extra": 0,
-      "found": 863,
+      "found": 876,
       "kind_mismatch": 0,
-      "missed": 13,
-      "recall": 0.9852
+      "missed": 0,
+      "recall": 1.0
     }
   },
   "gson": {
@@ -403,6 +475,30 @@
     "confirmed": 4332,
     "contradicted": 0,
     "expected": 11139,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 91,
+          "expected": 809
+        },
+        "2": {
+          "confirmed": 51,
+          "expected": 2118
+        },
+        "3": {
+          "confirmed": 10,
+          "expected": 2060
+        }
+      },
+      "confirmed": 152,
+      "expected": 4987,
+      "extra": 0,
+      "missed": 4835,
+      "precision": 1.0,
+      "recall": 0.0305,
+      "seeds": 164,
+      "seeds_undeclared": 0
+    },
     "inherits": {
       "confirmed": 210,
       "contradicted": 0,
@@ -441,6 +537,30 @@
     "confirmed": 225,
     "contradicted": 0,
     "expected": 143,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 36,
+          "expected": 65
+        },
+        "2": {
+          "confirmed": 16,
+          "expected": 58
+        },
+        "3": {
+          "confirmed": 10,
+          "expected": 52
+        }
+      },
+      "confirmed": 62,
+      "expected": 175,
+      "extra": 4,
+      "missed": 113,
+      "precision": 0.9394,
+      "recall": 0.3543,
+      "seeds": 38,
+      "seeds_undeclared": 0
+    },
     "imports": {
       "confirmed": 98,
       "contradicted": 0,
@@ -495,6 +615,30 @@
     "confirmed": 3346,
     "contradicted": 0,
     "expected": 11676,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 123,
+          "expected": 368
+        },
+        "2": {
+          "confirmed": 294,
+          "expected": 927
+        },
+        "3": {
+          "confirmed": 36,
+          "expected": 608
+        }
+      },
+      "confirmed": 453,
+      "expected": 1903,
+      "extra": 1,
+      "missed": 1450,
+      "precision": 0.9978,
+      "recall": 0.238,
+      "seeds": 277,
+      "seeds_undeclared": 84
+    },
     "missed": 8331,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_declarations": 17,

@@ -982,6 +982,203 @@ class GoSqlTests(unittest.TestCase):
         )
 
 
+RAILS = {
+    "db/schema.rb": """\
+ActiveRecord::Schema[7.1].define(version: 2024_01_01_000000) do
+  create_table "people", force: :cascade do |t|
+    t.string "name"
+  end
+  create_table "legacy_orders" do |t|
+  end
+  create_table "admin_audit_entries" do |t|
+  end
+end
+""",
+    "app/models/application_record.rb": """\
+class ApplicationRecord < ActiveRecord::Base
+  primary_abstract_class
+end
+""",
+    "app/models/person.rb": """\
+class Person < ApplicationRecord
+  def self.adults
+    where("age >= 18")
+  end
+end
+""",
+    "app/models/employee.rb": "class Employee < Person\nend\n",
+    "app/models/git_hub_user.rb": "class GitHubUser < ApplicationRecord\nend\n",
+    "config/initializers/inflections.rb": """\
+ActiveSupport::Inflector.inflections(:en) do |inflect|
+  inflect.acronym "GitHub"
+end
+""",
+    "app/models/order.rb": """\
+class Order < ApplicationRecord
+  self.table_name = "legacy_orders"
+
+  class LineItem < ApplicationRecord
+  end
+end
+""",
+    "app/models/admin.rb": """\
+module Admin
+  def self.table_name_prefix
+    "admin_"
+  end
+end
+""",
+    "app/models/admin/audit_entry.rb": """\
+module Admin
+  class AuditEntry < ApplicationRecord
+  end
+end
+""",
+    "app/models/dynamic.rb": """\
+class Dynamic < ApplicationRecord
+  self.table_name = ENV["TABLE"]
+end
+""",
+    "app/services/payroll.rb": """\
+class Payroll
+  def run
+    Employee.where(active: true).pluck(:id)
+    Order.create!(total: 1)
+    Order::LineItem.delete_all
+    Admin::AuditEntry.insert_all([])
+    Payroll.find(1)
+  end
+end
+
+# Module.nesting is [Admin::Report]: AuditEntry is not Admin::AuditEntry.
+class Admin::Report
+  def run
+    AuditEntry.count
+  end
+end
+""",
+}
+
+
+class RailsTests(unittest.TestCase):
+    def test_inflector_matches_active_support(self):
+        from deepthought.data_contracts import (
+            rails_pluralize,
+            rails_singularize,
+            rails_table_name,
+        )
+
+        # Cases from Rails' inflector_test_cases.rb (activesupport 8.0.2).
+        for singular, plural in (
+            ("search", "searches"),
+            ("person", "people"),
+            ("half", "halves"),
+            ("matrix", "matrices"),
+            ("analysis", "analyses"),
+            ("database", "databases"),
+            ("status", "statuses"),
+            ("equipment", "equipment"),
+            ("bus", "buses"),
+            ("ox", "oxen"),
+        ):
+            self.assertEqual(rails_pluralize(singular), plural)
+            self.assertEqual(rails_singularize(plural), singular)
+        self.assertEqual(rails_table_name("PrimarySpokesman"), "primary_spokesmen")
+        self.assertEqual(rails_table_name("Admin::HTTPLog"), "http_logs")
+
+    def test_models_tables_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, RAILS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "DECLARES",
+                    "db/schema.rb",
+                    "admin_audit_entries",
+                    "rails-schema-table",
+                ),
+                (
+                    "DECLARES",
+                    "db/schema.rb",
+                    "legacy_orders",
+                    "rails-schema-table",
+                ),
+                ("DECLARES", "db/schema.rb", "people", "rails-schema-table"),
+                (
+                    "MAPS_TO",
+                    "Admin.AuditEntry",
+                    "admin_audit_entries",
+                    "active-record-default-table-name",
+                ),
+                ("MAPS_TO", "Employee", "people", "active-record-default-table-name"),
+                (
+                    "MAPS_TO",
+                    "GitHubUser",
+                    "github_users",
+                    "active-record-default-table-name",
+                ),
+                ("MAPS_TO", "Order", "legacy_orders", "active-record-table-name"),
+                (
+                    "MAPS_TO",
+                    "Order.LineItem",
+                    "legacy_order_line_items",
+                    "active-record-default-table-name",
+                ),
+                ("MAPS_TO", "Person", "people", "active-record-default-table-name"),
+                ("READS", "Payroll.run", "people", "active-record-call"),
+                ("WRITES", "Payroll.run", "admin_audit_entries", "active-record-call"),
+                (
+                    "WRITES",
+                    "Payroll.run",
+                    "legacy_order_line_items",
+                    "active-record-call",
+                ),
+                ("WRITES", "Payroll.run", "legacy_orders", "active-record-call"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["active_record_models"], 6)
+        self.assertEqual(metrics["active_record_unresolved"], 1)
+        self.assertEqual(
+            metrics["active_record_access_resolution"],
+            {"linked": 4, "not_a_model": 2},
+        )
+
+    def test_application_naming_config_leaves_defaults_out(self):
+        files = {
+            **RAILS,
+            "config/application.rb": (
+                "module App\n  class Application < Rails::Application\n"
+                '    config.active_record.table_name_prefix = "app_"\n  end\nend\n'
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        mapped = sorted(
+            r.target_match["qualified_name"].rsplit("::", 1)[1]
+            for r in output.relationships
+            if r.type == "MAPS_TO"
+        )
+        self.assertEqual(mapped, ["legacy_orders"])
+
+
 class GraphCase(unittest.IsolatedAsyncioTestCase):
     """Writes a workspace's tree-sitter, components and data-contracts
     outputs to an isolated repository of the provisioned Neo4j."""

@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import time
 
 from .._version import __version__
@@ -29,11 +30,17 @@ from ..data_contracts import (
     extract_prisma_client,
     extract_prisma_schema,
     extract_python_sql,
+    extract_ruby_models,
+    RAILS_ENGLISH,
+    apply_rails_inflections,
     extract_sqlalchemy,
     extract_typeorm,
     prisma_accessor,
     table_key,
+    resolve_active_record,
     resolve_django,
+    resolve_ruby_constant,
+    ruby_namespaces,
 )
 from ..engine import analyze_repository
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
@@ -107,7 +114,56 @@ REPOSITORY_RULE = register_rule(
 )
 
 
-SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "typescript")
+RAILS_SCHEMA_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.rails-schema-table",
+        "resolved",
+        "The Rails schema file (db/schema.rb or db/<name>_schema.rb) has a "
+        "create_table call, or a Scenic create_view call, for this table.",
+    )
+)
+RAILS_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.active-record-table-name",
+        "pattern_matched",
+        "The class is an ActiveRecord model (its superclass chain reaches "
+        "ActiveRecord::Base through classes of the repository, found by Ruby "
+        "constant lookup) whose own self.table_name, or its STI base "
+        "class's, is this literal.",
+    )
+)
+RAILS_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.active-record-default-table-name",
+        "name_matched",
+        "The class is a concrete ActiveRecord model without self.table_name, "
+        "and this table is ActiveRecord's default name: the class name "
+        "underscored and pluralized with ActiveSupport's English rules, "
+        "prefixed with an enclosing module's table_name_prefix or with the "
+        "singular table name of an enclosing model; an STI subclass shares "
+        "its base class's table. Models with naming settings or under an "
+        "application-wide naming configuration are left out.",
+    )
+)
+RAILS_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.active-record-call",
+        "pattern_matched",
+        "The code calls a query method (where, find, pluck, ...) or a "
+        "persistence method (create, update_all, destroy_all, ...) on a "
+        "constant that Ruby's lexical lookup resolves to an ActiveRecord "
+        "model of the repository. Instance methods and associations are not "
+        "read.",
+    )
+)
+
+
+SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "ruby", "typescript")
+# Rails configuration that changes every default table name.
+RAILS_NAMING_CONFIG = re.compile(
+    rb"active_record\.(?:table_name_prefix|table_name_suffix|pluralize_table_names)"
+    rb"\s*="
+)
 # JDBC URL markers of databases that live and die with one process.
 IN_MEMORY = (":mem:", ":memory:", "jdbc:derby:memory")
 
@@ -320,6 +376,11 @@ def _is_test_source(path):
     return path.startswith("src/test/") or "/src/test/" in path
 
 
+def _is_ruby_test(path):
+    """Rails test and spec trees: test/, spec/ and their nested copies."""
+    return any(part in ("test", "spec") for part in path.split("/")[:-1])
+
+
 def table_name(repo_url, scope, name):
     return f"{repo_url}::{scope or '.'}::db-table::{name}"
 
@@ -457,15 +518,20 @@ class DataContractTool(AnalysisTool):
                 "Files changed during analysis: " + ", ".join(sorted(changed))
             )
         parsers = {}
-        trees, python_trees, script_trees, go_trees = [], [], [], []
+        trees, python_trees, script_trees, go_trees, ruby_trees = [], [], [], [], []
         for file, language, content in sources:
+            if language == "ruby" and _is_ruby_test(file):
+                continue
             suffix = ".tsx" if file.endswith(".tsx") else ""
             if (language, suffix) not in parsers:
                 parsers[language, suffix] = make_parser(language, suffix)
             tree = parsers[language, suffix].parse(content)
-            {"java": trees, "python": python_trees, "go": go_trees}.get(
-                language, script_trees
-            ).append((file, content, tree))
+            {
+                "java": trees,
+                "python": python_trees,
+                "go": go_trees,
+                "ruby": ruby_trees,
+            }.get(language, script_trees).append((file, content, tree))
         constants, seen = {}, set()
         for _, content, tree in trees:
             for qualified, fields in java_constants(tree, content).items():
@@ -917,6 +983,73 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        # Rails: db/schema.rb tables, ActiveRecord models and their calls.
+        ruby_classes, ruby_prefixes, ruby_accesses = [], {}, []
+        rails_overridden = False
+        inflections = RAILS_ENGLISH.copy()
+        for file, content, tree in ruby_trees:
+            found = extract_ruby_models(tree, content, file, result.definitions)
+            ruby_classes.extend(found[0])
+            ruby_prefixes.update(found[1])
+            ruby_accesses.extend(found[2])
+            for name, line in found[3]:
+                link(
+                    "DECLARES",
+                    code(file, None),
+                    table(file, name),
+                    RAILS_SCHEMA_RULE,
+                    {"line": line},
+                )
+            if file.startswith("config/") or "/config/" in file:
+                if RAILS_NAMING_CONFIG.search(content) or not (
+                    apply_rails_inflections(tree, content, inflections)
+                ):
+                    rails_overridden = True
+        rails_tables, rails_unresolved = resolve_active_record(
+            ruby_classes, ruby_prefixes, rails_overridden, inflections
+        )
+        ruby_by_path = {}
+        for c in ruby_classes:
+            ruby_by_path.setdefault(c.path, []).append(c)
+        rails_targets = {}
+        for path, (name, how) in rails_tables.items():
+            model = next(
+                (c for c in ruby_by_path[path] if c.superclass), ruby_by_path[path][0]
+            )
+            target = table(model.file, name)
+            rails_targets[path] = target
+            if model.class_id is not None:
+                link(
+                    "MAPS_TO",
+                    symbol(model.class_id),
+                    target,
+                    RAILS_TABLE_RULE if how == "explicit" else RAILS_DEFAULT_RULE,
+                    {"line": model.line, "column": model.column},
+                )
+        ruby_names = ruby_namespaces(ruby_by_path)
+        rails_counts = {"linked": 0, "not_a_model": 0}
+        for access in ruby_accesses:
+            path = resolve_ruby_constant(
+                access.constant, access.nesting, ruby_by_path, ruby_names
+            )
+            if path not in rails_targets:
+                rails_counts["not_a_model"] += 1
+                continue
+            rails_counts["linked"] += 1
+            source = code(access.file, access.caller_id)
+            for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        rails_targets[path],
+                        RAILS_ACCESS_RULE,
+                        {
+                            "model": path,
+                            "line": access.line,
+                            "column": access.column,
+                        },
+                    )
         files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
             [
@@ -979,10 +1112,14 @@ class DataContractTool(AnalysisTool):
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
                     "orm_access_resolution": orm_counts,
-                    "scope": "tables from CREATE TABLE, JPA, Django and "
-                    "SQLAlchemy mappings, read and written by repositories, "
-                    "manager and session calls and the SQL text Java code runs; "
-                    "per datasource URL or nearest package",
+                    "active_record_models": len(rails_tables),
+                    "active_record_unresolved": len(rails_unresolved),
+                    "active_record_access_resolution": rails_counts,
+                    "scope": "tables from CREATE TABLE, Prisma schemas, "
+                    "Rails schema files and JPA, Django, SQLAlchemy, GORM, "
+                    "TypeORM and ActiveRecord mappings, read and written by "
+                    "repositories, ORM calls and the SQL text code runs; per "
+                    "datasource URL or nearest package",
                 },
             ),
         )
