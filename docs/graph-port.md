@@ -154,6 +154,7 @@ arbitrary object gets no edge.
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` where `x` is declared in the function around the call and the innermost visible declaration writes a named type: a parameter, receiver or named result (`c *Command`), `var x T`, a typed `const`, or `x := T{...}`, `&T{...}`, `new(T)` or `make(T)`. It links to the method `M` declared on `T`, in the caller's package or, for `pkg.T`, in the package the file imports as `pkg`. Methods promoted from embedded fields are not followed, and a function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
+| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
@@ -169,7 +170,10 @@ and reason. The `calls` capability is not advertised, so an empty callers or
 callees result still says the relation was unsupported or unobserved.
 
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
-at the callee name.
+at the callee name, matched as a whole identifier after the call's column. On
+Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
+8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
+`tree-sitter.python-call-typed-receiver` links 85, all confirmed.
 
 ## Declaration nesting
 
@@ -1998,7 +2002,35 @@ the same way. A `configurationFile` (JSON or YAML) supplies settings under the
 pom's own. Without `apiPackage`, the generator's default applies
 (`org.openapitools.api` for spring, `org.openapitools.client.api` for java).
 
-Gradle builds are not read yet.
+Gradle builds that apply `org.openapi.generator` are read the same way
+(`deepthought.service_contracts.openapi_gradle`): the `openApiGenerate { }`
+block and each task of type `GenerateTask` (Groovy `task x(type: ...)`,
+Kotlin `tasks.register<GenerateTask>`, `tasks.register("x", GenerateTask::class)`
+and `by tasks.registering(GenerateTask::class)`), with comments skipped.
+
+A setting is read when it is written `name = value`, `name.set(value)` or
+`name value` at the block's top level, and its value is one of:
+- a string literal (`.toString()` allowed), with `$rootDir`, `$projectDir`
+  and their `${...}`/`project.`/`rootProject.` forms replaced; the root is
+  the nearest `settings.gradle(.kts)`, and a relative `inputSpec` is
+  relative to the project directory;
+- a boolean;
+- for `configOptions`, a Groovy map literal or a Kotlin `mapOf(... to ...)`.
+
+Any other value of a setting that matters (generator, spec, package,
+library, name affixes, options) makes the task `openapi:config_not_literal`.
+The plugin version comes from a `plugins { id ... version ... }` block in
+the build or its settings, or from a buildscript
+`openapi-generator-gradle-plugin` classpath, with `gradle.properties`
+values from the root down to the project replaced.
+
+Checked on three public builds; each one is read as written:
+
+| Build | Read as | Outcome |
+|---|---|---|
+| Guardian-Development/contract-first-service (`7be7d87`) | spring, plugin 4.3.1 | `generator_version` |
+| maschnetwork/openapi-code-generator (`d2ebb3a`) | kotlin-spring, a relative spec | `not_spring_server` |
+| The plugin's own `samples/local-spec` (v7.4.0) | all 5 tasks, version from `gradle.properties` | kotlin, go and csharp are not read; the java client is read |
 
 #### Generated Java clients
 
@@ -2242,6 +2274,63 @@ all have the configured destination. The other 5 are unread, not wrong:
 Samples without a `spring.application.name` are not services here and give
 nothing.
 
+#### Services that Compose builds
+
+A Compose service whose `build` context is a module's directory runs that
+module (`deepthought.service_contracts.compose`). Each Compose file is a
+deployment of its own, and every file name of the `compose*.yml` /
+`docker-compose*.yml` family counts, `docker-compose-kafka.yml` included.
+Such a module is a running service even without its own
+`spring.application.name`, and its name is, in this order:
+
+1. its own `spring.application.name`;
+2. the name every Compose service that builds it gives it:
+   `SPRING_APPLICATION_NAME`, or `spring.application.name` read under the
+   service's active profiles in its `SPRING_CONFIG_LOCATION` files;
+3. the Compose services' name, when they all have the same one;
+4. the module's directory name, when they have several (for example the
+   replicas `product` and `product-p1`).
+
+Message edges of Spring Cloud Stream sites record which step applied as
+`service_identity_rule`: `service-contracts.service-spring-application-name`,
+`service-compose-name` or `service-module-name`. They also record the
+Compose services that deploy them as `deployed_as` (`file:service`).
+
+`SPRING_CONFIG_LOCATION` entries are followed to repository files.
+- A `file:` entry goes through the service's bind mounts. A relative
+  source is relative to the Compose file, and `$PWD` is taken to be the
+  Compose file's directory.
+- A `classpath:` entry is looked up in the module's resources.
+- An `optional:` entry that does not exist is skipped.
+
+When every Compose service that builds the module sets a location, the
+module's own config files are not read, as at run time.
+
+The binder keys are then read per Compose service, with its
+`SPRING_PROFILES_ACTIVE`: the last document that applies decides. So a
+binding gives one endpoint per broker its deployments use, each with its
+own `deployed_as`. A service is `binder_unknown` when:
+- its profiles or location are not literal;
+- a profile expression decides the value;
+- its location cannot be followed.
+
+Environment overrides of other keys are not read.
+
+On PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition (commit `db9e0fa`)
+(Chapter07 and Chapter23), the three core services had been `no_service`,
+since neither chapter sets a name in the module config. Each now consumes
+its destination twice:
+- on RabbitMQ, in `docker-compose.yml` and `docker-compose-partitions.yml`;
+- on Kafka, in `docker-compose-kafka.yml`, whose `kafka` profile switches
+  the default binder.
+
+Chapter23 takes the names (`product`, `recommendation`, `review`) and
+destinations from `config-repo/` through the mounted config location.
+Chapter07 has replicas under two names, so its services are named after
+their module directories. No edges changed on the gated corpora,
+spring-petclinic-rest, train-ticket or the stream samples, apart from the
+two new properties.
+
 ### Validation
 
 `tools/check_contracts_ground_truth.py CORPUS.json CHECKOUT` scores the tool
@@ -2342,6 +2431,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-default-table-name` | name_matched | an Eloquent model without `$table`: Laravel's `Str::snake(Str::pluralStudly(class_basename))`, the last word pluralized by doctrine/inflector 2.0's English rules (`PlaylistFolder` is `playlist_folders`, `Person` is `people`); a `Pivot` without `$table` is left unresolved, because Laravel names it from the relation |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.eloquent-call` | pattern_matched | a static call `Model::method(...)` on an Eloquent model, reading (`find`, `where`, `all`, `first`, `count`, ...) or writing (`create`, `insert`, `upsert`, `destroy`, `updateOrCreate`, ...); a reading start whose chain reaches `update`, `delete`, `increment`, ... also WRITES |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.laravel-db-table` | pattern_matched | `DB::table('name')` (`Illuminate\Support\Facades\DB`) with a fixed string, its alias (`as x`) and schema dropped, READS, and WRITES when the chain reaches a writing method |
+| File -[:DECLARES]-> DbTable | `data-contracts.sequelize-migration-table` | pattern_matched | `createTable('name', ...)` or `createTable({ tableName })`, or the new name of `renameTable`, called on `queryInterface` or `getQueryInterface()` with a fixed name, as Sequelize migrations do; the receiver is not type-checked |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.sequelize-table-name` | pattern_matched | a Sequelize model with a fixed `tableName` option: a class whose `extends` chain reaches `Model` of `sequelize`, `@sequelize/core` or `sequelize-typescript` and that is decorated with `@Table` or initialized by `X.init(attributes, options)` in its file, or a `define('Name', attributes, options)` call in a file importing Sequelize or on a receiver named `sequelize`; the edge starts at the class, else at the declaration holding the `define` |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.sequelize-default-table-name` | name_matched | a Sequelize model without `tableName`: Sequelize 6's name, the model name (`modelName`, else the class or `define` name) pluralized by the inflection package 1.13.4 (`Person` is `People`), underscored with `underscored` (`user_profiles`) and kept with `freezeTableName`, the model's options over the `define` options of `new Sequelize` or `config/config.json`; options that are not literals, spread, or set differently in several places leave the name unresolved |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sequelize-call` | pattern_matched | a static query (`findAll`, `findOne`, `findByPk`, `count`, ...) or persistence (`create`, `bulkCreate`, `update`, `destroy`, `upsert`, ...) method, `findOrCreate` both, on a model named by a local or imported binding (`User.findAll`, `db.User.create`, `sequelize.models.user.count`): the one model with that model, class or variable name in the caller's namespace, else in the repository |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2350,6 +2443,7 @@ component roll-up like HTTP routes and message destinations:
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and relative imports, aliases, re-exports and `export *` included, while a package import, a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.php-sql` | pattern_matched | SQL starting with a reading or writing verb passed to a PDO or mysqli `query`, `prepare` or `exec` method, a Doctrine DBAL `execute*`, `fetch*` or `iterate*` method, a `mysqli_*` or `pg_*` query function, or Laravel's `DB::select`, `DB::statement` and the like (also on `DB::connection(...)`): string literals, heredocs and nowdocs, `.` joins and `sprintf` templates (interpolated parts unfixed), or a local variable built from them; a variable's text is its last assignment in a block enclosing the call, or of an `if`/`else` whose every branch assigns it, plus every later assignment in a branch (each an alternative) and every `.=` append; the receiver is not type-checked |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed as `full_table_name_prefix` does: with the literal `table_name_prefix` of the innermost enclosing module that defines one or of the innermost enclosing model, else with the class's own (a `self.table_name_prefix` method or literal assignment, inherited from its superclasses), or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
@@ -2379,6 +2473,11 @@ through expressions other than a declared variable, named queries and other pers
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
 `tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
+The tool reads at most 10,000 source files by default (`graph index --tool
+data-contracts --max-files N` raises it). When a file count or byte limit
+stops the walk, the run is `partial`, the `source_limits` metric names the
+limit, and a warning says tables, models and calls in the unread files are
+missing.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2524,6 +2623,29 @@ another statement. Four grep lines are calls the tool reports at the line
 where their chain starts, and it also links one chain that `grep` misses
 because it spans lines.
 
+On outline/outline `fd66b5e`, all 42 sequelize-typescript `@Table` models
+are mapped. Their superclasses (`ParanoidModel`, `IdModel`, and a local
+`Model` over sequelize-typescript's) resolve through relative imports and
+the `@server/*` alias of `tsconfig.json`; a second `ParanoidModel` in the
+frontend is never taken. The 41 tables (`Document` and `Template` share
+`documents`) are all created by the baseline `schema.sql` or a
+`createTable` migration. The tool links 1,862 static calls. A single-line
+`grep` for the mapped class names followed by a Sequelize method finds 1,854
+lines, and the tool links all of them but one, a model taken from a
+dynamic `await import(...)`. Its 9 extra lines are calls with type
+arguments (`Import.findAll<Import<any>>(`). The 133 calls not linked are on
+other classes (`TextSelection.create`, `Metrics.count`, ...). On
+TonyMckes/conduit-realworld-example-app `5e127d8` the 4 `Model.init` models
+get their default names (`Users`, `Articles`, ...), and each is one its
+migrations create; its 23 calls are the lines `grep` finds. In
+cirosantilli/node-express-sequelize-nextjs-realworld-example-app `b7f8b80`,
+the `define: { freezeTableName: true }` given to `new Sequelize` keeps the 6
+`define` model names as tables, and its 65 calls are the lines `grep`
+finds. The `through` tables of `belongsToMany`, instance methods, and
+`beforeDefine` hooks are not read. The pluralization port gives the
+inflection package's own result for all 45 `pluralize` and `underscore`
+cases of its test suite.
+
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
 they map is one its migrations create. One `Pivot` without `$table` is left
 unresolved, and classes extending vendor bases other than Eloquent's are not
@@ -2550,6 +2672,20 @@ unresolved. Over the whole repository, including Django's test apps, 1,580
 models give 1,697 tables in 33 s. 3,578 manager calls are linked, and 7,472
 are left unlinked because the class name is not a model or names several
 models.
+
+On FreshRSS/FreshRSS `fa16ffd` the PHP rule reads 82 statements: 64 name
+fixed tables (`_entry`, `_feed`, `_category`, `_tag`, `_entrytag`), 16 are
+in a bundled SimplePie cache that joins a configured prefix to every name,
+and 2 name no table (`SELECT 1`). A single-line `grep` for `->query(`,
+`->prepare(`, `->exec(` and the other methods finds 127 lines, every one of
+the 82 among them. Of the 45 the tool does not take, 12 are XPath queries
+and the rest run DDL or session statements (`ALTER`, `CREATE`, `PRAGMA`,
+`ANALYZE`, `SET`), or SQL that an application helper builds
+(`sqlIgnoreConflict($sql)`, `str_replace`) or that arrives as a parameter.
+On pixelfed and koel the 5 and 4 `DB::select`/`DB::statement` statements
+with SQL verbs are read; their other `DB::statement` calls are DDL. Tables
+qualified with a schema (`information_schema.tables`) give the bare name,
+as everywhere in the SQL reader.
 
 On Apache Superset's `superset/` package, outside its Alembic migrations,
 the tool maps 39 classes through `__tablename__`. `grep` for

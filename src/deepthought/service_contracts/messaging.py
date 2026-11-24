@@ -46,6 +46,10 @@ class MessageEndpoint:
     client: str
     module: str | None = None
     service: str | None = None
+    # How the running service is named (SpringConfig.identity), and the
+    # Compose services ("file:name") that deploy it, for Spring Cloud Stream.
+    service_identity: str | None = None
+    deployed_as: tuple = ()
 
 
 @dataclass(frozen=True)

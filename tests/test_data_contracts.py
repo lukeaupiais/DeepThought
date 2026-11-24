@@ -1060,6 +1060,34 @@ end
 }
 
 
+class SourceLimitTests(unittest.TestCase):
+    def test_file_limit_is_reported_and_can_be_raised(self):
+        files = {
+            f"app/models/m{i}.rb": f"class M{i} < ActiveRecord::Base\nend\n"
+            for i in range(3)
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            capped = asyncio.run(
+                DataContractTool(directory, max_files=2).analyze(
+                    "r", languages=["ruby"]
+                )
+            )
+            full = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        metrics = capped.metadata.custom_metrics
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertEqual(metrics["source_limits"], ["file_count_limit"])
+        self.assertEqual(metrics["active_record_models"], 2)
+        self.assertTrue(
+            any("max_files=2" in w for w in capped.metadata.warnings),
+            capped.metadata.warnings,
+        )
+        self.assertEqual(full.metadata.custom_metrics["source_limits"], [])
+        self.assertEqual(full.metadata.custom_metrics["active_record_models"], 3)
+
+
 class RailsTests(unittest.TestCase):
     def test_inflector_matches_active_support(self):
         from deepthought.data_contracts import (
@@ -1618,6 +1646,224 @@ class Library
 }
 """,
 }
+
+
+SEQUELIZE = {
+    "package.json": '{"name": "shop"}',
+    "tsconfig.json": """{
+  // Comments and trailing commas, as tsconfig allows.
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@server/*": ["./server/*"], },
+  },
+}
+""",
+    "migrations/20240101-create.js": """\
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("Users", {});
+    await queryInterface.createTable({ tableName: "line_items" }, {});
+    await queryInterface.renameTable("Tags", "labels");
+    await somethingElse.createTable("not_a_table", {});
+  },
+};
+""",
+    "server/db.js": """\
+const { Sequelize } = require("sequelize");
+const sequelize = new Sequelize("sqlite::memory:", {
+  define: { underscored: true },
+});
+module.exports = sequelize;
+""",
+    "server/models/user.js": """\
+const { Model, DataTypes } = require("sequelize");
+module.exports = (sequelize) => {
+  class User extends Model {}
+  User.init({ name: DataTypes.STRING }, { sequelize, underscored: false });
+  return User;
+};
+""",
+    "server/models/tag.js": """\
+module.exports = (sequelize, DataTypes) => {
+  const Tag = sequelize.define("tag", {}, { tableName: "labels" });
+  const Note = sequelize.define("Note", {}, { tableName: dynamicName });
+  return Tag;
+};
+""",
+    "server/models/base/IdModel.ts": """\
+import { Model as SequelizeModel } from "sequelize-typescript";
+class IdModel extends SequelizeModel {}
+export default IdModel;
+""",
+    "app/models/base/IdModel.ts": """\
+export default class IdModel {}
+""",
+    "server/models/LineItem.ts": """\
+import { Table } from "sequelize-typescript";
+import IdModel from "@server/models/base/IdModel";
+
+@Table({ modelName: "LineItem" })
+class LineItem extends IdModel {}
+export default LineItem;
+""",
+    "server/routes/orders.js": """\
+const db = require("../models");
+const { User } = require("../models");
+const Widget = require("./widget");
+
+async function checkout(sequelize) {
+  const user = await User.findByPk(1);
+  await db.LineItem.bulkCreate([]);
+  await sequelize.models.tag.findOrCreate({ where: {} });
+  await Widget.create({});
+  await user.save();
+}
+module.exports = { checkout };
+""",
+}
+
+
+class SequelizeTests(unittest.TestCase):
+    def test_default_names_match_sequelize(self):
+        from deepthought.data_contracts import (
+            inflection_pluralize,
+            inflection_underscore,
+            sequelize_table_name,
+        )
+
+        for word, plural in (
+            ("person", "people"),
+            ("Category", "Categories"),
+            ("status", "statuses"),
+            ("analysis", "analyses"),
+            ("news", "news"),
+            ("men", "men"),
+            ("datum", "data"),
+            ("bus", "buses"),
+        ):
+            self.assertEqual(inflection_pluralize(word), plural)
+        self.assertEqual(
+            inflection_underscore("MessageProperties"), "message_properties"
+        )
+        self.assertEqual(sequelize_table_name("UserProfile"), "UserProfiles")
+        self.assertEqual(
+            sequelize_table_name("UserProfile", underscored=True), "user_profiles"
+        )
+        self.assertEqual(
+            sequelize_table_name("UserProfile", freeze=True), "UserProfile"
+        )
+
+    def test_migrations_models_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SEQUELIZE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["javascript", "typescript"]
+                )
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("model"),
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("DECLARES", "labels", "sequelize-migration-table", None),
+                ("DECLARES", "line_items", "sequelize-migration-table", None),
+                ("DECLARES", "users", "sequelize-migration-table", None),
+                ("MAPS_TO", "labels", "sequelize-table-name", "tag"),
+                ("MAPS_TO", "line_items", "sequelize-default-table-name", "LineItem"),
+                ("MAPS_TO", "users", "sequelize-default-table-name", "User"),
+                ("READS", "labels", "sequelize-call", "tag"),
+                ("READS", "users", "sequelize-call", "User"),
+                ("WRITES", "labels", "sequelize-call", "tag"),
+                ("WRITES", "line_items", "sequelize-call", "LineItem"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["sequelize_models"], 3)
+        self.assertEqual(metrics["sequelize_unresolved"], 1)
+        self.assertEqual(
+            metrics["sequelize_access_resolution"], {"linked": 3, "not_a_model": 1}
+        )
+
+
+PHP_SQL = {
+    "app/Dao/EntryDao.php": """\
+<?php
+namespace App\\Dao;
+
+use Illuminate\\Support\\Facades\\DB;
+
+class EntryDao
+{
+    public function save($pdo, $id, $checked)
+    {
+        $stm = $pdo->prepare('UPDATE `_entry` SET read = 1 WHERE id = ?');
+        $sql = <<<'SQL'
+            SELECT * FROM `_feed`
+            SQL;
+        $sql .= ' WHERE id = :id';
+        $pdo->query($sql);
+        if ($checked) {
+            $sql = "INSERT INTO entry_tags(id) VALUES ({$id})";
+        } else {
+            $sql = 'DELETE FROM entry_tags WHERE id = ' . $id;
+        }
+        $pdo->exec($sql);
+        $sql = 'SELECT * FROM categories';
+        $pdo->query($sql);
+        mysqli_query($link, sprintf('SELECT * FROM %s WHERE a = 1', $table));
+        pg_query("SELECT * FROM accounts");
+        DB::select('select * from users where active = ?', [1]);
+        DB::connection('audit')->statement('DELETE FROM audit_log');
+        $xpath->query('//item');
+        $request->query('page');
+    }
+}
+""",
+}
+
+
+class PhpSqlTests(unittest.TestCase):
+    def test_sql_text_in_pdo_mysqli_pg_and_db_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PHP_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["php"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["line"],
+            )
+            for r in output.relationships
+            if r.properties.get("rule_id") == "data-contracts.php-sql"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("READS", "_feed", 15),
+                ("READS", "accounts", 25),
+                ("READS", "categories", 23),
+                ("READS", "users", 26),
+                ("WRITES", "_entry", 10),
+                ("WRITES", "audit_log", 27),
+                # Either branch's text may run: both write entry_tags.
+                ("WRITES", "entry_tags", 21),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sql_text"],
+            {"statements": 8, "not_fixed": 1, "unknown_entity": 0},
+        )
 
 
 class LaravelTests(unittest.TestCase):
