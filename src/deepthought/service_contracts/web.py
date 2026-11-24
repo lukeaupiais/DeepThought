@@ -16,6 +16,7 @@ from ..syntax import identifier
 from .folding import Folder, text
 from .http import ANY_METHOD, HTTP_METHODS, PLACEHOLDER, join_paths
 from .model import HttpRequest, HttpRoute, Unread
+from .stomp_clients import stomp_names, value_kind
 
 _VERBS = {m.lower(): m for m in HTTP_METHODS}
 _PY_FRAMEWORKS = {
@@ -400,9 +401,18 @@ _WEBSOCKET_CLIENTS = {
 
 
 def _websocket_client(node, modules, content):
-    """The client a ``new WebSocket(url)`` or ``new SockJS(url)`` opens, or
-    None: the constructor is the global or imported from its module."""
-    constructor = node.child_by_field_name("constructor")
+    """The client a ``new WebSocket(url)`` or ``new SockJS(url)`` (or
+    ``SockJS(url)``, which SockJS allows) opens, or None: the constructor is
+    the global or imported from its module."""
+    if node.type == "call_expression":
+        constructor = node.child_by_field_name("function")
+        if constructor is None or text(constructor, content) not in (
+            "SockJS",
+            *(n for n, m in modules.items() if m == "sockjs-client"),
+        ):
+            return None
+    else:
+        constructor = node.child_by_field_name("constructor")
     if constructor is None or constructor.type != "identifier":
         return None
     written = text(constructor, content)
@@ -499,6 +509,41 @@ def _returned(function):
     return found
 
 
+def _stomp_handshake(context, node, modules, stomp):
+    """The WebSocket handshake a STOMP client's options name: ``brokerURL``
+    given to a ``@stomp/stompjs`` ``Client`` or ``RxStomp`` constructor or
+    ``configure``, or the SockJS ``host`` given to an ng2-stomp-service
+    ``configure``."""
+    content = context.content
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None:
+        return
+    positional = [c for c in arguments.named_children if c.type != "comment"]
+    if not positional or positional[0].type != "object":
+        return
+    if node.type == "new_expression":
+        kind = value_kind(node, content, modules)
+    elif node.type == "call_expression":
+        function = node.child_by_field_name("function")
+        if (
+            function.type != "member_expression"
+            or text(function.child_by_field_name("property"), content) != "configure"
+        ):
+            return
+        kind = stomp.get(text(function.child_by_field_name("object"), content))
+    else:
+        return
+    options = _js_object(positional[0], content)
+    if kind in ("stompjs", "rx-stomp") and "brokerURL" in options:
+        value, client = options["brokerURL"], "websocket"
+    elif kind == "ng2-stomp-service" and "host" in options:
+        value, client = options["host"], "sockjs"
+    else:
+        return
+    url = _browser_url(context.folder.evaluate(value))
+    context.request(value, "GET", url, client)
+
+
 def extract_angular(context, modules):
     """Requests of Angular's ``HttpClient`` (``get``/``post``/... and
     ``request(method, url)``) and ``httpResource`` (and its ``text``,
@@ -589,7 +634,9 @@ def extract_javascript(context, nest=None):
             )
         )
 
+    stomp = stomp_names(root, content, modules) if b"tomp" in content else {}
     for node in _walk(root):
+        _stomp_handshake(context, node, modules, stomp)
         if node.type == "new_expression":
             socket = _websocket_client(node, modules, content)
             arguments = node.child_by_field_name("arguments")
@@ -610,6 +657,11 @@ def extract_javascript(context, nest=None):
             continue
         positional = [c for c in arguments.named_children if c.type != "comment"]
         written = text(function, content)
+        socket = _websocket_client(node, modules, content)
+        if socket is not None and positional:
+            url = _browser_url(context.folder.evaluate(positional[0]))
+            context.request(node, "GET", url, socket)
+            continue
         if function.type == "member_expression":
             owner = text(function.child_by_field_name("object"), content)
             verb = text(function.child_by_field_name("property"), content)
