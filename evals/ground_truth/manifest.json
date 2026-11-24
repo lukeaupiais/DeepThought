@@ -55,6 +55,26 @@
       "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv"
     },
     {
+      "name": "chi",
+      "url": "https://github.com/go-chi/chi",
+      "commit": "c64ed7d6635f33a8b2feaff7dcfa55677023ac7d",
+      "license": "MIT",
+      "languages": [
+        "go"
+      ],
+      "exclude": [
+        "_examples/*"
+      ],
+      "truth": "calls/chi.tsv",
+      "oracle": "scip-go 0.1.26, go 1.24.7",
+      "oracle_command": "scip-go",
+      "imports": "imports/chi.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
+      "imports_granularity": "directory",
+      "impact": "impact/chi.tsv",
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/chi.tsv HISTORY --language go --revision c64ed7d6635f33a8b2feaff7dcfa55677023ac7d --spans spans.tsv"
+    },
+    {
       "name": "anyhow",
       "url": "https://github.com/dtolnay/anyhow",
       "commit": "c89c9b82b155f701a20eb4a9d3609ad09df5a62f",

@@ -29,10 +29,13 @@ class TrackReplayTests(unittest.TestCase):
         manifest = json.loads((track_replay.CORPUS / "manifest.json").read_text())
         names = {c["name"] for c in manifest["corpora"]}
         self.assertTrue(history)
+        # Entries are never rewritten, so one recorded before a corpus was
+        # pinned leaves it out; the latest entry covers every corpus.
+        self.assertEqual(set(history[-1]["corpora"]), names)
         for entry in history:
             self.assertTrue(entry["label"])
             self.assertRegex(entry["engine_commit"], r"^[0-9a-f]{40}$")
-            self.assertEqual(set(entry["corpora"]), names)
+            self.assertLessEqual(set(entry["corpora"]), names)
             for scores in entry["corpora"].values():
                 self.assertEqual(set(scores), {"cases", "impact", "search"})
 
