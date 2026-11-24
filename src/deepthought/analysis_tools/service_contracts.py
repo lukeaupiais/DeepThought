@@ -10,6 +10,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 """
 
 from hashlib import sha256
+from pathlib import PurePosixPath
 import importlib.util
 import re
 import time
@@ -18,18 +19,23 @@ from .._version import __version__
 from ..engine import analyze_repository
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
+from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.http import PLACEHOLDER
+from ..service_contracts.messaging import (
+    MessageEndpoint,
+    MessageUnread,
+    extract_messaging,
+)
 from ..service_contracts.openapi import generated_spring_apis
-from ..service_contracts.messaging import extract_messaging
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
     extract_spring,
     java_constants,
 )
-from ..service_contracts.web import extract_web
-from ..syntax import make_parser
+from ..service_contracts.web import extract_web, nest_settings
+from ..syntax import identifier, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
     NodeData,
@@ -80,6 +86,18 @@ ROUTE_RULES = {
             "A method call (get, post, ..., all) on an Express app or Router bound "
             "once in the file from the express module declares this path; a "
             "prefix given to app.use is not read.",
+        )
+    ),
+    "nestjs": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-route",
+            "pattern_matched",
+            "A method of a class decorated @Controller(path) carries a route "
+            "decorator (@Get, @Post, ..., @All) imported from @nestjs/common; "
+            "the literal controller and method paths are joined under the "
+            "package's single literal setGlobalPrefix, if any. Versioned "
+            "routes, RouterModule paths and prefixes with exclusions are not "
+            "read.",
         )
     ),
     "go-net-http": register_rule(
@@ -170,6 +188,22 @@ MESSAGE_RULES = {
         "that receives this destination: the default exchange keyed with the "
         "queue name, or a QueueBind of that queue in the same file." + _SAME_NAME,
     ),
+    ("spring-cloud-stream", "publish"): _message_rule(
+        "service-contracts.spring-cloud-stream-output",
+        "Code sends to a Spring Cloud Stream binding (Source.output(), @SendTo "
+        "or StreamBridge.send) in a service that runs it (its own module, or a "
+        "module whose pom.xml depends on it), and that service binds the "
+        "binding to this destination by spring.cloud.stream.bindings.<name>."
+        "destination, or by the binding's name, through its Kafka or RabbitMQ "
+        "binder." + _SAME_NAME,
+    ),
+    ("spring-cloud-stream", "consume"): _message_rule(
+        "service-contracts.spring-cloud-stream-listener",
+        "A @StreamListener method listens on a Spring Cloud Stream binding in a "
+        "service that runs it, and that service binds the binding to this "
+        "destination by spring.cloud.stream.bindings.<name>.destination, or by "
+        "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
+    ),
 }
 
 REQUEST_RULES = {
@@ -249,6 +283,78 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+def _stream_endpoints(root, config, sites, repo_url):
+    """Message endpoints of Spring Cloud Stream binding sites, one per
+    service that runs the code (see ``service_contracts.cloud_stream``)."""
+    if not sites:
+        return [], []
+    maven = MavenModules(root)
+    endpoints, unread = [], []
+    for site in sites:
+        module = _module_root(root, site.file)
+        if module is None:
+            unread.append(MessageUnread(site.file, site.line, site.role, "no_module"))
+            continue
+        module = module.as_posix()
+        if config.service(site.file)[0] is not None:
+            deploying = [module]
+        else:
+            deploying = [
+                m
+                for m in maven.dependents(module)
+                if config.service(f"{m}/pom.xml")[0] is not None
+            ]
+        if not deploying:
+            unread.append(MessageUnread(site.file, site.line, site.role, "no_service"))
+        for current in deploying:
+            marker = f"{current}/pom.xml"
+            service = config.service(marker)[0]
+            binder = maven.binder(current)
+            if binder is None:
+                unread.append(
+                    MessageUnread(site.file, site.line, site.role, "binder_unknown")
+                )
+                continue
+            configured = config.values(
+                marker, f"spring.cloud.stream.bindings.{site.binding}.destination"
+            )
+            if not configured:
+                destination = site.binding
+            elif len(configured) == 1 and "${" not in configured[0]:
+                destination = configured[0]
+            else:
+                unread.append(
+                    MessageUnread(
+                        site.file, site.line, site.role, "destination_not_literal"
+                    )
+                )
+                continue
+            if binder == "amqp":
+                destination += "/#"
+            endpoints.append(
+                MessageEndpoint(
+                    id=identifier(
+                        repo_url,
+                        site.file,
+                        f"{site.role} {service} {site.binding} {site.line}",
+                        "MessageEndpoint",
+                        0,
+                    ),
+                    file=site.file,
+                    line=site.line,
+                    column=site.column,
+                    declaration_id=site.declaration_id,
+                    role=site.role,
+                    broker=binder,
+                    destination=destination,
+                    client="spring-cloud-stream",
+                    module=None if current == module else current,
+                    service=None if current == module else service,
+                )
+            )
+    return endpoints, unread
+
+
 def _gateways(root, config, sources):
     """Gateway routes: Spring Cloud Gateway routes in the configuration of
     the analyzed Java files' modules, and nginx proxy locations in ``*.conf``
@@ -305,6 +411,46 @@ def _is_test_source(path):
         or name.endswith("_test.py")
         or re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", name) is not None
     )
+
+
+def _node_package(root, file):
+    """The nearest directory above ``file`` with a package.json, or None."""
+    path = PurePosixPath(file).parent
+    while True:
+        if (root / path / "package.json").is_file():
+            return path.as_posix()
+        if path == path.parent:
+            return None
+        path = path.parent
+
+
+def _nest_applications(root, sources):
+    """(global prefix, unread reason) of each Node package's NestJS
+    application, from the setGlobalPrefix, enableVersioning and RouterModule
+    calls of its TypeScript files: one literal prefix applies to every route
+    of the package; anything else makes its routes unread."""
+    settings = {}
+    for coverage, content, tree in sources:
+        if coverage.language != "typescript" or not any(
+            needle in content
+            for needle in (b"setGlobalPrefix", b"enableVersioning", b"RouterModule")
+        ):
+            continue
+        package = _node_package(root, coverage.file)
+        settings.setdefault(package, []).extend(
+            nest_settings(tree, content, coverage.language)
+        )
+    found = {}
+    for package, facts in settings.items():
+        reasons = sorted({v for k, v in facts if k == "unread"})
+        prefixes = {v for k, v in facts if k == "prefix"}
+        if reasons:
+            found[package] = (None, reasons[0])
+        elif len(prefixes) > 1:
+            found[package] = (None, "global_prefix_ambiguous")
+        else:
+            found[package] = (next(iter(prefixes), None), None)
+    return found
 
 
 def _go_packages(definitions):
@@ -372,7 +518,7 @@ class ServiceContractTool(AnalysisTool):
         )
         root = self.repo_path.resolve()
         routes, requests, unread = [], [], []
-        endpoints, messaging_unread = [], []
+        endpoints, messaging_unread, stream_sites = [], [], []
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -438,6 +584,7 @@ class ServiceContractTool(AnalysisTool):
                 return configured[0]
             return None
 
+        nest = _nest_applications(root, sources)
         for coverage, content, tree in sources:
             if coverage.language == "java":
                 service, context_path = config.service(coverage.file)
@@ -461,6 +608,7 @@ class ServiceContractTool(AnalysisTool):
                     result.definitions,
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
+                    nest=nest.get(_node_package(root, coverage.file)),
                 )
             routes.extend(found[0])
             requests.extend(found[1])
@@ -482,6 +630,15 @@ class ServiceContractTool(AnalysisTool):
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])
+            if coverage.language == "java" and b"cloud.stream" in content:
+                found = extract_stream(
+                    tree, content, coverage.file, result.definitions, constants
+                )
+                stream_sites.extend(found[0])
+                messaging_unread.extend(found[1])
+        found = _stream_endpoints(root, config, stream_sites, repo_url)
+        endpoints.extend(found[0])
+        messaging_unread.extend(found[1])
         if changed:
             raise ValueError(
                 "Files changed during analysis: " + ", ".join(sorted(changed))
@@ -774,6 +931,12 @@ class ServiceContractTool(AnalysisTool):
                         "client": endpoint.client,
                         "line": endpoint.line,
                         "column": endpoint.column,
+                        **({"service": endpoint.service} if endpoint.service else {}),
+                        **(
+                            {"service_module": endpoint.module}
+                            if endpoint.module
+                            else {}
+                        ),
                         **_evidence(MESSAGE_RULES[(endpoint.client, endpoint.role)]),
                     },
                 )

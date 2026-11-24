@@ -13,7 +13,9 @@
       "oracle": "scip-python 0.6.8",
       "oracle_command": "python -m venv env && env/bin/pip install -e . && PATH=$PWD/env/bin:$PATH scip-python index --project-name click --output index.scip .",
       "inherits": "inherits/click.tsv",
-      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip"
+      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
+      "imports": "imports/click.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language python"
     },
     {
       "name": "ky",
@@ -27,7 +29,9 @@
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "npm install --ignore-scripts && scip-typescript index",
       "inherits": "inherits/ky.tsv",
-      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip"
+      "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
+      "imports": "imports/ky.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript"
     },
     {
       "name": "cobra",
@@ -39,7 +43,10 @@
       ],
       "truth": "calls/cobra.tsv",
       "oracle": "scip-go 0.1.26, go 1.24.7",
-      "oracle_command": "scip-go"
+      "oracle_command": "scip-go",
+      "imports": "imports/cobra.tsv",
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
+      "imports_granularity": "directory"
     },
     {
       "name": "anyhow",
