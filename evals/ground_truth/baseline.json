@@ -278,8 +278,8 @@
       "grpc": {
         "call_sites": {
           "labelled_in_scope": 6,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 6,
+          "true_positive": 6
         },
         "servers": {
           "labelled_in_scope": 6,
@@ -288,8 +288,8 @@
         },
         "service_pairs": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         },
         "streaming": {
           "labelled_in_scope": 3,
