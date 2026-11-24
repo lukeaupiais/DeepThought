@@ -2074,7 +2074,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Flask `<id>`, Express
+  route unread. chi routes (rule `chi-route`) are `Get`/`Post`/`Put`/
+  `Patch`/`Delete`/`Head`/`Options`/`Connect`/`Trace(path, handler)`,
+  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc(path,
+  handler)` (any method) calls on a router made by `chi.NewRouter()`/
+  `chi.NewMux()`, typed `*chi.Mux`, returned by `With(...)` or
+  `Route(prefix, ...)`, or the `chi.Router` parameter of a function literal
+  passed to `Route(prefix, fn)` (the prefix is joined) or `Group(fn)` (no
+  prefix); any other `chi.Router` parameter is a router passed in, as for
+  Gin. chi's `{id}` and `{id:regex}` are route variables and a trailing `*`
+  matches the rest of the path. A handler passed as a method value
+  (`r.Route("/api", api.Routes)`) is not followed. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no
