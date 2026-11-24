@@ -1178,6 +1178,67 @@ class RailsTests(unittest.TestCase):
         )
         self.assertEqual(mapped, ["legacy_orders"])
 
+    def test_class_prefixes_vendored_code_and_call_shorthand(self):
+        files = {
+            "app/models/application_record.rb": (
+                "class ApplicationRecord < ActiveRecord::Base\n"
+                "  self.abstract_class = true\nend\n"
+            ),
+            "app/models/gdpr_delete_request.rb": (
+                "class GDPRDeleteRequest < ApplicationRecord\n"
+                '  def self.table_name_prefix\n    "users_"\n  end\nend\n'
+            ),
+            "app/models/users/setting.rb": (
+                "module Users\n  class Setting < ApplicationRecord\n"
+                '    self.table_name_prefix = "users_"\n  end\nend\n'
+            ),
+            "app/models/users/notification_setting.rb": (
+                "module Users\n  class NotificationSetting < Users::Setting\n"
+                "  end\nend\n"
+            ),
+            "app/models/users/base.rb": (
+                "module Users\n  class Base < ApplicationRecord\n"
+                "    self.abstract_class = true\n"
+                '    self.table_name_prefix = "users_"\n  end\nend\n'
+            ),
+            "app/models/users/profile.rb": (
+                "module Users\n  class Profile < Base\n  end\nend\n"
+            ),
+            "app/models/follow.rb": "class Follow < ApplicationRecord\nend\n",
+            "vendor/cache/acts_as_follower/templates/model.rb": (
+                "class Follow < ActiveRecord::Base\nend\n"
+            ),
+            "app/services/list.rb": (
+                "class List\n  def call\n    step.(1)\n    Follow.where(a: 1)\n"
+                "  end\nend\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        mapped = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.type == "MAPS_TO"
+        )
+        self.assertEqual(
+            mapped,
+            [
+                ("Follow", "follows"),
+                ("GDPRDeleteRequest", "users_gdpr_delete_requests"),
+                ("Users.NotificationSetting", "users_settings"),
+                ("Users.Profile", "users_profiles"),
+                ("Users.Setting", "users_settings"),
+            ],
+        )
+        reads = [r for r in output.relationships if r.type == "READS"]
+        self.assertEqual(len(reads), 1)
+
 
 GORM = {
     "go.mod": "module example.com/shop\n\ngo 1.22\n",
@@ -1380,6 +1441,99 @@ class DrizzleTests(unittest.TestCase):
         self.assertEqual(metrics["drizzle_tables"], {"tables": 2, "not_fixed": 1})
         self.assertEqual(
             metrics["drizzle_access_resolution"], {"linked": 4, "not_a_table": 0}
+        )
+
+
+MYBATIS = {
+    "pom.xml": "<project><artifactId>shop</artifactId></project>",
+    "src/main/java/com/shop/OrderMapper.java": """\
+package com.shop;
+
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Select;
+
+public interface OrderMapper {
+    Order find(long id);
+    void place(Order order);
+    java.util.List<Order> search(String table);
+
+    @Select({"SELECT o.* FROM orders o", "JOIN customers c ON c.id = o.customer_id"})
+    java.util.List<Order> withCustomers();
+
+    @Delete("<script>DELETE FROM orders <where><if test='id != null'>id = #{id}</if></where></script>")
+    void purge(Long id);
+}
+""",
+    "src/main/resources/com/shop/OrderMapper.xml": """\
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shop.OrderMapper">
+  <sql id="columns">id, total</sql>
+  <select id="find" resultType="Order">
+    SELECT <include refid="columns"/> FROM orders
+    <where>
+      <if test="id != null">id = #{id}</if>
+      <if test="vip">AND id IN (SELECT order_id FROM vip_orders)</if>
+    </where>
+  </select>
+  <insert id="place">
+    <selectKey keyProperty="id" resultType="long" order="BEFORE">
+      SELECT nextval FROM order_seq
+    </selectKey>
+    INSERT INTO orders (id, total) VALUES (#{id}, #{total})
+  </insert>
+  <select id="search">SELECT * FROM ${table}</select>
+  <select id="nested">SELECT * FROM order_lines</select>
+</mapper>
+""",
+}
+
+
+class MyBatisTests(unittest.TestCase):
+    def test_mapper_xml_and_annotations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, MYBATIS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["java"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "OrderMapper.find", "orders", "mybatis-mapper-xml"),
+                ("READS", "OrderMapper.find", "vip_orders", "mybatis-mapper-xml"),
+                (
+                    "READS",
+                    "OrderMapper.withCustomers",
+                    "customers",
+                    "mybatis-annotation",
+                ),
+                ("READS", "OrderMapper.withCustomers", "orders", "mybatis-annotation"),
+                # A statement no mapper method names belongs to its file.
+                (
+                    "READS",
+                    "src/main/resources/com/shop/OrderMapper.xml",
+                    "order_lines",
+                    "mybatis-mapper-xml",
+                ),
+                ("WRITES", "OrderMapper.place", "orders", "mybatis-mapper-xml"),
+                ("WRITES", "OrderMapper.purge", "orders", "mybatis-annotation"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            metrics["mybatis_mapper_statements"],
+            {"statements": 4, "not_fixed": 1, "method_found": 3},
         )
 
 

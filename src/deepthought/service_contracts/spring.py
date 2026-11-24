@@ -691,12 +691,35 @@ def _module_root(root_path, file):
         path = path.parent
 
 
-def _yaml_values(text, key_path):
+_PROFILE_KEYS = ("spring.config.activate.on-profile", "spring.profiles")
+
+
+def _documents(text, separator):
+    """The documents of a multi-document config file."""
+    document = []
+    for raw in text.splitlines():
+        if raw.strip() == separator:
+            yield "\n".join(document)
+            document = []
+        else:
+            document.append(raw)
+    yield "\n".join(document)
+
+
+def _yaml_values(text, key_path, default_profile=False):
     """Scalars at ``key_path`` in a YAML file, read by indentation only.
 
     Block mappings with scalar values are read; flow collections, anchors and
-    multi-line scalars are not. Every document of the file is read.
+    multi-line scalars are not. Every document of the file is read, or with
+    ``default_profile`` only those that activate on no profile.
     """
+    if default_profile:
+        return [
+            v
+            for d in _documents(text, "---")
+            if not any(_yaml_values(d, k) for k in _PROFILE_KEYS)
+            for v in _yaml_values(d, key_path)
+        ]
     found, stack = [], []
     for raw in text.splitlines():
         if raw.strip() == "---":
@@ -716,7 +739,14 @@ def _yaml_values(text, key_path):
     return found
 
 
-def _properties_values(text, key):
+def _properties_values(text, key, default_profile=False):
+    if default_profile:
+        return [
+            v
+            for d in _documents(text, "#---")
+            if not any(_properties_values(d, k) for k in _PROFILE_KEYS)
+            for v in _properties_values(d, key)
+        ]
     found = []
     for raw in text.splitlines():
         match = re.match(r"^\s*([^#!=:\s]+)\s*[=:]\s*(.*?)\s*$", raw)
@@ -725,14 +755,17 @@ def _properties_values(text, key):
     return found
 
 
-def _read_values(path, key, raw=False):
-    """Values of ``key`` in one config file; ``raw`` keeps ``${...}`` ones."""
+def _read_values(path, key, raw=False, default_profile=False):
+    """Values of ``key`` in one config file; ``raw`` keeps ``${...}`` ones,
+    ``default_profile`` reads only the documents of no profile."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
     reader = _properties_values if path.suffix == ".properties" else _yaml_values
-    return [v for v in reader(text, key) if v and (raw or "${" not in v)]
+    return [
+        v for v in reader(text, key, default_profile) if v and (raw or "${" not in v)
+    ]
 
 
 class SpringConfig:
@@ -827,13 +860,18 @@ class SpringConfig:
             ]
         return [f for f in files if f.is_file()]
 
-    def values(self, file, key):
+    def values(self, file, key, default_profile=False):
         """The distinct values of ``key`` in the file's module configuration,
-        or None outside a module."""
+        or None outside a module; ``default_profile`` reads only the
+        documents that activate on no profile."""
         if _module_root(self.root, file) is None:
             return None
         return sorted(
-            {v for f in self.files(file) for v in _read_values(f, key, raw=True)}
+            {
+                v
+                for f in self.files(file)
+                for v in _read_values(f, key, raw=True, default_profile=default_profile)
+            }
         )
 
 

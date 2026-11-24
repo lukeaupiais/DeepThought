@@ -32,6 +32,7 @@ from ..data_contracts import (
     resolve_script_module,
     extract_java,
     extract_java_sql,
+    extract_mybatis_xml,
     extract_prisma_client,
     extract_prisma_schema,
     extract_python_sql,
@@ -324,6 +325,22 @@ SQL_RULES = {
             "not checked.",
         ),
         (
+            "mybatis-annotation",
+            "The mapper method has a MyBatis @Select, @Insert, @Update or "
+            "@Delete (org.apache.ibatis.annotations) whose SQL names this "
+            "table; array strings are joined with spaces, a <script> value is "
+            "read as mapper XML, #{} is a bind marker and ${} text the code "
+            "does not fix.",
+        ),
+        (
+            "mybatis-mapper-xml",
+            "A MyBatis mapper XML statement (<select>, <insert>, <update>, "
+            "<delete>) names this table, with every dynamic branch kept and "
+            "<sql> fragments included; it belongs to the method of the "
+            "mapper interface named by the namespace and id, else to the XML "
+            "file.",
+        ),
+        (
             "jdbc-insert-table",
             "The code calls withTableName with this table (SimpleJdbcInsert), "
             "in a file importing org.springframework.jdbc.",
@@ -432,8 +449,10 @@ def _is_test_source(path):
 
 
 def _is_ruby_test(path):
-    """Rails test and spec trees: test/, spec/ and their nested copies."""
-    return any(part in ("test", "spec") for part in path.split("/")[:-1])
+    """Rails test and spec trees (test/, spec/ and their nested copies) and
+    vendored third-party code (vendor/, where Bundler caches gems and
+    Composer installs packages)."""
+    return any(part in ("test", "spec", "vendor") for part in path.split("/")[:-1])
 
 
 def table_name(repo_url, scope, name):
@@ -538,7 +557,15 @@ class DataContractTool(AnalysisTool):
             nearest = _nearest_packages(path, packages, cache)
             return min((c.manifest for c in nearest), default="")
 
-        ddl, unreadable, digests, prisma = [], [], {}, []
+        ddl, unreadable, digests, prisma, mapper_statements = [], [], {}, [], []
+        for path in _sql_files(root, include, exclude, ".xml"):
+            content = (root / path).read_bytes()
+            if b"<mapper" not in content:
+                continue
+            found = extract_mybatis_xml(path, content)
+            if found is not None:
+                digests[path] = sha256(content).hexdigest()
+                mapper_statements.extend(found)
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -680,7 +707,11 @@ class DataContractTool(AnalysisTool):
             )
 
         repository_name = f"{repo_url}::repository"
-        for path in sorted({d.file for d in ddl} | {m.file for m in prisma}):
+        for path in sorted(
+            {d.file for d in ddl}
+            | {m.file for m in prisma}
+            | {m.file for m in mapper_statements}
+        ):
             file_name = f"{repo_url}::{path}::file"
             files.append(
                 NodeData(
@@ -691,7 +722,11 @@ class DataContractTool(AnalysisTool):
                         "path": path,
                         "file_path": path,
                         "name": path,
-                        "language": "prisma" if path.endswith(".prisma") else "sql",
+                        "language": "prisma"
+                        if path.endswith(".prisma")
+                        else "xml"
+                        if path.endswith(".xml")
+                        else "sql",
                         "file_sha256": digests[path],
                     },
                 )
@@ -923,6 +958,43 @@ class DataContractTool(AnalysisTool):
                         target,
                         SQL_RULES[item.how],
                         {**extra, "line": item.line, "column": item.column},
+                    )
+        # MyBatis mapper XML: the namespace names the mapper interface.
+        mapper_methods = {}
+        for d in result.definitions:
+            if d.file.endswith(".java") and "." in d.symbol:
+                owner, _, method = d.symbol.rpartition(".")
+                mapper_methods.setdefault((owner, method), []).append(d)
+        mybatis_counts = {"statements": 0, "not_fixed": 0, "method_found": 0}
+        for item in mapper_statements:
+            mybatis_counts["statements"] += 1
+            owner = item.namespace.rpartition(".")[2]
+            suffix = item.namespace.replace(".", "/")
+            methods = [
+                d
+                for d in mapper_methods.get((owner, item.id), ())
+                if d.file[: -len(".java")] == suffix
+                or d.file[: -len(".java")].endswith("/" + suffix)
+            ]
+            if len(methods) == 1:
+                mybatis_counts["method_found"] += 1
+                source = symbol(methods[0].id)
+            else:
+                source = (["File"], f"{repo_url}::{item.file}::file")
+            if item.statement is None:
+                mybatis_counts["not_fixed"] += 1
+                continue
+            for kind, names in (
+                ("READS", item.statement.reads),
+                ("WRITES", item.statement.writes),
+            ):
+                for name in names:
+                    link(
+                        kind,
+                        source,
+                        table(item.file, name),
+                        SQL_RULES["mybatis-mapper-xml"],
+                        {"statement": f"{item.namespace}.{item.id}", "line": item.line},
                     )
         entity_counts = {"linked": 0, "not_an_entity": 0}
         for file, content, tree in trees:
@@ -1331,6 +1403,7 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
                     "sql_text": sql_counts,
+                    "mybatis_mapper_statements": mybatis_counts,
                     "entity_manager_resolution": entity_counts,
                     "gorm_table_names": gorm_counts,
                     "gorm_default_table_names": gorm_defaults,

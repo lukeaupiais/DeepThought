@@ -2208,17 +2208,35 @@ unread reasons:
   that is not a literal.
 
 A functional bean in a module without a stream binder binds nothing and is
-not counted. One with both binders is `binder_unknown`.
+not counted. When the build that would show a binder is not fully read,
+for example a Gradle `project(':x')` the settings do not lead to, the bean
+is `build_not_read`. A bean in a stream module that no service runs (no
+`spring.application.name`) is `no_service`, like any other site.
+
+Gradle builds are read like Maven ones. A `build.gradle(.kts)` without a
+`pom.xml` gives its quoted `group:artifact` coordinates and its
+`project(':path')` dependencies, resolved from the nearest
+`settings.gradle`; comments are skipped.
+
+A service with both binders uses, for each binding, the binder named by
+`spring.cloud.stream.bindings.<binding>.binder` or else by
+`spring.cloud.stream.default-binder` (`defaultBinder`). These are read only
+from configuration documents that activate on no profile, and a name is
+mapped to its broker by `spring.cloud.stream.binders.<name>.type` or the
+standard names (`rabbit`, `kafka`, `kstream`). Without such a name the
+site is `binder_unknown`. This applies to every Spring Cloud Stream site,
+not only the functional ones.
 
 Checked on `spring-cloud/spring-cloud-stream-samples` (commit `2ff1168`):
 I labelled by hand every binding of the nine function-based applications
-that name a service (`spring.application.name`), 24 in all. The 16 read
-all have the configured destination. The other 8 are unread, not wrong:
+that name a service (`spring.application.name`), 24 in all. The 19 read
+all have the configured destination. The other 5 are unread, not wrong:
 
 - the three branch outputs of `kafka-streams-branching`, one
   `function_outputs` fact;
-- the five bindings of `kafka-streams-to-rabbitmq`, which uses both
-  binders, `binder_unknown`.
+- two bindings of `kafka-streams-to-rabbitmq`, which uses both binders.
+  The other three name their binder per binding and are read. The
+  remaining `process` function names none, so it is `binder_unknown`.
 
 Samples without a `spring.application.name` are not services here and give
 nothing.
@@ -2312,6 +2330,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-mapper-xml` | pattern_matched | a `<select>`, `<insert>`, `<update>` or `<delete>` of a MyBatis mapper XML file (root `<mapper namespace>`), with every dynamic branch (`<if>`, `<choose>`, `<foreach>`, `<where>`, `<set>`, `<trim>`) kept, `<sql>` fragments of the same mapper included and `<selectKey>` left out; `#{}` is a bind marker and `${}` text the code does not fix; the edge starts at the mapper interface method that the namespace and id name, else at the XML file |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mybatis-annotation` | pattern_matched | a mapper method's `@Select`, `@Insert`, `@Update` or `@Delete` (`org.apache.ibatis.annotations`), array strings joined with spaces and a `<script>` value read as mapper XML |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
@@ -2326,7 +2346,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed with the innermost enclosing module's or class's literal `table_name_prefix`, or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed as `full_table_name_prefix` does: with the literal `table_name_prefix` of the innermost enclosing module that defines one or of the innermost enclosing model, else with the class's own (a `self.table_name_prefix` method or literal assignment, inherited from its superclasses), or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.active-record-call` | pattern_matched | `Model.<method>` with an ActiveRecord query (`where`, `find`, `pluck`, `count`, ...) or persistence method (`create`, `insert_all`, `update_all`, `destroy_all`, ...), `Model` resolved by Ruby's lexical constant lookup (`Module.nesting`, then the top level) to a model of the repository; instance methods, associations and scopes are not read |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
@@ -2352,7 +2372,7 @@ the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
-`spec/`) are skipped.
+`spec/`) and Ruby's vendored gems (`vendor/`) are skipped.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2363,8 +2383,8 @@ left out when its declarations disagree on the superclass or table name.
 Abstract classes (`self.abstract_class = true`, `primary_abstract_class`)
 give no table. A model whose name the code does not fix is left out and
 counted under `active_record_unresolved`: a `table_name` that is not a
-literal, `table_name_prefix`/`table_name_suffix`/`pluralize_table_names`
-assigned on its chain, or an application whose `config/` sets those or
+literal, a `table_name_prefix` that is not a literal, or
+`table_name_suffix`/`pluralize_table_names` assigned on its chain, or an application whose `config/` sets those or
 changes inflection in a way that is not read (regular expression rules,
 `clear`). Rails apps have no package manifest that the components scan
 reads, so their tables share the nearest enclosing package's namespace.
@@ -2465,6 +2485,17 @@ file that tree-sitter-typescript does not parse
 next line and 23 use an imported alias (`page as pageTable`). On
 jackblatch/OneStopShop `31208da` the tool reads all 6 tables and its 59
 calls are exactly the lines `grep` finds.
+
+On mybatis/jpetstore-6 `b7433c2` the tool reads all 25 mapper statements,
+ties each to its mapper interface method, and every table they name is one
+that the application's DDL declares. On macrozheng/mall `dcaa93b`, 906
+statements in 104 mapper files (MyBatis Generator's dynamic
+`Example_Where_Clause` fragments included) are all read with fixed tables;
+904 belong to a mapper method, and the other 2 are statements that only a
+`resultMap`'s nested `select` names. The 76 tables they name are all in
+`mall.sql`. In mybatis/spring-boot-starter's samples, the 11 annotation
+statements outside comments are read; 8 name `city`, and 3 hold the path
+of a FreeMarker, Velocity or Thymeleaf template, which is not read.
 
 On jmoiron/sqlx the Go rule reads 166 statements, every one with fixed
 table names. A single-line `grep` for a query method followed by SQL finds

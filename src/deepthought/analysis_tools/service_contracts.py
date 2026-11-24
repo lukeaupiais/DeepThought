@@ -404,6 +404,55 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+_BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
+
+
+def _build_unread(maven, module):
+    """True when a module's build, or one it depends on, is not fully read:
+    neither a pom.xml nor a Gradle file, or a Gradle project() not found."""
+    if module not in maven.dependencies:
+        return True
+    pending, seen = [module], set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if current in maven.unresolved:
+            return True
+        pending += [
+            m
+            for artifact in maven.dependencies.get(current, [])
+            for m in maven.artifacts.get(artifact, [])
+        ]
+    return False
+
+
+def _binder(config, marker, binding, binders):
+    """The broker (kafka or amqp) a binding uses in a service with
+    ``binders``: the only one, or with several, the binder its
+    ``spring.cloud.stream.bindings.<binding>.binder`` or the service's
+    ``spring.cloud.stream.default-binder`` names in the default profile, by
+    ``spring.cloud.stream.binders.<name>.type`` or the standard names."""
+    if len(binders) == 1:
+        return next(iter(binders))
+
+    def single(*keys):
+        found = {
+            v for k in keys for v in config.values(marker, k, default_profile=True)
+        }
+        return next(iter(found)) if len(found) == 1 else None
+
+    name = single(f"spring.cloud.stream.bindings.{binding}.binder") or single(
+        "spring.cloud.stream.default-binder", "spring.cloud.stream.defaultBinder"
+    )
+    if name is None or "${" in name:
+        return None
+    kind = single(f"spring.cloud.stream.binders.{name}.type") or name
+    broker = _BINDER_TYPES.get(kind)
+    return broker if broker in binders else None
+
+
 def _stream_endpoints(root, config, sites, repo_url):
     """Message endpoints of Spring Cloud Stream binding sites, one per
     service that runs the code (see ``service_contracts.cloud_stream``)."""
@@ -429,7 +478,12 @@ def _stream_endpoints(root, config, sites, repo_url):
                 for m in maven.dependents(module)
                 if config.service(f"{m}/pom.xml")[0] is not None
             ]
-        if not deploying and site.function is None:
+        if not deploying and (
+            site.function is None
+            or maven.binders(module)
+            or _build_unread(maven, module)
+        ):
+            # A functional bean is only a binding in a stream application.
             unread.append(MessageUnread(site.file, site.line, site.role, "no_service"))
         placed.append((site, module, deploying))
     # The functional beans each service runs, for its function definition.
@@ -442,13 +496,17 @@ def _stream_endpoints(root, config, sites, repo_url):
         for current in deploying:
             marker = f"{current}/pom.xml"
             service = config.service(marker)[0]
-            binder = maven.binder(current)
-            if binder is None:
-                # A functional bean outside a stream application is no binding.
-                if site.function is None or maven.binders(current):
-                    unread.append(
-                        MessageUnread(site.file, site.line, site.role, "binder_unknown")
-                    )
+            binders = maven.binders(current)
+            if not binders:
+                # A functional bean outside a stream application is no binding,
+                # unless the build that would say so is not read.
+                if site.function is None:
+                    reason = "binder_unknown"
+                elif _build_unread(maven, current):
+                    reason = "build_not_read"
+                else:
+                    continue
+                unread.append(MessageUnread(site.file, site.line, site.role, reason))
                 continue
             binding = site.binding
             if site.function is not None:
@@ -485,6 +543,12 @@ def _stream_endpoints(root, config, sites, repo_url):
                         MessageUnread(site.file, site.line, site.role, reason)
                     )
                     continue
+            binder = _binder(config, marker, binding, binders)
+            if binder is None:
+                unread.append(
+                    MessageUnread(site.file, site.line, site.role, "binder_unknown")
+                )
+                continue
             configured = config.values(
                 marker, f"spring.cloud.stream.bindings.{binding}.destination"
             )

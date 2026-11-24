@@ -278,7 +278,10 @@ def _local(tag):
 
 class MavenModules:
     """Repository modules by Maven artifactId, their in-repository
-    dependencies and the Spring Cloud Stream binders they declare."""
+    dependencies and the Spring Cloud Stream binders they declare. Gradle
+    modules (a ``build.gradle(.kts)`` without a ``pom.xml``) are read too:
+    their quoted ``group:artifact`` coordinates and ``project(':path')``
+    dependencies, resolved from the nearest ``settings.gradle``."""
 
     def __init__(self, root):
         self.root = root
@@ -314,6 +317,58 @@ class MavenModules:
             if artifact is not None:
                 self.artifacts.setdefault(artifact, []).append(module)
             self.dependencies[module] = dependencies
+        self.unresolved = set()  # Gradle modules with a project() not found
+        for name in ("build.gradle", "build.gradle.kts"):
+            for path in sorted(root.rglob(name)):
+                relative = path.relative_to(root)
+                module = relative.parent.as_posix()
+                if module in self.dependencies or any(
+                    p.startswith(".") or p in ("node_modules", "build")
+                    for p in relative.parts
+                ):
+                    continue
+                self._gradle(path, module)
+
+    def _gradle(self, path, module):
+        """A Gradle module's external artifacts and project() dependencies,
+        named ``gradle:<module>``; a project() whose directory has no build
+        file marks the module unresolved."""
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return
+        text = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", text)
+        dependencies = [
+            m.group(2)
+            for m in re.finditer(
+                r"""["']([\w.\-]+):([\w.\-]+)(?::[^"'\s]*)?["']""", text
+            )
+        ]
+        dependencies += [
+            m.group(1)
+            for m in re.finditer(r"""\bname\s*[:=]\s*["']([\w.\-]+)["']""", text)
+        ]
+        settings = path.parent
+        while not any(
+            (settings / f).is_file() for f in ("settings.gradle", "settings.gradle.kts")
+        ):
+            if settings == self.root or settings == settings.parent:
+                settings = None
+                break
+            settings = settings.parent
+        for match in re.finditer(
+            r"""project\s*\(\s*(?:path\s*[:=]\s*)?["'](:[\w.:\-]*)["']""", text
+        ):
+            base = settings if settings is not None else self.root
+            target = base / match.group(1).strip(":").replace(":", "/")
+            if not any(
+                (target / f).is_file() for f in ("build.gradle", "build.gradle.kts")
+            ):
+                self.unresolved.add(module)
+                continue
+            dependencies.append(f"gradle:{target.relative_to(self.root).as_posix()}")
+        self.artifacts.setdefault(f"gradle:{module}", []).append(module)
+        self.dependencies[module] = dependencies
 
     def dependents(self, module):
         """Modules that declare a dependency on ``module``'s artifact."""
