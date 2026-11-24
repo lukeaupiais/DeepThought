@@ -1361,8 +1361,10 @@ Symbols join the enclosing modules and classes and the path written in a
 name with `.` (`class B::C` in `module A` is `A.B.C`; `class ::C` starts at
 the top). A `def` in a class or module body, in its `class << self` or in a
 block written there (`included do`, `Class.new do`) is a `Method`, whether it
-defines an instance or a singleton method (`def self.m`); elsewhere, at the
-top level or in a block outside any class, it is a `Function`. A class whose
+defines an instance or a singleton method (`def self.m`); so is a `def` with
+a receiver anywhere (`def YAML.load`, `def self.helper` at the top level),
+which defines a method of that object. Any other `def` at the top level or in
+a block outside any class is a `Function`. A class whose
 name is not a constant path (`class self::Dynamic`) and what it holds are not
 recorded, nor is a `def` inside a method body, which only defines a method
 when that method runs. Methods made by metaprogramming (`attr_reader`,

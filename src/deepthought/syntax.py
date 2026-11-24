@@ -846,7 +846,9 @@ def extract_ruby(
             if name is not None:
                 text = _text(name, content)
                 symbol = ".".join((*scope, text))
-                add(node, name, symbol, "Method" if in_type else "Function")
+                # A receiver (`def obj.m`) makes it a method of that object.
+                method = in_type or node.type == "singleton_method"
+                add(node, name, symbol, "Method" if method else "Function")
             # A def in a method body is defined when the method runs.
             continue
         stack.extend((c, scope, in_type) for c in reversed(node.named_children))

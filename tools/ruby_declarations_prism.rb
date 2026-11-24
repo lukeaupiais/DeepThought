@@ -45,7 +45,7 @@ def visit(node, scope, in_type, file, out)
     location = node.name_loc
     out << {
       file: file, line: location.start_line, column: location.start_column,
-      name: node.name.to_s, kind: in_type ? "Method" : "Function",
+      name: node.name.to_s, kind: in_type || node.receiver ? "Method" : "Function",
       symbol: (scope + [node.name.to_s]).join(".")
     }
   else

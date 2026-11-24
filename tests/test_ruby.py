@@ -33,6 +33,8 @@ SOURCE = """module A
   class ::Top; end
 end
 def top; end
+def self.on_main; end
+def YAML.safe; end
 X = Class.new do
   def anonymous; end
 end
@@ -79,7 +81,10 @@ class RubyTests(unittest.TestCase):
                 # `::Top` starts at the top.
                 (20, "Top", "Class"),
                 (22, "top", "Function"),
-                (24, "anonymous", "Function"),
+                # A def with a receiver defines a method of that object.
+                (23, "on_main", "Method"),
+                (24, "safe", "Method"),
+                (26, "anonymous", "Function"),
                 # A class whose path starts with an expression is not named,
                 # and neither is anything in it.
             ],
