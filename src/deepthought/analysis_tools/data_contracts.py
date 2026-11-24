@@ -23,6 +23,7 @@ from ..data_contracts import (
     extract_ddl,
     extract_django,
     extract_java,
+    extract_sqlalchemy,
     resolve_django,
 )
 from ..engine import analyze_repository
@@ -140,6 +141,43 @@ DJANGO_ACCESS_RULE = register_rule(
         "bulk_create, ...) somewhere in the chain, and Model is the one "
         "Django model of the repository with that class name. Instance "
         "save() and delete(), other managers and raw SQL are not read.",
+    )
+)
+
+
+SA_TABLENAME_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-tablename",
+        "pattern_matched",
+        "The class, in a module that imports SQLAlchemy (or Flask-SQLAlchemy "
+        "or SQLModel), sets __tablename__ to this table as a plain string.",
+    )
+)
+SA_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-table",
+        "pattern_matched",
+        "The code calls SQLAlchemy's Table (imported from sqlalchemy, or "
+        "through an imported sqlalchemy module) with this table name as its "
+        "first argument.",
+    )
+)
+SA_QUERY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-session-query",
+        "pattern_matched",
+        "The code calls .query() with an argument naming (or an attribute "
+        "of) the one SQLAlchemy mapped class of the repository with that "
+        "class name; the receiver is not checked to be a Session.",
+    )
+)
+SA_STATEMENT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-statement",
+        "pattern_matched",
+        "The code calls SQLAlchemy's select (READS) or insert, update or "
+        "delete (WRITES) on the one mapped class of the repository with that "
+        "class name.",
     )
 )
 
@@ -490,6 +528,28 @@ class DataContractTool(AnalysisTool):
             )
         coverage_by_file = {c.file: c for c in result.coverage}
         file_nodes = {}
+
+        def code(file, caller_id):
+            """The declaration that holds a use, else its file."""
+            if caller_id is not None:
+                return symbol(caller_id)
+            name = f"{repo_url}::{file}::file"
+            if file not in file_nodes:
+                coverage = coverage_by_file[file]
+                file_nodes[file] = NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": name,
+                        "repo_url": repo_url,
+                        "path": file,
+                        "file_path": file,
+                        "name": file,
+                        "language": coverage.language,
+                        "file_sha256": coverage.digest,
+                    },
+                )
+            return ["File"], name
+
         django_counts = {"linked": 0, "not_a_model": 0}
         for access in accesses:
             targets = django_targets.get(access.model, [])
@@ -497,25 +557,7 @@ class DataContractTool(AnalysisTool):
                 django_counts["not_a_model"] += 1
                 continue
             django_counts["linked"] += 1
-            if access.caller_id is not None:
-                source = symbol(access.caller_id)
-            else:
-                name = f"{repo_url}::{access.file}::file"
-                if access.file not in file_nodes:
-                    coverage = coverage_by_file[access.file]
-                    file_nodes[access.file] = NodeData(
-                        ["File"],
-                        {
-                            "qualified_name": name,
-                            "repo_url": repo_url,
-                            "path": access.file,
-                            "file_path": access.file,
-                            "name": access.file,
-                            "language": coverage.language,
-                            "file_sha256": coverage.digest,
-                        },
-                    )
-                source = (["File"], name)
+            source = code(access.file, access.caller_id)
             for kind, used in (("READS", access.reads), ("WRITES", access.writes)):
                 if used:
                     link(
@@ -529,6 +571,46 @@ class DataContractTool(AnalysisTool):
                             "column": access.column,
                         },
                     )
+        # SQLAlchemy mapped classes, Table() declarations and their uses.
+        sa_mappings, sa_tables, sa_accesses = [], [], []
+        for file, content, tree in python_trees:
+            found = extract_sqlalchemy(tree, content, file, result.definitions)
+            sa_mappings.extend(found[0])
+            sa_tables.extend(found[1])
+            sa_accesses.extend(found[2])
+        sa_targets = {}
+        for mapping in sa_mappings:
+            target = table(mapping.file, mapping.table)
+            sa_targets.setdefault(mapping.name, []).append(target)
+            link(
+                "MAPS_TO",
+                symbol(mapping.model_id),
+                target,
+                SA_TABLENAME_RULE,
+                {"line": mapping.line, "column": mapping.column},
+            )
+        for item in sa_tables:
+            link(
+                "DECLARES",
+                code(item.file, item.owner_id),
+                table(item.file, item.table),
+                SA_TABLE_RULE,
+                {"line": item.line, "column": item.column},
+            )
+        sa_counts = {"linked": 0, "not_a_mapped_class": 0}
+        for access in sa_accesses:
+            targets = sa_targets.get(access.model, [])
+            if len(targets) != 1:
+                sa_counts["not_a_mapped_class"] += 1
+                continue
+            sa_counts["linked"] += 1
+            link(
+                "WRITES" if access.writes else "READS",
+                code(access.file, access.caller_id),
+                targets[0],
+                SA_QUERY_RULE if access.how == "query" else SA_STATEMENT_RULE,
+                {"model": access.model, "line": access.line, "column": access.column},
+            )
         files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
             [
@@ -582,6 +664,9 @@ class DataContractTool(AnalysisTool):
                     "repository_resolution": counts,
                     "django_models": len(model_tables),
                     "django_access_resolution": django_counts,
+                    "sqlalchemy_mappings": len(sa_mappings),
+                    "sqlalchemy_tables": len(sa_tables),
+                    "sqlalchemy_access_resolution": sa_counts,
                     "scope": "tables from CREATE TABLE and JPA entity mappings, "
                     "read and written by Spring Data repositories; per nearest "
                     "package, without datasource configuration or SQL strings",
