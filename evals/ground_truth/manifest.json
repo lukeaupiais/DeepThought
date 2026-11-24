@@ -350,7 +350,10 @@
       ],
       "truth": "declarations/cjson.tsv",
       "oracle": "clang 18.1.3",
-      "oracle_command": "python tools/c_declaration_truth.py . cJSON.c cJSON_Utils.c"
+      "oracle_command": "python tools/c_declaration_truth.py . cJSON.c cJSON_Utils.c",
+      "calls": "calls/cjson.tsv",
+      "calls_oracle": "clang 18.1.3 (tools/c_call_truth.py)",
+      "calls_command": "python tools/c_call_truth.py . --flag=-Itests/unity/src --flag=-Itests/unity/extras/fixture/src --flag=-Itests/unity/examples"
     },
     {
       "name": "fmt",
