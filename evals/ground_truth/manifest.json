@@ -252,5 +252,53 @@
       "license": "MIT (package.json)",
       "labels": "routes/howtographql-graphql-js.json"
     }
+  ],
+  "tables_description": "ActiveRecord model tables: each model's table as ActiveRecord computes it from the app's own declarations and inflections (tools/rails_table_oracle.rb), never by running the app.",
+  "tables": [
+    {
+      "name": "tables-lobsters",
+      "url": "https://github.com/lobsters/lobsters",
+      "commit": "d23941fd73b7a0a7280f1f40c54013b4e4db5328",
+      "license": "BSD-3-Clause",
+      "labels": "tables/lobsters.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-rubygems-org",
+      "url": "https://github.com/rubygems/rubygems.org",
+      "commit": "6f51e324634a0820c54be2fc28533b721abadc95",
+      "license": "MIT",
+      "labels": "tables/rubygems-org.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-mastodon",
+      "url": "https://github.com/mastodon/mastodon",
+      "commit": "fe9d1508663a3394ef28ad60afe80cc7fb04ac71",
+      "license": "AGPL-3.0",
+      "labels": "tables/mastodon.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-forem",
+      "url": "https://github.com/forem/forem",
+      "commit": "1f13196719c74b151df2bc86e2b42e34e1bae9f7",
+      "license": "AGPL-3.0",
+      "labels": "tables/forem.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-discourse",
+      "url": "https://github.com/discourse/discourse",
+      "commit": "5fc74b5b7ab119222a52efa61391cbbd73fb95c2",
+      "license": "GPL-2.0",
+      "labels": "tables/discourse.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    }
   ]
 }

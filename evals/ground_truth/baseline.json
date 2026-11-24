@@ -711,5 +711,42 @@
         "found": 19
       }
     }
+  },
+  "tables": {
+    "tables-discourse": {
+      "expected": 402,
+      "extra": 0,
+      "found": 398,
+      "missed": 4,
+      "wrong": 0
+    },
+    "tables-forem": {
+      "expected": 134,
+      "extra": 0,
+      "found": 134,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-lobsters": {
+      "expected": 42,
+      "extra": 0,
+      "found": 42,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-mastodon": {
+      "expected": 276,
+      "extra": 0,
+      "found": 275,
+      "missed": 0,
+      "wrong": 1
+    },
+    "tables-rubygems-org": {
+      "expected": 45,
+      "extra": 0,
+      "found": 45,
+      "missed": 0,
+      "wrong": 0
+    }
   }
 }
