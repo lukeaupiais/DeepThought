@@ -1159,6 +1159,94 @@ class GoSqlTests(unittest.TestCase):
         )
 
 
+SHARED_COMPOSE_DATABASE = {
+    "docker-compose.yml": """\
+services:
+  pg:
+    image: postgres:16-alpine
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgres://app:secret@pg:5432/shop
+  checker:
+    build: ./checker
+    environment:
+      - DB_URL=postgresql://pg/shop
+  legacy:
+    build: ./legacy
+    environment:
+      - DB_URL=postgres://pg/archive
+  web:
+    build: ./web
+    environment:
+      - API_URL=http://api:3000
+  cache:
+    build: ./cache
+    environment:
+      - DB_URL=${DB_URL}
+""",
+    "package.json": "{}",
+    "db/package.json": '{"name": "db"}',
+    "db/schema.sql": "CREATE TABLE monitor (id int);\n",
+    "checker/go.mod": "module example.com/checker\n",
+    "legacy/go.mod": "module example.com/legacy\n",
+    "web/go.mod": "module example.com/web\n",
+    "cache/go.mod": "module example.com/cache\n",
+}
+for _service in ("checker", "legacy", "web", "cache"):
+    SHARED_COMPOSE_DATABASE[f"{_service}/store.go"] = f"""package store
+
+import "database/sql"
+
+func {_service.capitalize()}(db *sql.DB) {{
+\tdb.Query("SELECT id FROM monitor")
+}}
+"""
+
+
+class ComposeDatabaseTests(unittest.TestCase):
+    def test_services_naming_one_compose_database_share_its_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SHARED_COMPOSE_DATABASE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["go"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[1],
+                r.target_match["qualified_name"],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        # checker names the api's database: one monitor table. legacy names
+        # another database of the same server; web names no database and
+        # cache's URL is interpolated, so both keep their package.
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "DECLARES",
+                    "db/schema.sql",
+                    "r::compose:.#pg/shop::db-table::monitor",
+                ),
+                ("READS", "cache/store.go", "r::cache/go.mod::db-table::monitor"),
+                (
+                    "READS",
+                    "checker/store.go",
+                    "r::compose:.#pg/shop::db-table::monitor",
+                ),
+                (
+                    "READS",
+                    "legacy/store.go",
+                    "r::compose:.#pg/archive::db-table::monitor",
+                ),
+                ("READS", "web/store.go", "r::web/go.mod::db-table::monitor"),
+            ],
+        )
+
+
 RAILS = {
     "db/schema.rb": """\
 ActiveRecord::Schema[7.1].define(version: 2024_01_01_000000) do

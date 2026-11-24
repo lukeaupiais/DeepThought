@@ -13,6 +13,8 @@ from deepthought import analyze_repository
 from deepthought.analysis_tools.evidence import registered_rules
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
+    CALL_JS_REEXPORT,
+    CALL_JS_STATIC_METHOD,
     CALL_LEXICAL_NAME,
     CALL_MODULE_ATTRIBUTE,
     CALL_PYTHON_REEXPORT,
@@ -704,6 +706,158 @@ class PythonCallTests(unittest.TestCase):
 
 @unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
 class TypeScriptCallTests(unittest.TestCase):
+    def test_default_imports_call_the_default_export(self):
+        result = analyze(
+            {
+                "fn.ts": "export default async function delay() {}\n",
+                "late.ts": "function wait() {}\nexport default wait;\n",
+                "clause.ts": "function pause() {}\nexport { pause as default };\n",
+                "anon.ts": "export default () => {};\n",
+                "none.ts": "export function other() {}\n",
+                "fwd.ts": "export { default } from './fn';\n",
+                "named.ts": "export function wait() {}\n",
+                "fwd2.ts": "function wait() {}\nexport { wait as default } from './named';\n",
+                "iface.ts": "export default interface Shape {}\n",
+                "nested.ts": (
+                    "function wait() {}\n"
+                    "if (true) { function wait() {} }\n"
+                    "export default wait;\n"
+                ),
+                "main.ts": (
+                    "import delay from './fn';\n"
+                    "import wait from './late';\n"
+                    "import pause from './clause';\n"
+                    "import anon from './anon';\n"
+                    "import other from './none';\n"
+                    "import again from './fwd';\n"
+                    "import shape from './iface';\n"
+                    "import viaFn from './fwd2';\n"
+                    "delay(); wait(); pause(); anon(); other(); again();\n"
+                    "shape(); viaFn();\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for callee, target in (
+            ("delay", "fn.ts::delay"),
+            ("wait", "late.ts::wait"),
+            ("pause", "clause.ts::pause"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", 9, callee)],
+                    ("linked", target, CALL_IMPORTED_NAME, None),
+                )
+        for line, callee, target in (
+            (9, "again", "fn.ts::delay"),
+            (10, "viaFn", "named.ts::wait"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", target, CALL_JS_REEXPORT, None),
+                )
+        for line, callee in ((9, "anon"), (9, "other"), (10, "shape")):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("unresolved", None, None, "imported_name_not_declared"),
+                )
+        defaults = {(d.file, d.line) for d in result.definitions if d.default_export}
+        self.assertEqual(
+            defaults,
+            {
+                ("fn.ts", 1),
+                ("late.ts", 1),
+                ("clause.ts", 1),
+                ("nested.ts", 1),
+                ("iface.ts", 1),
+            },
+        )
+
+    def test_static_methods_of_a_class_named_by_the_callee(self):
+        result = analyze(
+            {
+                "err.ts": (
+                    "export class NonError {\n"
+                    "  static wrap(x: unknown) {}\n"
+                    "  plain() {}\n"
+                    "}\n"
+                    "export default class Ky { static create() {} }\n"
+                    "export function helper() {}\n"
+                ),
+                "main.ts": (
+                    "import { NonError } from './err';\n"
+                    "import Ky, { helper } from './err';\n"
+                    "class Local { static make() {} run() { this.run(); } }\n"
+                    "NonError.wrap(1); NonError.plain(); Ky.create(); Local.make();\n"
+                    "helper.call(null); NonError.wrap.call(null, 1);\n"
+                    "function f(NonError: any) { NonError.wrap(2); }\n"
+                    "function g() { const Local = other; Local.make(); }\n"
+                    "Missing.wrap(); Local.x.make();\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for line, callee, target in (
+            (4, "NonError.wrap", "err.ts::NonError.wrap"),
+            (4, "Ky.create", "err.ts::Ky.create"),
+            (4, "Local.make", "main.ts::Local.make"),
+        ):
+            with self.subTest(callee=callee, line=line):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", target, CALL_JS_STATIC_METHOD, None),
+                )
+        for line, callee, reason in (
+            (4, "NonError.plain", "static_not_declared"),
+            (5, "helper.call", "attribute_call"),
+            (5, "NonError.wrap.call", "attribute_call"),
+            (6, "NonError.wrap", "attribute_call"),
+            (7, "Local.make", "attribute_call"),
+            (8, "Missing.wrap", "attribute_call"),
+            (8, "Local.x.make", "attribute_call"),
+        ):
+            with self.subTest(callee=callee, line=line):
+                self.assertEqual(
+                    found[("main.ts", line, callee)], ("unresolved", None, None, reason)
+                )
+        # `this` is no name a scope declares.
+        self.assertEqual(
+            [s.binding for s in result.call_sites if s.callee == "this.run"], [None]
+        )
+        statics = {d.symbol for d in result.definitions if d.static}
+        self.assertEqual(statics, {"NonError.wrap", "Ky.create", "Local.make"})
+
+    def test_anonymous_function_expressions_take_their_variable_name(self):
+        result = analyze(
+            {
+                "gen.ts": (
+                    "function leaf() {}\n"
+                    "export const walk = function* () { leaf(); };\n"
+                    "const plain = function () { leaf(); };\n"
+                    "const named = function inner() { leaf(); };\n"
+                    "walk(); plain(); named();\n"
+                ),
+            },
+            "typescript",
+        )
+        callers = {
+            (s.line, s.callee): next(
+                (d.symbol for d in result.definitions if d.id == s.caller_id), None
+            )
+            for s in result.call_sites
+        }
+        self.assertEqual(callers[(2, "leaf")], "walk")
+        self.assertEqual(callers[(3, "leaf")], "plain")
+        # A named function expression is not given the variable's name.
+        self.assertIsNone(callers[(4, "leaf")])
+        found = links(result)
+        self.assertEqual(found[("gen.ts", 5, "walk")][:2], ("linked", "gen.ts::walk"))
+        self.assertEqual(found[("gen.ts", 5, "plain")][:2], ("linked", "gen.ts::plain"))
+
     def test_typescript_bindings_constructors_and_this_methods(self):
         result = analyze(
             {
@@ -732,9 +886,10 @@ class TypeScriptCallTests(unittest.TestCase):
                 self.assertEqual(
                     found[("main.ts", line, callee)], ("linked", target, rule, None)
                 )
+        # lib.ts exports no default.
         self.assertEqual(
             found[("main.ts", 8, "Def")],
-            ("unresolved", None, None, "unsupported_binding"),
+            ("unresolved", None, None, "imported_name_not_declared"),
         )
         self.assertNotIn(("main.ts", 8, "obj.x"), found)
         kinds = {(s.callee, s.kind) for s in result.call_sites}

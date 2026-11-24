@@ -72,6 +72,7 @@ from ..data_contracts import (
     ruby_namespaces,
 )
 from ..engine import analyze_repository
+from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
 from ..syntax import make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
@@ -100,7 +101,9 @@ DDL_RULE = register_rule(
         "tables excluded). Tables are told apart by their case-insensitive "
         "name without schema and their namespace: the module's "
         "spring.datasource.url when its Spring configuration fixes one "
-        "persistent database, else the nearest package.",
+        "persistent database, else the one database that the Compose "
+        "services building the file's deepest build context name in "
+        "connection URLs, else the nearest package.",
     )
 )
 TABLE_RULE = register_rule(
@@ -835,10 +838,38 @@ class DataContractTool(AnalysisTool):
         config = SpringConfig(root)
         datasources = {}
 
+        # Compose build contexts, and the databases each one's services name
+        # in connection URLs.
+        contexts, compose_keys = set(), {}
+        for manifest in sorted(
+            {c.manifest for c in scan.components if c.kind == "compose_service"}
+        ):
+            contexts.update(
+                c.context
+                for c in scan.components
+                if c.manifest == manifest and c.context is not None
+            )
+            try:
+                found = compose_databases(manifest, (root / manifest).read_bytes())
+            except OSError:
+                continue
+            for context, key in found or ():
+                compose_keys.setdefault(context, set()).add(key)
+
+        def compose_database(path):
+            """The one database that the services of the deepest Compose build
+            context enclosing the file name in connection URLs, or None."""
+            enclosing = [c for c in contexts if c == "" or path.startswith(c + "/")]
+            if not enclosing:
+                return None
+            keys = compose_keys.get(max(enclosing, key=len), set())
+            return next(iter(keys)) if len(keys) == 1 else None
+
         def scope(path):
             """The table namespace of a file: its module's datasource URL when
-            the Spring configuration fixes one persistent database, else its
-            nearest package."""
+            the Spring configuration fixes one persistent database, else the
+            one Compose database its build context's services connect to, else
+            its nearest package."""
             module = _module_root(root, path)
             if module is not None:
                 if module not in datasources:
@@ -853,6 +884,9 @@ class DataContractTool(AnalysisTool):
                     )
                 if datasources[module]:
                     return "datasource:" + datasources[module]
+            database = compose_database(path)
+            if database is not None:
+                return database
             nearest = _nearest_packages(path, packages, cache)
             return min((c.manifest for c in nearest), default="")
 
@@ -2296,7 +2330,7 @@ class DataContractTool(AnalysisTool):
                     "Eloquent, Doctrine, ActiveRecord and Mongoose mappings, read and "
                     "written by "
                     "repositories, ORM calls and the SQL text code runs; per "
-                    "datasource URL or nearest package",
+                    "datasource URL, Compose database or nearest package",
                 },
             ),
         )

@@ -258,12 +258,19 @@ class _Values:
     ``_MAX_ALTERNATIVES`` alternatives are kept; more give unknown text.
     """
 
-    def __init__(self, root, content, constants=None, imports=None):
+    def __init__(self, root, content, constants=None, imports=None, constructions=None):
         self.content = content
         # Constants of other classes: {qualified class: {field: text}}.
         self._constants = constants or {}
         self._imports = imports
         self._package = _package(root, content)
+        # Fields a constructor sets from a parameter, folded from the
+        # arguments of every `new` of the class in the repository.
+        self._constructed = (
+            _constructed_fields(root, content, self._package, constructions)
+            if constructions is not None
+            else {}
+        )
         self._classes = {
             _text(n.child_by_field_name("name"), content)
             for n in _descendants(root)
@@ -434,7 +441,7 @@ class _Values:
                 return self._local(node, entry, depth)
         value = self._fields.get(name)
         if value is None:
-            return [PLACEHOLDER]
+            return list(self._constructed.get(name, [PLACEHOLDER]))
         return self._fold(("field", name), value, None, depth)
 
     def _fold(self, key, node, env, depth):
@@ -521,6 +528,8 @@ class _Values:
                 # this.x or Class.CONSTANT of a class in this file.
                 value = self._fields.get(field)
                 if value is None:
+                    if written == "this":
+                        return list(self._constructed.get(field, [PLACEHOLDER]))
                     return [PLACEHOLDER]
                 return self._fold(("field", field), value, None, depth)
             qualified = self._qualified_class(written)
@@ -584,6 +593,161 @@ def _package(root, content):
             )
             return _dotted(name, content) if name is not None else None
     return None
+
+
+def _constructor_fields(root, content, package):
+    """{field: [(qualified class, argument count, argument index)]} for the
+    String fields of a file's top-level classes that have no initializer
+    and no annotation, and that only constructors assign, each time with a
+    parameter as it is (``this.baseUrl = baseUrl;``)."""
+    found = {}
+    for declaration in root.named_children:
+        if declaration.type != "class_declaration":
+            continue
+        name = _text(declaration.child_by_field_name("name"), content)
+        qualified = f"{package}.{name}" if package else name
+        body = declaration.child_by_field_name("body")
+        if body is None:
+            continue
+        candidates = set()
+        for member in body.named_children:
+            if member.type != "field_declaration":
+                continue
+            if any(
+                c.type == "modifiers"
+                and any(
+                    m.type in ("annotation", "marker_annotation")
+                    for m in c.named_children
+                )
+                for c in member.named_children
+            ):
+                continue
+            type_node = member.child_by_field_name("type")
+            if type_node is None or _text(type_node, content) not in _STRING_TYPES:
+                continue
+            for declarator in member.children_by_field_name("declarator"):
+                if declarator.child_by_field_name("value") is None:
+                    candidates.add(
+                        _text(declarator.child_by_field_name("name"), content)
+                    )
+        if not candidates:
+            continue
+        # Every assignment of a candidate in the class.
+        sets, other = {}, set()
+        stack = [body]
+        while stack:
+            node = stack.pop()
+            stack.extend(node.named_children)
+            if node.type != "assignment_expression":
+                continue
+            left = node.child_by_field_name("left")
+            if (
+                left.type == "field_access"
+                and _text(left.child_by_field_name("object"), content) == "this"
+            ):
+                field = _text(left.child_by_field_name("field"), content)
+            elif left.type == "identifier":
+                field = _text(left, content)
+            else:
+                continue
+            if field not in candidates:
+                continue
+            setting = _constructor_setting(node, left, field, content)
+            if setting is None:
+                other.add(field)
+            else:
+                sets.setdefault(field, []).append(setting)
+        for field, settings in sets.items():
+            if field in other:
+                continue
+            found[field] = [(qualified, count, index) for count, index in settings]
+    return found
+
+
+def _constructor_setting(assignment, left, field, content):
+    """(parameter count, index) when ``assignment`` is a statement of a
+    constructor body that sets the field to one of its parameters."""
+    operator = next((c for c in assignment.children if c.type == "="), None)
+    statement = assignment.parent
+    if (
+        operator is None
+        or statement is None
+        or statement.type != "expression_statement"
+    ):
+        return None
+    block = statement.parent
+    constructor = block.parent if block is not None else None
+    if constructor is None or constructor.type != "constructor_declaration":
+        return None
+    parameters = [
+        _text(p.child_by_field_name("name"), content)
+        for p in constructor.child_by_field_name("parameters").named_children
+        if p.type in ("formal_parameter", "spread_parameter")
+    ]
+    if any(
+        p.type == "spread_parameter"
+        for p in constructor.child_by_field_name("parameters").named_children
+    ):
+        return None
+    if left.type == "identifier" and field in parameters:
+        return None  # assigns the parameter, not the field
+    right = assignment.child_by_field_name("right")
+    if right.type != "identifier" or _text(right, content) not in parameters:
+        return None
+    return len(parameters), parameters.index(_text(right, content))
+
+
+def _constructed_fields(root, content, package, constructions):
+    """{field: [text]} of the fields constructors set from a parameter:
+    each value a ``new`` of the class passes, or only PLACEHOLDER when one
+    of them passes wholly unknown text or none is found."""
+    found = {}
+    for field, settings in _constructor_fields(root, content, package).items():
+        values = []
+        for qualified, count, index in settings:
+            calls = [c for c in constructions.get(qualified, ()) if len(c) == count]
+            if not calls:
+                values.append(PLACEHOLDER)
+            for arguments in calls:
+                values.extend(arguments[index])
+        values = list(dict.fromkeys(values))
+        # One construction that passes nothing known leaves the field
+        # unknown: its other values would be a guess for that instance.
+        if PLACEHOLDER in values or len(values) > _MAX_ALTERNATIVES:
+            values = [PLACEHOLDER]
+        found[field] = values
+    return found
+
+
+def java_constructions(tree, content, constants=None):
+    """{qualified class: [[texts of each argument]]} for each ``new`` of a
+    class in a Java file (no anonymous class body)."""
+    root = tree.root_node
+    values = _Values(root, content, constants, _Imports(root, content))
+    found = {}
+    for node in _descendants(root):
+        if node.type != "object_creation_expression":
+            continue
+        if any(c.type == "class_body" for c in node.named_children):
+            continue
+        type_node = node.child_by_field_name("type")
+        if type_node is None or type_node.type not in (
+            "type_identifier",
+            "scoped_type_identifier",
+        ):
+            continue
+        qualified = values._qualified_class(_text(type_node, content))
+        arguments = node.child_by_field_name("arguments")
+        if qualified is None or arguments is None:
+            continue
+        found.setdefault(qualified, []).append(
+            [
+                values.alternatives(a)
+                for a in arguments.named_children
+                if a.type not in ("line_comment", "block_comment")
+            ]
+        )
+    return found
 
 
 def java_constants(tree, content):
@@ -1275,6 +1439,29 @@ def _client_requests(
         )
 
 
+# Apache HttpClient request classes (4.x and 5.x classic) and their methods.
+_APACHE_PACKAGES = (
+    "org.apache.http.client.methods",
+    "org.apache.hc.client5.http.classic.methods",
+)
+_APACHE_REQUESTS = {
+    f"Http{m[0]}{m[1:].lower()}": m
+    for m in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS")
+}
+
+
+def _apache_class(imports, written):
+    """``written`` names an Apache HttpClient request class: written in
+    full, imported by name, or through a wildcard import of its package."""
+    package, _, name = written.rpartition(".")
+    if package:
+        return package in _APACHE_PACKAGES
+    packages = imports.names.get(name)
+    if packages:
+        return bool(packages & set(_APACHE_PACKAGES))
+    return bool(imports.wildcards & set(_APACHE_PACKAGES))
+
+
 _WS_CONFIG = ("org.springframework.web.socket.config.annotation",)
 # Registry type -> (registering method, index of its first path argument).
 _WS_REGISTRIES = {
@@ -1378,6 +1565,7 @@ def extract_spring(
     generated=None,
     clients=None,
     client_base_fixed=True,
+    constructions=None,
 ):
     """Routes, requests and unread mappings of one Java file.
 
@@ -1390,10 +1578,13 @@ def extract_spring(
     generated from a spec to its operations; a call of one of its methods
     sends that operation to the spec's base URL, or to an unknown base when
     ``client_base_fixed`` is false (the module sets the base at run time).
+    ``constructions`` ({qualified class: [[argument texts]]},
+    ``java_constructions`` of every file) gives the fields a constructor
+    sets from its parameters.
     """
     root = tree.root_node
     imports = _Imports(root, content)
-    values = _Values(root, content, constants, imports)
+    values = _Values(root, content, constants, imports, constructions)
     spans = {
         (d.line, d.column, d.end_line, d.end_column): d
         for d in definitions
@@ -1660,6 +1851,53 @@ def extract_spring(
                         alternatives=len(urls),
                     )
                 )
+    # Apache HttpClient: new HttpGet(url), new HttpPost(url), ...
+    for node in _descendants(root):
+        if node.type != "object_creation_expression":
+            continue
+        type_node = node.child_by_field_name("type")
+        written = _text(type_node, content) if type_node is not None else ""
+        method = _APACHE_REQUESTS.get(written.rpartition(".")[2])
+        if method is None or not _apache_class(imports, written):
+            continue
+        arguments = [
+            a
+            for a in node.child_by_field_name("arguments").named_children
+            if a.type not in ("line_comment", "block_comment")
+        ]
+        line = node.start_point.row + 1
+        if len(arguments) != 1:
+            unread.append(Unread(file, line, "request", "url_not_string"))
+            continue
+        if arguments[0].type not in (
+            "string_literal",
+            "binary_expression",
+            "identifier",
+            "field_access",
+            "method_invocation",
+            "parenthesized_expression",
+        ):
+            unread.append(Unread(file, line, "request", "url_not_string"))
+            continue
+        urls = values.alternatives(arguments[0])
+        start = (line, node.start_point.column)
+        end = (node.end_point.row + 1, node.end_point.column)
+        caller = next((i for s, e, i in enclosing if s <= start and end <= e), None)
+        for index, url in enumerate(urls):
+            key = f"{written} {line}" if len(urls) == 1 else f"{written} {line} {index}"
+            requests.append(
+                HttpRequest(
+                    id=make_id("HttpRequest", key),
+                    file=file,
+                    line=line,
+                    column=node.start_point.column,
+                    caller_id=caller,
+                    method=method,
+                    url=url,
+                    client="apache-httpclient",
+                    alternatives=len(urls),
+                )
+            )
     found_routes, found_unread = _websocket_routes(
         root,
         content,
