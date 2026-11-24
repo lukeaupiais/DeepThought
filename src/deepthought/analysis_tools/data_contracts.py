@@ -55,6 +55,10 @@ from ..data_contracts import (
     extract_sequelize,
     extract_mongodb_collections,
     extract_knex,
+    extract_kysely,
+    imports_kysely,
+    KYSELY_METHODS,
+    KYSELY_MODULE,
     script_string_constants,
     KNEX_MODULES,
     _MONGODB_MODULES as MONGODB_MODULES,
@@ -426,6 +430,29 @@ SA_SCIP_RULES = {
         ),
     )
 }
+
+KYSELY_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.kysely-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to Kysely's own "
+        "selectFrom, a join, insertInto, replaceInto, updateTable, "
+        "deleteFrom or mergeInto (selectFrom and joins READ, the others "
+        "WRITE), and its first argument is this table as a string literal "
+        "(alias dropped) or an array of them; names the statement declares "
+        "with with()/withRecursive() are left out.",
+    )
+)
+KYSELY_IMPORT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.kysely-import",
+        "pattern_matched",
+        "In a file that imports kysely and that no SCIP index covers, a "
+        "call of a method named like Kysely's table methods (as "
+        "data-contracts.kysely-scip lists them) with this table as a string "
+        "literal first argument; the receiver is not checked.",
+    )
+)
 
 SQL_RULES = {
     how: register_rule(EvidenceRule(f"data-contracts.{how}", "pattern_matched", text))
@@ -1045,8 +1072,15 @@ class DataContractTool(AnalysisTool):
                 unreadable.append(path)
             else:
                 ddl.extend(found)
-        sources, changed = [], []
+        sources, changed, partial_scripts = [], [], []
         for coverage in result.coverage:
+            if (
+                coverage.status == "partial"
+                and coverage.language in ("javascript", "typescript")
+                and not _is_script_test(coverage.file)
+            ):
+                # Read only where a SCIP index confirms each call (Kysely).
+                partial_scripts.append(coverage)
             if coverage.status != "analyzed" or _is_test_source(coverage.file):
                 continue
             try:
@@ -2119,6 +2153,64 @@ class DataContractTool(AnalysisTool):
                 for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
                     if used:
                         link(kind, source, target, KNEX_QUERY_RULE, extra)
+        # Kysely: table methods whose receiver a SCIP index resolves to
+        # Kysely's own, or, in files no index covers, files importing kysely.
+        kysely_counts = {"calls_scip": 0, "calls_import": 0, "not_kysely": 0}
+        partly_parsed = []
+        for coverage in partial_scripts:
+            if not references.covers(coverage.file):
+                continue
+            try:
+                content = (root / coverage.file).read_bytes()
+            except OSError:
+                continue
+            if sha256(content).hexdigest() != coverage.digest:
+                continue
+            suffix = ".tsx" if coverage.file.endswith(".tsx") else ""
+            if (coverage.language, suffix) not in parsers:
+                parsers[coverage.language, suffix] = make_parser(
+                    coverage.language, suffix
+                )
+            partly_parsed.append(
+                (
+                    coverage.file,
+                    content,
+                    parsers[coverage.language, suffix].parse(content),
+                )
+            )
+        for file, content, tree in [*script_trees, *partly_parsed]:
+            calls = extract_kysely(tree, content, file, result.definitions)
+            importing = None
+            for call in calls:
+                found = references.symbols(file, call.line, call.column)
+                if found is not None:
+                    if not any(
+                        s.startswith(f"scip-typescript npm {KYSELY_MODULE} ")
+                        and s.endswith(f"#{call.method}().")
+                        for s in found
+                    ):
+                        kysely_counts["not_kysely"] += 1
+                        continue
+                    kysely_counts["calls_scip"] += 1
+                    tool, receipt = references.tool(file)
+                    rule = KYSELY_SCIP_RULE
+                    extra = {"indexer": tool, "receipt": receipt}
+                else:
+                    if importing is None:
+                        importing = imports_kysely(content)
+                    if not importing:
+                        kysely_counts["not_kysely"] += 1
+                        continue
+                    kysely_counts["calls_import"] += 1
+                    rule, extra = KYSELY_IMPORT_RULE, {}
+                reads, writes = KYSELY_METHODS[call.method]
+                source = code(file, call.caller_id)
+                for name in call.tables:
+                    target = table(file, table_key(name))
+                    position = {"line": call.line, "column": call.column, **extra}
+                    for kind, used in (("READS", reads), ("WRITES", writes)):
+                        if used:
+                            link(kind, source, target, rule, position)
         # Doctrine ORM: entities, repositories and EntityManager calls.
         doctrine_classes, doctrine_uses, doctrine_renames = [], [], False
         php_texts = []
@@ -2553,6 +2645,7 @@ class DataContractTool(AnalysisTool):
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
                     "knex": knex_counts,
+                    "kysely": kysely_counts,
                     "orm_access_resolution": orm_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
