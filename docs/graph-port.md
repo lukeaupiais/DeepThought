@@ -2401,7 +2401,11 @@ service as `/...`. The tool reads two kinds of gateway route
   a module (the same files as service names; profile documents are not
   read), with `Path=` predicates of literal segments ending in `/**`, a `uri`
   of `lb://service` or `http(s)://host`, and `StripPrefix` and `PrefixPath`
-  filters, in shortcut or full form. A route that rewrites the path
+  filters, in shortcut or full form. A `RewritePath` that swaps a literal
+  path prefix and keeps the rest (`/old/?(?<rest>.*), /new/${rest}` or
+  `/old(?<rest>/?.*), /new${rest}`, optionally anchored, with `$\{rest}`,
+  `${rest}` or `$1`) is read when it is the route's only path filter and its
+  prefix starts the route's `Path=` prefix. A route with another rewrite
   (`RewritePath`, `SetPath`), a path pattern with wildcards before `/**`, or a
   `StripPrefix` longer than the prefix is counted as unread.
 - **nginx.** `location /prefix/ { proxy_pass http://host[:port][/uri]; }` in
