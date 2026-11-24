@@ -1040,7 +1040,26 @@ default import fails and its local name is followed). Overload signatures are
 renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
-38 give 431, all confirmed, and 6 fall outside the project. gson's call truth comes from javac, not an
+38 give 431, all confirmed, and 6 fall outside the project.
+
+`tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
+Python with mypy (`--check-untyped-defs`, no configuration file, so no
+plugin of the repository is loaded and nothing is imported or run). It
+follows imports, `as` aliases and `name as name` re-exports, renames
+`@overload` groups together, and counts a new error that names no name (a
+module `__getattr__` turns the missing attribute into an `object`) when its
+line uses the old name. mypy says nothing about a call through an untyped
+value, so a call row it does not report on a line its precision report
+marks as holding Any is `untyped` and not judged. A method that overrides a
+base method is skipped, because its uses resolve to the base and its rename
+breaks nothing; mypy decides that too, by rejecting `@typing.override` on a
+method that overrides nothing. Each edit gets a new modification time,
+since mypy trusts its cache when a file's size and whole-second time are
+unchanged. On click, 38 sampled declarations give 93 call rows, all
+confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
+36 give 145, all confirmed, and 2 are `untyped`.
+
+gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name

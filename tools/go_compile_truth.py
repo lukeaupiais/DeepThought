@@ -246,6 +246,9 @@ def compare(compile_tsv, calls_tsv):
         sampled.add(decl)
         if r[5] == "blocked":
             blocked.setdefault(decl, set()).add(r[3])
+        elif r[5] == "untyped":
+            # A line the checker could not type: silence there says nothing.
+            blocked.setdefault(decl, set()).add(f"{r[3]}:{r[4]}")
         elif r[5] == "reference" and r[3] != "-":
             refs.setdefault(decl, set()).add((r[3], int(r[4])))
     calls = {}
@@ -261,7 +264,10 @@ def compare(compile_tsv, calls_tsv):
     }
     for decl, sites in calls.items():
         for site in sorted(sites):
-            if _blocked(site[0], blocked.get(decl, set())):
+            here = blocked.get(decl, set())
+            if site not in refs.get(decl, set()) and (
+                _blocked(site[0], here) or f"{site[0]}:{site[1]}" in here
+            ):
                 report["blocked"] += 1
                 continue
             report["scip_calls"] += 1
