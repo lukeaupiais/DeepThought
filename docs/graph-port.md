@@ -1322,7 +1322,15 @@ after an export macro (`API Status Get();`) is in an error node and the
 declarator is kept, so a field annotated the same way (`int x
 GUARDED_BY(mu);`) reads as a function named after the macro; and a
 function's declarator standing alone in an error node declares a function,
-as in C.
+as in C. A line holding only an upper-case name with an underscore
+(`FMT_BEGIN_EXPORT`, or `FMT_CONSTEXPR` above a declaration) is a macro and
+is replaced with spaces too, since the grammar would read it as the type of
+the declaration after it. Two shapes declare no function: a declarator after
+a class body in the same declaration (C++ does not allow a class defined in a
+return type, so this is text after a body the grammar closed early), and a
+declarator after a bit-field width (a constructor's member initializers,
+`: size_(n), cap_(n)`, after a macro). An enum whose name the grammar reports
+as missing (`enum : unsigned {`) is unnamed.
 
 `tools/compare_c_declarations_with_clang.py --language cpp` checks this
 against clang (libclang 18.1.1, `-std=c++20`), as for C, with namespaces and
@@ -1341,7 +1349,7 @@ text before it.
 |---|---|---|---|---|---|
 | leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
 | google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
-| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,449 (1,677 / 856) | 740 / 50 / 0 / 830 / 178 / 30 / 13 | 3,497 / 564 / 0 / 196 / 165 / 14 / 1 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,894 (2,117 / 856) | 744 / 50 / 0 / 842 / 201 / 0 / 13 | 3,511 / 127 / 0 / 165 / 174 / 14 / 1 |
 
 No difference is unexplained. Most of fmt's macro-generated declarations
 and names that are macros come from its bundled GoogleTest (`TEST(...)`

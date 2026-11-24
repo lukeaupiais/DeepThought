@@ -158,10 +158,53 @@ class CppTests(unittest.TestCase):
             b"/* class API K {\n */": b"/* class API K {\n */",
             b'"class API L {"': b'"class API L {"',
             b'\'"\' class API M { ""': b'\'"\' class     M { ""',
+            # A line holding only an upper-case name with an underscore.
+            b"FMT_BEGIN_EXPORT\nclass N {": b"                \nclass N {",
+            b"x;\n  API_CALL  \r\nint f();": b"x;\n            \r\nint f();",
+            b"LAST_LINE": b"         ",
+            # Not one: a name without an underscore, lower case, a macro's
+            # continued line, a line with more on it.
+            b"\nNOUNDERSCORE\n": b"\nNOUNDERSCORE\n",
+            b"\nlower_case\n": b"\nlower_case\n",
+            b"#define X \\\n  FMT_A \\\n": b"#define X \\\n  FMT_A \\\n",
+            b"\nFMT_A int f();\n": b"\nFMT_A int f();\n",
+            b"/*\nFMT_A\n*/": b"/*\nFMT_A\n*/",
         }
         for written, parsed in cases.items():
             self.assertEqual(prepare_source("cpp", written), parsed, written)
         self.assertEqual(prepare_source("c", b"struct API S {"), b"struct API S {")
+
+    def test_text_the_grammar_misreads_declares_no_function(self):
+        result = analyze(
+            {
+                "a.h": "class S {\n"
+                "  enum : unsigned { mask = 1 };\n"
+                "  MACRO S(int n) noexcept\n"
+                "      : size_(n), cap_(n) {}\n"
+                "  int bits : 3, more : 2;\n"
+                "};\n"
+                "struct T { int a; } make();\n"
+                "FMT_BEGIN_EXPORT\n"
+                "template <typename C> class View { int size() const; };\n"
+            }
+        )
+        self.assertEqual(
+            [(d.line, d.symbol, d.kind) for d in result.definitions],
+            [
+                (1, "S", "Class"),
+                # An unnamed enum: the grammar reads `enum :` with a missing
+                # name.
+                # Member initializers after a macro read as bit-field
+                # declarators; the constructor is kept.
+                (3, "S.S", "Method"),
+                # A function cannot return a class defined in its
+                # declaration.
+                (7, "T", "Struct"),
+                # A macro alone on its line is blanked.
+                (9, "View", "Class"),
+                (9, "View.size", "Method"),
+            ],
+        )
 
     def test_headers_are_cpp_when_cpp_is_selected(self):
         files = {"a.h": "int f(void);\n", "b.c": "int g(void);\n"}

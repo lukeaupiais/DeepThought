@@ -457,22 +457,26 @@ def extract_c(
 _CPP_CLASS_MACRO = re.compile(
     rb"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'"
     rb"|\b(?:class|struct|union)\s+(?P<macro>[A-Za-z_]\w*)"
-    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])",
+    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])"
+    # A line holding only an upper-case name with an underscore
+    # (`FMT_BEGIN_EXPORT`, `FMT_CONSTEXPR` before a declaration on the next
+    # line): a macro, which the grammar would read as a type.
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<line>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[ \t]*(?=\r?\n|\Z)",
     re.DOTALL,
 )
 
 
 def prepare_source(language: str, content: bytes) -> bytes:
     """The text the grammar parses. For C++, a macro between a class key
-    and the class's name (``class API Name {``) is replaced with spaces, so
-    offsets, lines and every other byte are kept; other languages are
-    parsed as written."""
+    and the class's name (``class API Name {``) and a line holding only an
+    upper-case macro name are replaced with spaces, so offsets, lines and
+    every other byte are kept; other languages are parsed as written."""
     if language != "cpp":
         return content
 
     def blank(match):
         # A comment or literal has no macro: its span is empty.
-        start, end = match.span("macro")
+        start, end = match.span("macro" if match.group("line") is None else "line")
         whole = match.group(0)
         offset = start - match.start()
         return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
@@ -586,8 +590,26 @@ def _cpp_declarators(node):
     declarator: when an error node holds one declarator, that is the one
     declared. ``API T f();`` puts the type ``T`` in the error node and keeps
     ``f``, so ``int x GUARDED_BY(m);``, which has the same shape, reads as a
-    function ``GUARDED_BY``."""
+    function ``GUARDED_BY``.
+
+    Two shapes declare no function. A class defined in the declaration
+    (``class C {...} f();``) cannot be a function's return type in C++, so
+    its declarators are text after a body the grammar closed early. A
+    declarator after a bit-field width (``F() : size_(n), cap_(n) {}``, a
+    constructor's member initializers after a macro the grammar does not
+    know) is not a function either.
+    """
+    written = node.child_by_field_name("type")
+    if (
+        written is not None
+        and written.type in _CPP_CLASSES
+        and written.child_by_field_name("body") is not None
+    ):
+        return []
     declarators = node.children_by_field_name("declarator")
+    width = next((c for c in node.children if c.type == "bitfield_clause"), None)
+    if width is not None:
+        declarators = [d for d in declarators if d.start_byte < width.start_byte]
     errors = [c for c in node.children if c.type == "ERROR"]
     if (
         len(declarators) == 1
@@ -727,7 +749,12 @@ def extract_cpp(
             if body is None:
                 continue
             name = node.child_by_field_name("name")
-            parts = _cpp_name(name, content) if name is not None else None
+            # `enum : unsigned {` parses with a missing name.
+            parts = (
+                _cpp_name(name, content)
+                if name is not None and not name.is_missing
+                else None
+            )
             inner = scope
             if parts is not None:
                 written, text, name_node = parts
