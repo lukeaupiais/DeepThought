@@ -2279,7 +2279,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
-| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed with the innermost enclosing module's or class's literal `table_name_prefix`, or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-default-table-name` | name_matched | a concrete model without `self.table_name`: ActiveRecord's `compute_table_name`, the demodulized class name underscored and pluralized by ActiveSupport 8.0's English rules plus the app's literal `acronym`, `irregular`, `uncountable` and string `plural`/`singular` inflections; prefixed as `full_table_name_prefix` does: with the literal `table_name_prefix` of the innermost enclosing module that defines one or of the innermost enclosing model, else with the class's own (a `self.table_name_prefix` method or literal assignment, inherited from its superclasses), or with the singular table name of an enclosing model; an STI subclass uses its base class's table |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.active-record-call` | pattern_matched | `Model.<method>` with an ActiveRecord query (`where`, `find`, `pluck`, `count`, ...) or persistence method (`create`, `insert_all`, `update_all`, `destroy_all`, ...), `Model` resolved by Ruby's lexical constant lookup (`Module.nesting`, then the top level) to a model of the repository; instance methods, associations and scopes are not read |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
@@ -2305,7 +2305,7 @@ the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
-`spec/`) are skipped.
+`spec/`) and Ruby's vendored gems (`vendor/`) are skipped.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2316,8 +2316,8 @@ left out when its declarations disagree on the superclass or table name.
 Abstract classes (`self.abstract_class = true`, `primary_abstract_class`)
 give no table. A model whose name the code does not fix is left out and
 counted under `active_record_unresolved`: a `table_name` that is not a
-literal, `table_name_prefix`/`table_name_suffix`/`pluralize_table_names`
-assigned on its chain, or an application whose `config/` sets those or
+literal, a `table_name_prefix` that is not a literal, or
+`table_name_suffix`/`pluralize_table_names` assigned on its chain, or an application whose `config/` sets those or
 changes inflection in a way that is not read (regular expression rules,
 `clear`). Rails apps have no package manifest that the components scan
 reads, so their tables share the nearest enclosing package's namespace.
