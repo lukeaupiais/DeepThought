@@ -40,11 +40,14 @@ function declaration($name, $kind, $symbol, $file, $code)
     ];
 }
 
-function visit($node, $scope, $inType, $file, $code, &$out)
+// $scope names what a declaration here belongs to; $namespace is the
+// current namespace, where a function or class declared in a body goes; and
+// $path is the lexical path an anonymous class's methods are named by.
+function visit($node, $scope, $inType, $namespace, $path, $file, $code, &$out)
 {
     if (is_array($node)) {
         foreach ($node as $child) {
-            visit($child, $scope, $inType, $file, $code, $out);
+            visit($child, $scope, $inType, $namespace, $path, $file, $code, $out);
         }
         return;
     }
@@ -54,11 +57,13 @@ function visit($node, $scope, $inType, $file, $code, &$out)
     $kind = TYPES[get_class($node)] ?? null;
     if ($kind !== null) {
         if ($node->name === null) {
-            return;  // An anonymous class.
+            // An anonymous class: its methods are named by where it is.
+            visit($node->stmts, $path, true, $namespace, $path, $file, $code, $out);
+            return;
         }
         $inner = [...$scope, $node->name->toString()];
         $out[] = declaration($node->name, $kind, $inner, $file, $code);
-        visit($node->stmts, $inner, true, $file, $code, $out);
+        visit($node->stmts, $inner, true, $namespace, $inner, $file, $code, $out);
         return;
     }
     if ($node instanceof Node\Stmt\Function_ || $node instanceof Node\Stmt\ClassMethod) {
@@ -66,18 +71,17 @@ function visit($node, $scope, $inType, $file, $code, &$out)
         $out[] = declaration(
             $node->name, $inType ? 'Method' : 'Function', $symbol, $file, $code
         );
-        return;
-    }
-    if ($node instanceof Node\Expr\Closure) {
+        // What its body declares goes to the namespace when it runs.
+        visit($node->stmts, $namespace, false, $namespace, $symbol, $file, $code, $out);
         return;
     }
     if ($node instanceof Node\Stmt\Namespace_) {
         $names = $node->name === null ? [] : $node->name->getParts();
-        visit($node->stmts, $names, false, $file, $code, $out);
+        visit($node->stmts, $names, false, $names, $names, $file, $code, $out);
         return;
     }
     foreach ($node->getSubNodeNames() as $name) {
-        visit($node->$name, $scope, $inType, $file, $code, $out);
+        visit($node->$name, $scope, $inType, $namespace, $path, $file, $code, $out);
     }
 }
 
@@ -87,7 +91,7 @@ foreach ($files as $file) {
     $errors = new Collecting();
     $statements = $parser->parse($code, $errors) ?? [];
     $out = [];
-    visit($statements, [], false, $file, $code, $out);
+    visit($statements, [], false, [], [], $file, $code, $out);
     $lines = array_map(fn($e) => $e->getStartLine(), $errors->getErrors());
     echo json_encode(
         ['file' => $file, 'declarations' => $out, 'error_lines' => $lines],

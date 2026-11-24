@@ -356,12 +356,12 @@
     "slim": {
       "by_kind": {
         "function": {
-          "found": 0,
-          "missed": 3
+          "found": 3,
+          "missed": 0
         },
         "method": {
-          "found": 739,
-          "missed": 10
+          "found": 749,
+          "missed": 0
         },
         "type": {
           "found": 124,
@@ -370,10 +370,10 @@
       },
       "expected": 876,
       "extra": 0,
-      "found": 863,
+      "found": 876,
       "kind_mismatch": 0,
-      "missed": 13,
-      "recall": 0.9852
+      "missed": 0,
+      "recall": 1.0
     }
   },
   "gson": {
