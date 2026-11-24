@@ -339,9 +339,23 @@ def score(result, truth, max_depth=3, examples=10, aliases=None):
     for (file, line), name in known.items():
         named[(file, name)].append(line)
 
-    def oracle_node(d):
+    def name_of(d):
         # TypeScript private methods: the index names `#m` as `m`.
-        name = re.split(r"::|\.", d.symbol)[-1].lstrip("#")
+        return re.split(r"::|\.", d.symbol)[-1].lstrip("#")
+
+    # Oracle nodes some engine declaration spans. The truth file lists only
+    # seeds and their dependents, so a same-name node may be another
+    # declaration entirely (a method and a function both named `M`); a node
+    # already spanned by its own declaration is never a fold target.
+    spanned = {
+        (d.file, n)
+        for d in result.definitions
+        for n in named.get((d.file, name_of(d)), ())
+        if d.line <= n <= d.end_line
+    }
+
+    def oracle_node(d):
+        name = name_of(d)
         candidates = named.get((d.file, name), ())
         lines = [n for n in candidates if d.line <= n <= d.end_line]
         folded = [
@@ -353,7 +367,11 @@ def score(result, truth, max_depth=3, examples=10, aliases=None):
         ]
         if not lines and folded:
             lines = folded
-        if not lines and len(candidates) == 1:
+        if (
+            not lines
+            and len(candidates) == 1
+            and (d.file, candidates[0]) not in spanned
+        ):
             # The one oracle node of that name in the file: an overload
             # the oracle folds into its first declaration.
             lines = candidates

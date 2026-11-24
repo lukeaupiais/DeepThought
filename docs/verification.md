@@ -440,20 +440,27 @@ the pin. An engine dependent the oracle also reaches is *confirmed*; one it
 does not reach is *extra* (a wrong link, or a caller reached through one).
 The gate fails on fewer confirmed, more extra, or changed seeds.
 
+Engine declarations are matched to oracle nodes by name and span. The truth
+file lists only seeds and their dependents, so a declaration with no node
+there falls back to the one node of its name in the file (an overload the
+oracle folds into its first declaration), but never to a node another
+declaration already spans: a function `run` is not merged with a method
+`C.run`, nor one struct's `new` with another's.
+
 | Corpus | Seeds | Oracle dependents | Confirmed | Extra | Recall | Precision |
 |---|---|---|---|---|---|---|
-| click | 144 | 1151 | 123 | 6 | 0.107 | 0.954 |
+| click | 144 | 1151 | 123 | 0 | 0.107 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 119 | 0 | 0.068 | 1.0 |
 | gson | 164 | 4987 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
-| ripgrep | 277 | 1903 | 495 | 123 | 0.260 | 0.801 |
+| ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
 Recall falls with depth because each missing link cuts off everything behind
 it (click confirms 60 of 351 direct callers, but 21 of 295 at depth 3).
-ripgrep's extras come mostly from `Candidate::new` and similar associated
-functions linked to another type's `new`, and 84 of its seeds are test
-functions that macros expand to, which the engine does not declare. scip-go
+ripgrep's one extra is a caller of the `#[cfg(windows)]` `from_path`, which
+the Linux index does not analyze, and 84 of its seeds are test functions
+that macros expand to, which the engine does not declare. scip-go
 records no definition spans, so cobra's come from Go's own parser
 (`go run tools/go_function_spans.go WORKSPACE`, passed as `--spans`); its
 low recall is mostly method calls on a receiver, such as `c.ExecuteC()` in
