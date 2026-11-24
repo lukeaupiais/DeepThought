@@ -1859,6 +1859,52 @@ of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
 
+### WebSocket endpoints
+
+A WebSocket connection opens with an HTTP GET handshake. Each endpoint is
+read as the `HttpRoute` of that handshake (`methods` GET), so clients are
+linked by the usual HTTP resolution:
+
+- **Spring.** In a method with a `StompEndpointRegistry` or
+  `WebSocketHandlerRegistry` parameter (from
+  `org.springframework.web.socket.config.annotation`), each literal path
+  given to `addEndpoint(...)` or to `addHandler(handler, ...)` on that
+  parameter is a route under the servlet context path, handled by the method
+  (framework `spring-websocket`, rule `service-contracts.spring-websocket-endpoint`).
+  SockJS fallback paths below the endpoint are not listed.
+- **Jakarta / javax.** A class with `@ServerEndpoint` from
+  `jakarta.websocket.server` or `javax.websocket.server` and a literal path is
+  a route handled by the class (framework `jakarta-websocket`, rule
+  `service-contracts.jakarta-websocket-endpoint`). Only a Spring module's
+  context path is joined.
+- **Clients.** In JavaScript and TypeScript, `new WebSocket(url)` and
+  `new SockJS(url)` are GET requests (client `websocket` or `sockjs`). The
+  constructor is the browser's global when the file does not import it.
+  Under any local name, it may also come from `ws`, `isomorphic-ws` or
+  `sockjs-client`; a constructor imported from another module is not read.
+  `ws://` and `wss://` URLs are read like `http://` ones. A relative URL is
+  read against the site root.
+
+A path that is not literal is `route:path_not_literal`. Scripts inside HTML
+pages and `.vue` files are not parsed, so clients written there are not
+found.
+
+Results on 15 repositories (13 cloned for this slice, plus the
+apssouza22/java-microservice corpus):
+
+| Repository | Server endpoints | Clients in parsed JS/TS | Outcome |
+|---|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 1 (`/wchess`) | 1 literal | Linked to the endpoint |
+| camunda-community-hub/zeebe-simple-monitor `0f80785`, zeebe-simple-tasklist `e24fddb` | 1 each | 1 each, `base_path + 'notifications'` | Unresolved: the base comes from the page template |
+| manusa/yakd `203f051` | 1 (`/api/v1/pods/{namespace}/{name}/exec/{container}`) | 1, `${getWsUrl()}/pods/...` | Unresolved: the unknown base holds `/api/v1` |
+| CodeDefenders `135180c`, m-reza-rahman/jakartaee-javascript `9ae218e` | 1 each | 1 each, URL from a field or constant built at run time | Unresolved |
+| ocinpp/springboot-sockjs-stomp-vue-sample, ygunayer/realtime-messaging, ben-rampel/Poker, leansd/cotrip, LianTianNo1/wiki_vue3, zhaxal/java-chess (2), cryostatio/cryostat, apssouza22/java-microservice | 9 | Clients in HTML or `.vue`, or none | Endpoints found; the cotrip path comes from a constant |
+| MicroIoT/iotplatform `8fa6874` | path from configuration | none | `path_not_literal` |
+
+All 15 literal endpoints are found, and the one literal client URL is
+linked to the right endpoint. No link is wrong. On the other corpora, the
+only new edge is apssouza22's `/socket-todos` endpoint.
+
 ### GraphQL root fields
 
 Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL

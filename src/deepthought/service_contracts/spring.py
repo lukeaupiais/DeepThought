@@ -1,5 +1,5 @@
-"""Spring MVC routes, Feign clients, RestTemplate requests and calls of
-openapi-generator Java clients in Java sources.
+"""Spring MVC routes, WebSocket endpoints, Feign clients, RestTemplate
+requests and calls of openapi-generator Java clients in Java sources.
 
 Only what the source fixes is read: annotation names that the file imports
 from Spring, string literals, ``+`` concatenation, ``String.format`` with
@@ -1275,6 +1275,96 @@ def _client_requests(
         )
 
 
+_WS_CONFIG = ("org.springframework.web.socket.config.annotation",)
+# Registry type -> (registering method, index of its first path argument).
+_WS_REGISTRIES = {
+    "StompEndpointRegistry": ("addEndpoint", 0),
+    "WebSocketHandlerRegistry": ("addHandler", 1),
+}
+_WS_SERVER_ENDPOINT = ("javax.websocket.server", "jakarta.websocket.server")
+
+
+def _websocket_routes(
+    root, content, imports, values, spans, span, context_path, service, make_id, file
+):
+    """WebSocket endpoints, as the GET routes of their handshakes: paths
+    given to ``addEndpoint`` of a StompEndpointRegistry or ``addHandler`` of a
+    WebSocketHandlerRegistry parameter (handled by that method), and
+    ``@ServerEndpoint`` classes (handled by the class)."""
+    routes, unread = [], []
+
+    def add(node, path, handler, framework):
+        line = node.start_point.row + 1
+        if PLACEHOLDER in path or not path:
+            unread.append(Unread(file, line, "route", "path_not_literal"))
+            return
+        if handler is None:
+            unread.append(Unread(file, line, "route", "no_handler"))
+            return
+        full = join_paths(context_path or "", path)
+        routes.append(
+            HttpRoute(
+                id=make_id("HttpRoute", f"GET {full}"),
+                file=file,
+                line=line,
+                column=node.start_point.column,
+                handler_id=handler.id,
+                methods=("GET",),
+                path=full,
+                framework=framework,
+                service=service,
+            )
+        )
+
+    for node in _descendants(root):
+        if node.type in ("class_declaration", "record_declaration"):
+            for written, annotation in _annotations(node, content):
+                if (
+                    imports.spring_name(written, _WS_SERVER_ENDPOINT)
+                    != "ServerEndpoint"
+                ):
+                    continue
+                value = _arguments(annotation).get("value")
+                path = values.evaluate(value) if value is not None else ""
+                add(annotation, path, spans.get(span(node)), "jakarta-websocket")
+            continue
+        if node.type != "method_declaration":
+            continue
+        parameters = node.child_by_field_name("parameters")
+        registries = {}
+        for parameter in parameters.named_children if parameters else ():
+            type_node = parameter.child_by_field_name("type")
+            name = parameter.child_by_field_name("name")
+            if type_node is None or name is None:
+                continue
+            written = imports.spring_name(_text(type_node, content), _WS_CONFIG)
+            if written in _WS_REGISTRIES:
+                registries[_text(name, content)] = _WS_REGISTRIES[written]
+        body = node.child_by_field_name("body")
+        if not registries or body is None:
+            continue
+        handler = spans.get(span(node))
+        for call in _descendants(body):
+            if call.type != "method_invocation":
+                continue
+            target = call.child_by_field_name("object")
+            registry = registries.get(_text(target, content)) if target else None
+            if (
+                registry is None
+                or _text(call.child_by_field_name("name"), content) != (registry[0])
+            ):
+                continue
+            arguments = call.child_by_field_name("arguments").named_children
+            paths = [a for a in arguments if "comment" not in a.type][registry[1] :]
+            if not paths:
+                unread.append(
+                    Unread(file, call.start_point.row + 1, "route", "path_not_literal")
+                )
+            for argument in paths:
+                add(argument, values.evaluate(argument), handler, "spring-websocket")
+    return routes, unread
+
+
 def extract_spring(
     tree,
     content,
@@ -1570,6 +1660,20 @@ def extract_spring(
                         alternatives=len(urls),
                     )
                 )
+    found_routes, found_unread = _websocket_routes(
+        root,
+        content,
+        imports,
+        values,
+        spans,
+        span,
+        context_path,
+        service,
+        make_id,
+        file,
+    )
+    routes.extend(found_routes)
+    unread.extend(found_unread)
     if clients:
         _client_requests(
             root,

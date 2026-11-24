@@ -752,3 +752,50 @@ class ContractRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JavaScriptTruthTests(unittest.TestCase):
+    def test_tsconfig_from_jsconfig_with_aliases(self):
+        import javascript_tsconfig
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "jsconfig.json").write_text(
+                '{"compilerOptions": {"checkJs": true, "jsx": "react",'
+                ' "types": ["vitest/globals"]}}'
+            )
+            config = javascript_tsconfig.tsconfig(
+                directory, [("pkg", "src/index.js"), ("pkg/x", "x/src/index.js")]
+            )
+        options = config["compilerOptions"]
+        self.assertEqual(
+            (options["allowJs"], options["checkJs"], options["jsx"]),
+            (True, False, "react"),
+        )
+        self.assertNotIn("types", options)
+        self.assertEqual(
+            options["paths"], {"pkg": ["src/index.js"], "pkg/x": ["x/src/index.js"]}
+        )
+
+    @unittest.skipUnless(
+        READY and shutil.which("scip-typescript"), "scip-typescript is required"
+    )
+    def test_a_local_class_construction_binds_the_class(self):
+        import subprocess
+
+        import javascript_tsconfig
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a.js").write_text(
+                "export function f() {\n"
+                "  class Local {\n    constructor(x) { this.x = x; }\n  }\n"
+                "  return new Local(1);\n}\n"
+            )
+            javascript_tsconfig.main([str(root)])
+            subprocess.run(
+                ["scip-typescript", "index"], cwd=root, check=True, capture_output=True
+            )
+            expected, _ = ground_truth.derive(root, root / "index.scip")
+        # scip-typescript names the constructor of a local class without
+        # defining it; the construction binds the class itself.
+        self.assertEqual(expected[("a.js", 5, "Local")], {("a.js", 2, "local")})
