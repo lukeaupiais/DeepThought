@@ -2049,8 +2049,8 @@ The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
 indexer is never read as a file without references. A file no compiler can
-index (`no_go_module`, `not_in_index`) is named on stderr
-with its reason and does not fail the run. On the
+index (`no_go_module`, `build_constraints`, `not_in_index`) is named on
+stderr with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
