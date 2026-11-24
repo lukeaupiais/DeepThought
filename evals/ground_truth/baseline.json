@@ -274,6 +274,30 @@
     "unresolved_unjudged": 1932
   },
   "contracts": {
+    "contracts-eshop-grpc": {
+      "grpc": {
+        "call_sites": {
+          "labelled_in_scope": 6,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "servers": {
+          "labelled_in_scope": 6,
+          "predicted": 6,
+          "true_positive": 6
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "streaming": {
+          "labelled_in_scope": 3,
+          "predicted": 3,
+          "true_positive": 3
+        }
+      }
+    },
     "contracts-graphql-apollo-fullstack-tutorial": {
       "graphql": {
         "call_sites": {
@@ -515,13 +539,13 @@
         },
         "servers": {
           "labelled_in_scope": 20,
-          "predicted": 15,
-          "true_positive": 15
+          "predicted": 20,
+          "true_positive": 20
         },
         "service_pairs": {
           "labelled_in_scope": 14,
-          "predicted": 12,
-          "true_positive": 12
+          "predicted": 14,
+          "true_positive": 14
         },
         "streaming": {
           "labelled_in_scope": 0,
@@ -532,8 +556,8 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 9,
-          "predicted": 9,
-          "true_positive": 9
+          "predicted": 8,
+          "true_positive": 8
         },
         "service_pairs": {
           "labelled_in_scope": 1,
@@ -574,13 +598,13 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 42,
-          "predicted": 36,
-          "true_positive": 36
+          "predicted": 42,
+          "true_positive": 42
         },
         "service_pairs": {
           "labelled_in_scope": 17,
-          "predicted": 13,
-          "true_positive": 13
+          "predicted": 17,
+          "true_positive": 17
         }
       },
       "messaging": {
@@ -843,20 +867,20 @@
           "expected": 790
         },
         "2": {
-          "confirmed": 1497,
+          "confirmed": 1498,
           "expected": 2096
         },
         "3": {
-          "confirmed": 1326,
+          "confirmed": 1356,
           "expected": 2184
         }
       },
-      "confirmed": 3515,
+      "confirmed": 3546,
       "expected": 5070,
       "extra": 0,
-      "missed": 1555,
+      "missed": 1524,
       "precision": 1.0,
-      "recall": 0.6933,
+      "recall": 0.6994,
       "seeds": 164,
       "seeds_undeclared": 0,
       "unjudged": 4
@@ -998,24 +1022,24 @@
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 63,
+          "confirmed": 65,
           "expected": 65
         },
         "2": {
-          "confirmed": 52,
+          "confirmed": 58,
           "expected": 58
         },
         "3": {
-          "confirmed": 44,
+          "confirmed": 52,
           "expected": 52
         }
       },
-      "confirmed": 159,
+      "confirmed": 175,
       "expected": 175,
       "extra": 0,
-      "missed": 16,
+      "missed": 0,
       "precision": 1.0,
-      "recall": 0.9086,
+      "recall": 1.0,
       "seeds": 38,
       "seeds_undeclared": 0,
       "unjudged": 0
