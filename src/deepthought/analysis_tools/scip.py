@@ -1,7 +1,9 @@
 """SCIP AnalysisTool using the existing ingestion and reference composer.
 
-The validated profile consumes source-bound TypeScript indexes produced
-explicitly by scip_indexing. Analysis itself neither installs nor invokes tools.
+Consumes source-bound indexes: the TypeScript v1 profile from scip_indexing,
+and the v2 profiles deepthought.indexers writes for Python, TypeScript,
+JavaScript and Go. Several indexes (one per indexer) compose into one
+snapshot. Analysis itself neither installs nor invokes tools.
 Every edge is ``resolved``: it comes from the indexer's symbol identities and
 document occurrences, checked against the bound source files.
 """
@@ -19,6 +21,7 @@ import time
 from .._version import __version__
 from ..graph import compose_graph
 from ..scip import ingest_scip
+from ..indexers import INDEXERS, LANGUAGE_SUFFIXES, validate_receipt
 from ..scip_indexing import validate_index
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -104,6 +107,66 @@ def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
 
+TYPESCRIPT_V1 = "scip-typescript-v1"
+LANGUAGES = ("go", "javascript", "python", "typescript")
+
+
+def _language(file):
+    return LANGUAGE_SUFFIXES.get(Path(file).suffix)
+
+
+def _receipt_profile(path):
+    receipt = Path(str(path) + ".sources.json")
+    try:
+        return json.loads(receipt.read_text()).get("profile")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _receipt_languages(receipt):
+    if receipt.get("profile") == TYPESCRIPT_V1:
+        return {"typescript"}
+    return set(INDEXERS[receipt["producer"]["name"]].languages)
+
+
+def _merge(sources, revision):
+    """One analysis snapshot from per-indexer results over disjoint files."""
+    if len(sources) == 1:
+        return replace(sources[0], snapshot_id=revision)
+    statuses = {source.status for source in sources}
+    status = next(
+        s for s in ("failed", "cancelled", "partial", "succeeded") if s in statuses
+    )
+    return replace(
+        sources[0],
+        snapshot_id=revision,
+        status=status,
+        definitions=tuple(d for s in sources for d in s.definitions),
+        references=tuple(r for s in sources for r in s.references),
+        coverage=tuple(c for s in sources for c in s.coverage),
+        diagnostics=tuple(d for s in sources for d in s.diagnostics),
+        analyzer_versions=tuple(
+            sorted({item for s in sources for item in s.analyzer_versions})
+        ),
+    )
+
+
+def _receipt_metrics(receipts):
+    def summary(receipt):
+        return {
+            "source_receipt_sha256": sha256(
+                json.dumps(receipt, sort_keys=True).encode()
+            ).hexdigest(),
+            "index_sha256": receipt["index_sha256"],
+            "producer": receipt["producer"],
+            "position_encoding_fallback": receipt["position_encoding"],
+        }
+
+    if len(receipts) == 1:
+        return summary(receipts[0])
+    return {"indexes": [summary(receipt) for receipt in receipts]}
+
+
 @register_tool
 class ScipAnalysisTool(AnalysisTool):
     def __init__(
@@ -111,14 +174,27 @@ class ScipAnalysisTool(AnalysisTool):
         repo_path,
         *,
         index_path=None,
+        index_paths=None,
     ):
         super().__init__(repo_path)
-        self.index_path = (
-            Path(index_path)
-            if index_path is not None
-            else self.repo_path / "index.scip"
+        if index_path is not None and index_paths is not None:
+            raise ValueError("Pass index_path or index_paths, not both")
+        self.index_paths = (
+            [Path(p) for p in index_paths]
+            if index_paths is not None
+            else [
+                Path(index_path)
+                if index_path is not None
+                else self.repo_path / "index.scip"
+            ]
         )
+        if not self.index_paths:
+            raise ValueError("At least one SCIP index is required")
         self._definitions = {}
+
+    @property
+    def index_path(self):
+        return self.index_paths[0]
 
     def _get_metadata(self):
         return ToolMetadata(
@@ -129,7 +205,7 @@ class ScipAnalysisTool(AnalysisTool):
                 ToolCapability.REFERENCE_INDEXING,
                 ToolCapability.DEPENDENCY_ANALYSIS,
             },
-            supported_languages={"typescript"},
+            supported_languages=set(LANGUAGES),
             requires_binary=False,
             binary_name=None,
             performance_class="unmeasured",
@@ -140,72 +216,101 @@ class ScipAnalysisTool(AnalysisTool):
             protocol = importlib.util.find_spec("google.protobuf") is not None
         except ModuleNotFoundError:
             protocol = False
-        return (
-            protocol
-            and self.index_path.is_file()
-            and Path(str(self.index_path) + ".sources.json").is_file()
+        return protocol and all(
+            path.is_file() and Path(str(path) + ".sources.json").is_file()
+            for path in self.index_paths
         )
+
+    def _validate(self, path):
+        """The index's receipt, checked against the current inputs."""
+        if not path.is_file() or not Path(str(path) + ".sources.json").is_file():
+            raise ValueError(f"SCIP index or receipt is missing: {path}")
+        if _receipt_profile(path) == TYPESCRIPT_V1:
+            return validate_index(self.repo_path, path)
+        return validate_receipt(self.repo_path, path)
 
     async def analyze(
         self, repo_url, languages=None, file_patterns=None, skip_patterns=None
     ):
         self._definitions = {}
         started = time.monotonic()
-        if languages is not None and set(languages) != {"typescript"}:
-            raise ValueError(
-                "The source-bound SCIP plugin currently supports TypeScript"
+        wanted = set(LANGUAGES) if languages is None else set(languages)
+        if wanted - set(LANGUAGES):
+            raise ValueError("The SCIP plugin supports " + ", ".join(LANGUAGES))
+        receipts = [self._validate(path) for path in self.index_paths]
+        semantic_receipts = [
+            {key: value for key, value in receipt.items() if key != "wall_seconds"}
+            for receipt in receipts
+        ]
+        sources, owner = [], {}
+        for path, receipt in zip(self.index_paths, receipts):
+            source = ingest_scip(
+                path,
+                repository_id=repo_url,
+                default_position_encoding=receipt["position_encoding"],
             )
-        receipt = validate_index(self.repo_path, self.index_path)
-        semantic_receipt = {
-            key: value for key, value in receipt.items() if key != "wall_seconds"
-        }
-        result = ingest_scip(
-            self.index_path,
-            repository_id=repo_url,
-            default_position_encoding=receipt["position_encoding"],
-        )
-        if (
-            dict(result.analyzer_versions).get("scip-typescript")
-            != receipt["producer"]["version"]
-        ):
-            raise ValueError("SCIP producer differs from the source receipt")
+            producer = receipt["producer"]
+            if (
+                dict(source.analyzer_versions).get(producer["name"])
+                != producer["version"]
+            ):
+                raise ValueError("SCIP producer differs from the source receipt")
+            v1 = receipt.get("profile") == TYPESCRIPT_V1
 
-        def selected(file):
-            return (
-                (file.endswith(".ts") or file.endswith(".tsx"))
-                and (
-                    file_patterns is None
-                    or any(fnmatchcase(file, pattern) for pattern in file_patterns)
+            def selected(file, v1=v1, receipt=receipt):
+                if v1:
+                    language = (
+                        "typescript"
+                        if file.endswith(".ts") or file.endswith(".tsx")
+                        else None
+                    )
+                else:
+                    language = _language(file)
+                return (
+                    language in wanted
+                    and language in _receipt_languages(receipt)
+                    and (
+                        file_patterns is None
+                        or any(fnmatchcase(file, pattern) for pattern in file_patterns)
+                    )
+                    and not any(
+                        fnmatchcase(file, pattern) for pattern in (skip_patterns or ())
+                    )
                 )
-                and not any(
-                    fnmatchcase(file, pattern) for pattern in (skip_patterns or ())
-                )
+
+            source = replace(
+                source,
+                definitions=tuple(d for d in source.definitions if selected(d.file)),
+                references=tuple(r for r in source.references if selected(r.file)),
+                coverage=tuple(c for c in source.coverage if selected(c.file)),
             )
+            for coverage in source.coverage:
+                if coverage.file in owner:
+                    raise ValueError("Two SCIP indexes cover " + coverage.file)
+                owner[coverage.file] = receipt
+            sources.append(source)
 
         # Selection is explicit and part of source identity. Local symbols retain
         # the original per-document scope through the SDK's native resolver.
-        revision = sha256(
-            json.dumps(
-                {
-                    "source": result.snapshot_id,
-                    "source_receipt": semantic_receipt,
-                    "composer_version": "2",
-                    "projection_version": "3",
-                    "include": file_patterns,
-                    "exclude": skip_patterns,
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
-        result = replace(
-            result,
-            snapshot_id=revision,
-            definitions=tuple(d for d in result.definitions if selected(d.file)),
-            references=tuple(r for r in result.references if selected(r.file)),
-            coverage=tuple(c for c in result.coverage if selected(c.file)),
-        )
+        identity = {
+            "composer_version": "2",
+            "projection_version": "3",
+            "include": file_patterns,
+            "exclude": skip_patterns,
+        }
+        if len(sources) == 1:
+            identity.update(
+                source=sources[0].snapshot_id, source_receipt=semantic_receipts[0]
+            )
+        else:
+            identity["sources"] = [
+                [source.snapshot_id, receipt]
+                for source, receipt in zip(sources, semantic_receipts)
+            ]
+        revision = sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        result = _merge(sources, revision)
         if not result.coverage:
-            raise ValueError("SCIP selection contains no indexed TypeScript documents")
+            raise ValueError("SCIP selection contains no indexed documents")
         graph = compose_graph([result], composer_version="2")
         nodes, relationships = [], []
         repository = f"{repo_url}::repository"
@@ -246,7 +351,7 @@ class ScipAnalysisTool(AnalysisTool):
                         "name": coverage.file,
                         "path": coverage.file,
                         "file_path": coverage.file,
-                        "language": "typescript",
+                        "language": _language(coverage.file),
                         "coverage_status": coverage.status,
                     },
                 )
@@ -305,7 +410,7 @@ class ScipAnalysisTool(AnalysisTool):
                 "repo_url": repo_url,
                 "definition_id": item.id,
                 "source_definition_id": d.id,
-                "file_sha256": receipt["files"][d.file],
+                "file_sha256": owner[d.file]["files"][d.file],
                 "name": d.symbol,
                 "display_name": display_name,
                 "native_id": d.native_id,
@@ -397,7 +502,9 @@ class ScipAnalysisTool(AnalysisTool):
         implementations = {"linked": 0, "external_target": 0}
         # Sites cover only selected files, so unselected sources are skipped and
         # unselected or undeclared targets are counted, never guessed.
-        for file, symbol, related in _implementations(self.index_path):
+        for file, symbol, related in (
+            item for path in self.index_paths for item in _implementations(path)
+        ):
 
             def key(native):
                 return (file, native) if native.startswith("local ") else (native,)
@@ -413,7 +520,7 @@ class ScipAnalysisTool(AnalysisTool):
                 for target in sorted(supers):
                     link("IMPLEMENTS", source, target, IMPLEMENTS_RULE)
         # Recheck index/source binding after ingestion and conversion as well.
-        if validate_index(self.repo_path, self.index_path) != receipt:
+        if [self._validate(path) for path in self.index_paths] != receipts:
             raise ValueError("SCIP inputs changed during analysis")
         diagnostics = [
             d.to_dict() if hasattr(d, "to_dict") else vars(d)
@@ -426,7 +533,9 @@ class ScipAnalysisTool(AnalysisTool):
                 tool_name="scip",
                 tool_version=__version__,
                 execution_time_seconds=time.monotonic() - started,
-                languages_processed=["typescript"],
+                languages_processed=sorted(
+                    {_language(c.file) for c in result.coverage}
+                ),
                 files_processed=len(result.coverage),
                 errors=[d["message"] for d in diagnostics]
                 if result.status == "failed"
@@ -451,12 +560,7 @@ class ScipAnalysisTool(AnalysisTool):
                     "diagnostics": diagnostics,
                     "resolution_counts": graph.resolution_counts,
                     "implementation_relationships": implementations,
-                    "source_receipt_sha256": sha256(
-                        json.dumps(semantic_receipt, sort_keys=True).encode()
-                    ).hexdigest(),
-                    "index_sha256": receipt["index_sha256"],
-                    "producer": receipt["producer"],
-                    "position_encoding_fallback": receipt["position_encoding"],
+                    **_receipt_metrics(semantic_receipts),
                 },
             ),
         )
