@@ -32,6 +32,9 @@ class HttpRoute:
     declared_in: str | None = None
     # Literal path segments match without regard to case (ASP.NET Core).
     case_insensitive: bool = False
+    # "package.Service/Method" of the rpc a route transcodes to (an rpc's
+    # google.api.http option): the GrpcMethod handles it.
+    rpc: str | None = None
 
 
 @dataclass(frozen=True)

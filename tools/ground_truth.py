@@ -73,8 +73,11 @@ def _descriptor_name(native_id):
     return names[-1] if names else None
 
 
-_SELF_BUILTIN = re.compile(
-    r"\b(?:self|cls)\.\s*\0scip-python python python-stdlib \S+ builtins/[^#/]+(?:#|\(\)\.)$"
+# An attribute (``x.set``, ``self.set``, ``f().set``) bound to a top-level
+# builtin. Only the ``builtins`` module itself has those as attributes.
+_ATTRIBUTE_BUILTIN = re.compile(
+    r"(?<![\w.])(?!builtins\s*\.\s*\0)[\w.()\[\]'\"]*[\w)\]]\s*\.\s*"
+    r"\0scip-python python python-stdlib \S+ builtins/[^#/]+(?:#|\(\)\.)$"
 )
 _ALL = re.compile(r"^__all__\s*=\s*[\[(]([^\])]*)[\])]", re.M)
 
@@ -299,12 +302,13 @@ def derive(workspace, index):
             # opening parenthesis without calling it.
             continue
         native = _star_export(r.native_id, written, r.file, defined, text_of)
-        if native is None or _SELF_BUILTIN.search(
+        if native is None or _ATTRIBUTE_BUILTIN.search(
             _slice(line, 0, r.column, encoding) + "\0" + r.native_id
         ):
             # scip-python binds `self.set(...)` in a class that defines
-            # `set` to the builtin `set`: an attribute of self is never a
-            # top-level builtin, so the row is left unjudged.
+            # `set`, and `cookies.set(...)` on a typed receiver, to the
+            # builtin `set`: an attribute is never a top-level builtin
+            # (except on the `builtins` module), so the row is unjudged.
             continue
         if native in defined:
             targets = defined[native]
@@ -870,6 +874,8 @@ def score_tables(corpus, workspace, examples=10):
         return score_driver_collections(labels, workspace, examples)
     if language == "knex":
         return score_knex_tables(labels, workspace, examples)
+    if language == "go-sql":
+        return score_go_sql_tables(labels, workspace, examples)
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -977,7 +983,11 @@ def score_driver_collections(labels, workspace, examples=10):
     found = sorted(k for k, v in expected.items() if read.get(k) == v)
     wrong = sorted(k for k, v in expected.items() if read.get(k) and read[k] != v)
     missed = sorted(k for k in expected if not read.get(k))
-    extra = sorted(k for k in read if k not in expected and k not in ignored)
+    extra = sorted(
+        k
+        for k in read
+        if k not in expected and k not in ignored and labels.get("scope") != "labelled"
+    )
     report = {
         "expected": len(expected),
         "found": len(found),
@@ -995,27 +1005,52 @@ def score_driver_collections(labels, workspace, examples=10):
 
 def score_knex_tables(labels, workspace, examples=10):
     """Knex query-builder table accesses against labels read by hand
-    (tools/knex_labels.py), per line.
+    (tools/knex_labels.py), per line: see ``score_line_tables``."""
+    return score_line_tables(
+        labels, workspace, examples, "data-contracts.knex", list(MONGOOSE_LANGUAGES)
+    )
 
-    A labelled line is *found* when the engine's Knex READS/WRITES/DECLARES
-    edges made at that line name exactly the labelled (table, access) pairs,
-    *wrong* when they name any other, and *missed* when there are none.
-    *extra* is a line the engine reads that the labels neither list nor set
-    aside under ``not_counted``.
+
+def score_go_sql_tables(labels, workspace, examples=10):
+    """SQL that Go code runs, against labels from sqlc's own analysis
+    (tools/sqlc_table_labels.py) or read by hand, per line: see
+    ``score_line_tables``. The module's dependencies are downloaded first
+    (``go mod download``, which builds and runs nothing), because the
+    engine types calls against them."""
+    for mod in sorted(Path(workspace).rglob("go.mod")):
+        subprocess.run(
+            ["go", "mod", "download"],
+            cwd=mod.parent,
+            env={**os.environ, "GOFLAGS": "-mod=mod", "GOWORK": "off"},
+            check=True,
+            capture_output=True,
+        )
+    return score_line_tables(
+        labels, workspace, examples, "data-contracts.go-sql", ["go"]
+    )
+
+
+def score_line_tables(labels, workspace, examples, rule_prefix, languages):
+    """Table accesses per line against labels.
+
+    A labelled line is *found* when the engine's READS/WRITES/DECLARES edges
+    of rules starting with ``rule_prefix`` made at that line name exactly
+    the labelled (table, access) pairs, *wrong* when they name any other,
+    and *missed* when there are none. *extra* is a line the engine reads
+    that the labels neither list nor set aside under ``not_counted``; labels
+    with ``"scope": "labelled"`` are a sample, so they count no extra.
     """
     import asyncio
 
     from deepthought.analysis_tools.data_contracts import DataContractTool
 
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze(
-            "tables", languages=list(MONGOOSE_LANGUAGES)
-        )
+        DataContractTool(Path(workspace)).analyze("tables", languages=languages)
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     read = defaultdict(set)
     for r in output.relationships:
-        if not str(r.properties.get("rule_id", "")).startswith("data-contracts.knex"):
+        if not str(r.properties.get("rule_id", "")).startswith(rule_prefix):
             continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
@@ -1032,7 +1067,11 @@ def score_knex_tables(labels, workspace, examples=10):
     found = sorted(k for k, v in expected.items() if read.get(k) == v)
     wrong = sorted(k for k, v in expected.items() if read.get(k) and read[k] != v)
     missed = sorted(k for k in expected if not read.get(k))
-    extra = sorted(k for k in read if k not in expected and k not in ignored)
+    extra = sorted(
+        k
+        for k in read
+        if k not in expected and k not in ignored and labels.get("scope") != "labelled"
+    )
     report = {
         "expected": len(expected),
         "found": len(found),
@@ -1131,6 +1170,8 @@ def missing_requirements(manifest, names=()):
             for lang in (
                 MONGOOSE_LANGUAGES
                 if language in {"mongoose", "mongodb", "knex"}
+                else ("go",)
+                if language == "go-sql"
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])

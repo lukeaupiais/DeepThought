@@ -11,12 +11,18 @@ matching each import against the repository's .proto paths (the root is
 what is left of the path in front of the import). A file whose own path
 some other file imports takes that importer's root, else its directory.
 
-A file protoc cannot compile (an import that is not in the repository,
-such as googleapis' ``google/api/annotations.proto`` when it is not
-vendored, or a syntax error) has no descriptor here; the caller reads it
-another way.
+googleapis-common-protos, when installed, supplies
+``google/api/annotations.proto`` and ``google/api/http.proto`` to files that
+import them without vendoring them. An rpc's ``google.api.http`` option (the
+HTTP mapping that grpc-gateway and Kratos serve) is read from the
+descriptor as ``HttpBinding`` records, with its ``additional_bindings``.
+
+A file protoc cannot compile (an import that is not in the repository or
+the include directories, or a syntax error) has no descriptor here; the
+caller reads it another way.
 """
 
+from dataclasses import dataclass
 import os
 from pathlib import PurePosixPath
 import re
@@ -37,17 +43,40 @@ _STREAMING = {
 }
 _IMPORT = re.compile(r'(?m)^\s*import\s+(?:public\s+|weak\s+)?"([^"]+)"\s*;')
 _TIMEOUT = 60
+_VERBS = ("get", "put", "post", "delete", "patch")
+
+
+@dataclass(frozen=True)
+class HttpBinding:
+    """An HTTP mapping of an rpc, from its ``google.api.http`` option."""
+
+    service: str  # fully qualified: package.Service
+    method: str
+    verb: str  # GET | PUT | POST | DELETE | PATCH, or the custom kind
+    path: str  # the template as written: /v1/{name=shelves/*}:get
+    file: str
+    line: int
 
 
 def available():
-    """The include directory of the well-known types when grpcio-tools and
-    protobuf are installed, else None."""
+    """The include directories (the well-known types, then googleapis'
+    common protos when installed) when grpcio-tools and protobuf are
+    installed, else None."""
     try:
         import grpc_tools
         from google.protobuf import descriptor_pb2  # noqa: F401
     except ImportError:
         return None
-    return os.path.join(os.path.dirname(grpc_tools.__file__), "_proto")
+    includes = [os.path.join(os.path.dirname(grpc_tools.__file__), "_proto")]
+    try:
+        from google.api import http_pb2
+    except ImportError:
+        return includes
+    # site-packages/google/api/http_pb2.py: the root holds google/api/*.proto.
+    includes.append(
+        os.path.dirname(os.path.dirname(os.path.dirname(http_pb2.__file__)))
+    )
+    return includes
 
 
 def _roots(protos, texts):
@@ -93,12 +122,15 @@ def _compile(root, paths, includes, well_known):
     same include roots; empty when protoc fails on any of them."""
     from google.protobuf import descriptor_pb2
 
+    # The google.api.http extension parses into MethodOptions only once its
+    # module is loaded.
+    _http_rule_extension()
     with tempfile.TemporaryDirectory() as directory:
         output = os.path.join(directory, "set.pb")
         arguments = [sys.executable, "-m", "grpc_tools.protoc"]
         arguments += [f"--proto_path={root / include}" for include in includes]
         arguments += [
-            f"--proto_path={well_known}",
+            *(f"--proto_path={include}" for include in well_known),
             "--include_source_info",
             f"--descriptor_set_out={output}",
         ]
@@ -144,7 +176,33 @@ def _split(root, paths, includes, roots, well_known):
     return found
 
 
+def _http_rule_extension():
+    """The ``google.api.http`` extension of MethodOptions, when
+    googleapis-common-protos is installed."""
+    try:
+        from google.api import annotations_pb2
+    except ImportError:
+        return None
+    return annotations_pb2.http
+
+
+def _bindings(rule, service, method, path, line):
+    found = []
+    for current in (rule, *rule.additional_bindings):
+        kind = current.WhichOneof("pattern")
+        if kind in _VERBS:
+            verb, template = kind.upper(), getattr(current, kind)
+        elif kind == "custom":
+            verb, template = current.custom.kind.upper(), current.custom.path
+        else:
+            continue
+        if template:
+            found.append(HttpBinding(service, method, verb, template, path, line))
+    return found
+
+
 def _methods(descriptor, path):
+    """(package, [ProtoMethod], [HttpBinding]) of a compiled file."""
     lines = {
         tuple(location.path): location.span[0] + 1
         for location in descriptor.source_code_info.location
@@ -153,27 +211,34 @@ def _methods(descriptor, path):
         and location.path[2] == _METHOD
         and location.path[4] == _NAME
     }
+    extension = _http_rule_extension()
     package = descriptor.package
-    methods = []
+    methods, bindings = [], []
     for s, service in enumerate(descriptor.service):
         name = f"{package}.{service.name}" if package else service.name
         for m, method in enumerate(service.method):
+            line = lines.get((_SERVICE, s, _METHOD, m, _NAME), 1)
             methods.append(
                 ProtoMethod(
                     name,
                     method.name,
                     path,
-                    lines.get((_SERVICE, s, _METHOD, m, _NAME), 1),
+                    line,
                     _STREAMING[
                         bool(method.client_streaming), bool(method.server_streaming)
                     ],
                 )
             )
-    return package, methods
+            if extension is not None and method.options.HasExtension(extension):
+                bindings += _bindings(
+                    method.options.Extensions[extension], name, method.name, path, line
+                )
+    return package, methods, bindings
 
 
 def read_protos(root, protos, texts):
-    """{path: (package, [ProtoMethod])} of the .proto files protoc compiles;
+    """{path: (package, [ProtoMethod], [HttpBinding])} of the .proto files
+    protoc compiles;
     ``texts`` are their contents. Empty when grpcio-tools is not
     installed."""
     well_known = available()
@@ -194,3 +259,30 @@ def read_protos(root, protos, texts):
         for path, descriptor in found.items():
             read[path] = _methods(descriptor, path)
     return read
+
+
+_VARIABLE = re.compile(r"\{([^{}=]+)(?:=([^{}]*))?\}")
+
+
+def route_path(template):
+    """A google.api.http path template as a route path: ``{name}`` and
+    ``{name=*}`` are variables, ``{name=**}`` the rest of the path, and a
+    pattern ``{name=shelves/*}`` its own segments with each ``*`` a
+    variable. A ``:verb`` suffix stays literal text of the last segment."""
+
+    def expand(match):
+        name, pattern = match.group(1).strip(), match.group(2)
+        if pattern is None or pattern == "*":
+            return "{" + name + "}"
+        parts = []
+        for part in pattern.split("/"):
+            parts.append(
+                "{*" + name + "}"
+                if part == "**"
+                else "{" + name + "}"
+                if part == "*"
+                else part
+            )
+        return "/".join(parts)
+
+    return _VARIABLE.sub(expand, template)

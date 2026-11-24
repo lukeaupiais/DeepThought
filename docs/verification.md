@@ -69,10 +69,12 @@ scored against a yardstick its own rules cannot move.
     the module lists the name in `__all__` and defines it. Aliases written
     with `import ... as` keep their symbol. Any other mismatch, such as a
     re-export through two star imports, is left unjudged.
-  - **Attributes named like builtins.** `self.set(...)` or `self.type(...)` in
-    a class that defines that attribute is recorded as the builtin `set` or
-    `type`. An attribute of `self` or `cls` is never a top-level builtin, so
-    these calls are left unjudged.
+  - **Attributes named like builtins.** `self.set(...)` in a class that
+    defines `set`, or `cookies.set(...)` on an `httpx.Cookies`, is recorded as
+    the builtin `set` (and `typing.TypeVar` as a builtin `TypeVar`). An
+    attribute is never a top-level builtin, except on the `builtins` module,
+    so these calls are left unjudged. mypy confirms the `Cookies.set` case
+    (`tools/py_check_truth.py`).
 - `baseline.json` is the current score of each corpus.
 
 When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
@@ -705,6 +707,30 @@ Neither app was used to build the reader (#190). It reads nothing wrongly, but:
   that import none of `mongodb`, `mongoose` or `mongoskin`, so the import gate
   leaves almost all of its 80 collections unread.
 
+### Go SQL tables
+
+Manifest `tables` entries with `"language": "go-sql"` score the SQL that Go
+code runs, per line, against the engine's `data-contracts.go-sql*` edges, the
+same way as Knex below. The gate runs `go mod download` in each module first
+(it builds and runs nothing), because the engine types calls against the
+module's dependencies.
+
+`tools/sqlc_table_labels.py WORKSPACE --sqlc PATH` labels code that sqlc
+generates. It runs sqlc's `json` generator on a scratch copy, which reports
+each query as sqlc's engine parser (libpg_query for PostgreSQL) read it and
+resolved it against the schema, and maps each query to the call in the
+generated Go method that runs it. A statement starting with INSERT, UPDATE or
+DELETE WRITES its target; any other READS the tables its columns and
+parameters resolve to. simplebank's 20 queries are labelled this way.
+
+miniflux's storage package is a hand-read sample: 30 of its 124
+`Query`/`QueryRow`/`Exec` calls outside tests, drawn with a fixed seed.
+A call that runs a query its callers pass in is not counted. The labels are
+a sample (`"scope": "labelled"`), so other engine lines are not counted as
+extra. A write labels its target as WRITES and every other table it names as
+READS. The engine was developed against both apps, so they are regression
+gates, not held-out checks.
+
 ### Knex query-builder tables
 
 Knex names a table as a string argument of its query builder.
@@ -1047,7 +1073,26 @@ default import fails and its local name is followed). Overload signatures are
 renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
-38 give 431, all confirmed, and 6 fall outside the project. gson's call truth comes from javac, not an
+38 give 431, all confirmed, and 6 fall outside the project.
+
+`tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
+Python with mypy (`--check-untyped-defs`, no configuration file, so no
+plugin of the repository is loaded and nothing is imported or run). It
+follows imports, `as` aliases and `name as name` re-exports, renames
+`@overload` groups together, and counts a new error that names no name (a
+module `__getattr__` turns the missing attribute into an `object`) when its
+line uses the old name. mypy says nothing about a call through an untyped
+value, so a call row it does not report on a line its precision report
+marks as holding Any is `untyped` and not judged. A method that overrides a
+base method is skipped, because its uses resolve to the base and its rename
+breaks nothing; mypy decides that too, by rejecting `@typing.override` on a
+method that overrides nothing. Each edit gets a new modification time,
+since mypy trusts its cache when a file's size and whole-second time are
+unchanged. On click, 38 sampled declarations give 93 call rows, all
+confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,
+36 give 145, all confirmed, and 2 are `untyped`.
+
+gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
