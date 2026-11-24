@@ -30,6 +30,7 @@ CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 CALL_JS_REEXPORT = "tree-sitter.js-call-reexport"
 CALL_JS_STATIC_METHOD = "tree-sitter.js-call-static-method"
 CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
+CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -52,6 +53,16 @@ _RUST_TYPES = {"Struct", "Enum", "Union", "TypeAlias"}
 _RUST_CALLABLE = {"Function", "Struct"}
 _CALLABLE = {"Function", "Class"}
 _METHOD = {"Method", "Function"}
+
+
+class _Any:
+    """Every kind of declaration."""
+
+    def __contains__(self, kind):
+        return True
+
+
+_ANY = _Any()
 
 
 @dataclass(frozen=True)
@@ -1657,11 +1668,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
 
     script_bases = None
 
-    def script_method(cls, name):
-        """``(methods, reason)``: the instance method ``name`` a JavaScript
-        or TypeScript class declares, or inherits through ``extends``. A
-        field of that name hides an inherited method, and a base that names
-        no repository class may declare it, so either stops the lookup."""
+    def script_base(cls):
+        """``(resolved, base)``: whether a JavaScript or TypeScript class
+        extends nothing or a repository class, and that class or None."""
         nonlocal script_bases
         if script_bases is None:
             from .inheritance import resolve_supertypes
@@ -1674,6 +1683,54 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     # A class extends at most one class; `implements` names
                     # types whose members it does not inherit.
                     script_bases[item.owner_id].append(resolution)
+        bases = script_bases.get(cls.id, [])
+        if not bases:
+            return True, None
+        if bases[0].target_id is None:
+            return False, None
+        return True, by_id[bases[0].target_id]
+
+    def script_single(cls):
+        """``cls`` when no interface or namespace merges with the class,
+        which would give it members its body does not declare."""
+        if cls is not None and len(by_symbol.get((cls.file, cls.symbol), ())) == 1:
+            return cls
+        return None
+
+    def script_field(cls, name):
+        """The class the instance field or getter ``name`` of a JavaScript
+        or TypeScript class holds, declared on it or inherited through
+        ``extends``: written in ``Definition.fields`` and named where the
+        class is declared. None when that is not one repository class."""
+        seen, current = set(), cls
+        while current.id not in seen:
+            seen.add(current.id)
+            written = [t for n, t in current.fields or () if n == name]
+            if written:
+                # The name is the class's own scopes' declaration, which
+                # shadows an import, or else the import's.
+                scope = current.symbol.split(".")[:-1]
+                lexical = bindings.lexical(current.file, scope, written[0], _ANY)
+                if lexical:
+                    found = lexical[0]
+                    return script_single(found if found.kind == "Class" else None)
+                return script_single(script_named(current.file, written[0], None))
+            if name in (current.properties or ()) or by_symbol.get(
+                (current.file, f"{current.symbol}.{name}")
+            ):
+                # Untyped, or a method.
+                return None
+            resolved, base = script_base(current)
+            if base is None:
+                return None
+            current = base
+        return None
+
+    def script_method(cls, name):
+        """``(methods, reason)``: the instance method ``name`` a JavaScript
+        or TypeScript class declares, or inherits through ``extends``. A
+        field of that name hides an inherited method, and a base that names
+        no repository class may declare it, so either stops the lookup."""
         seen, current = set(), cls
         while current.id not in seen:
             seen.add(current.id)
@@ -1686,12 +1743,10 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 return own, "not_declared_on_type"
             if name in (current.properties or ()):
                 return [], "field_not_method"
-            bases = script_bases.get(current.id, [])
-            if not bases:
-                return [], "not_declared_on_type"
-            if bases[0].target_id is None:
-                return [], "base_not_resolved"
-            current = by_id[bases[0].target_id]
+            resolved, base = script_base(current)
+            if base is None:
+                return [], "not_declared_on_type" if resolved else "base_not_resolved"
+            current = base
         return [], "base_not_resolved"
 
     resolutions = []
@@ -1793,18 +1848,51 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         head, name = ".".join(parts[:-1]), parts[-1]
         script = languages.get(site.file) in {"javascript", "typescript"}
         if script and site.receiver_type is not None and not name.startswith("#"):
-            owner = script_named(site.file, site.receiver_type, site.receiver_binding)
-            if (
-                owner is not None
-                # A class merged with an interface or namespace of its name
-                # has members the class body does not declare.
-                and len(by_symbol.get((owner.file, owner.symbol), ())) == 1
-            ):
+            if site.receiver_type == "this":
+                # The innermost class around the call: `this` there is one
+                # of its instances.
+                owner = next(
+                    (
+                        found[0]
+                        for depth in range(len(scope), 0, -1)
+                        if (
+                            found := by_symbol.get(
+                                (site.file, ".".join(scope[:depth])), ()
+                            )
+                        )
+                        and found[0].kind == "Class"
+                    ),
+                    None,
+                )
+            else:
+                owner = script_named(
+                    site.file, site.receiver_type, site.receiver_binding
+                )
+            owner = script_single(owner)
+            for step in site.receiver_steps or ():
+                if owner is None:
+                    break
+                owner = script_field(owner, step)
+            if owner is not None:
                 # `x.m()` where `x` is annotated with a class or bound to
-                # `new` of it.
+                # `new` of it, or `x.a.m()` through the fields' classes.
                 methods, reason = script_method(owner, name)
                 resolutions.append(
-                    _pick(site.id, methods, CALL_JS_TYPED_RECEIVER, reason)
+                    _pick(
+                        site.id,
+                        methods,
+                        CALL_JS_TYPED_RECEIVER
+                        if site.receiver_type != "this" and not site.receiver_steps
+                        else CALL_JS_MEMBER_CHAIN,
+                        reason,
+                    )
+                )
+                continue
+            if site.receiver_steps or site.receiver_type == "this":
+                resolutions.append(
+                    CallResolution(
+                        site.id, "unresolved", reason="receiver_type_unknown"
+                    )
                 )
                 continue
         steps = site.receiver_steps or ()
