@@ -16,7 +16,7 @@ ANY_METHOD = "*"
 # variable); it stands for text inside one path segment.
 PLACEHOLDER = "\x00"
 
-_SCHEME = re.compile(r"(?i)^https?://")
+_SCHEME = re.compile(r"(?i)^(?:https?|wss?)://")
 _ROUTE_VARIABLE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}")
 
 
