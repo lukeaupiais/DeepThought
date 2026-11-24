@@ -113,7 +113,7 @@ class ImpactTruthTests(unittest.TestCase):
         self.addCleanup(self.calls.unlink)
 
     def derive(self):
-        rows, aliases, _ = impact_truth.derive(
+        rows, aliases, _, _ = impact_truth.derive(
             self.index, self.calls, self.repo, "python", "HEAD", commits=5
         )
         stream = io.StringIO()
@@ -204,6 +204,35 @@ class SameNameTests(unittest.TestCase):
         truth = {("m.py", 1, "base"): {("m.py", 1, "base"): 0, ("m.py", 6, "run"): 1}}
         report, samples = impact_truth.score(result, truth)
         self.assertEqual((report["confirmed"], report["extra"]), (1, 0), samples)
+
+
+class UnjudgedTests(unittest.TestCase):
+    def test_a_dependent_listed_unjudged_is_not_extra(self):
+        import deepthought
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / "m.py").write_text(
+            "def base():\n    return 1\n\n\n"
+            "@staticmethod\ndef user():\n    return base()\n",
+            "utf-8",
+        )
+        result = deepthought.analyze_repository(
+            repo, repository_id="t", languages=("python",)
+        )
+        truth = {("m.py", 1, "base"): {("m.py", 1, "base"): 0}}
+        plain, _ = impact_truth.score(result, truth)
+        self.assertEqual((plain["extra"], plain["unjudged"]), (1, 0))
+        # The row names the oracle's line for user (its name, line 6); the
+        # engine's declaration may start at the decorator.
+        stream = io.StringIO()
+        impact_truth.write([], stream, unjudged=[("m.py", 1, "m.py", 6)])
+        path = repo / "impact.tsv"
+        path.write_text(stream.getvalue(), "utf-8")
+        unjudged = impact_truth.read_unjudged(path)
+        self.assertEqual(unjudged, {("m.py", 1, "m.py", 6)})
+        report, _ = impact_truth.score(result, truth, unjudged=unjudged)
+        self.assertEqual((report["extra"], report["unjudged"]), (0, 1))
 
 
 @unittest.skipUnless(

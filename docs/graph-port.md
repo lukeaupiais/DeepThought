@@ -1806,14 +1806,76 @@ Python, JavaScript/TypeScript and Go sources are read too
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
   `request(method, url)`) and Locust `self.client` calls in files importing
   `locust`; JavaScript `fetch` (with `options.method`), `axios`, `request` and
-  `superagent` (`.get(url)`, or `request({uri, method})`); Go `http.Get`,
+  `superagent` (`.get(url)`, or `request({uri, method})`); Angular
+  `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
 - **URL values.** String literals, `+`, template strings and f-strings,
   `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names
   bound once in their function, else at module level, before the use (Python
   assignments, `const`/`let`/`var`, Go `var`/`const`/`:=`). A name bound more
   than once, assigned in another function, or declared `global` and assigned
-  there is unknown text.
+  there is unknown text. JavaScript and TypeScript also read `this.NAME` and
+  constants shared between modules (below).
+
+#### Angular HttpClient
+
+Angular services call `HttpClient` through a field, and keep the API root in
+a constant another module exports (`deepthought.service_contracts.web`,
+`script_constants`, `folding`):
+
+- **Clients.** `get`, `post`, `put`, `delete`, `patch`, `head`, `options`
+  and `request(method, url)` on an `HttpClient`: `this.NAME` where NAME is a
+  field set to `inject(HttpClient)` or typed `HttpClient` without a value, or
+  a constructor parameter property typed `HttpClient`, or a name bound once
+  to `inject(HttpClient)`. `HttpClient` and `httpResource` must be imported
+  from `@angular/common/http` and `inject` from `@angular/core`.
+  `httpResource(fn)` (and `.text`, `.blob`, `.arrayBuffer`) is a request for
+  each value `fn` returns: a URL, or a request object's `url` and `method`
+  (GET by default); `undefined` is skipped. Relative URLs are read against
+  the site root, as for AngularJS. `request(HttpRequest)` is not read.
+- **`this.NAME`.** The initializer of the instance field NAME of the
+  enclosing class, or of a base class declared in the same file. It is
+  unknown text when any code of the file assigns `this.NAME`, when a
+  constructor parameter property is named NAME, when a class of the file
+  that extends the enclosing class declares NAME again, or inside a
+  `function` or a static member (where `this` is something else). A
+  subclass in another file is not seen.
+- **Constants across modules.** A module exports `export const NAME = value`
+  (folded in its own module), `export { a as b }` of a name bound once there,
+  and what it re-exports with `export { a } from` and `export * from` (a name
+  two `export *` give differently is not exported, as in ECMAScript). An
+  import by name takes the exported value when the module specifier resolves
+  to an analysed file: a relative path, or a `compilerOptions.paths` alias of
+  the nearest `tsconfig.json` (as for data contracts). `let`/`var` exports,
+  default exports and namespace imports are not read.
+- **Build-time globals.** A name no scope binds or imports
+  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives it
+  in `angular.json` (the project's `build` target, options and every
+  configuration), for files under the project's `sourceRoot` (else `root`).
+  Only a string literal is read; a name defined differently in two
+  configurations is unknown text. `declare const` gives no value.
+
+On jhipster/jhipster-sample-app (commit `6b000b5`) and
+jhipster-sample-app-websocket (`410a632`), whose URLs are
+`` `${serverApiUrl}api/...` `` with `serverApiUrl = SERVER_API_URL` exported
+through a barrel and `SERVER_API_URL` defined as `''`, all 52 and 35
+HttpClient and httpResource call sites are read. 42 and 23 link, every one
+to the controller method with the same method and path. The rest stay
+unresolved, correctly: Spring Boot Actuator `/management/*` endpoints and
+Spring Security's login and logout filters have no controller, and two
+clients have no server route (`PATCH /api/admin/users/{login}`, where the
+server has only PUT, and `GET /api/users/{id}`, where it has only
+`GET /api/users`). On darbyluv2code/fullstack-angular-and-springboot
+(`e8832ee`, the auth0 order-history step), which injects `HttpClient` in the
+constructor and keeps absolute URLs in fields, all 9 call sites are read;
+the one `@RestController` route links, 7 Spring Data REST requests stay
+unresolved because repository endpoints are not read, and one URL is a
+method parameter. An `httpResource` request is placed on the
+`httpResource` call. On the labelled contracts-jhipster-sample-app-websocket
+corpus this scores http call sites 23 of 24 with no false positives (0
+before); the miss is the SockJS handshake, whose URL goes through
+`Location.prepareExternalUrl`. No edges changed
+on the gated corpora.
 
 These services have no `spring.application.name`, so their requests resolve
 by path alone (`service-contracts.http-path`). A request path with no literal

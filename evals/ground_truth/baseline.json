@@ -378,13 +378,13 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 24,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 23,
+          "true_positive": 23
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       },
       "messaging": {
@@ -850,13 +850,13 @@
       },
       "confirmed": 2877,
       "expected": 5052,
-      "extra": 5,
+      "extra": 1,
       "missed": 2175,
-      "precision": 0.9983,
+      "precision": 0.9997,
       "recall": 0.5695,
       "seeds": 164,
       "seeds_undeclared": 0,
-      "unjudged": 0
+      "unjudged": 4
     },
     "inherits": {
       "confirmed": 210,
