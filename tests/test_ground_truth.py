@@ -392,7 +392,7 @@ class RequirementTests(unittest.TestCase):
             ),
             redirect_stderr(io.StringIO()) as stderr,
         ):
-            self.assertEqual(ground_truth.main(["check", "--corpus", "x"]), 2)
+            self.assertEqual(ground_truth.main(["check", "--corpus", "click"]), 2)
         self.assertIn("not installed: yaml", stderr.getvalue())
 
 
@@ -426,6 +426,9 @@ class UnknownCorpusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as cache:
             with self.assertRaisesRegex(ValueError, "no such corpus: clik"):
                 ground_truth.check(["clik"], Path(cache))
+        with redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(ground_truth.main(["check", "--corpus", "clik"]), 2)
+        self.assertIn("no such corpus: clik", stderr.getvalue())
 
 
 class SummaryTests(unittest.TestCase):

@@ -1199,7 +1199,7 @@ def main(argv=None):
         reports, failed = check(
             set(args.corpus), args.cache, args.update_baseline, args.examples
         )
-    except RuntimeError as error:
+    except (RuntimeError, ValueError) as error:
         print(f"ground_truth check: {error}", file=sys.stderr)
         return 2
     coverage = rule_coverage(reports)
