@@ -1352,6 +1352,42 @@ The grammar errors are mostly `#if` branches inside a class or function that
 leave braces unbalanced; from the first one on, the scope of later
 declarations in the file may be wrong.
 
+## Ruby
+
+Ruby sources (`.rb`) are analyzed when `ruby` is selected (`--language ruby`)
+and the `ruby` extra is installed (tree-sitter-ruby 0.23.1); the language is
+opt-in. Declarations are modules (`Module`), classes (`Class`) and methods.
+Symbols join the enclosing modules and classes and the path written in a
+name with `.` (`class B::C` in `module A` is `A.B.C`; `class ::C` starts at
+the top). A `def` in a class or module body, in its `class << self` or in a
+block written there (`included do`, `Class.new do`) is a `Method`, whether it
+defines an instance or a singleton method (`def self.m`); elsewhere, at the
+top level or in a block outside any class, it is a `Function`. A class whose
+name is not a constant path (`class self::Dynamic`) and what it holds are not
+recorded, nor is a `def` inside a method body, which only defines a method
+when that method runs. Methods made by metaprogramming (`attr_reader`,
+`define_method`), constants, imports (`require`), calls and superclasses are
+not recorded for Ruby yet.
+
+`tools/compare_ruby_declarations_with_prism.py` checks this against Prism
+(0.19.0, with Ruby 3.3.6), Ruby's own parser: `tools/ruby_declarations_prism.rb`
+applies the same scoping rules to Prism's tree, and a declaration matches when
+both report the same file, line and column of its name, name, kind and symbol.
+A difference on a line where Prism reports a syntax error, or after one in the
+same file, is put down to it; every other difference is unexplained.
+
+| Corpus | Files (with syntax errors) | Prism | Matched | Tree-sitter only: syntax error / after one | Prism only: syntax error / after one |
+|---|---|---|---|---|---|
+| rack/rack `b432304` | 95 (0) | 1,010 | 1,010 | 0 / 0 | 0 / 0 |
+| sinatra/sinatra `2e3f791` | 147 (0) | 1,164 | 1,164 | 0 / 0 | 0 / 0 |
+| heartcombo/devise `05811fb` | 197 (9) | 1,040 | 1,035 | 6 / 0 | 2 / 3 |
+| jekyll/jekyll `97c3bdc` | 162 (0) | 1,405 | 1,405 | 0 / 0 | 0 / 0 |
+| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,577 | 11,577 | 0 / 0 | 0 / 0 |
+
+No difference is unexplained. devise's syntax errors are its generator
+templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
+until they are rendered.
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a

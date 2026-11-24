@@ -61,6 +61,7 @@ def main(argv=None) -> int:
             "java",
             "javascript",
             "python",
+            "ruby",
             "rust",
             "typescript",
         ),
