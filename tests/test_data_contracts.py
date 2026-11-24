@@ -907,6 +907,81 @@ class ScriptOrmTests(unittest.TestCase):
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
 
 
+GO = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_go"
+)
+GO_SQL = {
+    "go.mod": "module example.com/shop\n",
+    "store/user.go": """package store
+
+import (
+\t"context"
+\t"database/sql"
+)
+
+type User struct{ ID int }
+
+func (User) TableName() string { return "accounts" }
+
+type Session struct{}
+
+func (*Session) TableName() string { return name() }
+
+type Store struct{ db *sql.DB }
+
+func (s *Store) Find(ctx context.Context, id int) {
+\ts.db.QueryRowContext(ctx, "SELECT id FROM accounts WHERE id = $1", id)
+}
+
+func (s *Store) Purge(table string) {
+\ts.db.Exec(`DELETE FROM sessions` + " WHERE expired")
+\ts.db.Exec("TRUNCATE " + table)
+\ts.db.Exec("VACUUM")
+}
+""",
+    "other/cache.go": """package other
+
+func Get(c Cache) { c.Get("SELECT * FROM nothing") }
+""",
+}
+
+
+@unittest.skipUnless(GO, "Install the go grammar")
+class GoSqlTests(unittest.TestCase):
+    def test_sql_text_and_gorm_table_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, GO_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["go"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "User", "accounts", "gorm-table-name"),
+                ("READS", "Store.Find", "accounts", "go-sql"),
+                ("WRITES", "Store.Purge", "sessions", "go-sql"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            metrics["gorm_table_names"], {"linked": 1, "type_not_found": 0}
+        )
+        self.assertEqual(
+            metrics["sql_text"],
+            {"statements": 3, "not_fixed": 1, "unknown_entity": 0},
+        )
+
+
 class GraphCase(unittest.IsolatedAsyncioTestCase):
     """Writes a workspace's tree-sitter, components and data-contracts
     outputs to an isolated repository of the provisioned Neo4j."""
