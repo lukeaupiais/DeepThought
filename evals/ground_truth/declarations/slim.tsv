@@ -1,0 +1,1002 @@
+# file	line	name	kind	begin_line
+# indexed	Slim/App.php
+# indexed	Slim/CallableResolver.php
+# indexed	Slim/Error/AbstractErrorRenderer.php
+# indexed	Slim/Error/Renderers/HtmlErrorRenderer.php
+# indexed	Slim/Error/Renderers/JsonErrorRenderer.php
+# indexed	Slim/Error/Renderers/PlainTextErrorRenderer.php
+# indexed	Slim/Error/Renderers/XmlErrorRenderer.php
+# indexed	Slim/Exception/HttpBadRequestException.php
+# indexed	Slim/Exception/HttpException.php
+# indexed	Slim/Exception/HttpForbiddenException.php
+# indexed	Slim/Exception/HttpGoneException.php
+# indexed	Slim/Exception/HttpInternalServerErrorException.php
+# indexed	Slim/Exception/HttpMethodNotAllowedException.php
+# indexed	Slim/Exception/HttpNotFoundException.php
+# indexed	Slim/Exception/HttpNotImplementedException.php
+# indexed	Slim/Exception/HttpSpecializedException.php
+# indexed	Slim/Exception/HttpTooManyRequestsException.php
+# indexed	Slim/Exception/HttpUnauthorizedException.php
+# indexed	Slim/Factory/AppFactory.php
+# indexed	Slim/Factory/Psr17/GuzzlePsr17Factory.php
+# indexed	Slim/Factory/Psr17/HttpSoftPsr17Factory.php
+# indexed	Slim/Factory/Psr17/LaminasDiactorosPsr17Factory.php
+# indexed	Slim/Factory/Psr17/NyholmPsr17Factory.php
+# indexed	Slim/Factory/Psr17/Psr17Factory.php
+# indexed	Slim/Factory/Psr17/Psr17FactoryProvider.php
+# indexed	Slim/Factory/Psr17/ServerRequestCreator.php
+# indexed	Slim/Factory/Psr17/SlimHttpPsr17Factory.php
+# indexed	Slim/Factory/Psr17/SlimHttpServerRequestCreator.php
+# indexed	Slim/Factory/Psr17/SlimPsr17Factory.php
+# indexed	Slim/Factory/ServerRequestCreatorFactory.php
+# indexed	Slim/Handlers/ErrorHandler.php
+# indexed	Slim/Handlers/Strategies/RequestHandler.php
+# indexed	Slim/Handlers/Strategies/RequestResponse.php
+# indexed	Slim/Handlers/Strategies/RequestResponseArgs.php
+# indexed	Slim/Handlers/Strategies/RequestResponseNamedArgs.php
+# indexed	Slim/Interfaces/AdvancedCallableResolverInterface.php
+# indexed	Slim/Interfaces/CallableResolverInterface.php
+# indexed	Slim/Interfaces/DispatcherInterface.php
+# indexed	Slim/Interfaces/ErrorHandlerInterface.php
+# indexed	Slim/Interfaces/ErrorRendererInterface.php
+# indexed	Slim/Interfaces/InvocationStrategyInterface.php
+# indexed	Slim/Interfaces/MiddlewareDispatcherInterface.php
+# indexed	Slim/Interfaces/Psr17FactoryInterface.php
+# indexed	Slim/Interfaces/Psr17FactoryProviderInterface.php
+# indexed	Slim/Interfaces/RequestHandlerInvocationStrategyInterface.php
+# indexed	Slim/Interfaces/RouteCollectorInterface.php
+# indexed	Slim/Interfaces/RouteCollectorProxyInterface.php
+# indexed	Slim/Interfaces/RouteGroupInterface.php
+# indexed	Slim/Interfaces/RouteInterface.php
+# indexed	Slim/Interfaces/RouteParserInterface.php
+# indexed	Slim/Interfaces/RouteResolverInterface.php
+# indexed	Slim/Interfaces/ServerRequestCreatorInterface.php
+# indexed	Slim/Logger.php
+# indexed	Slim/Middleware/BodyParsingMiddleware.php
+# indexed	Slim/Middleware/ContentLengthMiddleware.php
+# indexed	Slim/Middleware/ErrorMiddleware.php
+# indexed	Slim/Middleware/MethodOverrideMiddleware.php
+# indexed	Slim/Middleware/OutputBufferingMiddleware.php
+# indexed	Slim/Middleware/RoutingMiddleware.php
+# indexed	Slim/MiddlewareDispatcher.php
+# indexed	Slim/ResponseEmitter.php
+# indexed	Slim/Routing/Dispatcher.php
+# indexed	Slim/Routing/FastRouteDispatcher.php
+# indexed	Slim/Routing/Route.php
+# indexed	Slim/Routing/RouteCollector.php
+# indexed	Slim/Routing/RouteCollectorProxy.php
+# indexed	Slim/Routing/RouteContext.php
+# indexed	Slim/Routing/RouteGroup.php
+# indexed	Slim/Routing/RouteParser.php
+# indexed	Slim/Routing/RouteResolver.php
+# indexed	Slim/Routing/RouteRunner.php
+# indexed	Slim/Routing/RoutingResults.php
+# indexed	tests/AppTest.php
+# indexed	tests/Assets/HeaderStack.php
+# indexed	tests/CallableResolverTest.php
+# indexed	tests/Error/AbstractErrorRendererTest.php
+# indexed	tests/Exception/HttpExceptionTest.php
+# indexed	tests/Exception/HttpUnauthorizedExceptionTest.php
+# indexed	tests/Factory/AppFactoryTest.php
+# indexed	tests/Factory/Psr17/Psr17FactoryProviderTest.php
+# indexed	tests/Factory/Psr17/Psr17FactoryTest.php
+# indexed	tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php
+# indexed	tests/Factory/ServerRequestCreatorFactoryTest.php
+# indexed	tests/Handlers/ErrorHandlerTest.php
+# indexed	tests/Handlers/Strategies/RequestResponseNamedArgsTest.php
+# indexed	tests/Middleware/BodyParsingMiddlewareTest.php
+# indexed	tests/Middleware/ContentLengthMiddlewareTest.php
+# indexed	tests/Middleware/ErrorMiddlewareTest.php
+# indexed	tests/Middleware/MethodOverrideMiddlewareTest.php
+# indexed	tests/Middleware/OutputBufferingMiddlewareTest.php
+# indexed	tests/Middleware/RoutingMiddlewareTest.php
+# indexed	tests/MiddlewareDispatcherTest.php
+# indexed	tests/Mocks/CallableTest.php
+# indexed	tests/Mocks/InvocationStrategyTest.php
+# indexed	tests/Mocks/InvokableTest.php
+# indexed	tests/Mocks/MiddlewareTest.php
+# indexed	tests/Mocks/MockAction.php
+# indexed	tests/Mocks/MockCustomException.php
+# indexed	tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php
+# indexed	tests/Mocks/MockMiddlewareSlimCallable.php
+# indexed	tests/Mocks/MockMiddlewareWithConstructor.php
+# indexed	tests/Mocks/MockMiddlewareWithoutConstructor.php
+# indexed	tests/Mocks/MockMiddlewareWithoutInterface.php
+# indexed	tests/Mocks/MockPsr17Factory.php
+# indexed	tests/Mocks/MockPsr17FactoryWithoutStreamFactory.php
+# indexed	tests/Mocks/MockRequestHandler.php
+# indexed	tests/Mocks/MockSequenceMiddleware.php
+# indexed	tests/Mocks/MockStream.php
+# indexed	tests/Mocks/RequestHandlerTest.php
+# indexed	tests/Mocks/SlowPokeStream.php
+# indexed	tests/Mocks/SmallChunksStream.php
+# indexed	tests/Providers/PSR7ObjectProvider.php
+# indexed	tests/Providers/PSR7ObjectProviderInterface.php
+# indexed	tests/ResponseEmitterTest.php
+# indexed	tests/Routing/DispatcherTest.php
+# indexed	tests/Routing/FastRouteDispatcherTest.php
+# indexed	tests/Routing/RouteCollectorProxyTest.php
+# indexed	tests/Routing/RouteCollectorTest.php
+# indexed	tests/Routing/RouteContextTest.php
+# indexed	tests/Routing/RouteParserTest.php
+# indexed	tests/Routing/RouteResolverTest.php
+# indexed	tests/Routing/RouteRunnerTest.php
+# indexed	tests/Routing/RouteTest.php
+# indexed	tests/TestCase.php
+# indexed	tests/bootstrap.php
+Slim/App.php	102	add	method	102
+Slim/App.php	112	addMiddleware	method	112
+Slim/App.php	125	addRoutingMiddleware	method	125
+Slim/App.php	145	addErrorMiddleware	method	145
+Slim/App.php	170	addBodyParsingMiddleware	method	170
+Slim/App.php	186	run	method	186
+Slim/App.php	207	handle	method	207
+Slim/App.php	39	App	type	39
+Slim/App.php	55	__construct	method	55
+Slim/App.php	85	getRouteResolver	method	85
+Slim/App.php	93	getMiddlewareDispatcher	method	93
+Slim/CallableResolver.php	110	isRoute	method	110
+Slim/CallableResolver.php	118	isMiddleware	method	118
+Slim/CallableResolver.php	128	resolveSlimNotation	method	128
+Slim/CallableResolver.php	157	assertCallable	method	157
+Slim/CallableResolver.php	170	bindToContainer	method	170
+Slim/CallableResolver.php	187	prepareToResolve	method	187
+Slim/CallableResolver.php	32	CallableResolver	type	32
+Slim/CallableResolver.php	42	__construct	method	42
+Slim/CallableResolver.php	50	resolve	method	50
+Slim/CallableResolver.php	68	resolveRoute	method	68
+Slim/CallableResolver.php	76	resolveMiddleware	method	76
+Slim/CallableResolver.php	86	resolveByPredicate	method	86
+Slim/Error/AbstractErrorRenderer.php	23	AbstractErrorRenderer	type	23
+Slim/Error/AbstractErrorRenderer.php	29	getErrorTitle	method	29
+Slim/Error/AbstractErrorRenderer.php	38	getErrorDescription	method	38
+Slim/Error/Renderers/HtmlErrorRenderer.php	26	HtmlErrorRenderer	type	26
+Slim/Error/Renderers/HtmlErrorRenderer.php	28	__invoke	method	28
+Slim/Error/Renderers/HtmlErrorRenderer.php	42	renderExceptionFragment	method	42
+Slim/Error/Renderers/HtmlErrorRenderer.php	55	escapeHtml	method	55
+Slim/Error/Renderers/HtmlErrorRenderer.php	60	renderHtmlBody	method	60
+Slim/Error/Renderers/JsonErrorRenderer.php	26	JsonErrorRenderer	type	26
+Slim/Error/Renderers/JsonErrorRenderer.php	28	__invoke	method	28
+Slim/Error/Renderers/JsonErrorRenderer.php	48	formatExceptionFragment	method	48
+Slim/Error/Renderers/PlainTextErrorRenderer.php	23	PlainTextErrorRenderer	type	23
+Slim/Error/Renderers/PlainTextErrorRenderer.php	25	__invoke	method	25
+Slim/Error/Renderers/PlainTextErrorRenderer.php	41	formatExceptionFragment	method	41
+Slim/Error/Renderers/XmlErrorRenderer.php	23	XmlErrorRenderer	type	23
+Slim/Error/Renderers/XmlErrorRenderer.php	25	__invoke	method	25
+Slim/Error/Renderers/XmlErrorRenderer.php	50	createCdataSection	method	50
+Slim/Exception/HttpBadRequestException.php	14	HttpBadRequestException	type	14
+Slim/Exception/HttpException.php	21	HttpException	type	21
+Slim/Exception/HttpException.php	29	__construct	method	29
+Slim/Exception/HttpException.php	39	getRequest	method	39
+Slim/Exception/HttpException.php	44	getTitle	method	44
+Slim/Exception/HttpException.php	49	setTitle	method	49
+Slim/Exception/HttpException.php	55	getDescription	method	55
+Slim/Exception/HttpException.php	60	setDescription	method	60
+Slim/Exception/HttpForbiddenException.php	14	HttpForbiddenException	type	14
+Slim/Exception/HttpGoneException.php	14	HttpGoneException	type	14
+Slim/Exception/HttpInternalServerErrorException.php	14	HttpInternalServerErrorException	type	14
+Slim/Exception/HttpMethodNotAllowedException.php	15	HttpMethodNotAllowedException	type	15
+Slim/Exception/HttpMethodNotAllowedException.php	38	getAllowedMethods	method	38
+Slim/Exception/HttpMethodNotAllowedException.php	46	setAllowedMethods	method	46
+Slim/Exception/HttpNotFoundException.php	13	HttpNotFoundException	type	13
+Slim/Exception/HttpNotImplementedException.php	14	HttpNotImplementedException	type	14
+Slim/Exception/HttpSpecializedException.php	16	HttpSpecializedException	type	16
+Slim/Exception/HttpSpecializedException.php	23	__construct	method	23
+Slim/Exception/HttpTooManyRequestsException.php	14	HttpTooManyRequestsException	type	14
+Slim/Exception/HttpUnauthorizedException.php	14	HttpUnauthorizedException	type	14
+Slim/Factory/AppFactory.php	127	determineResponseFactory	method	127
+Slim/Factory/AppFactory.php	159	attemptResponseFactoryDecoration	method	159
+Slim/Factory/AppFactory.php	173	setPsr17FactoryProvider	method	173
+Slim/Factory/AppFactory.php	178	setResponseFactory	method	178
+Slim/Factory/AppFactory.php	183	setStreamFactory	method	183
+Slim/Factory/AppFactory.php	188	setContainer	method	188
+Slim/Factory/AppFactory.php	193	setCallableResolver	method	193
+Slim/Factory/AppFactory.php	198	setRouteCollector	method	198
+Slim/Factory/AppFactory.php	203	setRouteResolver	method	203
+Slim/Factory/AppFactory.php	208	setMiddlewareDispatcher	method	208
+Slim/Factory/AppFactory.php	213	setSlimHttpDecoratorsAutomaticDetection	method	213
+Slim/Factory/AppFactory.php	28	AppFactory	type	28
+Slim/Factory/AppFactory.php	53	create	method	53
+Slim/Factory/AppFactory.php	77	createFromContainer	method	77
+Slim/Factory/Psr17/GuzzlePsr17Factory.php	13	GuzzlePsr17Factory	type	13
+Slim/Factory/Psr17/HttpSoftPsr17Factory.php	13	HttpSoftPsr17Factory	type	13
+Slim/Factory/Psr17/LaminasDiactorosPsr17Factory.php	13	LaminasDiactorosPsr17Factory	type	13
+Slim/Factory/Psr17/NyholmPsr17Factory.php	19	getServerRequestCreator	method	19
+Slim/Factory/Psr17/NyholmPsr17Factory.php	40	isServerRequestCreatorAvailable	method	40
+Slim/Factory/Psr17/NyholmPsr17Factory.php	9	NyholmPsr17Factory	type	9
+Slim/Factory/Psr17/Psr17Factory.php	22	Psr17Factory	type	22
+Slim/Factory/Psr17/Psr17Factory.php	35	getResponseFactory	method	35
+Slim/Factory/Psr17/Psr17Factory.php	50	getStreamFactory	method	50
+Slim/Factory/Psr17/Psr17Factory.php	65	getServerRequestCreator	method	65
+Slim/Factory/Psr17/Psr17Factory.php	77	isResponseFactoryAvailable	method	77
+Slim/Factory/Psr17/Psr17Factory.php	85	isStreamFactoryAvailable	method	85
+Slim/Factory/Psr17/Psr17Factory.php	93	isServerRequestCreatorAvailable	method	93
+Slim/Factory/Psr17/Psr17FactoryProvider.php	17	Psr17FactoryProvider	type	17
+Slim/Factory/Psr17/Psr17FactoryProvider.php	33	getFactories	method	33
+Slim/Factory/Psr17/Psr17FactoryProvider.php	41	setFactories	method	41
+Slim/Factory/Psr17/Psr17FactoryProvider.php	49	addFactory	method	49
+Slim/Factory/Psr17/ServerRequestCreator.php	17	ServerRequestCreator	type	17
+Slim/Factory/Psr17/ServerRequestCreator.php	29	__construct	method	29
+Slim/Factory/Psr17/ServerRequestCreator.php	38	createServerRequestFromGlobals	method	38
+Slim/Factory/Psr17/SlimHttpPsr17Factory.php	17	SlimHttpPsr17Factory	type	17
+Slim/Factory/Psr17/SlimHttpPsr17Factory.php	24	createDecoratedResponseFactory	method	24
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	19	SlimHttpServerRequestCreator	type	19
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	25	__construct	method	25
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	33	createServerRequestFromGlobals	method	33
+Slim/Factory/Psr17/SlimHttpServerRequestCreator.php	52	isServerRequestDecoratorAvailable	method	52
+Slim/Factory/Psr17/SlimPsr17Factory.php	13	SlimPsr17Factory	type	13
+Slim/Factory/ServerRequestCreatorFactory.php	21	ServerRequestCreatorFactory	type	21
+Slim/Factory/ServerRequestCreatorFactory.php	29	create	method	29
+Slim/Factory/ServerRequestCreatorFactory.php	37	determineServerRequestCreator	method	37
+Slim/Factory/ServerRequestCreatorFactory.php	61	attemptServerRequestCreatorDecoration	method	61
+Slim/Factory/ServerRequestCreatorFactory.php	74	setPsr17FactoryProvider	method	74
+Slim/Factory/ServerRequestCreatorFactory.php	79	setServerRequestCreator	method	79
+Slim/Factory/ServerRequestCreatorFactory.php	84	setSlimHttpDecoratorsAutomaticDetection	method	84
+Slim/Handlers/ErrorHandler.php	116	__invoke	method	116
+Slim/Handlers/ErrorHandler.php	146	forceContentType	method	146
+Slim/Handlers/ErrorHandler.php	152	determineStatusCode	method	152
+Slim/Handlers/ErrorHandler.php	172	determineContentType	method	172
+Slim/Handlers/ErrorHandler.php	216	determineRenderer	method	216
+Slim/Handlers/ErrorHandler.php	233	registerErrorRenderer	method	233
+Slim/Handlers/ErrorHandler.php	244	setDefaultErrorRenderer	method	244
+Slim/Handlers/ErrorHandler.php	255	setLogErrorRenderer	method	255
+Slim/Handlers/ErrorHandler.php	263	writeToErrorLog	method	263
+Slim/Handlers/ErrorHandler.php	281	logError	method	281
+Slim/Handlers/ErrorHandler.php	289	getDefaultLogger	method	289
+Slim/Handlers/ErrorHandler.php	294	respond	method	294
+Slim/Handlers/ErrorHandler.php	48	ErrorHandler	type	48
+Slim/Handlers/ErrorHandler.php	97	__construct	method	97
+Slim/Handlers/Strategies/RequestHandler.php	20	RequestHandler	type	20
+Slim/Handlers/Strategies/RequestHandler.php	24	__construct	method	24
+Slim/Handlers/Strategies/RequestHandler.php	34	__invoke	method	34
+Slim/Handlers/Strategies/RequestResponse.php	20	RequestResponse	type	20
+Slim/Handlers/Strategies/RequestResponse.php	28	__invoke	method	28
+Slim/Handlers/Strategies/RequestResponseArgs.php	23	RequestResponseArgs	type	23
+Slim/Handlers/Strategies/RequestResponseArgs.php	31	__invoke	method	31
+Slim/Handlers/Strategies/RequestResponseNamedArgs.php	22	RequestResponseNamedArgs	type	22
+Slim/Handlers/Strategies/RequestResponseNamedArgs.php	30	__invoke	method	30
+Slim/Interfaces/AdvancedCallableResolverInterface.php	13	AdvancedCallableResolverInterface	type	13
+Slim/Interfaces/AdvancedCallableResolverInterface.php	20	resolveRoute	method	20
+Slim/Interfaces/AdvancedCallableResolverInterface.php	27	resolveMiddleware	method	27
+Slim/Interfaces/CallableResolverInterface.php	13	CallableResolverInterface	type	13
+Slim/Interfaces/CallableResolverInterface.php	20	resolve	method	20
+Slim/Interfaces/DispatcherInterface.php	15	DispatcherInterface	type	15
+Slim/Interfaces/DispatcherInterface.php	20	dispatch	method	20
+Slim/Interfaces/DispatcherInterface.php	27	getAllowedMethods	method	27
+Slim/Interfaces/ErrorHandlerInterface.php	17	ErrorHandlerInterface	type	17
+Slim/Interfaces/ErrorHandlerInterface.php	19	__invoke	method	19
+Slim/Interfaces/ErrorRendererInterface.php	15	ErrorRendererInterface	type	15
+Slim/Interfaces/ErrorRendererInterface.php	17	__invoke	method	17
+Slim/Interfaces/InvocationStrategyInterface.php	19	InvocationStrategyInterface	type	19
+Slim/Interfaces/InvocationStrategyInterface.php	31	__invoke	method	31
+Slim/Interfaces/MiddlewareDispatcherInterface.php	17	MiddlewareDispatcherInterface	type	17
+Slim/Interfaces/MiddlewareDispatcherInterface.php	28	add	method	28
+Slim/Interfaces/MiddlewareDispatcherInterface.php	37	addMiddleware	method	37
+Slim/Interfaces/MiddlewareDispatcherInterface.php	42	seedMiddlewareStack	method	42
+Slim/Interfaces/Psr17FactoryInterface.php	17	Psr17FactoryInterface	type	17
+Slim/Interfaces/Psr17FactoryInterface.php	22	getResponseFactory	method	22
+Slim/Interfaces/Psr17FactoryInterface.php	27	getStreamFactory	method	27
+Slim/Interfaces/Psr17FactoryInterface.php	32	getServerRequestCreator	method	32
+Slim/Interfaces/Psr17FactoryInterface.php	37	isResponseFactoryAvailable	method	37
+Slim/Interfaces/Psr17FactoryInterface.php	42	isStreamFactoryAvailable	method	42
+Slim/Interfaces/Psr17FactoryInterface.php	47	isServerRequestCreatorAvailable	method	47
+Slim/Interfaces/Psr17FactoryProviderInterface.php	14	Psr17FactoryProviderInterface	type	14
+Slim/Interfaces/Psr17FactoryProviderInterface.php	19	getFactories	method	19
+Slim/Interfaces/Psr17FactoryProviderInterface.php	24	setFactories	method	24
+Slim/Interfaces/Psr17FactoryProviderInterface.php	26	addFactory	method	26
+Slim/Interfaces/RequestHandlerInvocationStrategyInterface.php	13	RequestHandlerInvocationStrategyInterface	type	13
+Slim/Interfaces/RouteCollectorInterface.php	102	map	method	102
+Slim/Interfaces/RouteCollectorInterface.php	17	RouteCollectorInterface	type	17
+Slim/Interfaces/RouteCollectorInterface.php	22	getRouteParser	method	22
+Slim/Interfaces/RouteCollectorInterface.php	27	getDefaultInvocationStrategy	method	27
+Slim/Interfaces/RouteCollectorInterface.php	32	setDefaultInvocationStrategy	method	32
+Slim/Interfaces/RouteCollectorInterface.php	37	getCacheFile	method	37
+Slim/Interfaces/RouteCollectorInterface.php	45	setCacheFile	method	45
+Slim/Interfaces/RouteCollectorInterface.php	50	getBasePath	method	50
+Slim/Interfaces/RouteCollectorInterface.php	55	setBasePath	method	55
+Slim/Interfaces/RouteCollectorInterface.php	62	getRoutes	method	62
+Slim/Interfaces/RouteCollectorInterface.php	71	getNamedRoute	method	71
+Slim/Interfaces/RouteCollectorInterface.php	80	removeNamedRoute	method	80
+Slim/Interfaces/RouteCollectorInterface.php	87	lookupRoute	method	87
+Slim/Interfaces/RouteCollectorInterface.php	93	group	method	93
+Slim/Interfaces/RouteCollectorProxyInterface.php	108	map	method	108
+Slim/Interfaces/RouteCollectorProxyInterface.php	118	group	method	118
+Slim/Interfaces/RouteCollectorProxyInterface.php	125	redirect	method	125
+Slim/Interfaces/RouteCollectorProxyInterface.php	21	RouteCollectorProxyInterface	type	21
+Slim/Interfaces/RouteCollectorProxyInterface.php	23	getResponseFactory	method	23
+Slim/Interfaces/RouteCollectorProxyInterface.php	25	getCallableResolver	method	25
+Slim/Interfaces/RouteCollectorProxyInterface.php	30	getContainer	method	30
+Slim/Interfaces/RouteCollectorProxyInterface.php	32	getRouteCollector	method	32
+Slim/Interfaces/RouteCollectorProxyInterface.php	37	getBasePath	method	37
+Slim/Interfaces/RouteCollectorProxyInterface.php	43	setBasePath	method	43
+Slim/Interfaces/RouteCollectorProxyInterface.php	51	get	method	51
+Slim/Interfaces/RouteCollectorProxyInterface.php	59	post	method	59
+Slim/Interfaces/RouteCollectorProxyInterface.php	67	put	method	67
+Slim/Interfaces/RouteCollectorProxyInterface.php	75	patch	method	75
+Slim/Interfaces/RouteCollectorProxyInterface.php	83	delete	method	83
+Slim/Interfaces/RouteCollectorProxyInterface.php	91	options	method	91
+Slim/Interfaces/RouteCollectorProxyInterface.php	99	any	method	99
+Slim/Interfaces/RouteGroupInterface.php	17	RouteGroupInterface	type	17
+Slim/Interfaces/RouteGroupInterface.php	19	collectRoutes	method	19
+Slim/Interfaces/RouteGroupInterface.php	26	add	method	26
+Slim/Interfaces/RouteGroupInterface.php	31	addMiddleware	method	31
+Slim/Interfaces/RouteGroupInterface.php	37	appendMiddlewareToDispatcher	method	37
+Slim/Interfaces/RouteGroupInterface.php	42	getPattern	method	42
+Slim/Interfaces/RouteInterface.php	104	setArguments	method	104
+Slim/Interfaces/RouteInterface.php	109	add	method	109
+Slim/Interfaces/RouteInterface.php	111	addMiddleware	method	111
+Slim/Interfaces/RouteInterface.php	118	prepare	method	118
+Slim/Interfaces/RouteInterface.php	127	run	method	127
+Slim/Interfaces/RouteInterface.php	18	RouteInterface	type	18
+Slim/Interfaces/RouteInterface.php	23	getInvocationStrategy	method	23
+Slim/Interfaces/RouteInterface.php	28	setInvocationStrategy	method	28
+Slim/Interfaces/RouteInterface.php	35	getMethods	method	35
+Slim/Interfaces/RouteInterface.php	40	getPattern	method	40
+Slim/Interfaces/RouteInterface.php	45	setPattern	method	45
+Slim/Interfaces/RouteInterface.php	52	getCallable	method	52
+Slim/Interfaces/RouteInterface.php	59	setCallable	method	59
+Slim/Interfaces/RouteInterface.php	64	getName	method	64
+Slim/Interfaces/RouteInterface.php	71	setName	method	71
+Slim/Interfaces/RouteInterface.php	76	getIdentifier	method	76
+Slim/Interfaces/RouteInterface.php	81	getArgument	method	81
+Slim/Interfaces/RouteInterface.php	88	getArguments	method	88
+Slim/Interfaces/RouteInterface.php	95	setArgument	method	95
+Slim/Interfaces/RouteParserInterface.php	18	RouteParserInterface	type	18
+Slim/Interfaces/RouteParserInterface.php	30	relativeUrlFor	method	30
+Slim/Interfaces/RouteParserInterface.php	42	urlFor	method	42
+Slim/Interfaces/RouteParserInterface.php	52	fullUrlFor	method	52
+Slim/Interfaces/RouteResolverInterface.php	14	computeRoutingResults	method	14
+Slim/Interfaces/RouteResolverInterface.php	16	resolveRoute	method	16
+Slim/Interfaces/RouteResolverInterface.php	9	RouteResolverInterface	type	9
+Slim/Interfaces/ServerRequestCreatorInterface.php	15	ServerRequestCreatorInterface	type	15
+Slim/Interfaces/ServerRequestCreatorInterface.php	17	createServerRequestFromGlobals	method	17
+Slim/Logger.php	19	Logger	type	19
+Slim/Logger.php	28	log	method	28
+Slim/Middleware/BodyParsingMiddleware.php	150	parseBody	method	150
+Slim/Middleware/BodyParsingMiddleware.php	185	getMediaType	method	185
+Slim/Middleware/BodyParsingMiddleware.php	197	disableXmlEntityLoader	method	197
+Slim/Middleware/BodyParsingMiddleware.php	37	BodyParsingMiddleware	type	37
+Slim/Middleware/BodyParsingMiddleware.php	47	__construct	method	47
+Slim/Middleware/BodyParsingMiddleware.php	56	process	method	56
+Slim/Middleware/BodyParsingMiddleware.php	72	registerBodyParser	method	72
+Slim/Middleware/BodyParsingMiddleware.php	81	hasBodyParser	method	81
+Slim/Middleware/BodyParsingMiddleware.php	90	getBodyParser	method	90
+Slim/Middleware/BodyParsingMiddleware.php	98	registerDefaultBodyParsers	method	98
+Slim/Middleware/ContentLengthMiddleware.php	19	ContentLengthMiddleware	type	19
+Slim/Middleware/ContentLengthMiddleware.php	21	process	method	21
+Slim/Middleware/ErrorMiddleware.php	103	getErrorHandler	method	103
+Slim/Middleware/ErrorMiddleware.php	127	getDefaultErrorHandler	method	127
+Slim/Middleware/ErrorMiddleware.php	158	setDefaultErrorHandler	method	158
+Slim/Middleware/ErrorMiddleware.php	190	setErrorHandler	method	190
+Slim/Middleware/ErrorMiddleware.php	207	addErrorHandler	method	207
+Slim/Middleware/ErrorMiddleware.php	29	ErrorMiddleware	type	29
+Slim/Middleware/ErrorMiddleware.php	58	__construct	method	58
+Slim/Middleware/ErrorMiddleware.php	74	process	method	74
+Slim/Middleware/ErrorMiddleware.php	83	handleException	method	83
+Slim/Middleware/MethodOverrideMiddleware.php	22	MethodOverrideMiddleware	type	22
+Slim/Middleware/MethodOverrideMiddleware.php	24	process	method	24
+Slim/Middleware/OutputBufferingMiddleware.php	27	OutputBufferingMiddleware	type	27
+Slim/Middleware/OutputBufferingMiddleware.php	39	__construct	method	39
+Slim/Middleware/OutputBufferingMiddleware.php	52	process	method	52
+Slim/Middleware/RoutingMiddleware.php	25	RoutingMiddleware	type	25
+Slim/Middleware/RoutingMiddleware.php	31	__construct	method	31
+Slim/Middleware/RoutingMiddleware.php	42	process	method	42
+Slim/Middleware/RoutingMiddleware.php	57	performRouting	method	57
+Slim/Middleware/RoutingMiddleware.php	91	resolveRoutingResultsFromRequest	method	91
+Slim/MiddlewareDispatcher.php	113	addMiddleware	method	113
+Slim/MiddlewareDispatcher.php	121	__construct	method	121
+Slim/MiddlewareDispatcher.php	127	handle	method	127
+Slim/MiddlewareDispatcher.php	144	addDeferred	method	144
+Slim/MiddlewareDispatcher.php	161	__construct	method	161
+Slim/MiddlewareDispatcher.php	173	handle	method	173
+Slim/MiddlewareDispatcher.php	254	addCallable	method	254
+Slim/MiddlewareDispatcher.php	274	__construct	method	274
+Slim/MiddlewareDispatcher.php	280	handle	method	280
+Slim/MiddlewareDispatcher.php	35	MiddlewareDispatcher	type	35
+Slim/MiddlewareDispatcher.php	50	__construct	method	50
+Slim/MiddlewareDispatcher.php	63	seedMiddlewareStack	method	63
+Slim/MiddlewareDispatcher.php	71	handle	method	71
+Slim/MiddlewareDispatcher.php	85	add	method	85
+Slim/ResponseEmitter.php	124	isResponseEmpty	method	124
+Slim/ResponseEmitter.php	26	ResponseEmitter	type	26
+Slim/ResponseEmitter.php	30	__construct	method	30
+Slim/ResponseEmitter.php	38	emit	method	38
+Slim/ResponseEmitter.php	58	emitHeaders	method	58
+Slim/ResponseEmitter.php	73	emitStatusLine	method	73
+Slim/ResponseEmitter.php	87	emitBody	method	87
+Slim/Routing/Dispatcher.php	13	Dispatcher	type	13
+Slim/Routing/Dispatcher.php	19	__construct	method	19
+Slim/Routing/Dispatcher.php	24	createDispatcher	method	24
+Slim/Routing/Dispatcher.php	63	dispatch	method	63
+Slim/Routing/Dispatcher.php	73	getAllowedMethods	method	73
+Slim/Routing/FastRouteDispatcher.php	15	FastRouteDispatcher	type	15
+Slim/Routing/FastRouteDispatcher.php	33	dispatch	method	33
+Slim/Routing/FastRouteDispatcher.php	67	routingResults	method	67
+Slim/Routing/FastRouteDispatcher.php	92	getAllowedMethods	method	92
+Slim/Routing/Route.php	120	__construct	method	120
+Slim/Routing/Route.php	143	getCallableResolver	method	143
+Slim/Routing/Route.php	151	getInvocationStrategy	method	151
+Slim/Routing/Route.php	159	setInvocationStrategy	method	159
+Slim/Routing/Route.php	168	getMethods	method	168
+Slim/Routing/Route.php	176	getPattern	method	176
+Slim/Routing/Route.php	184	setPattern	method	184
+Slim/Routing/Route.php	193	getCallable	method	193
+Slim/Routing/Route.php	201	setCallable	method	201
+Slim/Routing/Route.php	210	getName	method	210
+Slim/Routing/Route.php	218	setName	method	218
+Slim/Routing/Route.php	227	getIdentifier	method	227
+Slim/Routing/Route.php	235	getArgument	method	235
+Slim/Routing/Route.php	246	getArguments	method	246
+Slim/Routing/Route.php	254	setArguments	method	254
+Slim/Routing/Route.php	267	getGroups	method	267
+Slim/Routing/Route.php	275	add	method	275
+Slim/Routing/Route.php	284	addMiddleware	method	284
+Slim/Routing/Route.php	293	prepare	method	293
+Slim/Routing/Route.php	302	setArgument	method	302
+Slim/Routing/Route.php	315	run	method	315
+Slim/Routing/Route.php	327	appendGroupMiddlewareToRoute	method	327
+Slim/Routing/Route.php	342	handle	method	342
+Slim/Routing/Route.php	40	Route	type	40
+Slim/Routing/RouteCollector.php	107	getRouteParser	method	107
+Slim/Routing/RouteCollector.php	115	getDefaultInvocationStrategy	method	115
+Slim/Routing/RouteCollector.php	120	setDefaultInvocationStrategy	method	120
+Slim/Routing/RouteCollector.php	129	getCacheFile	method	129
+Slim/Routing/RouteCollector.php	137	setCacheFile	method	137
+Slim/Routing/RouteCollector.php	158	getBasePath	method	158
+Slim/Routing/RouteCollector.php	166	setBasePath	method	166
+Slim/Routing/RouteCollector.php	176	getRoutes	method	176
+Slim/Routing/RouteCollector.php	184	removeNamedRoute	method	184
+Slim/Routing/RouteCollector.php	195	getNamedRoute	method	195
+Slim/Routing/RouteCollector.php	219	lookupRoute	method	219
+Slim/Routing/RouteCollector.php	230	group	method	230
+Slim/Routing/RouteCollector.php	244	createGroup	method	244
+Slim/Routing/RouteCollector.php	253	createProxy	method	253
+Slim/Routing/RouteCollector.php	268	map	method	268
+Slim/Routing/RouteCollector.php	287	createRoute	method	287
+Slim/Routing/RouteCollector.php	37	RouteCollector	type	37
+Slim/Routing/RouteCollector.php	88	__construct	method	88
+Slim/Routing/RouteCollectorProxy.php	109	get	method	109
+Slim/Routing/RouteCollectorProxy.php	117	post	method	117
+Slim/Routing/RouteCollectorProxy.php	125	put	method	125
+Slim/Routing/RouteCollectorProxy.php	133	patch	method	133
+Slim/Routing/RouteCollectorProxy.php	141	delete	method	141
+Slim/Routing/RouteCollectorProxy.php	149	options	method	149
+Slim/Routing/RouteCollectorProxy.php	157	any	method	157
+Slim/Routing/RouteCollectorProxy.php	165	map	method	165
+Slim/Routing/RouteCollectorProxy.php	175	group	method	175
+Slim/Routing/RouteCollectorProxy.php	185	redirect	method	185
+Slim/Routing/RouteCollectorProxy.php	25	RouteCollectorProxy	type	25
+Slim/Routing/RouteCollectorProxy.php	41	__construct	method	41
+Slim/Routing/RouteCollectorProxy.php	58	getResponseFactory	method	58
+Slim/Routing/RouteCollectorProxy.php	66	getCallableResolver	method	66
+Slim/Routing/RouteCollectorProxy.php	75	getContainer	method	75
+Slim/Routing/RouteCollectorProxy.php	83	getRouteCollector	method	83
+Slim/Routing/RouteCollectorProxy.php	91	getBasePath	method	91
+Slim/Routing/RouteCollectorProxy.php	99	setBasePath	method	99
+Slim/Routing/RouteContext.php	19	RouteContext	type	19
+Slim/Routing/RouteContext.php	29	fromRequest	method	29
+Slim/Routing/RouteContext.php	55	__construct	method	55
+Slim/Routing/RouteContext.php	67	getRoute	method	67
+Slim/Routing/RouteContext.php	72	getRouteParser	method	72
+Slim/Routing/RouteContext.php	77	getRoutingResults	method	77
+Slim/Routing/RouteContext.php	82	getBasePath	method	82
+Slim/Routing/RouteGroup.php	105	getPattern	method	105
+Slim/Routing/RouteGroup.php	20	RouteGroup	type	20
+Slim/Routing/RouteGroup.php	45	__construct	method	45
+Slim/Routing/RouteGroup.php	60	collectRoutes	method	60
+Slim/Routing/RouteGroup.php	74	add	method	74
+Slim/Routing/RouteGroup.php	83	addMiddleware	method	83
+Slim/Routing/RouteGroup.php	93	appendMiddlewareToDispatcher	method	93
+Slim/Routing/RouteParser.php	104	urlFor	method	104
+Slim/Routing/RouteParser.php	119	fullUrlFor	method	119
+Slim/Routing/RouteParser.php	25	RouteParser	type	25
+Slim/Routing/RouteParser.php	31	__construct	method	31
+Slim/Routing/RouteParser.php	40	relativeUrlFor	method	40
+Slim/Routing/RouteResolver.php	25	RouteResolver	type	25
+Slim/Routing/RouteResolver.php	31	__construct	method	31
+Slim/Routing/RouteResolver.php	40	computeRoutingResults	method	40
+Slim/Routing/RouteResolver.php	52	resolveRoute	method	52
+Slim/Routing/RouteRunner.php	23	RouteRunner	type	23
+Slim/Routing/RouteRunner.php	37	__construct	method	37
+Slim/Routing/RouteRunner.php	57	handle	method	57
+Slim/Routing/RoutingResults.php	104	getAllowedMethods	method	104
+Slim/Routing/RoutingResults.php	16	RoutingResults	type	16
+Slim/Routing/RoutingResults.php	46	__construct	method	46
+Slim/Routing/RoutingResults.php	62	getDispatcher	method	62
+Slim/Routing/RoutingResults.php	67	getMethod	method	67
+Slim/Routing/RoutingResults.php	72	getUri	method	72
+Slim/Routing/RoutingResults.php	77	getRouteStatus	method	77
+Slim/Routing/RoutingResults.php	82	getRouteIdentifier	method	82
+Slim/Routing/RoutingResults.php	96	getRouteArguments	method	96
+tests/AppTest.php	105	testGetRouteCollectorReturnsInjectedInstance	method	105
+tests/AppTest.php	1068	testAddMiddlewareAsStringNotImplementingInterfaceThrowsException	method	1068
+tests/AppTest.php	1085	testInvokeReturnMethodNotAllowed	method	1085
+tests/AppTest.php	1109	testInvokeWithMatchingRoute	method	1109
+tests/AppTest.php	1143	testInvokeWithMatchingRouteWithSetArgument	method	1143
+tests/AppTest.php	118	testCreatesRouteCollectorWhenNullWithInjectedContainer	method	118
+tests/AppTest.php	1184	testInvokeWithMatchingRouteWithSetArguments	method	1184
+tests/AppTest.php	1225	testInvokeWithMatchingRouteWithNamedParameterRequestResponseStrategy	method	1225
+tests/AppTest.php	1266	testInvokeWithMatchingRouteWithNamedParameterRequestResponseArgStrategy	method	1266
+tests/AppTest.php	1308	testInvokeWithMatchingRouteWithNamedParameterRequestResponseNamedArgsStrategy	method	1308
+tests/AppTest.php	1357	testInvokeWithMatchingRouteWithNamedParameterOverwritesSetArgument	method	1357
+tests/AppTest.php	137	testGetMiddlewareDispatcherGetsSeededAndReturnsInjectedInstance	method	137
+tests/AppTest.php	1398	testInvokeWithoutMatchingRoute	method	1398
+tests/AppTest.php	1420	testInvokeWithCallableRegisteredInContainer	method	1420
+tests/AppTest.php	1433	foo	method	1433
+tests/AppTest.php	1464	testInvokeWithNonExistentMethodOnCallableRegisteredInContainer	method	1464
+tests/AppTest.php	1500	testInvokeWithCallableInContainerViaCallMagicMethod	method	1500
+tests/AppTest.php	1545	testInvokeFunctionName	method	1545
+tests/AppTest.php	1563	handle	function	1563
+tests/AppTest.php	158	lowerCaseRequestMethodsProvider	method	158
+tests/AppTest.php	1592	testCurrentRequestAttributesAreNotLostWhenAddingRouteArguments	method	1592
+tests/AppTest.php	1633	testCurrentRequestAttributesAreNotLostWhenAddingRouteArgumentsRequestResponseArg	method	1633
+tests/AppTest.php	1675	testRun	method	1675
+tests/AppTest.php	1728	testRunWithoutPassingInServerRequest	method	1728
+tests/AppTest.php	175	testGetPostPutPatchDeleteOptionsMethods	method	174
+tests/AppTest.php	1769	testHandleReturnsEmptyResponseBodyWithHeadRequestMethod	method	1769
+tests/AppTest.php	1826	testCanBeReExecutedRecursivelyDuringDispatch	method	1826
+tests/AppTest.php	1946	testContainerSetToRoute	method	1946
+tests/AppTest.php	1984	testAppIsARequestHandler	method	1984
+tests/AppTest.php	1992	testInvokeSequentialProcessToAPathWithOptionalArgsAndWithoutOptionalArgs	method	1992
+tests/AppTest.php	2047	testInvokeSequentialProcessToAPathWithOptionalArgsAndWithoutOptionalArgsAndKeepSetedArgs	method	2047
+tests/AppTest.php	208	testAnyRoute	method	208
+tests/AppTest.php	2102	testInvokeSequentialProcessAfterAddingAnotherRouteArgument	method	2102
+tests/AppTest.php	248	upperCaseRequestMethodsProvider	method	248
+tests/AppTest.php	267	testMapRoute	method	265
+tests/AppTest.php	299	testRedirectRoute	method	299
+tests/AppTest.php	343	testRouteWithInternationalCharacters	method	343
+tests/AppTest.php	382	routePatternsProvider	method	382
+tests/AppTest.php	398	testRoutePatterns	method	397
+tests/AppTest.php	416	routeGroupsDataProvider	method	416
+tests/AppTest.php	530	testGroupClosureIsBoundToThisClass	method	530
+tests/AppTest.php	547	testRouteGroupCombinations	method	546
+tests/AppTest.php	56	AppTest	type	56
+tests/AppTest.php	577	testRouteGroupPattern	method	577
+tests/AppTest.php	58	setupBeforeClass	method	58
+tests/AppTest.php	594	testAddMiddleware	method	594
+tests/AppTest.php	63	testDoesNotUseContainerAsServiceLocator	method	63
+tests/AppTest.php	658	testAddMiddlewareUsingDeferredResolution	method	658
+tests/AppTest.php	693	testAddRoutingMiddleware	method	693
+tests/AppTest.php	723	testAddErrorMiddleware	method	723
+tests/AppTest.php	756	testAddBodyParsingMiddleware	method	756
+tests/AppTest.php	77	testGetContainer	method	77
+tests/AppTest.php	786	testAddMiddlewareOnRoute	method	786
+tests/AppTest.php	86	testGetCallableResolverReturnsInjectedInstance	method	86
+tests/AppTest.php	866	testAddMiddlewareOnRouteGroup	method	866
+tests/AppTest.php	948	testAddMiddlewareOnTwoRouteGroup	method	948
+tests/AppTest.php	95	testCreatesCallableResolverWhenNull	method	95
+tests/Assets/HeaderStack.php	41	HeaderStack	type	41
+tests/Assets/HeaderStack.php	51	reset	method	51
+tests/Assets/HeaderStack.php	61	push	method	61
+tests/Assets/HeaderStack.php	71	stack	method	71
+tests/Assets/HeaderStack.php	83	has	method	83
+tests/CallableResolverTest.php	116	testSlimCallable	method	116
+tests/CallableResolverTest.php	133	testSlimCallableAsArray	method	133
+tests/CallableResolverTest.php	150	testSlimCallableContainer	method	150
+tests/CallableResolverTest.php	167	testSlimCallableAsArrayContainer	method	167
+tests/CallableResolverTest.php	184	testContainer	method	184
+tests/CallableResolverTest.php	207	testResolutionToAnInvokableClassInContainer	method	207
+tests/CallableResolverTest.php	230	testResolutionToAnInvokableClass	method	230
+tests/CallableResolverTest.php	24	CallableResolverTest	type	24
+tests/CallableResolverTest.php	247	testResolutionToAPsrRequestHandlerClass	method	247
+tests/CallableResolverTest.php	256	testRouteResolutionToAPsrRequestHandlerClass	method	256
+tests/CallableResolverTest.php	265	testMiddlewareResolutionToAPsrRequestHandlerClass	method	265
+tests/CallableResolverTest.php	274	testObjPsrRequestHandlerClass	method	274
+tests/CallableResolverTest.php	28	setUpBeforeClass	method	28
+tests/CallableResolverTest.php	284	testRouteObjPsrRequestHandlerClass	method	284
+tests/CallableResolverTest.php	294	testMiddlewareObjPsrRequestHandlerClass	method	294
+tests/CallableResolverTest.php	30	testAdvancedCallable	function	30
+tests/CallableResolverTest.php	304	testObjPsrRequestHandlerClassInContainer	method	304
+tests/CallableResolverTest.php	318	testRouteObjPsrRequestHandlerClassInContainer	method	318
+tests/CallableResolverTest.php	333	testMiddlewareObjPsrRequestHandlerClassInContainer	method	333
+tests/CallableResolverTest.php	347	testResolutionToAPsrRequestHandlerClassWithCustomMethod	method	347
+tests/CallableResolverTest.php	36	setUp	method	36
+tests/CallableResolverTest.php	367	testObjMiddlewareClass	method	367
+tests/CallableResolverTest.php	377	testRouteObjMiddlewareClass	method	377
+tests/CallableResolverTest.php	387	testMiddlewareObjMiddlewareClass	method	387
+tests/CallableResolverTest.php	397	testNotObjectInContainerThrowException	method	397
+tests/CallableResolverTest.php	411	testMethodNotFoundThrowException	method	411
+tests/CallableResolverTest.php	425	testRouteMethodNotFoundThrowException	method	425
+tests/CallableResolverTest.php	439	testMiddlewareMethodNotFoundThrowException	method	439
+tests/CallableResolverTest.php	453	testFunctionNotFoundThrowException	method	453
+tests/CallableResolverTest.php	46	testClosure	method	46
+tests/CallableResolverTest.php	464	testRouteFunctionNotFoundThrowException	method	464
+tests/CallableResolverTest.php	475	testMiddlewareFunctionNotFoundThrowException	method	475
+tests/CallableResolverTest.php	486	testClassNotFoundThrowException	method	486
+tests/CallableResolverTest.php	497	testRouteClassNotFoundThrowException	method	497
+tests/CallableResolverTest.php	508	testMiddlewareClassNotFoundThrowException	method	508
+tests/CallableResolverTest.php	519	testCallableClassNotFoundThrowException	method	519
+tests/CallableResolverTest.php	530	testRouteCallableClassNotFoundThrowException	method	530
+tests/CallableResolverTest.php	541	testMiddlewareCallableClassNotFoundThrowException	method	541
+tests/CallableResolverTest.php	61	testClosureContainer	method	61
+tests/CallableResolverTest.php	86	testFunctionName	method	86
+tests/CallableResolverTest.php	98	testObjMethodArray	method	98
+tests/Error/AbstractErrorRendererTest.php	120	testHTMLErrorRendererEscapesAnonymousClassType	method	120
+tests/Error/AbstractErrorRendererTest.php	151	testHTMLErrorRendererRenderHttpException	method	151
+tests/Error/AbstractErrorRendererTest.php	175	testHTMLErrorRendererEscapesHttpException	method	175
+tests/Error/AbstractErrorRendererTest.php	214	testJSONErrorRendererDisplaysErrorDetails	method	214
+tests/Error/AbstractErrorRendererTest.php	230	testJSONErrorRendererDoesNotDisplayErrorDetails	method	230
+tests/Error/AbstractErrorRendererTest.php	240	testJSONErrorRendererSubstitutesInvalidUtf8	method	240
+tests/Error/AbstractErrorRendererTest.php	257	testJSONErrorRendererDisplaysPreviousError	method	257
+tests/Error/AbstractErrorRendererTest.php	279	testJSONErrorRendererRenderHttpException	method	279
+tests/Error/AbstractErrorRendererTest.php	301	testXMLErrorRendererDisplaysErrorDetails	method	301
+tests/Error/AbstractErrorRendererTest.php	318	testXMLErrorRendererRenderHttpException	method	318
+tests/Error/AbstractErrorRendererTest.php	337	testPlainTextErrorRendererFormatFragmentMethod	method	337
+tests/Error/AbstractErrorRendererTest.php	359	testPlainTextErrorRendererDisplaysErrorDetails	method	359
+tests/Error/AbstractErrorRendererTest.php	370	testPlainTextErrorRendererNotDisplaysErrorDetails	method	370
+tests/Error/AbstractErrorRendererTest.php	381	testPlainTextErrorRendererRenderHttpException	method	381
+tests/Error/AbstractErrorRendererTest.php	40	AbstractErrorRendererTest	type	40
+tests/Error/AbstractErrorRendererTest.php	42	testHTMLErrorRendererDisplaysErrorDetails	method	42
+tests/Error/AbstractErrorRendererTest.php	55	testHTMLErrorRendererNoErrorDetails	method	55
+tests/Error/AbstractErrorRendererTest.php	68	testHTMLErrorRendererRenderFragmentMethod	method	68
+tests/Error/AbstractErrorRendererTest.php	85	testHTMLErrorRendererEscapesQuotesInErrorDetails	method	85
+tests/Error/AbstractErrorRendererTest.php	91	__construct	method	91
+tests/Exception/HttpExceptionTest.php	18	HttpExceptionTest	type	18
+tests/Exception/HttpExceptionTest.php	20	testHttpExceptionRequestReponseGetterSetters	method	20
+tests/Exception/HttpExceptionTest.php	28	testHttpExceptionAttributeGettersSetters	method	28
+tests/Exception/HttpExceptionTest.php	40	testHttpNotAllowedExceptionGetAllowedMethods	method	40
+tests/Exception/HttpUnauthorizedExceptionTest.php	16	HttpUnauthorizedExceptionTest	type	16
+tests/Exception/HttpUnauthorizedExceptionTest.php	18	testHttpUnauthorizedException	method	18
+tests/Exception/HttpUnauthorizedExceptionTest.php	26	testHttpUnauthorizedExceptionWithMessage	method	26
+tests/Factory/AppFactoryTest.php	117	testDetermineResponseFactoryThrowsRuntimeException	method	116
+tests/Factory/AppFactoryTest.php	125	testSetPsr17FactoryProvider	method	125
+tests/Factory/AppFactoryTest.php	140	testResponseFactoryIsStillReturnedIfStreamFactoryIsNotAvailable	method	139
+tests/Factory/AppFactoryTest.php	154	testAppIsCreatedWithInstancesFromSetters	method	153
+tests/Factory/AppFactoryTest.php	212	testAppIsCreatedWithInjectedInstancesFromFunctionArguments	method	211
+tests/Factory/AppFactoryTest.php	263	testResponseAndStreamFactoryIsBeingInjectedInDecoratedResponseFactory	method	262
+tests/Factory/AppFactoryTest.php	290	testCreateAppWithContainerUsesContainerDependenciesWhenPresent	method	290
+tests/Factory/AppFactoryTest.php	368	testCreateAppWithEmptyContainer	method	368
+tests/Factory/AppFactoryTest.php	45	AppFactoryTest	type	45
+tests/Factory/AppFactoryTest.php	47	tearDown	method	47
+tests/Factory/AppFactoryTest.php	53	provideImplementations	method	53
+tests/Factory/AppFactoryTest.php	70	testCreateAppWithAllImplementations	method	69
+tests/Factory/AppFactoryTest.php	87	testDetermineResponseFactoryReturnsDecoratedFactory	method	87
+tests/Factory/AppFactoryTest.php	97	testDetermineResponseFactoryThrowsRuntimeExceptionIfDecoratedNotInstanceOfResponseInterface	method	97
+tests/Factory/Psr17/Psr17FactoryProviderTest.php	16	Psr17FactoryProviderTest	type	16
+tests/Factory/Psr17/Psr17FactoryProviderTest.php	22	testGetSetFactories	method	21
+tests/Factory/Psr17/Psr17FactoryProviderTest.php	34	testAddFactory	method	33
+tests/Factory/Psr17/Psr17FactoryTest.php	17	Psr17FactoryTest	type	17
+tests/Factory/Psr17/Psr17FactoryTest.php	19	testGetResponseFactoryThrowsRuntimeException	method	19
+tests/Factory/Psr17/Psr17FactoryTest.php	27	testGetStreamFactoryThrowsRuntimeException	method	27
+tests/Factory/Psr17/Psr17FactoryTest.php	35	testGetServerRequestCreatorThrowsRuntimeException	method	35
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	23	SlimHttpServerRequestCreatorTest	type	23
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	29	tearDown	method	29
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	43	testCreateServerRequestFromGlobals	method	43
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	59	testCreateServerRequestFromGlobalsThrowsRuntimeException	method	59
+tests/Factory/Psr17/SlimHttpServerRequestCreatorTest.php	78	testCreateServerRequestFromGlobalsThrowsRuntimeExceptionIfNotInstanceOfServerRequestInterface	method	78
+tests/Factory/ServerRequestCreatorFactoryTest.php	102	testSetServerRequestCreatorWithoutDecorators	method	101
+tests/Factory/ServerRequestCreatorFactoryTest.php	124	testSetServerRequestCreatorWithDecorators	method	123
+tests/Factory/ServerRequestCreatorFactoryTest.php	32	ServerRequestCreatorFactoryTest	type	32
+tests/Factory/ServerRequestCreatorFactoryTest.php	34	provideImplementations	method	34
+tests/Factory/ServerRequestCreatorFactoryTest.php	51	testCreateAppWithAllImplementations	method	50
+tests/Factory/ServerRequestCreatorFactoryTest.php	62	testDetermineServerRequestCreatorReturnsDecoratedServerRequestCreator	method	62
+tests/Factory/ServerRequestCreatorFactoryTest.php	77	testDetermineServerRequestCreatorThrowsRuntimeException	method	76
+tests/Factory/ServerRequestCreatorFactoryTest.php	85	testSetPsr17FactoryProvider	method	85
+tests/Handlers/ErrorHandlerTest.php	104	testForceContentType	method	104
+tests/Handlers/ErrorHandlerTest.php	125	testContentTypeIsNegotiatedOnEachRequest	method	125
+tests/Handlers/ErrorHandlerTest.php	153	testForcedContentTypeWinsOverSubsequentNegotiation	method	153
+tests/Handlers/ErrorHandlerTest.php	182	testForceContentTypeNullRestoresNegotiation	method	182
+tests/Handlers/ErrorHandlerTest.php	216	testHalfValidContentType	method	216
+tests/Handlers/ErrorHandlerTest.php	247	testDetermineContentTypeTextPlainMultiAcceptHeader	method	247
+tests/Handlers/ErrorHandlerTest.php	279	testDetermineContentTypeApplicationJsonOrXml	method	279
+tests/Handlers/ErrorHandlerTest.php	31	ErrorHandlerTest	type	31
+tests/Handlers/ErrorHandlerTest.php	314	testAcceptableMediaTypeIsNotFirstInList	method	314
+tests/Handlers/ErrorHandlerTest.php	33	getMockLogger	method	33
+tests/Handlers/ErrorHandlerTest.php	334	testRegisterErrorRenderer	method	334
+tests/Handlers/ErrorHandlerTest.php	347	testSetDefaultErrorRenderer	method	347
+tests/Handlers/ErrorHandlerTest.php	365	testOptions	method	365
+tests/Handlers/ErrorHandlerTest.php	38	testDetermineRenderer	method	38
+tests/Handlers/ErrorHandlerTest.php	380	testWriteToErrorLog	method	380
+tests/Handlers/ErrorHandlerTest.php	407	testWriteToErrorLogShowTip	method	407
+tests/Handlers/ErrorHandlerTest.php	434	testWriteToErrorLogDoesNotShowTipIfErrorLogRendererIsNotPlainText	method	434
+tests/Handlers/ErrorHandlerTest.php	463	testDefaultErrorRenderer	method	463
+tests/Handlers/ErrorHandlerTest.php	479	testLogErrorRenderer	method	479
+tests/Handlers/ErrorHandlerTest.php	75	testDetermineStatusCode	method	75
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	123	testCallingWithMixedKnownAndUnknownParametersAndVariadic	method	123
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	18	RequestResponseNamedArgsTest	type	18
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	25	setUp	method	25
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	31	testCallingWithEmptyArguments	method	31
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	50	testCallingWithKnownArguments	method	50
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	75	testCallingWithOptionalArguments	method	75
+tests/Handlers/Strategies/RequestResponseNamedArgsTest.php	99	testCallingWithUnknownAndVariadic	method	99
+tests/Middleware/BodyParsingMiddlewareTest.php	162	testParsing	method	161
+tests/Middleware/BodyParsingMiddlewareTest.php	173	testParsingWithARegisteredParser	method	173
+tests/Middleware/BodyParsingMiddlewareTest.php	189	testParsingFailsWhenAnInvalidTypeIsReturned	method	189
+tests/Middleware/BodyParsingMiddlewareTest.php	204	testSettingAndGettingAParser	method	204
+tests/Middleware/BodyParsingMiddlewareTest.php	219	testGettingUnknownParser	method	219
+tests/Middleware/BodyParsingMiddlewareTest.php	23	BodyParsingMiddlewareTest	type	23
+tests/Middleware/BodyParsingMiddlewareTest.php	29	createRequestHandler	method	29
+tests/Middleware/BodyParsingMiddlewareTest.php	36	__construct	method	36
+tests/Middleware/BodyParsingMiddlewareTest.php	41	handle	method	41
+tests/Middleware/BodyParsingMiddlewareTest.php	54	createRequestWithBody	method	54
+tests/Middleware/BodyParsingMiddlewareTest.php	67	parsingProvider	method	67
+tests/Middleware/ContentLengthMiddlewareTest.php	17	ContentLengthMiddlewareTest	type	17
+tests/Middleware/ContentLengthMiddlewareTest.php	19	testAddsContentLength	method	19
+tests/Middleware/ErrorMiddlewareTest.php	108	testSetDefaultErrorHandlerThrowsException	method	108
+tests/Middleware/ErrorMiddlewareTest.php	129	testGetErrorHandlerWillReturnDefaultErrorHandlerForUnhandledExceptions	method	129
+tests/Middleware/ErrorMiddlewareTest.php	142	testSuperclassExceptionHandlerHandlesExceptionWithSubclassExactMatch	method	142
+tests/Middleware/ErrorMiddlewareTest.php	172	testSuperclassExceptionHandlerHandlesSubclassException	method	172
+tests/Middleware/ErrorMiddlewareTest.php	210	testSuperclassExceptionHandlerDoesNotHandleSubclassException	method	210
+tests/Middleware/ErrorMiddlewareTest.php	248	testHandleMultipleExceptionsAddedAsArray	method	248
+tests/Middleware/ErrorMiddlewareTest.php	28	ErrorMiddlewareTest	type	28
+tests/Middleware/ErrorMiddlewareTest.php	288	testErrorHandlerHandlesThrowables	method	288
+tests/Middleware/ErrorMiddlewareTest.php	30	getMockLogger	method	30
+tests/Middleware/ErrorMiddlewareTest.php	35	testSetErrorHandler	method	35
+tests/Middleware/ErrorMiddlewareTest.php	72	testSetDefaultErrorHandler	method	72
+tests/Middleware/MethodOverrideMiddlewareTest.php	111	testNoOverrideRewindEofBodyStream	method	111
+tests/Middleware/MethodOverrideMiddlewareTest.php	19	MethodOverrideMiddlewareTest	type	19
+tests/Middleware/MethodOverrideMiddlewareTest.php	21	testHeader	method	21
+tests/Middleware/MethodOverrideMiddlewareTest.php	43	testBodyParam	method	43
+tests/Middleware/MethodOverrideMiddlewareTest.php	66	testHeaderPreferred	method	66
+tests/Middleware/MethodOverrideMiddlewareTest.php	90	testNoOverride	method	90
+tests/Middleware/OutputBufferingMiddlewareTest.php	103	testOutputBufferIsCleanedWhenThrowableIsCaught	method	103
+tests/Middleware/OutputBufferingMiddlewareTest.php	22	OutputBufferingMiddlewareTest	type	22
+tests/Middleware/OutputBufferingMiddlewareTest.php	24	testStyleDefaultValid	method	24
+tests/Middleware/OutputBufferingMiddlewareTest.php	35	testStyleCustomValid	method	35
+tests/Middleware/OutputBufferingMiddlewareTest.php	46	testStyleCustomInvalid	method	46
+tests/Middleware/OutputBufferingMiddlewareTest.php	53	testAppend	method	53
+tests/Middleware/OutputBufferingMiddlewareTest.php	78	testPrepend	method	78
+tests/Middleware/RoutingMiddlewareTest.php	115	testRouteIsNotStoredOnNotFound	method	115
+tests/Middleware/RoutingMiddlewareTest.php	152	testPerformRoutingThrowsExceptionOnInvalidRoutingResultsRouteStatus	method	152
+tests/Middleware/RoutingMiddlewareTest.php	31	RoutingMiddlewareTest	type	31
+tests/Middleware/RoutingMiddlewareTest.php	33	getRouteCollector	method	33
+tests/Middleware/RoutingMiddlewareTest.php	42	testRouteIsStoredOnSuccessfulMatch	method	42
+tests/Middleware/RoutingMiddlewareTest.php	78	testRouteIsNotStoredOnMethodNotAllowed	method	78
+tests/MiddlewareDispatcherTest.php	121	testDeferredResolvedCallableWithDirectConstructorCall	method	121
+tests/MiddlewareDispatcherTest.php	141	deferredCallableProvider	method	141
+tests/MiddlewareDispatcherTest.php	161	testDeferredResolvedCallableWithContainerAndNonAdvancedCallableResolverUnableToResolveCallable	method	160
+tests/MiddlewareDispatcherTest.php	204	testDeferredResolvedSlimCallable	method	204
+tests/MiddlewareDispatcherTest.php	216	testDeferredResolvedClosureIsBoundToContainer	method	216
+tests/MiddlewareDispatcherTest.php	240	testAddCallableBindsClosureToContainer	method	240
+tests/MiddlewareDispatcherTest.php	264	testResolvableReturnsInstantiatedObject	method	264
+tests/MiddlewareDispatcherTest.php	279	testResolveThrowsExceptionWhenResolvableDoesNotImplementMiddlewareInterface	method	279
+tests/MiddlewareDispatcherTest.php	28	MiddlewareDispatcherTest	type	28
+tests/MiddlewareDispatcherTest.php	30	setUpBeforeClass	method	30
+tests/MiddlewareDispatcherTest.php	304	testResolveThrowsExceptionWithoutContainerAndUnresolvableClass	method	304
+tests/MiddlewareDispatcherTest.php	317	testResolveThrowsExceptionWithoutContainerNonAdvancedCallableResolverAndUnresolvableClass	method	317
+tests/MiddlewareDispatcherTest.php	32	testProcessRequest	function	32
+tests/MiddlewareDispatcherTest.php	339	testExecutesKernelWithEmptyMiddlewareStack	method	339
+tests/MiddlewareDispatcherTest.php	356	testExecutesMiddlewareLastInFirstOut	method	356
+tests/MiddlewareDispatcherTest.php	38	testAddMiddleware	method	38
+tests/MiddlewareDispatcherTest.php	448	testDoesNotInstantiateDeferredMiddlewareInCaseOfAnEarlyReturningOuterMiddleware	method	448
+tests/MiddlewareDispatcherTest.php	470	testThrowsExceptionForDeferredNonMiddlewareInterfaceClasses	method	470
+tests/MiddlewareDispatcherTest.php	486	testCanBeExecutedMultipleTimes	method	486
+tests/MiddlewareDispatcherTest.php	507	testCanBeReExecutedRecursivelyDuringDispatch	method	507
+tests/MiddlewareDispatcherTest.php	55	testNamedFunctionIsResolved	method	55
+tests/MiddlewareDispatcherTest.php	556	testFetchesMiddlewareFromContainer	method	556
+tests/MiddlewareDispatcherTest.php	580	testMiddlewareGetsInstantiatedWithContainer	method	580
+tests/MiddlewareDispatcherTest.php	68	testDeferredResolvedCallable	method	68
+tests/MiddlewareDispatcherTest.php	97	testDeferredResolvedCallableWithoutContainerAndNonAdvancedCallableResolver	method	97
+tests/Mocks/CallableTest.php	15	CallableTest	type	15
+tests/Mocks/CallableTest.php	21	__construct	method	21
+tests/Mocks/CallableTest.php	26	toCall	method	26
+tests/Mocks/InvocationStrategyTest.php	17	InvocationStrategyTest	type	17
+tests/Mocks/InvocationStrategyTest.php	31	__invoke	method	31
+tests/Mocks/InvokableTest.php	13	InvokableTest	type	13
+tests/Mocks/InvokableTest.php	17	__invoke	method	17
+tests/Mocks/MiddlewareTest.php	19	MiddlewareTest	type	19
+tests/Mocks/MiddlewareTest.php	26	process	method	26
+tests/Mocks/MockAction.php	19	MockAction	type	19
+tests/Mocks/MockAction.php	21	__call	method	21
+tests/Mocks/MockCustomException.php	15	MockCustomException	type	15
+tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php	17	MockCustomRequestHandlerInvocationStrategy	type	17
+tests/Mocks/MockCustomRequestHandlerInvocationStrategy.php	21	__invoke	method	21
+tests/Mocks/MockMiddlewareSlimCallable.php	17	MockMiddlewareSlimCallable	type	17
+tests/Mocks/MockMiddlewareSlimCallable.php	24	custom	method	24
+tests/Mocks/MockMiddlewareWithConstructor.php	20	MockMiddlewareWithConstructor	type	20
+tests/Mocks/MockMiddlewareWithConstructor.php	30	__construct	method	30
+tests/Mocks/MockMiddlewareWithConstructor.php	35	process	method	35
+tests/Mocks/MockMiddlewareWithoutConstructor.php	18	MockMiddlewareWithoutConstructor	type	18
+tests/Mocks/MockMiddlewareWithoutConstructor.php	27	process	method	27
+tests/Mocks/MockMiddlewareWithoutInterface.php	13	MockMiddlewareWithoutInterface	type	13
+tests/Mocks/MockPsr17Factory.php	15	MockPsr17Factory	type	15
+tests/Mocks/MockPsr17FactoryWithoutStreamFactory.php	15	MockPsr17FactoryWithoutStreamFactory	type	15
+tests/Mocks/MockRequestHandler.php	18	MockRequestHandler	type	18
+tests/Mocks/MockRequestHandler.php	29	handle	method	29
+tests/Mocks/MockRequestHandler.php	41	getCalledCount	method	41
+tests/Mocks/MockSequenceMiddleware.php	18	MockSequenceMiddleware	type	18
+tests/Mocks/MockSequenceMiddleware.php	30	__construct	method	30
+tests/Mocks/MockSequenceMiddleware.php	35	process	method	35
+tests/Mocks/MockStream.php	101	__destruct	method	101
+tests/Mocks/MockStream.php	106	__toString	method	106
+tests/Mocks/MockStream.php	119	close	method	119
+tests/Mocks/MockStream.php	129	detach	method	129
+tests/Mocks/MockStream.php	143	getSize	method	143
+tests/Mocks/MockStream.php	168	tell	method	168
+tests/Mocks/MockStream.php	177	eof	method	177
+tests/Mocks/MockStream.php	182	isSeekable	method	182
+tests/Mocks/MockStream.php	187	seek	method	187
+tests/Mocks/MockStream.php	201	rewind	method	201
+tests/Mocks/MockStream.php	206	isWritable	method	206
+tests/Mocks/MockStream.php	211	write	method	211
+tests/Mocks/MockStream.php	227	isReadable	method	227
+tests/Mocks/MockStream.php	232	read	method	232
+tests/Mocks/MockStream.php	241	getContents	method	241
+tests/Mocks/MockStream.php	254	getMetadata	method	254
+tests/Mocks/MockStream.php	36	MockStream	type	36
+tests/Mocks/MockStream.php	76	__construct	method	76
+tests/Mocks/RequestHandlerTest.php	20	RequestHandlerTest	type	20
+tests/Mocks/RequestHandlerTest.php	25	handle	method	25
+tests/Mocks/RequestHandlerTest.php	47	custom	method	47
+tests/Mocks/SlowPokeStream.php	103	seek	method	103
+tests/Mocks/SlowPokeStream.php	108	tell	method	108
+tests/Mocks/SlowPokeStream.php	113	write	method	113
+tests/Mocks/SlowPokeStream.php	22	SlowPokeStream	type	22
+tests/Mocks/SlowPokeStream.php	32	__construct	method	32
+tests/Mocks/SlowPokeStream.php	37	__toString	method	37
+tests/Mocks/SlowPokeStream.php	46	close	method	46
+tests/Mocks/SlowPokeStream.php	50	detach	method	50
+tests/Mocks/SlowPokeStream.php	55	eof	method	55
+tests/Mocks/SlowPokeStream.php	60	getContents	method	60
+tests/Mocks/SlowPokeStream.php	65	getMetadata	method	65
+tests/Mocks/SlowPokeStream.php	70	getSize	method	70
+tests/Mocks/SlowPokeStream.php	75	isReadable	method	75
+tests/Mocks/SlowPokeStream.php	80	isSeekable	method	80
+tests/Mocks/SlowPokeStream.php	85	isWritable	method	85
+tests/Mocks/SlowPokeStream.php	90	read	method	90
+tests/Mocks/SlowPokeStream.php	98	rewind	method	98
+tests/Mocks/SmallChunksStream.php	103	tell	method	103
+tests/Mocks/SmallChunksStream.php	108	write	method	108
+tests/Mocks/SmallChunksStream.php	21	SmallChunksStream	type	21
+tests/Mocks/SmallChunksStream.php	31	__construct	method	31
+tests/Mocks/SmallChunksStream.php	36	__toString	method	36
+tests/Mocks/SmallChunksStream.php	41	close	method	41
+tests/Mocks/SmallChunksStream.php	45	detach	method	45
+tests/Mocks/SmallChunksStream.php	50	eof	method	50
+tests/Mocks/SmallChunksStream.php	55	getContents	method	55
+tests/Mocks/SmallChunksStream.php	60	getMetadata	method	60
+tests/Mocks/SmallChunksStream.php	65	getSize	method	65
+tests/Mocks/SmallChunksStream.php	70	isReadable	method	70
+tests/Mocks/SmallChunksStream.php	75	isSeekable	method	75
+tests/Mocks/SmallChunksStream.php	80	isWritable	method	80
+tests/Mocks/SmallChunksStream.php	85	read	method	85
+tests/Mocks/SmallChunksStream.php	93	rewind	method	93
+tests/Mocks/SmallChunksStream.php	98	seek	method	98
+tests/Providers/PSR7ObjectProvider.php	108	getStreamFactory	method	108
+tests/Providers/PSR7ObjectProvider.php	30	PSR7ObjectProvider	type	30
+tests/Providers/PSR7ObjectProvider.php	38	createServerRequest	method	38
+tests/Providers/PSR7ObjectProvider.php	69	getServerRequestFactory	method	69
+tests/Providers/PSR7ObjectProvider.php	79	createResponse	method	79
+tests/Providers/PSR7ObjectProvider.php	89	getResponseFactory	method	89
+tests/Providers/PSR7ObjectProvider.php	98	createStream	method	98
+tests/Providers/PSR7ObjectProviderInterface.php	25	PSR7ObjectProviderInterface	type	25
+tests/Providers/PSR7ObjectProviderInterface.php	30	getServerRequestFactory	method	30
+tests/Providers/PSR7ObjectProviderInterface.php	35	getResponseFactory	method	35
+tests/Providers/PSR7ObjectProviderInterface.php	40	getStreamFactory	method	40
+tests/Providers/PSR7ObjectProviderInterface.php	48	createServerRequest	method	48
+tests/Providers/PSR7ObjectProviderInterface.php	55	createResponse	method	55
+tests/Providers/PSR7ObjectProviderInterface.php	61	createStream	method	61
+tests/ResponseEmitterTest.php	106	testRespondIndeterminateLength	method	106
+tests/ResponseEmitterTest.php	126	testResponseWithStreamReadYieldingLessBytesThanAsked	method	126
+tests/ResponseEmitterTest.php	137	testResponseReplacesPreviouslySetHeaders	method	137
+tests/ResponseEmitterTest.php	155	testResponseDoesNotReplacePreviouslySetSetCookieHeaders	method	155
+tests/ResponseEmitterTest.php	173	testIsResponseEmptyWithNonEmptyBodyAndTriggeringStatusCode	method	173
+tests/ResponseEmitterTest.php	184	testIsResponseEmptyDoesNotReadAllDataFromNonEmptySeekableResponse	method	184
+tests/ResponseEmitterTest.php	198	testIsResponseEmptyDoesNotDrainNonSeekableResponseWithContent	method	198
+tests/ResponseEmitterTest.php	211	testAvoidReadFromSlowStreamAccordingToStatus	method	211
+tests/ResponseEmitterTest.php	225	testIsResponseEmptyWithEmptyBody	method	225
+tests/ResponseEmitterTest.php	233	testIsResponseEmptyWithZeroAsBody	method	233
+tests/ResponseEmitterTest.php	244	testWillHandleInvalidConnectionStatusWithADeterminateBody	method	244
+tests/ResponseEmitterTest.php	267	testWillHandleInvalidConnectionStatusWithAnIndeterminateBody	method	267
+tests/ResponseEmitterTest.php	38	ResponseEmitterTest	type	38
+tests/ResponseEmitterTest.php	40	setUp	method	40
+tests/ResponseEmitterTest.php	45	tearDown	method	45
+tests/ResponseEmitterTest.php	50	testRespond	method	50
+tests/ResponseEmitterTest.php	61	testRespondWithPaddedStreamFilterOutput	method	61
+tests/Routing/DispatcherTest.php	100	testGetAllowedMethods	method	100
+tests/Routing/DispatcherTest.php	118	testDispatch	method	118
+tests/Routing/DispatcherTest.php	144	testRouteArgumentsAreDecodedOnlyOnce	method	144
+tests/Routing/DispatcherTest.php	28	DispatcherTest	type	28
+tests/Routing/DispatcherTest.php	30	testCreateDispatcher	method	30
+tests/Routing/DispatcherTest.php	46	testRouteCacheFileCanBeDispatched	method	46
+tests/Routing/DispatcherTest.php	84	testCreateDispatcherReturnsSameDispatcherASecondTime	method	84
+tests/Routing/FastRouteDispatcherTest.php	100	testGetAllowedMethods	method	99
+tests/Routing/FastRouteDispatcherTest.php	110	testGetAllowedMethodsReusesLastUriOnly	method	110
+tests/Routing/FastRouteDispatcherTest.php	125	testDuplicateVariableNameError	method	125
+tests/Routing/FastRouteDispatcherTest.php	135	testDuplicateVariableRoute	method	135
+tests/Routing/FastRouteDispatcherTest.php	146	testDuplicateStaticRoute	method	146
+tests/Routing/FastRouteDispatcherTest.php	161	testShadowedStaticRoute	method	161
+tests/Routing/FastRouteDispatcherTest.php	173	testCapturing	method	173
+tests/Routing/FastRouteDispatcherTest.php	183	provideFoundDispatchCases	method	183
+tests/Routing/FastRouteDispatcherTest.php	21	FastRouteDispatcherTest	type	21
+tests/Routing/FastRouteDispatcherTest.php	27	testFoundDispatches	method	26
+tests/Routing/FastRouteDispatcherTest.php	42	generateDispatcherOptions	method	42
+tests/Routing/FastRouteDispatcherTest.php	482	provideNotFoundDispatchCases	method	482
+tests/Routing/FastRouteDispatcherTest.php	50	getDataGeneratorClass	method	50
+tests/Routing/FastRouteDispatcherTest.php	55	getDispatcherClass	method	55
+tests/Routing/FastRouteDispatcherTest.php	559	provideMethodNotAllowedDispatchCases	method	559
+tests/Routing/FastRouteDispatcherTest.php	64	testNotFoundDispatches	method	63
+tests/Routing/FastRouteDispatcherTest.php	82	testMethodNotAllowedDispatches	method	81
+tests/Routing/RouteCollectorProxyTest.php	122	testGet	method	122
+tests/Routing/RouteCollectorProxyTest.php	155	testPost	method	155
+tests/Routing/RouteCollectorProxyTest.php	188	testPut	method	188
+tests/Routing/RouteCollectorProxyTest.php	221	testPatch	method	221
+tests/Routing/RouteCollectorProxyTest.php	254	testDelete	method	254
+tests/Routing/RouteCollectorProxyTest.php	26	RouteCollectorProxyTest	type	26
+tests/Routing/RouteCollectorProxyTest.php	28	testGetResponseFactory	method	28
+tests/Routing/RouteCollectorProxyTest.php	287	testOptions	method	287
+tests/Routing/RouteCollectorProxyTest.php	320	testAny	method	320
+tests/Routing/RouteCollectorProxyTest.php	353	testMap	method	353
+tests/Routing/RouteCollectorProxyTest.php	387	testRedirect	method	387
+tests/Routing/RouteCollectorProxyTest.php	432	testGroup	method	432
+tests/Routing/RouteCollectorProxyTest.php	44	testGetCallableResolver	method	44
+tests/Routing/RouteCollectorProxyTest.php	60	testGetContainerReturnsInjectedInstance	method	60
+tests/Routing/RouteCollectorProxyTest.php	78	testGetRouteCollectorReturnsInjectedInstance	method	78
+tests/Routing/RouteCollectorProxyTest.php	98	testGetSetBasePath	method	98
+tests/Routing/RouteCollectorTest.php	109	testRemoveNamedRoute	method	109
+tests/Routing/RouteCollectorTest.php	129	testRemoveNamedRouteWithARouteThatDoesNotExist	method	129
+tests/Routing/RouteCollectorTest.php	140	testLookupRouteThrowsExceptionIfRouteNotFound	method	140
+tests/Routing/RouteCollectorTest.php	154	testCacheFileExistsAndIsNotReadable	method	154
+tests/Routing/RouteCollectorTest.php	172	testCacheFileDoesNotExistsAndDirectoryIsNotWritable	method	172
+tests/Routing/RouteCollectorTest.php	189	testSetCacheFileViaConstructor	method	189
+tests/Routing/RouteCollectorTest.php	29	RouteCollectorTest	type	29
+tests/Routing/RouteCollectorTest.php	36	tearDown	method	36
+tests/Routing/RouteCollectorTest.php	43	testGetSetBasePath	method	43
+tests/Routing/RouteCollectorTest.php	56	testMap	method	56
+tests/Routing/RouteCollectorTest.php	69	testMapPrependsGroupPattern	method	69
+tests/Routing/RouteCollectorTest.php	92	testGetRouteInvocationStrategy	method	92
+tests/Routing/RouteContextTest.php	21	RouteContextTest	type	21
+tests/Routing/RouteContextTest.php	23	testCanCreateInstanceFromServerRequest	method	23
+tests/Routing/RouteContextTest.php	43	testCanCreateInstanceWithoutRoute	method	43
+tests/Routing/RouteContextTest.php	57	testCanCreateInstanceWithoutBasePathAndThrowExceptionIfGetBasePathIsCalled	method	57
+tests/Routing/RouteContextTest.php	73	requiredRouteContextRequestAttributes	method	73
+tests/Routing/RouteContextTest.php	86	testCannotCreateInstanceIfRequestIsMissingAttributes	method	85
+tests/Routing/RouteContextTest.php	95	createServerRequestWithRouteAttributes	method	95
+tests/Routing/RouteParserTest.php	126	testUrlForWithBasePath	method	125
+tests/Routing/RouteParserTest.php	147	testUrlForWithMissingSegmentData	method	147
+tests/Routing/RouteParserTest.php	163	testUrlForRouteThatDoesNotExist	method	163
+tests/Routing/RouteParserTest.php	176	testFullUrlFor	method	176
+tests/Routing/RouteParserTest.php	18	RouteParserTest	type	18
+tests/Routing/RouteParserTest.php	20	urlForCases	method	20
+tests/Routing/RouteParserTest.php	82	testRelativePathForWithNoBasePath	method	82
+tests/Routing/RouteParserTest.php	99	testBasePathIsIgnoreInRelativePathFor	method	99
+tests/Routing/RouteResolverTest.php	24	RouteResolverTest	type	24
+tests/Routing/RouteResolverTest.php	26	computeRoutingResultsDataProvider	method	26
+tests/Routing/RouteResolverTest.php	44	testComputeRoutingResults	method	43
+tests/Routing/RouteResolverTest.php	72	testResolveRoute	method	72
+tests/Routing/RouteRunnerTest.php	24	RouteRunnerTest	type	24
+tests/Routing/RouteRunnerTest.php	26	testRoutingIsPerformedIfRoutingResultsAreUnavailable	method	26
+tests/Routing/RouteTest.php	110	testConstructor	method	110
+tests/Routing/RouteTest.php	124	testGetMethodsReturnsArrayWhenConstructedWithString	method	124
+tests/Routing/RouteTest.php	131	testGetMethods	method	131
+tests/Routing/RouteTest.php	139	testGetPattern	method	139
+tests/Routing/RouteTest.php	146	testGetCallable	method	146
+tests/Routing/RouteTest.php	153	testGetCallableResolver	method	153
+tests/Routing/RouteTest.php	173	testGetInvocationStrategy	method	173
+tests/Routing/RouteTest.php	197	testSetInvocationStrategy	method	197
+tests/Routing/RouteTest.php	219	testGetGroups	method	219
+tests/Routing/RouteTest.php	252	testArgumentSetting	method	252
+tests/Routing/RouteTest.php	270	testAddMiddleware	method	270
+tests/Routing/RouteTest.php	287	testAddMiddlewareOnGroup	method	287
+tests/Routing/RouteTest.php	342	testAddClosureMiddleware	method	342
+tests/Routing/RouteTest.php	358	testAddMiddlewareUsingDeferredResolution	method	358
+tests/Routing/RouteTest.php	373	testAddMiddlewareAsStringNotImplementingInterfaceThrowsException	method	373
+tests/Routing/RouteTest.php	385	testIdentifier	method	385
+tests/Routing/RouteTest.php	391	testSetName	method	391
+tests/Routing/RouteTest.php	398	testControllerMethodAsStringResolvesWithoutContainer	method	398
+tests/Routing/RouteTest.php	415	testControllerMethodAsStringResolvesWithContainer	method	415
+tests/Routing/RouteTest.php	43	RouteTest	type	43
+tests/Routing/RouteTest.php	467	testProcessWhenReturningAResponse	method	467
+tests/Routing/RouteTest.php	485	testRouteCallableDoesNotAppendEchoedOutput	method	485
+tests/Routing/RouteTest.php	509	testRouteCallableAppendsCorrectOutputToResponse	method	509
+tests/Routing/RouteTest.php	51	createRoute	method	51
+tests/Routing/RouteTest.php	523	testInvokeWithException	method	523
+tests/Routing/RouteTest.php	539	testInvokeDeferredCallableWithNoContainer	method	539
+tests/Routing/RouteTest.php	573	testInvokeDeferredCallableWithContainer	method	573
+tests/Routing/RouteTest.php	608	testInvokeUsesRequestHandlerStrategyForRequestHandlers	method	608
+tests/Routing/RouteTest.php	645	testInvokeUsesUserSetStrategyForRequestHandlers	method	645
+tests/Routing/RouteTest.php	680	testRequestHandlerStrategyAppendsRouteArgumentsAsAttributesToRequest	method	680
+tests/Routing/RouteTest.php	729	testPatternCanBeChanged	method	729
+tests/Routing/RouteTest.php	740	testChangingCallableWithNoContainer	method	740
+tests/Routing/RouteTest.php	775	testChangingCallableWithContainer	method	775
+tests/Routing/RouteTest.php	814	testRouteCallableIsResolvedUsingContainerWhenCallableResolverIsPresent	method	814
+tests/TestCase.php	110	createResponse	method	110
+tests/TestCase.php	120	createStream	method	120
+tests/TestCase.php	130	setAccessible	method	130
+tests/TestCase.php	30	TestCase	type	30
+tests/TestCase.php	37	getServerRequestFactory	method	37
+tests/TestCase.php	46	getResponseFactory	method	46
+tests/TestCase.php	55	getStreamFactory	method	55
+tests/TestCase.php	66	getCallableResolver	method	66
+tests/TestCase.php	78	createMiddlewareDispatcher	method	78
+tests/TestCase.php	96	createServerRequest	method	96

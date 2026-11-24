@@ -235,6 +235,82 @@ class AppliedTest(unittest.TestCase):
         self.assertEqual(ground_truth._slice(line, 5, 6, "utf-8"), "f")
 
 
+@unittest.skipUnless(READY, "tree-sitter and grammars are required")
+class ImportTruthTests(unittest.TestCase):
+    """Module references in a hand-built index give each import's target."""
+
+    SOURCES = {
+        "pkg/__init__.py": "",
+        "pkg/b.py": "def f():\n    return 1\n",
+        "pkg/a.py": "from .b import f\nimport os\nfrom pkg import b\nb.f()\n",
+    }
+
+    def setUp(self):
+        from deepthought._scip import scip_pb2
+
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+        for name, text in self.SOURCES.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text)
+        head = "scip-python python pkg "
+        index = scip_pb2.Index()
+
+        def document(path, *occurrences):
+            doc = index.documents.add(relative_path=path)
+            for line, column, symbol, roles in occurrences:
+                doc.occurrences.add(
+                    range=[line, column, column + 1], symbol=symbol, symbol_roles=roles
+                )
+
+        document("pkg/__init__.py", (0, 0, head + "abc `pkg`/__init__:", 1))
+        document("pkg/b.py", (0, 0, head + "abc `pkg.b`/__init__:", 1))
+        document(
+            "pkg/a.py",
+            (0, 0, head + "abc `pkg.a`/__init__:", 1),
+            # scip-python names a relative import's module without its
+            # package, and an installed package's version, not the commit.
+            (0, 5, head + "1.0 b/__init__:", 0),
+            (1, 7, "scip-python python python-stdlib 3.11 os/__init__:", 0),
+            (2, 5, head + "1.0 `pkg`/__init__:", 0),
+            (2, 16, head + "1.0 `pkg.b`/__init__:", 0),
+            # A module used in code is not an import.
+            (3, 0, head + "1.0 `pkg.b`/__init__:", 0),
+        )
+        self.index = self.root / "index.scip"
+        self.index.write_bytes(index.SerializeToString())
+
+    def test_derive_imports(self):
+        expected, indexed = ground_truth.derive_imports(self.root, self.index, "python")
+        self.assertEqual(indexed, set(self.SOURCES))
+        self.assertEqual(
+            expected,
+            {
+                ("pkg/a.py", 1, "import"): {("pkg/b.py", 0, "module")},
+                ("pkg/a.py", 2, "import"): {("-", 0, "external")},
+                ("pkg/a.py", 3, "import"): {("pkg/b.py", 0, "module")},
+            },
+        )
+
+    def test_score_imports(self):
+        truth = ground_truth.derive_imports(self.root, self.index, "python")
+        result = ground_truth.analyze(self.root, ["python"])
+        report, samples = ground_truth.score_imports(result, truth)
+        self.assertEqual(report["expected"], 2)
+        self.assertEqual(report["contradicted"], 0)
+        self.assertEqual(report["recall"], 1.0)
+        self.assertEqual(report["confirmed"], 2)
+        self.assertEqual(samples["missed"], [])
+        # A truth naming another module contradicts the engine's link.
+        wrong = (
+            {**truth[0], ("pkg/a.py", 1, "import"): {("pkg/__init__.py", 0, "module")}},
+            truth[1],
+        )
+        report, samples = ground_truth.score_imports(result, wrong)
+        self.assertEqual(report["contradicted"], 1)
+        self.assertEqual(samples["missed"], [["pkg/a.py", 1]])
+
+
 class CorpusFilesTest(unittest.TestCase):
     def test_every_corpus_is_pinned_and_has_truth_and_baseline(self):
         corpus = ROOT / "evals" / "ground_truth"
@@ -250,6 +326,15 @@ class CorpusFilesTest(unittest.TestCase):
                 for targets in expected.values()
             )
             self.assertEqual(callable_keys, baseline[entry["name"]]["expected"])
+            if "imports" in entry:
+                imports, _ = ground_truth.read_truth(corpus / entry["imports"])
+                repository = sum(
+                    any(t[2] == "module" for t in targets)
+                    for targets in imports.values()
+                )
+                self.assertEqual(
+                    repository, baseline[entry["name"]]["imports"]["expected"]
+                )
 
     def test_every_contract_corpus_matches_its_labels_and_baseline(self):
         corpus = ROOT / "evals" / "ground_truth"
