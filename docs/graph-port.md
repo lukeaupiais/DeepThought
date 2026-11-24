@@ -151,7 +151,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
-| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. `default`, `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
@@ -2336,13 +2336,16 @@ a traced value, and consumer groups, brokers and clusters are not checked.
 | kafka-python | `send(topic, ...)` on a name bound once to `KafkaProducer(...)` | `KafkaConsumer(topic, ...)` |
 | pika | `basic_publish(exchange, routing_key)` | `basic_consume(queue)` |
 | Go `amqp` (streadway, amqp091-go) | `Publish(exchange, key, ...)` | `Consume(queue, ...)` |
+| kafkajs | `send({topic})` or `sendBatch({topicMessages: [{topic}]})` on a name every assignment binds to `producer()` of a kafkajs `Kafka` | `subscribe({topic})` or `subscribe({topics: [...]})` on a `consumer()` of one |
+| amqplib (promise and callback APIs) | `publish(exchange, key, ...)` or `sendToQueue(queue, ...)` on a channel | `consume(queue, ...)` on a channel |
 
 Each publish rule is `service-contracts.<client>-send`/`-publish` and each
 consume rule `-listener`/`-consumer`/`-consume`; all are pattern_matched.
 
 An AMQP destination is `exchange/routing-key`. A consumed queue `q` receives
 `/q` (every broker binds each queue to the default exchange by its name) and
-`x/k` for each `queue_bind`/`QueueBind(q, k, x)` in the same file; a Go
+`x/k` for each `queue_bind`/`QueueBind(q, k, x)`/`bindQueue(q, x, k)` in
+the same file; a Go
 queue may be named by `q.Name` of a `q, err := ch.QueueDeclare("q", ...)`.
 Binding keys with `*` or `#` (topic exchange patterns) are counted as unread,
 not matched. A Spring template given only a routing key sends to
@@ -2356,6 +2359,27 @@ when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
 destination with unknown text is counted as unread.
+
+In Node, the `Kafka` class must be imported from `kafkajs`, by `import` or
+by a `require` (destructured too). An amqplib channel is a name, in a file
+that imports `amqplib` or `amqplib/callback_api`, of one of these kinds:
+
+- a name that every assignment binds to `createChannel()` or
+  `createConfirmChannel()`, awaited or not;
+- the channel parameter of the callback of either call;
+- the parameter of its `.then`.
+
+A channel passed in from another file is not read. A kafkajs topic given as
+a regular expression is `consume:topic_pattern`.
+
+| Repository | Literal sites | Outcome |
+|---|---|---|
+| rabbitmq/rabbitmq-tutorials `6deb41d` `javascript-nodejs` (callback API) | 14 publish and consume calls | 8 read, and `hello`, `task_queue` and `rpc_queue` meet. The 6 unread take the routing key from arguments, reply to `msg.properties.replyTo`, or consume a server-named queue (`q.queue`) |
+| redpanda-data/redpanda-labs `77f0ca6` | 3 sends, 2 subscribes | The chat-room producers and consumers (docker and cloud variants) meet on `chat-room`, and the OIDC client's send is found. The 2 sites with a topic variable are unread |
+| n8n-io/n8n `9254759` Kafka and RabbitMQ nodes | topics and channels from node parameters | Nothing linked, which is correct |
+| tulios/kafkajs `55b0b41` `examples` | | Not read: they import the library from `../index` |
+
+No edge is wrong. On the corpora, nothing changes.
 
 ### STOMP destinations
 
