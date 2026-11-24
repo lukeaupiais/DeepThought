@@ -956,8 +956,11 @@ class _JavaScope:
         return self._members[key]
 
     def _inherit(self, file, symbol, name, seen):
+        # A method of an enum constant's body is no member of the enum.
         found = [
-            _Member(m, False) for m in self._defs(file, f"{symbol}.{name}", {"Method"})
+            _Member(m, False)
+            for m in self._defs(file, f"{symbol}.{name}", {"Method"})
+            if not m.constant_body
         ]
         if (file, symbol) in seen:
             return found

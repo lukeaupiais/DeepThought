@@ -871,6 +871,14 @@ this decides carries `tree-sitter.java-overload-jdk-supertypes`: on gson it
 confirmed 331 links (10,904 of 11,050 in all), none contradicted, and impact
 rose from 3,955 to 4,421 of 5,070.
 
+A method declared in an enum constant's body (`ONE { int read() {...} }`) is
+named as the enum's members are, but `Definition.constant_body` marks it and
+it is no member of the enum type: a call through the enum
+(`Policy.ONE.read()`, `p.read()`) binds the method the enum declares or
+inherits, as javac does, and only a call inside that body reaches it. On gson
+this removed the 6 ambiguous calls whose candidates were constant-body
+methods and left out javac's, and confirmed 32 more links (10,936).
+
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
 writes as the call's `receiver_type` (`Foo`, `Map.Entry`; type arguments

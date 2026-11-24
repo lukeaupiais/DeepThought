@@ -903,6 +903,41 @@ class JavaTests(unittest.TestCase):
         self.assertEqual(properties["Mode"], ("A",))
         self.assertIsNone(properties["Task"])
 
+    def test_methods_of_an_enum_constant_body_are_no_members_of_the_enum(self):
+        files = {
+            "src/p/Policy.java": (
+                "package p;\n"
+                "interface Strategy { int read(); }\n"
+                "enum Policy implements Strategy {\n"
+                "  ONE { public int read() { return 1; } },\n"  # 4
+                "  TWO { public int read() { return twice(); } int twice() { return 2; } };\n"
+                "  int own() { return read(); }\n"  # 6
+                "}\n"
+                "class Main {\n"
+                "  int m(Policy p) { return p.read() + Policy.ONE.read(); }\n"  # 9
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                (definitions[r.target_id].symbol, definitions[r.target_id].line)
+                if r.target_id
+                else r.reason
+            )
+            for r in resolve_calls(result)
+        }
+        flagged = sorted(d.line for d in result.definitions if d.constant_body)
+        self.assertEqual(flagged, [4, 5, 5])
+        # javac binds the method the enum type has: here the interface's.
+        self.assertEqual(found[(9, "p.read")], ("Strategy.read", 2))
+        self.assertEqual(found[(9, "Policy.ONE.read")], ("Strategy.read", 2))
+        self.assertEqual(found[(6, "read")], ("Strategy.read", 2))
+        # Inside a constant's body, its own methods come first.
+        self.assertEqual(found[(5, "twice")], ("Policy.twice", 5))
+
     def test_calls_on_variables_whose_declaration_writes_the_type(self):
         files = {
             "src/p/Foo.java": (

@@ -259,6 +259,14 @@ def extract(
                 }
                 if _java_private(node, content):
                     arity["private"] = True
+                body = node.parent
+                if (
+                    body is not None
+                    and body.type == "class_body"
+                    and body.parent is not None
+                    and body.parent.type == "enum_constant"
+                ):
+                    arity["constant_body"] = True
                 if node.type == "method_declaration":
                     returned = _java_declared_type(
                         node.child_by_field_name("type"), None, content
