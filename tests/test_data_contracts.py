@@ -1315,6 +1315,74 @@ var Config = gorm.Config{NamingStrategy: schema.NamingStrategy{SingularTable: tr
         self.assertEqual(mapped, ["legacy_rows"])
 
 
+DRIZZLE = {
+    "package.json": '{"name": "shop"}',
+    "src/db/schema/users.ts": """\
+import { pgTable, pgTableCreator, serial, text } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", { id: serial("id") });
+const createTable = pgTableCreator((name) => `shop_${name}`);
+export const orders = createTable("orders", { id: serial("id") });
+const dynamic = pgTableCreator((name) => name.toUpperCase());
+export const audit = dynamic("audit", { id: serial("id") });
+""",
+    "src/db/schema/index.ts": 'export * from "./users";\n',
+    "src/db/index.ts": 'export * as schema from "./schema";\n',
+    "src/orders.ts": """\
+import { eq } from "drizzle-orm";
+import { db } from "./client";
+import { orders, users as people } from "./db/schema";
+import { schema } from "./db";
+
+export async function place(id: number) {
+  await db.insert(orders).values({ id });
+  const rows = await db
+    .select()
+    .from(people)
+    .innerJoin(schema.orders, eq(people.id, id));
+  await db.query.users.findMany();
+  await db.delete(audit);
+  return Array.from(rows);
+}
+""",
+}
+
+
+class DrizzleTests(unittest.TestCase):
+    def test_tables_and_queries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DRIZZLE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("DECLARES", "src/db/schema/users.ts", "shop_orders", "drizzle-table"),
+                ("DECLARES", "src/db/schema/users.ts", "users", "drizzle-table"),
+                ("READS", "place", "shop_orders", "drizzle-query"),
+                ("READS", "place", "users", "drizzle-query"),
+                ("READS", "place", "users", "drizzle-query"),
+                ("WRITES", "place", "shop_orders", "drizzle-query"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["drizzle_tables"], {"tables": 2, "not_fixed": 1})
+        self.assertEqual(
+            metrics["drizzle_access_resolution"], {"linked": 4, "not_a_table": 0}
+        )
+
+
 class GraphCase(unittest.IsolatedAsyncioTestCase):
     """Writes a workspace's tree-sitter, components and data-contracts
     outputs to an isolated repository of the provisioned Neo4j."""

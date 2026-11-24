@@ -3234,3 +3234,338 @@ def extract_gorm(tree, content, file, definitions):
                 )
             )
     return models, uses, naming
+
+
+# Drizzle ORM (TypeScript and JavaScript) -------------------------------------
+
+DRIZZLE_CORES = {
+    "drizzle-orm/pg-core": ("pgTable", "pgTableCreator", "pgSchema"),
+    "drizzle-orm/mysql-core": ("mysqlTable", "mysqlTableCreator", "mysqlSchema"),
+    "drizzle-orm/sqlite-core": ("sqliteTable", "sqliteTableCreator", None),
+    "drizzle-orm/singlestore-core": (
+        "singlestoreTable",
+        "singlestoreTableCreator",
+        "singlestoreSchema",
+    ),
+}
+DRIZZLE_READS = {"from", "innerJoin", "leftJoin", "rightJoin", "fullJoin", "crossJoin"}
+DRIZZLE_WRITES = {"insert", "update", "delete"}
+DRIZZLE_QUERY_READS = {"findMany", "findFirst"}
+
+
+@dataclass(frozen=True)
+class DrizzleTable:
+    """A table a Drizzle constructor declares and the variable that holds
+    it; ``table`` is PLACEHOLDER when the name is not fixed."""
+
+    file: str
+    variable: str
+    table: str
+    exported: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class DrizzleRef:
+    """How a use names a table: a variable of the file ("local"), an import
+    (``module`` and the exported ``name``), a property of an imported object
+    (``schema.users``, "member") or a relational query key
+    (``db.query.<name>``, "query")."""
+
+    how: str  # "local", "import", "member" or "query"
+    name: str
+    module: str | None
+
+
+@dataclass(frozen=True)
+class DrizzleUse:
+    file: str
+    caller_id: str | None
+    ref: DrizzleRef
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class ScriptModule:
+    """A file's module links: named imports {local: (module, name)},
+    namespace imports {local: module}, ``export * from`` modules and named
+    re-exports {exported: (module, name)}."""
+
+    imports: dict
+    namespaces: dict
+    star_exports: tuple
+    re_exports: dict
+
+
+def script_module(root, content):
+    imports, namespaces, stars, re_exports = {}, {}, [], {}
+    for node in root.named_children:
+        source = _script_string(node.child_by_field_name("source"), content)
+        if source is None:
+            continue
+        if node.type == "import_statement":
+            for clause in node.named_children:
+                if clause.type != "import_clause":
+                    continue
+                for part in clause.named_children:
+                    if part.type == "namespace_import":
+                        names = [
+                            c for c in part.named_children if c.type == "identifier"
+                        ]
+                        if names:
+                            namespaces[_text(names[0], content)] = source
+                    elif part.type == "named_imports":
+                        for spec in part.named_children:
+                            if spec.type != "import_specifier":
+                                continue
+                            name = _text(spec.child_by_field_name("name"), content)
+                            alias = spec.child_by_field_name("alias")
+                            local = _text(alias, content) if alias is not None else name
+                            imports[local] = (source, name)
+        elif node.type == "export_statement":
+            clause = next(
+                (c for c in node.named_children if c.type == "export_clause"), None
+            )
+            if clause is None:
+                if not any(c.type == "namespace_export" for c in node.named_children):
+                    stars.append(source)
+                continue
+            for spec in clause.named_children:
+                if spec.type != "export_specifier":
+                    continue
+                name = _text(spec.child_by_field_name("name"), content)
+                alias = spec.child_by_field_name("alias")
+                re_exports[_text(alias, content) if alias is not None else name] = (
+                    source,
+                    name,
+                )
+    return ScriptModule(imports, namespaces, tuple(stars), re_exports)
+
+
+def _drizzle_constructors(module, content, root):
+    """{local callee: ("table", None) | ("creator", None) | ("schema", None)}
+    for the Drizzle core functions the file imports."""
+    found = {}
+    for local, (source, name) in module.imports.items():
+        names = DRIZZLE_CORES.get(source)
+        if names is None:
+            continue
+        for kind, expected in zip(("table", "creator", "schema"), names):
+            if expected is not None and name == expected:
+                found[local] = kind
+    return found
+
+
+def _drizzle_creator(node, content):
+    """The (prefix, suffix) of ``pgTableCreator((name) => `p_${name}`)``,
+    or None when the arrow function does more than wrap its parameter."""
+    if node is None or node.type != "arrow_function":
+        return None
+    parameter = node.child_by_field_name("parameter")
+    if parameter is None:
+        parameters = node.child_by_field_name("parameters")
+        names = [
+            c
+            for c in (parameters.named_children if parameters else ())
+            if c.type in ("identifier", "required_parameter")
+        ]
+        if len(names) != 1:
+            return None
+        parameter = names[0]
+        if parameter.type == "required_parameter":
+            parameter = parameter.child_by_field_name("pattern")
+    name = _text(parameter, content)
+    body = node.child_by_field_name("body")
+    if body is None or body.type != "template_string":
+        return None
+    parts, seen = [], 0
+    for child in body.named_children:
+        if child.type == "string_fragment":
+            parts.append(_text(child, content))
+        elif child.type == "template_substitution":
+            inner = child.named_children
+            if len(inner) != 1 or _text(inner[0], content) != name or seen:
+                return None
+            seen += 1
+            parts.append(None)
+        else:
+            return None
+    if seen != 1:
+        return None
+    index = parts.index(None)
+    return "".join(parts[:index]), "".join(parts[index + 1 :])
+
+
+def extract_drizzle(tree, content, file, definitions):
+    """(tables, uses) of one TypeScript or JavaScript file: variables
+    holding a Drizzle table (``pgTable("name", ...)``, a schema's
+    ``.table``, a ``*TableCreator`` that wraps the name in fixed text), and
+    query-builder calls (``from``, joins, ``insert``, ``update``,
+    ``delete``) or relational queries (``db.query.x.findMany``) naming a
+    table by a variable."""
+    root = tree.root_node
+    module = script_module(root, content)
+    constructors = _drizzle_constructors(module, content, root)
+    tables, uses = [], []
+    creators, schemas = {}, {}
+    declarators = list(_descendants(root, "variable_declarator"))
+    for declarator in declarators:
+        value = declarator.child_by_field_name("value")
+        name_node = declarator.child_by_field_name("name")
+        if value is None or name_node is None or value.type != "call_expression":
+            continue
+        callee, receiver, args = _call_parts(value, content)
+        if receiver is None and constructors.get(callee) == "creator":
+            wrap = _drizzle_creator(args[0] if args else None, content)
+            creators[_text(name_node, content)] = wrap
+        elif receiver is None and constructors.get(callee) == "schema":
+            schemas[_text(name_node, content)] = True
+    for declarator in declarators:
+        value = declarator.child_by_field_name("value")
+        name_node = declarator.child_by_field_name("name")
+        if value is None or name_node is None or name_node.type != "identifier":
+            continue
+        if value.type != "call_expression":
+            continue
+        callee, receiver, args = _call_parts(value, content)
+        if receiver is None and constructors.get(callee) == "table":
+            wrap = ("", "")
+        elif receiver is None and callee in creators:
+            wrap = creators[callee]
+        elif (
+            receiver is not None
+            and callee == "table"
+            and (
+                (receiver.type == "identifier" and _text(receiver, content) in schemas)
+                or (
+                    receiver.type == "call_expression"
+                    and constructors.get(_call_parts(receiver, content)[0]) == "schema"
+                )
+            )
+        ):
+            wrap = ("", "")
+        else:
+            continue
+        written = _script_string(args[0], content) if args else None
+        table = (
+            PLACEHOLDER
+            if written is None or wrap is None
+            else table_key(wrap[0] + written + wrap[1])
+        )
+        statement = next(
+            (
+                a
+                for a in _ancestors(declarator)
+                if a.type in ("lexical_declaration", "variable_declaration")
+            ),
+            None,
+        )
+        exported = (
+            statement is not None
+            and statement.parent is not None
+            and (statement.parent.type == "export_statement")
+        )
+        tables.append(
+            DrizzleTable(
+                file,
+                _text(name_node, content),
+                table,
+                exported,
+                name_node.start_point.row + 1,
+                name_node.start_point.column,
+            )
+        )
+    local = {t.variable for t in tables}
+
+    def reference(node):
+        if node is None:
+            return None
+        if node.type == "identifier":
+            name = _text(node, content)
+            if name in local:
+                return DrizzleRef("local", name, None)
+            if name in module.imports:
+                source, imported = module.imports[name]
+                return DrizzleRef("import", imported, source)
+            return None
+        if node.type == "member_expression":
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "identifier":
+                prop = _text(node.child_by_field_name("property"), content)
+                source = module.namespaces.get(_text(target, content))
+                if source is not None:
+                    return DrizzleRef("import", prop, source)
+                if _text(target, content) in module.imports:
+                    # An imported object of tables (``export * as schema``).
+                    return DrizzleRef("member", prop, None)
+        return None
+
+    for call in _descendants(root, "call_expression"):
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None:
+            continue
+        if method in DRIZZLE_READS | DRIZZLE_WRITES:
+            ref = reference(args[0] if args else None)
+            if ref is None:
+                continue
+            reads, writes = method in DRIZZLE_READS, method in DRIZZLE_WRITES
+        elif method in DRIZZLE_QUERY_READS and receiver.type == "member_expression":
+            query = receiver.child_by_field_name("object")
+            if (
+                query is None
+                or query.type != "member_expression"
+                or _text(query.child_by_field_name("property"), content) != "query"
+            ):
+                continue
+            ref = DrizzleRef(
+                "query", _text(receiver.child_by_field_name("property"), content), None
+            )
+            reads, writes = True, False
+        else:
+            continue
+        where = call.child_by_field_name("function").child_by_field_name("property")
+        uses.append(
+            DrizzleUse(
+                file,
+                _innermost(definitions, file, call),
+                ref,
+                reads,
+                writes,
+                # The method's own line: a chain starts lines earlier.
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+    return tables, uses, module
+
+
+_SCRIPT_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+
+
+def resolve_script_module(file, source, files):
+    """The repository file a relative module specifier names from ``file``:
+    the path itself, with a script suffix, a ``.js`` written for its
+    ``.ts`` source, or its directory's index file; None for packages."""
+    if not source.startswith("."):
+        return None
+    base = file.rpartition("/")[0]
+    parts = [p for p in base.split("/") if p]
+    for part in source.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+        else:
+            parts.append(part)
+    path = "/".join(parts)
+    stem = re.sub(r"\.(?:m|c)?js$|\.jsx$", "", path)
+    candidates = [path, *(path + s for s in _SCRIPT_SUFFIXES)]
+    candidates += [stem + s for s in _SCRIPT_SUFFIXES]
+    candidates += [f"{path}/index{s}" for s in _SCRIPT_SUFFIXES]
+    return next((c for c in candidates if c in files), None)

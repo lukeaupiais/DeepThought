@@ -2176,8 +2176,51 @@ queue to it with `#`, so both sides meet at `destination/#`. Rules are
 Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
 `binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
 both) and `destination_not_literal` (a placeholder in the configured
-destination). The functional style (`Consumer`/`Supplier`/`Function` beans
-named by `spring.cloud.function.definition`) is not read yet.
+destination).
+
+The functional style is read too. A `@Bean` method (from
+`org.springframework.context.annotation`) that returns a
+`java.util.function` type is a binding site:
+
+- `Consumer<T>` consumes `<bean>-in-0`, and `BiConsumer` also consumes
+  `<bean>-in-1`;
+- `Supplier<T>` publishes `<bean>-out-0`;
+- `Function<T, R>` does both, and `BiFunction` consumes two inputs.
+
+The bean is the method name, or the literal `name`/`value` of `@Bean`. It is
+bound in a service that runs it when the service's
+`spring.cloud.function.definition` (or the older
+`spring.cloud.stream.function.definition`) lists it. Without that key, it
+is bound only when it is the service's only functional bean, as Spring
+Cloud Stream does. `spring.cloud.stream.function.bindings.<binding>` renames
+a binding before its destination is looked up as above. Rules are
+`service-contracts.spring-cloud-function-input` and `-output`. Further
+unread reasons:
+
+- `function_not_bound`: not in the definition, or one of several beans
+  without one;
+- `function_composed`: part of a composition such as `a|b`;
+- `function_outputs`: a `KStream[]` result, whose branch bindings are not
+  read;
+- `function_curried`: a function returning a function;
+- `function_definition_not_literal`, and `bean_name` for a `@Bean` name
+  that is not a literal.
+
+A functional bean in a module without a stream binder binds nothing and is
+not counted. One with both binders is `binder_unknown`.
+
+Checked on `spring-cloud/spring-cloud-stream-samples` (commit `2ff1168`):
+I labelled by hand every binding of the nine function-based applications
+that name a service (`spring.application.name`), 24 in all. The 16 read
+all have the configured destination. The other 8 are unread, not wrong:
+
+- the three branch outputs of `kafka-streams-branching`, one
+  `function_outputs` fact;
+- the five bindings of `kafka-streams-to-rabbitmq`, which uses both
+  binders, `binder_unknown`.
+
+Samples without a `spring.application.name` are not services here and give
+nothing.
 
 ### Validation
 
@@ -2277,6 +2320,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
+| File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and relative imports, aliases, re-exports and `export *` included, while a package import, a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 | File -[:DECLARES]-> DbTable | `data-contracts.rails-schema-table` | resolved | `create_table` (and Scenic's `create_view`) with a literal name in a Rails schema file, `db/schema.rb` or `db/<name>_schema.rb` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.active-record-table-name` | pattern_matched | an ActiveRecord model whose own `self.table_name`, or its STI base class's, is a literal (schema prefix dropped) |
@@ -2406,6 +2451,19 @@ tool takes every line `grep` finds, plus the calls split over lines
 (`Account\n  .where(...)`). The inflector reproduces all 181 singular/plural,
 underscore and table-name cases of Rails' own `inflector_test_cases.rb`
 (8.0.2).
+
+On openstatusHQ/openstatus `3836510`, a Drizzle monorepo with its schema in
+`packages/db` and its queries across `apps/` and `packages/`, the tool reads
+all 62 table declarations that `grep` for `= *Table(` finds and links 2,917
+query-builder calls. A single-line `grep` for those methods with a table
+variable name finds 2,888 lines; the tool takes all but 24: 16 are in
+`src/test/` directories, which are skipped as test sources, 6 are in a test
+file that tree-sitter-typescript does not parse
+(`original<typeof import(...)>()`), and 2 name a table through
+`await import(...)`. Of the 53 calls `grep` misses, 30 put the table on the
+next line and 23 use an imported alias (`page as pageTable`). On
+jackblatch/OneStopShop `31208da` the tool reads all 6 tables and its 59
+calls are exactly the lines `grep` finds.
 
 On jmoiron/sqlx the Go rule reads 166 statements, every one with fixed
 table names. A single-line `grep` for a query method followed by SQL finds
