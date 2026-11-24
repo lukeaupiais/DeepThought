@@ -1404,7 +1404,7 @@ conditional block (`if (!function_exists('f')) { function f() {} }`, common
 in WordPress) is recorded, once for each branch that declares it. One in a
 function or method body, a closure or an anonymous class is not, since PHP
 declares it only when that code runs, and neither are namespaces themselves,
-constants, properties, enum cases, `use` imports, calls or bases yet.
+constants, properties, enum cases, calls or bases yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1428,6 +1428,49 @@ No difference is unexplained, and no declaration is reported by tree-sitter
 alone. The grammar error is WordPress's `function readonly()`, a fallback for
 PHP before 8.1 where `readonly` is not a keyword: the grammar reads `readonly`
 as one and leaves the function out.
+
+Each clause of a `use` declaration is an import fact: its specifier is the
+imported name as written, without a leading backslash and with a group's
+prefix (`use A\{B, C as D}` imports `A\B` and `A\C`), its kind is `use`,
+`use_function` or `use_const` (a `function` or `const` keyword applies to
+every clause of a declaration, or to one clause of a group), and it binds its
+alias or the name's last part. A trait `use` in a class body and a closure's
+`use ($x)` are not imports. PHP compares class, function and namespace names
+ignoring ASCII case, and so does resolution:
+
+| Rule | Evidence | When |
+|---|---|---|
+| `tree-sitter.php-use-declared` | resolved | `use` names a class, interface, trait or enum, or `use function` a function, that exactly one analyzed file declares (one file declaring it in both branches of an `if` counts once) |
+| `tree-sitter.php-use-namespace` | resolved | `use` names no such type but a namespace that analyzed files declare types or functions in; the link reaches every such file |
+
+Other outcomes: `not_in_repository` (Composer dependencies, PHP's own
+classes, and declarations in function bodies, which are not recorded),
+ambiguous `multiple_declarations` when several files declare the name (test
+fixtures, polyfills), and unresolved `constant` for `use const`, since
+constants are not declarations here. Composer's autoload configuration is not
+read: a name declared once is linked to that file wherever Composer would
+look.
+
+`tools/compare_php_imports.py` checks the facts against PHP-Parser's `use`
+nodes, and resolution against Composer's class map (`composer dump-autoload
+--optimize` into a temporary vendor directory, which maps each class Composer
+can autoload to its file by Composer's own scan) or, for a class Composer does
+not map and for a function, against the declarations PHP-Parser reads:
+
+| Corpus | Imports (PHP-Parser) | Class map: confirmed / ambiguous including it | Declared: confirmed / ambiguous agreeing / namespace | Functions confirmed | Unresolved, nothing declares it | Contradicted |
+|---|---|---|---|---|---|---|
+| Seldaek/monolog `6d4cf3a` | 633 (633) | 436 / 0 | 1 / 0 / 0 | 0 | 196 | 0 |
+| guzzle/guzzle `ba6574f` | 877 (877) | 379 / 0 | 19 / 0 / 1 | 0 | 478 | 0 |
+| composer/composer `edc2b0d` | 3,225 (3,225) | 2,234 / 8 | 214 / 11 / 5 | 0 | 753 | 0 |
+| WordPress/WordPress `e1cb5b9` | 859 (859) | no `composer.json` | 750 / 0 / 0 | 0 | 109 | 0 |
+| laravel/framework `817f2fc` | 14,687 (14,687) | 9,144 / 0 | 409 / 0 / 3 | 126 | 5,005 | 0 |
+
+Every import fact matches PHP-Parser's. The ambiguous imports are of
+Composer's `ClassLoader` and `InstalledVersions`, which composer's test
+fixtures declare again. A link from source to a test stub is still possible:
+guzzle's `src/Handler/StreamHandler.php` imports `Openssl\Session`, which the
+repository declares only in a test file (the real class comes from an
+extension), and it is linked there.
 
 ## SCIP references
 

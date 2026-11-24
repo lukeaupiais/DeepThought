@@ -439,9 +439,12 @@ def analyze_repository(
                     )
                     continue
                 if language == "php":
-                    # PHP: declarations only so far.
+                    # PHP: declarations and imports so far.
                     definitions.extend(
                         extract_php(tree, content, repository_id, relative)
+                    )
+                    imports.extend(
+                        extract_imports(tree, content, repository_id, relative, "php")
                     )
                     continue
                 expander = (
