@@ -2124,6 +2124,27 @@ PHP files are read for routes and requests (`service_contracts.php`):
   methods are `methods` (any method without it). A path that is not a
   literal is unread. Routes in YAML, XML or PHP config files, and a
   kernel-level prefix, are not read (rule `service-contracts.symfony-route`).
+- **Laravel and Lumen routes** (`service_contracts.laravel`, rule
+  `service-contracts.laravel-route`), in projects whose nearest
+  composer.json requires `laravel/framework` or `laravel/lumen-framework`.
+  Calls on the `Route` facade (imported from `Illuminate\Support\Facades`,
+  or unqualified in a Laravel project) or, in Lumen, on `$router`: `get`,
+  `post`, `put`, `patch`, `delete`, `options`, `any`, `match`, `view` and
+  `redirect` with a literal path, and the actions of `resource` /
+  `apiResource` (and the array forms), with `only`/`except` and dotted
+  nested names (parameters are `{var}`). Groups nest: `prefix(...)`,
+  `group(['prefix' => ...], fn)`, `controller(C::class)` and `namespace`.
+  A route file's own prefix and controller namespace come from the code
+  that loads it: `Route::prefix('api')->namespace(...)->group(base_path(...))`
+  (a `$this->namespace` property default is read), `withRouting(api: ...,
+  apiPrefix: ...)` (`api` by default), a Lumen `$app->router->group([...],
+  function () { require ...; })`, or `loadRoutesFrom`. A file no loader
+  names has no prefix. The handler is the controller method an action
+  names (`[C::class, 'm']`, `'C@m'`, invokable `C::class`, a name in a
+  `controller` group, `['uses' => ...]`), found in the same composer
+  project by its qualified name or else its unique short name; closures,
+  views and redirects hang off the route file. `{id?}` is `{id}`. A path
+  that is not literal is unread.
 - **Requests.** `curl_init($url)` is a request placed on that call. The URL
   is folded in its function: literals, `"...$x..."` (variables are unknown
   text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once

@@ -72,6 +72,7 @@ from ..service_contracts.csharp_http import (
     typed_client_bases,
     typed_client_registrations,
 )
+from ..service_contracts.laravel import extract_laravel, route_loaders
 from ..service_contracts.php import extract_php
 from ..service_contracts.spring import (
     SpringConfig,
@@ -114,6 +115,22 @@ SUPPORTED_LANGUAGES = (
     "typescript",
 )
 
+_LARAVEL_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.laravel-route",
+        "pattern_matched",
+        "A call on Laravel's Route facade (or, in a Lumen project, on "
+        "$router) declares this route: get, post, put, patch, delete, "
+        "options, any, match, view or redirect with a literal path, or the "
+        "actions of resource/apiResource (only/except applied), under the "
+        "literal prefixes of the enclosing groups and of the code that loads "
+        "the route file (a RouteServiceProvider group, withRouting's api "
+        "prefix, a Lumen router group). The handler is the controller method "
+        "the action names, resolved through the file's imports or a unique "
+        "class name.",
+    )
+)
+
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
         EvidenceRule(
@@ -151,6 +168,8 @@ ROUTE_RULES = {
             "are not read.",
         )
     ),
+    "laravel": _LARAVEL_RULE,
+    "lumen": _LARAVEL_RULE,
     "spring-mvc": register_rule(
         EvidenceRule(
             "service-contracts.spring-route-mapping",
@@ -1307,6 +1326,58 @@ def _python_mounts(sources):
     return mounts
 
 
+def _composer_framework(root, file, cache):
+    """("laravel" | "lumen" | None, project directory) of the nearest
+    composer.json above ``file``."""
+    path = PurePosixPath(file).parent
+    while True:
+        key = path.as_posix()
+        if key in cache:
+            return cache[key]
+        manifest = root / path / "composer.json"
+        if manifest.is_file():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            required = data.get("require") if isinstance(data, dict) else None
+            required = required if isinstance(required, dict) else {}
+            framework = (
+                "lumen"
+                if "laravel/lumen-framework" in required
+                else "laravel"
+                if "laravel/framework" in required
+                else None
+            )
+            directory = "" if key == "." else key
+            cache[key] = (framework, directory)
+            return cache[key]
+        if path == path.parent:
+            cache[key] = (None, "")
+            return cache[key]
+        path = path.parent
+
+
+def _laravel_route_prefixes(root, sources, composer):
+    """{route file: sorted (prefix, controller namespace)} that the PHP
+    code of Laravel and Lumen projects loads route files with."""
+    found = {}
+    for coverage, content, tree in sources:
+        if coverage.language != "php" or not any(
+            needle in content
+            for needle in (b"group", b"withRouting", b"loadRoutesFrom")
+        ):
+            continue
+        framework, project = _composer_framework(root, coverage.file, composer)
+        if framework is None:
+            continue
+        for target, prefix, namespace in route_loaders(
+            tree, content, coverage.file, project
+        ):
+            found.setdefault(target, set()).add((prefix, namespace))
+    return {target: sorted(settings) for target, settings in found.items()}
+
+
 def _express_mounts(sources):
     """{file: {router name: full prefixes}} of Express routers mounted with
     ``use`` in other routers or apps."""
@@ -1568,6 +1639,8 @@ class ServiceContractTool(AnalysisTool):
 
         nest = _nest_applications(root, sources)
         python_mounts = _python_mounts(sources)
+        composer = {}
+        laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
         calls = ScriptCalls(scripts) if scripts is not None else None
@@ -1605,6 +1678,24 @@ class ServiceContractTool(AnalysisTool):
                 found = extract_php(
                     tree, content, repo_url, coverage.file, result.definitions
                 )
+                framework, project = _composer_framework(root, coverage.file, composer)
+                if framework is not None:
+                    for prefix, namespace in laravel_prefixes.get(
+                        coverage.file, [("", "")]
+                    ):
+                        found_routes, found_unread = extract_laravel(
+                            tree,
+                            content,
+                            repo_url,
+                            coverage.file,
+                            result.definitions,
+                            framework=framework,
+                            project=project,
+                            prefix=prefix,
+                            namespace=namespace,
+                        )
+                        found[0].extend(found_routes)
+                        found[2].extend(found_unread)
             elif coverage.language == "java":
                 service, context_path = config.service(coverage.file)
                 found = extract_spring(
