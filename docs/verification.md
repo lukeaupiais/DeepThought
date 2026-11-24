@@ -601,6 +601,35 @@ The engine maps no model wrongly, but it misses two common forms:
 `tests/test_mongoose_collection_oracle.py` checks the oracle on a small app
 when `TYPESCRIPT_DIR` points at a TypeScript package.
 
+### MongoDB driver collections
+
+Code also reaches MongoDB without a model, `<handle>.collection('name')`, and
+the driver uses the name exactly as written. `tools/mongodb_driver_labels.py`
+lists every such line outside tests and comments, and labels its access by the
+driver's semantics: READS for `find`, `findOne`, `countDocuments`, `aggregate`
+and the legacy `count`; WRITES for inserts, updates, deletes, bulk operations,
+index changes and the legacy `insert`, `update`, `remove` and `save`; both for
+`findOneAndUpdate` and `findAndModify`. A collection held in a variable takes
+the methods called on it. A line it cannot classify must be given by hand
+(`--override`), and every label was read by hand. Manifest `tables` entries with
+`"language": "mongodb"` are scored per line: *found* when the engine's
+`data-contracts.mongodb-collection` edges at that line name the collection with
+exactly the labelled accesses.
+
+| Corpus | Commit | Lines | Found | Wrong | Missed | Extra |
+|---|---|---|---|---|---|---|
+| NodeBB | 0218015 | 84 | 0 | 0 | 84 | 0 |
+| Countly | 0da4abf | 1,148 | 16 | 0 | 1,132 | 0 |
+
+Neither app was used to build the reader (#190). It reads nothing wrongly, but:
+
+- **NodeBB** keeps its database handle in a module field (`module.client`,
+  set from `client.db(...)` in `src/database/mongo.js`), and most of its files
+  do not import `mongodb`.
+- **Countly** uses a shared handle, `common.db`, `countlyDb` or `db`, in files
+  that import none of `mongodb`, `mongoose` or `mongoskin`, so the import gate
+  leaves almost all of its 80 collections unread.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

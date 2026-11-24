@@ -1,0 +1,682 @@
+{
+  "repo": "https://github.com/NodeBB/NodeBB",
+  "commit": "02180152d8928b779f06065ac19fa948666120d9",
+  "labelled_by": "tools/mongodb_driver_labels.py, every label read by hand",
+  "accesses": [
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 22,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 26,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 56,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 108,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 132,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 184,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 207,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 209,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 234,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 259,
+      "collection": "objects",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/hash.js",
+      "line": 288,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/list.js",
+      "line": 30,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/list.js",
+      "line": 49,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/list.js",
+      "line": 64,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/list.js",
+      "line": 76,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/list.js",
+      "line": 84,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/list.js",
+      "line": 93,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 10,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 23,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 31,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 39,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 58,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 66,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 75,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 96,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 121,
+      "collection": "objects",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 141,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/main.js",
+      "line": 146,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 18,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 49,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 76,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 116,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 128,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 165,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 179,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 195,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 208,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 227,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 235,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sets.js",
+      "line": 244,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/add.js",
+      "line": 20,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/add.js",
+      "line": 44,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/add.js",
+      "line": 67,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/add.js",
+      "line": 81,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/intersect.js",
+      "line": 8,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/intersect.js",
+      "line": 35,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/intersect.js",
+      "line": 85,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/intersect.js",
+      "line": 132,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/intersect.js",
+      "line": 154,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/intersect.js",
+      "line": 223,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/remove.js",
+      "line": 21,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/remove.js",
+      "line": 35,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/remove.js",
+      "line": 58,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/remove.js",
+      "line": 67,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/union.js",
+      "line": 9,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted/union.js",
+      "line": 65,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 89,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 163,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 172,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 199,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 222,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 284,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 299,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 321,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 342,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 359,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 375,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 416,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 451,
+      "collection": "objects",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 497,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 511,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 548,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 563,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 604,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo/sorted.js",
+      "line": 639,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/database/mongo.js",
+      "line": 108,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/database/mongo.js",
+      "line": 121,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/upgrades/1.4.6/delete_sessions.js",
+      "line": 38,
+      "collection": "sessions",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/upgrades/1.7.3/key_value_schema_change.js",
+      "line": 28,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/upgrades/1.7.3/key_value_schema_change.js",
+      "line": 29,
+      "collection": "objects",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "src/upgrades/1.7.3/key_value_schema_change.js",
+      "line": 40,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/upgrades/4.10.0/mongodb-set-members-index.js",
+      "line": 16,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/upgrades/4.11.0/expireAt-partial-index.js",
+      "line": 15,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "src/upgrades/4.11.0/expireAt-partial-index.js",
+      "line": 16,
+      "collection": "objects",
+      "access": [
+        "WRITES"
+      ]
+    }
+  ]
+}

@@ -50,7 +50,7 @@ Scores (calls):
 """
 
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 import json
 import os
 from pathlib import Path
@@ -668,6 +668,8 @@ def score_tables(corpus, workspace, examples=10):
 
     labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
     language = corpus.get("language", "ruby")
+    if language == "mongodb":
+        return score_driver_collections(labels, workspace, examples)
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -733,6 +735,60 @@ def score_tables(corpus, workspace, examples=10):
         "wrong": [[c, expected[c], sorted(mapped[c])] for c in wrong][:examples],
         "missed": [[c, expected[c]] for c in missed][:examples],
         "extra": [[c, sorted(mapped[c])] for c in extra][:examples],
+    }
+    return report, samples
+
+
+def score_driver_collections(labels, workspace, examples=10):
+    """MongoDB driver accesses, ``<handle>.collection('name')``, against
+    labels read by hand (tools/mongodb_driver_labels.py).
+
+    A labelled line is *found* when the engine's READS/WRITES edges made at
+    that line name the labelled collection with exactly the labelled
+    accesses, *wrong* when they name another collection or other accesses,
+    and *missed* when there are none. *extra* is a line the engine reads
+    that the labels neither list nor set aside under ``not_counted``.
+    """
+    import asyncio
+
+    from deepthought.analysis_tools.data_contracts import DataContractTool
+
+    output = asyncio.run(
+        DataContractTool(Path(workspace)).analyze(
+            "tables", languages=list(MONGOOSE_LANGUAGES)
+        )
+    )
+    nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
+    read = defaultdict(set)
+    for r in output.relationships:
+        if r.properties.get("rule_id") != "data-contracts.mongodb-collection":
+            continue
+        source = nodes.get(r.source_match.get("qualified_name"))
+        if source is None:
+            continue
+        path = source.properties.get("file_path") or source.properties.get("path")
+        line = r.properties.get("line")
+        read[(path, line)].add((r.properties.get("collection"), r.type))
+    expected = {
+        (a["file"], a["line"]): {(a["collection"], kind) for kind in a["access"]}
+        for a in labels["accesses"]
+    }
+    ignored = {(a["file"], a["line"]) for a in labels.get("not_counted", ())}
+    found = sorted(k for k, v in expected.items() if read.get(k) == v)
+    wrong = sorted(k for k, v in expected.items() if read.get(k) and read[k] != v)
+    missed = sorted(k for k in expected if not read.get(k))
+    extra = sorted(k for k in read if k not in expected and k not in ignored)
+    report = {
+        "expected": len(expected),
+        "found": len(found),
+        "wrong": len(wrong),
+        "missed": len(missed),
+        "extra": len(extra),
+    }
+    samples = {
+        "wrong": [[*k, sorted(expected[k]), sorted(read[k])] for k in wrong][:examples],
+        "missed": [[*k, sorted(expected[k])] for k in missed][:examples],
+        "extra": [[*k, sorted(read[k])] for k in extra][:examples],
     }
     return report, samples
 
@@ -817,7 +873,11 @@ def missing_requirements(manifest, names=()):
     for corpus in manifest.get("tables", ()):
         if selected(corpus):
             language = corpus.get("language", "ruby")
-            for lang in MONGOOSE_LANGUAGES if language == "mongoose" else (language,):
+            for lang in (
+                MONGOOSE_LANGUAGES
+                if language in {"mongoose", "mongodb"}
+                else (language,)
+            ):
                 modules.add(LANGUAGES[lang][1])
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
 
