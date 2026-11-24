@@ -29,6 +29,7 @@ class ComposeUnit:
     context: str  # the repository-relative build context ("" is the root)
     environment: tuple  # (name, value or None when not literal)
     volumes: tuple  # (repository directory or None, container path)
+    dockerfile: str | None = None  # the repository-relative Dockerfile
 
     @property
     def label(self):
@@ -144,6 +145,19 @@ def compose_units(root):
             context = join_directory(directory, context)
             if context is None:
                 continue
+            dockerfile = (
+                build.get("dockerfile", "Dockerfile")
+                if isinstance(build, dict)
+                else "Dockerfile"
+            )
+            if isinstance(dockerfile, str) and "$" not in dockerfile:
+                folder, _, file_name = dockerfile.rpartition("/")
+                folder = join_directory(context, folder) if folder else context
+                dockerfile = (
+                    None if folder is None else join_directory(folder, file_name)
+                )
+            else:
+                dockerfile = None
             units.append(
                 ComposeUnit(
                     relative.as_posix(),
@@ -151,6 +165,7 @@ def compose_units(root):
                     context,
                     _environment(service.get("environment")),
                     _volumes(directory, service.get("volumes")),
+                    dockerfile,
                 )
             )
     return units
