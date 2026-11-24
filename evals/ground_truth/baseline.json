@@ -126,13 +126,13 @@
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       }
     },
@@ -253,6 +253,60 @@
           "true_positive": 1
         }
       }
+    }
+  },
+  "declarations": {
+    "cjson": {
+      "by_kind": {
+        "alias": {
+          "found": 7,
+          "missed": 0
+        },
+        "function": {
+          "found": 250,
+          "missed": 0
+        },
+        "type": {
+          "found": 4,
+          "missed": 0
+        }
+      },
+      "expected": 261,
+      "extra": 3,
+      "found": 261,
+      "kind_mismatch": 0,
+      "missed": 0,
+      "recall": 1.0
+    },
+    "fmt": {
+      "by_kind": {
+        "alias": {
+          "found": 71,
+          "missed": 36
+        },
+        "function": {
+          "found": 237,
+          "missed": 117
+        },
+        "method": {
+          "found": 330,
+          "missed": 186
+        },
+        "namespace": {
+          "found": 15,
+          "missed": 25
+        },
+        "type": {
+          "found": 132,
+          "missed": 98
+        }
+      },
+      "expected": 1346,
+      "extra": 101,
+      "found": 785,
+      "kind_mismatch": 99,
+      "missed": 462,
+      "recall": 0.5832
     }
   },
   "gson": {

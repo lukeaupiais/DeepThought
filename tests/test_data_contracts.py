@@ -14,7 +14,12 @@ from deepthought.analysis_tools import (
     TreeSitterTool,
 )
 from deepthought.analysis_tools.evidence import get_rule
-from deepthought.data_contracts import default_table_name, extract_ddl
+from deepthought.data_contracts import (
+    default_table_name,
+    extract_ddl,
+    statement_tables,
+)
+from deepthought.service_contracts.spring import _text_block
 from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
@@ -453,6 +458,236 @@ class SqlAlchemyTests(unittest.TestCase):
         self.assertEqual(
             output.metadata.custom_metrics["sqlalchemy_access_resolution"],
             {"linked": 3, "not_a_mapped_class": 1},
+        )
+
+
+class StatementTests(unittest.TestCase):
+    def test_tables_read_and_written(self):
+        cases = {
+            "SELECT p.id FROM pets p LEFT OUTER JOIN visits v ON p.id = v.pet": (
+                ("pets", "visits"),
+                (),
+            ),
+            "INSERT INTO visits (a, b) SELECT a, b FROM staged.Visits": (
+                ("visits",),
+                ("visits",),
+            ),
+            "UPDATE owners SET city = 'FROM x' WHERE id = ? FOR UPDATE": (
+                (),
+                ("owners",),
+            ),
+            "DELETE FROM pets WHERE id IN (SELECT pet FROM visits)": (
+                ("visits",),
+                ("pets",),
+            ),
+            "WITH recent (id) AS (SELECT id FROM visits) SELECT * FROM recent": (
+                ("visits",),
+                (),
+            ),
+            "SELECT EXTRACT(YEAR FROM born) FROM pets, owners o -- FROM vets": (
+                ("pets", "owners"),
+                (),
+            ),
+            "MERGE INTO stock s USING deliveries d ON s.id = d.id": (
+                ("deliveries",),
+                ("stock",),
+            ),
+            "SELECT * FROM generate_series(1, 3), dual": ((), ()),
+            "SELECT * FROM audit_\x00": ((), ()),
+            "TRUNCATE TABLE audit_log": ((), ("audit_log",)),
+        }
+        for text, (reads, writes) in cases.items():
+            with self.subTest(text=text):
+                statement = statement_tables(text)
+                self.assertEqual((statement.reads, statement.writes), (reads, writes))
+
+    def test_jpql_names_entities_not_paths(self):
+        statement = statement_tables(
+            "FROM Owner o LEFT JOIN FETCH o.pets JOIN Vet v ON v.city = o.city",
+            jpql=True,
+        )
+        self.assertEqual(statement.reads, ("Owner", "Vet"))
+        self.assertEqual(
+            statement_tables("UPDATE Owner o SET o.city = :c", jpql=True).writes,
+            ("Owner",),
+        )
+
+    def test_java_text_blocks(self):
+        self.assertEqual(
+            _text_block('"""\n    SELECT a\n      FROM b  \n    """'),
+            "SELECT a\n  FROM b\n",
+        )
+        self.assertEqual(_text_block('"""\n  a \\\n  b\\s"""'), "a b ")
+
+
+JAVA_SQL = {
+    "pom.xml": "<project><artifactId>shop</artifactId></project>",
+    "src/main/java/shop/Owner.java": """package shop;
+import jakarta.persistence.*;
+@Entity
+@Table(name = "owners")
+public class Owner { @Id Integer id; }
+""",
+    "src/main/java/shop/PetType.java": """package shop;
+import jakarta.persistence.Entity;
+@Entity(name = "Kind")
+public class PetType { Integer id; }
+""",
+    "src/main/java/shop/OwnerRepository.java": """package shop;
+import java.util.List;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
+public interface OwnerRepository extends Repository<Owner, Integer> {
+    @Query("SELECT o FROM Owner o WHERE o.city = :city")
+    List<Owner> inCity(String city);
+    @Query("FROM Kind k ORDER BY k.name")
+    List<PetType> kinds();
+    @Query(value = "DELETE FROM visits WHERE pet_id = ?1", nativeQuery = true)
+    void forget(int pet);
+    @Query("SELECT u FROM Unknown u")
+    List<Object> unknown();
+}
+""",
+    "src/main/java/shop/JdbcStore.java": """package shop;
+import jakarta.persistence.EntityManager;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
+public class JdbcStore {
+    private static final String VISITS = "visits";
+    private final JdbcTemplate jdbcTemplate;
+    private final JdbcClient client;
+    private final SimpleJdbcInsert insert;
+    private EntityManager em;
+    JdbcStore(JdbcTemplate jdbcTemplate, JdbcClient client) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.client = client;
+        this.insert = new SimpleJdbcInsert(jdbcTemplate).withTableName("pets");
+    }
+    int count() {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM " + VISITS, Integer.class);
+    }
+    void rename(String table) {
+        jdbcTemplate.update("UPDATE " + table + " SET name = ?", "x");
+    }
+    Object owners() {
+        return client.sql(\"\"\"
+            SELECT o.id
+            FROM owners o
+            JOIN pets p ON p.owner_id = o.id
+            \"\"\").query(Object.class).list();
+    }
+    Object owner() {
+        return em.createQuery("SELECT o FROM Owner o").getResultList();
+    }
+}
+""",
+}
+
+
+@unittest.skipUnless(JAVA, "Install the java grammar")
+class JavaSqlTests(unittest.TestCase):
+    def test_queries_jdbc_and_entity_manager(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, JAVA_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["java"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "JdbcStore.count", "visits", "jdbc-sql"),
+                ("READS", "JdbcStore.owner", "owners", "jpa-query"),
+                ("READS", "JdbcStore.owners", "owners", "jdbc-sql"),
+                ("READS", "JdbcStore.owners", "pets", "jdbc-sql"),
+                ("READS", "OwnerRepository.inCity", "owners", "spring-data-query"),
+                ("READS", "OwnerRepository.kinds", "kind", "spring-data-query"),
+                ("WRITES", "JdbcStore.JdbcStore", "pets", "jdbc-insert-table"),
+                ("WRITES", "OwnerRepository.forget", "visits", "spring-data-query"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sql_text"],
+            {"statements": 9, "not_fixed": 1, "unknown_entity": 1},
+        )
+        for relationship in output.relationships:
+            self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+PYTHON_SQL = {
+    "pyproject.toml": '[project]\nname = "jobs"\n',
+    "jobs/store.py": """import sqlite3
+import sqlalchemy as sa
+from sqlalchemy import text
+
+def pending(conn):
+    return conn.execute(
+        "SELECT j.id FROM jobs j "
+        "JOIN workers w ON w.id = j.worker WHERE w.name = %s", ["a"]
+    )
+
+def finish(session, job):
+    session.execute(sa.text("UPDATE jobs SET done = 1 WHERE id = :id"), {"id": job})
+
+def archive(conn, day):
+    conn.execute(text(f"INSERT INTO archive SELECT * FROM jobs WHERE day = {day}"))
+
+def drop(conn, table):
+    conn.execute("DELETE FROM %s" % table)
+
+def ping(conn):
+    conn.execute("SELECT 1")
+
+conn = sqlite3.connect("jobs.db")
+conn.executescript("DELETE FROM workers")
+""",
+    "jobs/other.py": """def run(client):
+    client.execute("SELECT * FROM unrelated")
+""",
+}
+
+
+@unittest.skipUnless(PYTHON, "Install the python grammar")
+class PythonSqlTests(unittest.TestCase):
+    def test_execute_calls_in_database_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PYTHON_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.properties["rule_id"] == "data-contracts.python-sql"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "archive", "jobs"),
+                ("READS", "pending", "jobs"),
+                ("READS", "pending", "workers"),
+                ("WRITES", "archive", "archive"),
+                ("WRITES", "finish", "jobs"),
+                ("WRITES", "jobs/store.py", "workers"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sql_text"],
+            {"statements": 6, "not_fixed": 1, "unknown_entity": 0},
         )
 
 

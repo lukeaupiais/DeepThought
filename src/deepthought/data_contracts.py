@@ -14,8 +14,8 @@ Three kinds of facts, each read from one file:
 A table belongs to the nearest package (see ``deepthought.components``) of
 the file that declares or maps it: one service's ``owners`` table is not
 another's. Names are compared case-insensitively, without schema or quotes.
-Datasource configuration is not read, so two packages sharing one database
-are not joined, and SQL run from strings is not read.
+SQL and JPQL that Java code runs (``@Query``, ``createQuery``, JdbcTemplate
+and JdbcClient) name the tables they read and write (``SqlUse``).
 """
 
 from dataclasses import dataclass
@@ -77,6 +77,8 @@ class Mapping:
     # The member annotated @JoinTable or @CollectionTable, for a table the
     # entity's associations use rather than the entity's own table.
     member: str | None = None
+    # The JPA entity name (JPQL names entities by it), for the own table.
+    entity_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,193 @@ def extract_ddl(file, content: bytes):
             )
         )
     return found
+
+
+# Words that end a table reference list or cannot be a table or an alias.
+_SQL_KEYWORDS = {
+    "where",
+    "join",
+    "inner",
+    "left",
+    "right",
+    "full",
+    "outer",
+    "cross",
+    "natural",
+    "on",
+    "using",
+    "group",
+    "order",
+    "having",
+    "limit",
+    "offset",
+    "fetch",
+    "union",
+    "intersect",
+    "except",
+    "minus",
+    "set",
+    "values",
+    "select",
+    "from",
+    "into",
+    "as",
+    "lateral",
+    "only",
+    "window",
+    "for",
+    "returning",
+    "when",
+    "then",
+    "default",
+    "output",
+    "with",
+    "start",
+    "connect",
+    "pivot",
+    "unpivot",
+    "tablesample",
+    "qualify",
+    "in",
+    "and",
+    "or",
+    "not",
+    "is",
+    "by",
+    "straight_join",
+    "apply",
+    "partition",
+}
+_TOKEN = re.compile(r'"[^"]*"|`[^`]*`|\[[^\]]*\]|[A-Za-z_\x00][\w$#\x00]*|[(),.;]|\S')
+
+
+@dataclass(frozen=True)
+class Statement:
+    """Tables (or, in JPQL, entity names) one statement reads and writes."""
+
+    reads: tuple[str, ...]
+    writes: tuple[str, ...]
+
+
+def _word(token):
+    return token.lower() if token[:1].isalpha() or token[:1] == "_" else None
+
+
+def _is_name(token):
+    return token[:1] in '"`[' or (
+        (token[:1].isalpha() or token[:1] in "_\x00")
+        and token.lower() not in _SQL_KEYWORDS
+    )
+
+
+def statement_tables(text, jpql=False):
+    """The tables a SQL statement (or entities a JPQL one) names after FROM,
+    JOIN, USING, INTO, UPDATE and TRUNCATE.
+
+    INSERT/MERGE/REPLACE INTO, UPDATE, DELETE FROM and TRUNCATE targets are
+    written; every other table is read. Comments, string literals, common
+    table expression names, subqueries' own parentheses, function calls in
+    FROM (a name followed by ``(``) and FROM inside function arguments
+    (``EXTRACT(YEAR FROM d)``) are skipped. A name holding text the code
+    does not fix (PLACEHOLDER) is dropped. In SQL ``schema.table`` gives
+    ``table``; in JPQL a dotted name is a path (``o.pets``), not an entity.
+    """
+    text = _COMMENT_OR_STRING.sub(_blank, text)
+    tokens = _TOKEN.findall(text)
+    words = [_word(t) for t in tokens]
+    # Common table expressions: name [(columns)] AS (
+    ctes = set()
+    for i, word in enumerate(words):
+        if word == "as" and i + 1 < len(tokens) and tokens[i + 1] == "(" and i:
+            j = i - 1
+            if tokens[j] == ")":
+                depth = 0
+                while j >= 0:
+                    depth += {")": 1, "(": -1}.get(tokens[j], 0)
+                    if depth == 0:
+                        break
+                    j -= 1
+                j -= 1
+            if j >= 0 and _is_name(tokens[j]):
+                ctes.add(table_key(tokens[j]))
+    reads, writes = [], []
+    # Per parenthesis level: whether a statement verb opened it, so FROM is a
+    # clause and not part of a function's arguments.
+    levels = [False]
+    i = 0
+
+    def name_at(k, columns=False):
+        """(name or None, next index) of a possibly dotted name at k; with
+        ``columns`` a ``(`` after it opens a column list, not a call."""
+        if k >= len(tokens) or not _is_name(tokens[k]):
+            return None, k
+        parts = [tokens[k]]
+        k += 1
+        while k + 1 < len(tokens) and tokens[k] == "." and _is_name(tokens[k + 1]):
+            parts.append(tokens[k + 1])
+            k += 2
+        if k < len(tokens) and tokens[k] == "(" and not columns:
+            return None, k  # A function call.
+        if any("\x00" in p for p in parts):
+            return None, k
+        if jpql:
+            return (parts[0] if len(parts) == 1 else None), k
+        return table_key(parts[-1]), k
+
+    def take(k, into, columns=False):
+        name, k = name_at(k, columns)
+        if name is not None and table_key(name) not in ctes and name != "dual":
+            into.append(name)
+        return k
+
+    while i < len(tokens):
+        token, word = tokens[i], words[i]
+        previous = words[i - 1] if i else None
+        if token == "(":
+            levels.append(False)
+        elif token == ")":
+            if len(levels) > 1:
+                levels.pop()
+        elif word in ("select", "delete", "update", "insert", "merge", "with"):
+            levels[-1] = True
+        # JPQL may leave out SELECT: FROM Owner o WHERE ...
+        if word == "from" and (levels[-1] or previous is None):
+            target = writes if previous == "delete" else reads
+            k = i + 1
+            while k < len(tokens) and words[k] in ("only", "lateral"):
+                k += 1
+            k = take(k, target)
+            # A comma-separated list: FROM a x, b AS y
+            while True:
+                while (
+                    k < len(tokens)
+                    and tokens[k] not in (",", "(", ")", ";")
+                    and (
+                        words[k] is None
+                        or words[k] not in _SQL_KEYWORDS
+                        or words[k] == "as"
+                    )
+                ):
+                    k += 1
+                if k < len(tokens) and tokens[k] == "," and levels[-1]:
+                    k = take(k + 1, reads)
+                    continue
+                break
+        elif word == "join":
+            take(i + 1, reads)
+        elif word == "using" and levels[-1]:
+            take(i + 1, reads)
+        elif word == "into" and previous in ("insert", "merge", "replace", "ignore"):
+            take(i + 1, writes, columns=True)
+        elif word == "update" and (previous is None or tokens[i - 1] in ";()"):
+            take(i + 1, writes)
+        elif word == "truncate":
+            k = i + 1
+            if k < len(tokens) and words[k] == "table":
+                k += 1
+            take(k, writes)
+        i += 1
+    return Statement(tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes)))
 
 
 def default_table_name(entity):
@@ -231,6 +420,7 @@ def extract_java(tree, content, file, definitions, constants=None):
                     explicit is not None,
                     node.start_point.row + 1,
                     node.start_point.column,
+                    entity_name=entity,
                 )
             )
             mappings.extend(
@@ -348,6 +538,156 @@ def _candidates(written, imports, package):
 
 
 # Django ---------------------------------------------------------------------
+
+_SPRING_JDBC = "org.springframework.jdbc"
+# JdbcTemplate / NamedParameterJdbcTemplate / JdbcOperations methods whose
+# first argument is SQL text.
+JDBC_METHODS = {
+    "query",
+    "queryForObject",
+    "queryForList",
+    "queryForMap",
+    "queryForRowSet",
+    "queryForStream",
+    "queryForInt",
+    "queryForLong",
+    "update",
+    "batchUpdate",
+    "execute",
+}
+
+
+@dataclass(frozen=True)
+class SqlUse:
+    """SQL (or JPQL) text that code runs, and the tables it names."""
+
+    file: str
+    owner_id: str | None  # the innermost declaration holding it
+    how: str  # spring-data-query | jpa-query | jdbc-sql | jdbc-insert-table
+    jpql: bool
+    statement: Statement | None  # None: text the file does not fix
+    line: int
+    column: int
+
+
+def _imports_package(imports, prefix):
+    return any(
+        p == prefix or p.startswith(prefix + ".")
+        for packages in (*imports.names.values(), imports.wildcards)
+        for p in packages
+    )
+
+
+def _first_argument(call):
+    arguments = call.child_by_field_name("arguments")
+    named = [
+        c
+        for c in (arguments.named_children if arguments is not None else ())
+        if c.type not in ("line_comment", "block_comment")
+    ]
+    return named[0] if named else None
+
+
+def extract_java_sql(tree, content, file, definitions, constants=None):
+    """SQL and JPQL that one Java file runs: Spring Data ``@Query`` methods,
+    ``EntityManager.createQuery``/``createNativeQuery``, JdbcTemplate and
+    JdbcClient SQL, and ``SimpleJdbcInsert.withTableName``."""
+    root = tree.root_node
+    imports = _Imports(root, content)
+    persistence = any(_imports_package(imports, p) for p in _PERSISTENCE)
+    jdbc = _imports_package(imports, _SPRING_JDBC)
+    if not (persistence or jdbc or _imports_package(imports, _SPRING_DATA)):
+        return []
+    values = _Values(root, content, constants, imports)
+    found = []
+
+    def use(node, how, jpql, text):
+        statement = (
+            None
+            if text is None or text.replace(PLACEHOLDER, "").strip() == ""
+            else statement_tables(text, jpql=jpql)
+        )
+        if statement and not (statement.reads or statement.writes):
+            if PLACEHOLDER in text:
+                statement = None  # Its tables are in text the file does not fix.
+        found.append(
+            SqlUse(
+                file,
+                _innermost(definitions, file, node),
+                how,
+                jpql,
+                statement,
+                node.start_point.row + 1,
+                node.start_point.column,
+            )
+        )
+
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type == "method_declaration":
+            for written, annotation in _annotations(node, content):
+                if written.rpartition(".")[2] != "Query" or not _from(
+                    imports, written, (_SPRING_DATA,)
+                ):
+                    continue
+                arguments = _arguments(annotation)
+                value = arguments.get("value")
+                native = arguments.get("nativeQuery")
+                use(
+                    node,
+                    "spring-data-query",
+                    not (native is not None and _text(native, content) == "true"),
+                    None if value is None else values.evaluate(value),
+                )
+        elif node.type == "method_invocation":
+            name = _text(node.child_by_field_name("name"), content)
+            receiver = node.child_by_field_name("object")
+            first = _first_argument(node)
+            if first is None:
+                continue
+            if persistence and name in ("createQuery", "createNativeQuery"):
+                text = values.evaluate(first)
+                if first.type in ("string_literal", "binary_expression") or (
+                    text != PLACEHOLDER
+                ):
+                    use(node, "jpa-query", name == "createQuery", text)
+            elif jdbc and name == "sql":
+                use(node, "jdbc-sql", False, values.evaluate(first))
+            elif jdbc and name == "withTableName":
+                text = values.evaluate(first)
+                statement = (
+                    None
+                    if PLACEHOLDER in text or not text
+                    else Statement((), (table_key(text.rpartition(".")[2]),))
+                )
+                found.append(
+                    SqlUse(
+                        file,
+                        _innermost(definitions, file, node),
+                        "jdbc-insert-table",
+                        False,
+                        statement,
+                        node.start_point.row + 1,
+                        node.start_point.column,
+                    )
+                )
+            elif (
+                jdbc
+                and name in JDBC_METHODS
+                and receiver is not None
+                and receiver.type != "method_invocation"
+            ):
+                # Fluent JdbcClient calls (.sql(...).query(mapper)) are read
+                # at .sql(); a JdbcTemplate is a field or local.
+                text = values.evaluate(first)
+                if first.type in ("string_literal", "binary_expression") or (
+                    text != PLACEHOLDER
+                ):
+                    use(node, "jdbc-sql", False, text)
+    return found
+
 
 DJANGO_READS = {
     "aggregate",
@@ -876,3 +1216,184 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     )
                 )
     return mappings, tables, accesses
+
+
+# Modules whose import marks a Python module as one that runs SQL.
+PYTHON_SQL_MODULES = (
+    "sqlite3",
+    "psycopg2",
+    "psycopg",
+    "pymysql",
+    "MySQLdb",
+    "mysql.connector",
+    "cx_Oracle",
+    "oracledb",
+    "pyodbc",
+    "pg8000",
+    "asyncpg",
+    "aiosqlite",
+    "aiomysql",
+    "aiopg",
+    "duckdb",
+    "databases",
+    "sqlalchemy",
+    "flask_sqlalchemy",
+    "sqlmodel",
+    "django.db",
+)
+# DB-API, asyncpg, SQLAlchemy and Django methods whose first argument is SQL.
+PYTHON_SQL_METHODS = {
+    "execute",
+    "executemany",
+    "executescript",
+    "exec_driver_sql",
+    "fetch",
+    "fetchrow",
+    "fetchval",
+    "raw",
+}
+SQL_VERBS = {
+    "select",
+    "with",
+    "insert",
+    "update",
+    "delete",
+    "merge",
+    "replace",
+    "truncate",
+}
+
+
+def _python_sql_text(node, content, imports, aliases):
+    """The SQL text of an expression: string literals, implicit
+    concatenation, f-strings and ``%``/``format`` templates (what they
+    interpolate becomes PLACEHOLDER), and SQLAlchemy ``text(...)``; else None."""
+    if node is None:
+        return None
+    if node.type == "string":
+        prefix = _text(node, content).split("'")[0].split('"')[0].lower()
+        if "b" in prefix:
+            return None
+        parts = []
+        for child in node.named_children:
+            if child.type == "string_content":
+                parts.append(_text(child, content))
+            elif child.type == "interpolation":
+                if "f" not in prefix:
+                    return None
+                parts.append(PLACEHOLDER)
+        return "".join(parts)
+    if node.type == "concatenated_string":
+        parts = [
+            _python_sql_text(c, content, imports, aliases) for c in node.named_children
+        ]
+        return None if None in parts else "".join(parts)
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _python_sql_text(node.named_children[0], content, imports, aliases)
+    if node.type == "binary_operator":
+        operator = node.child_by_field_name("operator")
+        left = _python_sql_text(
+            node.child_by_field_name("left"), content, imports, aliases
+        )
+        if left is None or operator is None:
+            return None
+        if _text(operator, content) == "%":
+            return re.sub(
+                r"%(?:\([^)]*\))?[-#0 +]*\d*(?:\.\d+)?[sdirf]", PLACEHOLDER, left
+            )
+        if _text(operator, content) == "+":
+            right = _python_sql_text(
+                node.child_by_field_name("right"), content, imports, aliases
+            )
+            return left + (PLACEHOLDER if right is None else right)
+        return None
+    if node.type == "call":
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        first = (
+            next((c for c in arguments.named_children if c.type != "comment"), None)
+            if arguments is not None
+            else None
+        )
+        if function is not None and function.type == "attribute":
+            name = _text(function.child_by_field_name("attribute"), content)
+            owner = function.child_by_field_name("object")
+            if name == "format":
+                template = _python_sql_text(owner, content, imports, aliases)
+                return (
+                    None
+                    if template is None
+                    else re.sub(r"\{[^{}]*\}", PLACEHOLDER, template)
+                )
+            if name == "text" and owner.type == "identifier":
+                module = aliases.get(_text(owner, content)) or imports.get(
+                    _text(owner, content)
+                )
+                if _from_sqlalchemy(module):
+                    return _python_sql_text(first, content, imports, aliases)
+            return None
+        if function is not None and function.type == "identifier":
+            if _text(function, content) == "text" and _from_sqlalchemy(
+                imports.get("text")
+            ):
+                return _python_sql_text(first, content, imports, aliases)
+    return None
+
+
+def _imports_any(imports, aliases, modules):
+    origins = list(imports.values()) + list(aliases.values())
+    return any(o == m or o.startswith(m + ".") for o in origins for m in modules)
+
+
+def extract_python_sql(tree, content, file, definitions):
+    """SQL that one Python module passes to an execute-style call, in a
+    module that imports a database driver, SQLAlchemy or ``django.db``."""
+    root = tree.root_node
+    imports = _python_imports(root, content)
+    aliases = _module_aliases(root, content)
+    if not _imports_any(imports, aliases, PYTHON_SQL_MODULES):
+        return []
+    found = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type != "call":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "attribute":
+            continue
+        if _text(function.child_by_field_name("attribute"), content) not in (
+            PYTHON_SQL_METHODS
+        ):
+            continue
+        arguments = node.child_by_field_name("arguments")
+        first = (
+            next((c for c in arguments.named_children if c.type != "comment"), None)
+            if arguments is not None
+            else None
+        )
+        if first is None or first.type == "keyword_argument":
+            continue
+        text = _python_sql_text(first, content, imports, aliases)
+        if text is None:
+            continue
+        words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+        if not words or words[0].lower() not in SQL_VERBS:
+            continue  # Not a statement that reads or writes tables.
+        # Driver parameter markers (%s, %(name)s) never name a table.
+        statement = statement_tables(re.sub(r"%(?:\([^)]*\))?s", "?", text))
+        if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+            statement = None
+        found.append(
+            SqlUse(
+                file,
+                _innermost(definitions, file, node),
+                "python-sql",
+                False,
+                statement,
+                node.start_point.row + 1,
+                node.start_point.column,
+            )
+        )
+    return found

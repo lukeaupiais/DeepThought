@@ -30,7 +30,9 @@ class MessageEndpoint:
     """One publish or consume site and the destination it names.
 
     ``declaration_id`` is the handler (a listener method) or the innermost
-    declaration around a call, None at file level.
+    declaration around a call, None at file level. ``module`` and
+    ``service`` name the build module and service that run the code when
+    that is not the file's own module (library code a service depends on).
     """
 
     id: str
@@ -42,6 +44,8 @@ class MessageEndpoint:
     broker: str  # kafka | amqp
     destination: str
     client: str
+    module: str | None = None
+    service: str | None = None
 
 
 @dataclass(frozen=True)
