@@ -18,7 +18,7 @@ SQL and JPQL that Java code runs (``@Query``, ``createQuery``, JdbcTemplate
 and JdbcClient) name the tables they read and write (``SqlUse``).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 
 from .service_contracts.http import PLACEHOLDER
@@ -2026,3 +2026,750 @@ def extract_go_sql(tree, content, file, definitions):
                 )
             )
     return names, uses
+
+
+# Ruby on Rails: ActiveRecord models and db/schema.rb -------------------------
+
+
+class RailsInflections:
+    """ActiveSupport::Inflector::Inflections (activesupport 8.0): rules
+    defined later are tried first, the first that matches replaces once, and
+    uncountable words stay as they are. Acronyms change ``underscore``."""
+
+    def __init__(self):
+        self.plurals, self.singulars, self.uncountables = [], [], []
+        self.acronyms = {}
+
+    def copy(self):
+        other = RailsInflections()
+        other.plurals = list(self.plurals)
+        other.singulars = list(self.singulars)
+        other.uncountables = list(self.uncountables)
+        other.acronyms = dict(self.acronyms)
+        return other
+
+    def plural(self, pattern, replacement, flags=re.IGNORECASE):
+        self.plurals.insert(0, (re.compile(pattern, flags), replacement))
+
+    def singular(self, pattern, replacement, flags=re.IGNORECASE):
+        self.singulars.insert(0, (re.compile(pattern, flags), replacement))
+
+    def rule(self, kind, string, replacement):
+        """``inflect.plural "string", "replacement"`` (or singular): a
+        literal rule, which also makes both words countable."""
+        self.uncountables = [
+            w for w in self.uncountables if w not in (string, replacement)
+        ]
+        rules = self.plurals if kind == "plural" else self.singulars
+        rules.insert(
+            0, (re.compile(re.escape(string)), replacement.replace("\\", "\\\\"))
+        )
+
+    def uncountable(self, *words):
+        self.uncountables.extend(w.lower() for w in words)
+
+    def acronym(self, word):
+        self.acronyms[word.lower()] = word
+
+    def irregular(self, singular, plural):
+        self.uncountables = [
+            w for w in self.uncountables if w not in (singular, plural)
+        ]
+        s0, srest, p0, prest = singular[0], singular[1:], plural[0], plural[1:]
+        e = re.escape
+        if s0.upper() == p0.upper():
+            self.plural(f"({e(s0)}){e(srest)}$", "\\1" + prest)
+            self.plural(f"({e(p0)}){e(prest)}$", "\\1" + prest)
+            self.singular(f"({e(s0)}){e(srest)}$", "\\1" + srest)
+            self.singular(f"({e(p0)}){e(prest)}$", "\\1" + srest)
+        else:
+            su, sl, pu, pl = (
+                e(s0.upper()),
+                e(s0.lower()),
+                e(p0.upper()),
+                e(p0.lower()),
+            )
+            self.plural(f"{su}(?i:{e(srest)})$", p0.upper() + prest, 0)
+            self.plural(f"{sl}(?i:{e(srest)})$", p0.lower() + prest, 0)
+            self.plural(f"{pu}(?i:{e(prest)})$", p0.upper() + prest, 0)
+            self.plural(f"{pl}(?i:{e(prest)})$", p0.lower() + prest, 0)
+            self.singular(f"{su}(?i:{e(srest)})$", s0.upper() + srest, 0)
+            self.singular(f"{sl}(?i:{e(srest)})$", s0.lower() + srest, 0)
+            self.singular(f"{pu}(?i:{e(prest)})$", s0.upper() + srest, 0)
+            self.singular(f"{pl}(?i:{e(prest)})$", s0.lower() + srest, 0)
+
+    def _apply(self, word, rules):
+        if not word or any(
+            re.search(rf"\b{re.escape(u)}\Z", word, re.IGNORECASE)
+            for u in self.uncountables
+        ):
+            return word
+        for rule, replacement in rules:
+            result, count = rule.subn(replacement, word, count=1)
+            if count:
+                return result
+        return word
+
+    def pluralize(self, word):
+        return self._apply(word, self.plurals)
+
+    def singularize(self, word):
+        return self._apply(word, self.singulars)
+
+    def underscore(self, name):
+        """``AdminUser`` is ``admin_user``, ``HTTPLog`` is ``http_log``,
+        ``A::B`` is ``a/b``; with the acronym GitHub, ``GitHubUser`` is
+        ``github_user``."""
+        if not re.search(r"[A-Z-]|::", name):
+            return name
+        word = name.replace("::", "/")
+        if self.acronyms:
+            acronym = "|".join(self.acronyms.values())
+            word = re.sub(
+                rf"(?:(?<=([A-Za-z\d]))|\b)({acronym})(?=\b|[^a-z])",
+                lambda m: ("_" if m.group(1) is not None else "") + m.group(2).lower(),
+                word,
+            )
+        word = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])|(?<=[a-z\d])(?=[A-Z])", "_", word)
+        return word.replace("-", "_").lower()
+
+    def table_name(self, class_name):
+        """ActiveRecord's default table name of a base class: the
+        demodulized class name, underscored and pluralized
+        (``Admin::LineItem`` is ``line_items``), without prefixes."""
+        return self.pluralize(self.underscore(class_name.rpartition("::")[2]))
+
+
+def _english():
+    english = RailsInflections()
+    english.plural(r"$", "s", 0)
+    english.plural(r"s$", "s")
+    english.plural(r"^(ax|test)is$", r"\1es")
+    english.plural(r"(octop|vir)us$", r"\1i")
+    english.plural(r"(octop|vir)i$", r"\1i")
+    english.plural(r"(alias|status)$", r"\1es")
+    english.plural(r"(bu)s$", r"\1ses")
+    english.plural(r"(buffal|tomat)o$", r"\1oes")
+    english.plural(r"([ti])um$", r"\1a")
+    english.plural(r"([ti])a$", r"\1a")
+    english.plural(r"sis$", "ses")
+    english.plural(r"(?:([^f])fe|([lr])f)$", r"\1\2ves")
+    english.plural(r"(hive)$", r"\1s")
+    english.plural(r"([^aeiouy]|qu)y$", r"\1ies")
+    english.plural(r"(x|ch|ss|sh)$", r"\1es")
+    english.plural(r"(matr|vert|ind)(?:ix|ex)$", r"\1ices")
+    english.plural(r"^(m|l)ouse$", r"\1ice")
+    english.plural(r"^(m|l)ice$", r"\1ice")
+    english.plural(r"^(ox)$", r"\1en")
+    english.plural(r"^(oxen)$", r"\1")
+    english.plural(r"(quiz)$", r"\1zes")
+    english.singular(r"s$", "")
+    english.singular(r"(ss)$", r"\1")
+    english.singular(r"(n)ews$", r"\1ews")
+    english.singular(r"([ti])a$", r"\1um")
+    english.singular(
+        r"((a)naly|(b)a|(d)iagno|(p)arenthe|(p)rogno|(s)ynop|(t)he)(sis|ses)$",
+        r"\1sis",
+    )
+    english.singular(r"(^analy)(sis|ses)$", r"\1sis")
+    english.singular(r"([^f])ves$", r"\1fe")
+    english.singular(r"(hive)s$", r"\1")
+    english.singular(r"(tive)s$", r"\1")
+    english.singular(r"([lr])ves$", r"\1f")
+    english.singular(r"([^aeiouy]|qu)ies$", r"\1y")
+    english.singular(r"(s)eries$", r"\1eries")
+    english.singular(r"(m)ovies$", r"\1ovie")
+    english.singular(r"(x|ch|ss|sh)es$", r"\1")
+    english.singular(r"^(m|l)ice$", r"\1ouse")
+    english.singular(r"(bus)(es)?$", r"\1")
+    english.singular(r"(o)es$", r"\1")
+    english.singular(r"(shoe)s$", r"\1")
+    english.singular(r"(cris|test)(is|es)$", r"\1is")
+    english.singular(r"^(a)x[ie]s$", r"\1xis")
+    english.singular(r"(octop|vir)(us|i)$", r"\1us")
+    english.singular(r"(alias|status)(es)?$", r"\1")
+    english.singular(r"^(ox)en", r"\1")
+    english.singular(r"(vert|ind)ices$", r"\1ex")
+    english.singular(r"(matr)ices$", r"\1ix")
+    english.singular(r"(quiz)zes$", r"\1")
+    english.singular(r"(database)s$", r"\1")
+    for pair in (
+        ("person", "people"),
+        ("man", "men"),
+        ("child", "children"),
+        ("sex", "sexes"),
+        ("move", "moves"),
+        ("zombie", "zombies"),
+    ):
+        english.irregular(*pair)
+    english.uncountable(
+        "equipment",
+        "information",
+        "rice",
+        "money",
+        "species",
+        "series",
+        "fish",
+        "sheep",
+        "jeans",
+        "police",
+    )
+    return english
+
+
+# The default English rules of lib/active_support/inflections.rb.
+RAILS_ENGLISH = _english()
+
+
+def rails_pluralize(word):
+    """ActiveSupport's ``"word".pluralize`` with the default English rules."""
+    return RAILS_ENGLISH.pluralize(word)
+
+
+def rails_singularize(word):
+    """ActiveSupport's ``"word".singularize`` with the default English rules."""
+    return RAILS_ENGLISH.singularize(word)
+
+
+def rails_underscore(name):
+    """ActiveSupport's ``underscore`` without acronyms."""
+    return RAILS_ENGLISH.underscore(name)
+
+
+def rails_table_name(class_name):
+    """ActiveRecord's default table name with the default English rules."""
+    return RAILS_ENGLISH.table_name(class_name)
+
+
+@dataclass(frozen=True)
+class RubyClass:
+    """A Ruby class: its constant path, written superclass and the
+    ActiveRecord settings of its body."""
+
+    file: str
+    class_id: str | None
+    path: str  # A::B::C
+    superclass: str | None  # as written, e.g. ApplicationRecord, ::Base
+    table_name: str | None  # self.table_name = literal
+    abstract: bool
+    naming: bool  # assigns table_name_prefix, _suffix or pluralize_table_names
+    nesting: tuple[str, ...]  # Module.nesting outside the class, outermost first
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class RubyAccess:
+    file: str
+    caller_id: str | None
+    constant: str  # as written: User, Admin::User
+    nesting: tuple[str, ...]  # Module.nesting at the call, outermost first
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+ACTIVE_RECORD_READS = {
+    "all",
+    "find",
+    "find_by",
+    "find_by!",
+    "find_by_sql",
+    "where",
+    "first",
+    "first!",
+    "last",
+    "last!",
+    "take",
+    "take!",
+    "count",
+    "exists?",
+    "pluck",
+    "pick",
+    "ids",
+    "order",
+    "limit",
+    "offset",
+    "includes",
+    "eager_load",
+    "preload",
+    "joins",
+    "left_joins",
+    "left_outer_joins",
+    "select",
+    "sum",
+    "average",
+    "minimum",
+    "maximum",
+    "find_each",
+    "find_in_batches",
+    "in_batches",
+    "distinct",
+    "group",
+    "having",
+    "none",
+    "count_by_sql",
+}
+ACTIVE_RECORD_WRITES = {
+    "create",
+    "create!",
+    "insert",
+    "insert!",
+    "insert_all",
+    "insert_all!",
+    "upsert",
+    "upsert_all",
+    "update",
+    "update!",
+    "update_all",
+    "delete",
+    "delete_all",
+    "delete_by",
+    "destroy",
+    "destroy!",
+    "destroy_all",
+    "destroy_by",
+    "update_counters",
+    "increment_counter",
+    "decrement_counter",
+}
+ACTIVE_RECORD_READ_WRITES = {
+    "find_or_create_by",
+    "find_or_create_by!",
+    "create_or_find_by",
+    "create_or_find_by!",
+    "find_or_initialize_by",
+}
+
+
+def _ruby_literal(node, content):
+    """The text of a plain string (no interpolation) or simple symbol."""
+    if node is None:
+        return None
+    if node.type == "simple_symbol":
+        return _text(node, content)[1:]
+    if node.type == "string":
+        if any(c.type == "interpolation" for c in node.named_children):
+            return None
+        return "".join(
+            _text(c, content) for c in node.named_children if c.type == "string_content"
+        )
+    return None
+
+
+def _ruby_path(node, content):
+    if node is None:
+        return None
+    if node.type == "constant":
+        return _text(node, content)
+    if node.type == "scope_resolution":
+        scope = node.child_by_field_name("scope")
+        name = _text(node.child_by_field_name("name"), content)
+        if scope is None:
+            return "::" + name
+        head = _ruby_path(scope, content)
+        return None if head is None else f"{head}::{name}"
+    return None
+
+
+def extract_ruby_models(tree, content, file, definitions):
+    """(classes, table prefixes, accesses, schema tables) of one Ruby file:
+    each class with its superclass and ActiveRecord settings, modules and
+    classes whose ``self.table_name_prefix`` returns a literal,
+    ``Constant.method`` calls of ActiveRecord query and persistence methods,
+    and ``create_table`` and Scenic ``create_view`` calls of a file named
+    ``*schema.rb`` under ``db/``."""
+    classes, prefixes, accesses, tables = [], {}, [], []
+    schema = file.startswith("db/") or "/db/" in file
+    schema = schema and file.rpartition("/")[2].endswith("schema.rb")
+
+    def walk(node, nesting):
+        for child in node.named_children:
+            if child.type in ("class", "module"):
+                written = _ruby_path(child.child_by_field_name("name"), content)
+                if written is None:
+                    continue
+                if written.startswith("::"):
+                    path = written[2:]
+                else:
+                    path = f"{nesting[-1]}::{written}" if nesting else written
+                body = next(
+                    (c for c in child.named_children if c.type == "body_statement"),
+                    None,
+                )
+                prefix = _table_name_prefix(body, content)
+                if prefix is not None:
+                    prefixes[path] = prefix
+                if child.type == "module":
+                    if body is not None:
+                        walk(body, (*nesting, path))
+                    continue
+                superclass = child.child_by_field_name("superclass")
+                table, abstract, naming = None, False, False
+                for statement in body.named_children if body is not None else ():
+                    if statement.type == "assignment":
+                        left = statement.child_by_field_name("left")
+                        if (
+                            left is not None
+                            and left.type == "call"
+                            and _text(left.child_by_field_name("receiver"), content)
+                            == "self"
+                        ):
+                            setting = _text(left.child_by_field_name("method"), content)
+                            right = statement.child_by_field_name("right")
+                            if setting == "table_name":
+                                table = _ruby_literal(right, content) or PLACEHOLDER
+                            elif setting == "abstract_class":
+                                abstract = _text(right, content) == "true"
+                            elif setting in NAMING_SETTINGS:
+                                naming = True
+                    elif (
+                        statement.type in ("identifier", "call")
+                        and _text(statement, content) == "primary_abstract_class"
+                    ):
+                        abstract = True
+                classes.append(
+                    RubyClass(
+                        file,
+                        _innermost(
+                            definitions, file, child.child_by_field_name("name")
+                        ),
+                        path,
+                        _ruby_path(superclass.named_children[0], content)
+                        if superclass is not None and superclass.named_children
+                        else None,
+                        table,
+                        abstract,
+                        naming,
+                        nesting,
+                        child.start_point.row + 1,
+                        child.start_point.column,
+                    )
+                )
+                if body is not None:
+                    walk(body, (*nesting, path))
+            else:
+                visit(child, nesting)
+                walk(child, nesting)
+
+    def visit(node, nesting):
+        if node.type != "call":
+            return
+        method = _text(node.child_by_field_name("method"), content)
+        receiver = node.child_by_field_name("receiver")
+        if schema and receiver is None and method in ("create_table", "create_view"):
+            arguments = node.child_by_field_name("arguments")
+            first = arguments.named_children[0] if arguments is not None else None
+            name = _ruby_literal(first, content)
+            if name:
+                tables.append(
+                    (table_key(name.rpartition(".")[2]), node.start_point.row + 1)
+                )
+            return
+        if receiver is None or receiver.type not in ("constant", "scope_resolution"):
+            return
+        reads = method in ACTIVE_RECORD_READS | ACTIVE_RECORD_READ_WRITES
+        writes = method in ACTIVE_RECORD_WRITES | ACTIVE_RECORD_READ_WRITES
+        constant = _ruby_path(receiver, content)
+        if (reads or writes) and constant:
+            accesses.append(
+                RubyAccess(
+                    file,
+                    _innermost(definitions, file, node),
+                    constant,
+                    nesting,
+                    reads,
+                    writes,
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+
+    walk(tree.root_node, ())
+    return classes, prefixes, accesses, tables
+
+
+def _table_name_prefix(body, content):
+    for node in body.named_children if body is not None else ():
+        if (
+            node.type == "singleton_method"
+            and _text(node.child_by_field_name("name"), content) == "table_name_prefix"
+        ):
+            inner = next(
+                (c for c in node.named_children if c.type == "body_statement"), None
+            )
+            values = [
+                c
+                for c in (inner.named_children if inner else ())
+                if c.type != "comment"
+            ]
+            if len(values) == 1:
+                return _ruby_literal(values[0], content)
+    return None
+
+
+NAMING_SETTINGS = {"table_name_prefix", "table_name_suffix", "pluralize_table_names"}
+
+
+def resolve_active_record(classes, prefixes, overridden=False, inflections=None):
+    """({class path: (table, how)}, unresolved paths) of the concrete
+    ActiveRecord models, how
+    being "explicit" (``self.table_name``), "default" or "inherited" (an STI
+    subclass sharing its base class's table), and the models whose name
+    the code does not fix: a table_name that is not a literal, or naming
+    settings (``table_name_prefix``, ``table_name_suffix``,
+    ``pluralize_table_names``) on the model's chain or, with ``overridden``,
+    in the application's configuration. A superclass resolves to a
+    class of the repository by Ruby's lexical constant lookup
+    (``resolve_ruby_constant``); models are the classes whose chain reaches
+    ``ActiveRecord::Base``."""
+    inflections = inflections or RAILS_ENGLISH
+    by_path = {}
+    for c in classes:
+        by_path.setdefault(c.path, []).append(c)
+
+    namespaces = ruby_namespaces(by_path)
+
+    def parent(c):
+        written = c.superclass
+        if written is None or written.lstrip(":") == "ActiveRecord::Base":
+            return None
+        return resolve_ruby_constant(written, c.nesting, by_path, namespaces)
+
+    # A class may be reopened in several files: its declarations agree on
+    # the superclass and table name, or the class is left out.
+    single = {}
+    for p, cs in by_path.items():
+        written = {c.superclass for c in cs if c.superclass}
+        names = {c.table_name for c in cs if c.table_name}
+        if len(written) > 1 or len(names) > 1:
+            continue
+        first = next((c for c in cs if c.superclass), cs[0])
+        single[p] = replace(
+            first,
+            table_name=next(iter(names), None),
+            abstract=any(c.abstract for c in cs),
+            naming=any(c.naming for c in cs),
+        )
+    chain_cache = {}
+
+    def chain(path, seen=()):
+        """The model's ancestors up to ActiveRecord::Base, or None."""
+        if path in chain_cache:
+            return chain_cache[path]
+        c = single.get(path)
+        result = None
+        if c is not None and path not in seen:
+            if c.superclass and c.superclass.lstrip(":") == "ActiveRecord::Base":
+                result = [path]
+            else:
+                up = parent(c)
+                if up is not None:
+                    rest = chain(up, (*seen, path))
+                    result = None if rest is None else [path, *rest]
+        chain_cache[path] = result
+        return result
+
+    def is_model(path):
+        return path in single and chain(path) is not None
+
+    tables, skipped = {}, []
+    for path, c in sorted(single.items()):
+        ancestors = chain(path)
+        if ancestors is None or c.abstract:
+            continue
+        # ActiveRecord's base_class: the first class up the chain whose
+        # superclass is ActiveRecord::Base or abstract.
+        base = next(
+            a
+            for i, a in enumerate(ancestors)
+            if i + 1 == len(ancestors) or single[ancestors[i + 1]].abstract
+        )
+        if c.table_name and c.table_name != PLACEHOLDER:
+            tables[path] = (table_key(c.table_name.rpartition(".")[2]), "explicit")
+            continue
+        if base != path:
+            tables[path] = (base, "inherited")
+            continue
+        if (
+            c.table_name == PLACEHOLDER
+            or overridden
+            or any(single[a].naming for a in ancestors)
+        ):
+            skipped.append(path)
+            continue
+        name = inflections.table_name(path)
+        # compute_table_name: a class nested in a concrete model is prefixed
+        # with that model's singular table name.
+        module = path.split("::")[:-1]
+        outer = "::".join(module)
+        if module and is_model(outer) and not single[outer].abstract:
+            tables[path] = ((outer, name), "nested")
+            continue
+        # full_table_name_prefix: the innermost enclosing module that
+        # defines table_name_prefix; an enclosing ActiveRecord class has none.
+        prefix = ""
+        while module:
+            enclosing = "::".join(module)
+            if enclosing in prefixes:
+                prefix = prefixes[enclosing]
+                break
+            if is_model(enclosing):
+                break
+            module.pop()
+        tables[path] = (table_key(prefix + name), "default")
+    # Inherited and nested names refer to other models' tables.
+    resolved = {}
+
+    def table_of(path, depth=0):
+        if path in resolved or depth > 20:
+            return resolved.get(path)
+        entry = tables.get(path)
+        if entry is None:
+            return None
+        value, how = entry
+        if how == "inherited":
+            inner = table_of(value, depth + 1)
+            result = None if inner is None else (inner[0], how)
+        elif how == "nested":
+            outer, name = value
+            inner = table_of(outer, depth + 1)
+            singular = inflections.singularize(inner[0]) if inner else None
+            result = None if inner is None else (f"{singular}_{name}", "default")
+        else:
+            result = entry
+        resolved[path] = result
+        return result
+
+    resolved_tables = {p: r for p in sorted(tables) if (r := table_of(p)) is not None}
+    return resolved_tables, sorted(set(skipped) | (set(tables) - set(resolved_tables)))
+
+
+def ruby_namespaces(paths):
+    """Every class path and each of its enclosing constant paths."""
+    found = set()
+    for path in paths:
+        parts = path.split("::")
+        found.update("::".join(parts[: i + 1]) for i in range(len(parts)))
+    return found
+
+
+def resolve_ruby_constant(written, nesting, paths, namespaces=None):
+    """The class path a constant names where it is written, as Ruby's
+    lexical lookup finds it among ``paths``: under each scope of
+    ``Module.nesting`` from the innermost out, then at the top level.
+    ``User`` in ``module Admin`` is ``Admin::User`` when that class exists,
+    else ``User``; in ``class Admin::Panel`` (one scope, Admin::Panel) it is
+    ``Admin::Panel::User`` or ``User``, never ``Admin::User``; ``::User`` is
+    top-level. For ``A::B`` the first segment is looked up and the rest
+    follows it. Ancestors of the enclosing classes are not searched."""
+    if written.startswith("::"):
+        return written[2:] if written[2:] in paths else None
+    if namespaces is None:
+        namespaces = ruby_namespaces(paths)
+    head, _, rest = written.partition("::")
+    for cref in (*reversed(nesting), ""):
+        start = f"{cref}::{head}" if cref else head
+        if start in namespaces:
+            candidate = f"{start}::{rest}" if rest else start
+            return candidate if candidate in paths else None
+    return None
+
+
+def _descendants(node, kind):
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == kind:
+            yield current
+        stack.extend(reversed(current.named_children))
+
+
+def _ruby_words(node, content):
+    """The words of literal string, symbol and ``%w()`` arguments, or None
+    when one is not literal."""
+    words = []
+    for argument in node.named_children if node is not None else ():
+        if argument.type in ("string_array", "symbol_array", "array"):
+            for item in argument.named_children:
+                if item.type == "bare_string":
+                    words.append(_text(item, content))
+                else:
+                    value = _ruby_literal(item, content)
+                    if value is None:
+                        return None
+                    words.append(value)
+            continue
+        value = _ruby_literal(argument, content)
+        if value is None:
+            return None
+        words.append(value)
+    return words
+
+
+def apply_rails_inflections(tree, content, inflections):
+    """Applies the English ``ActiveSupport::Inflector.inflections`` blocks
+    of one Ruby file to ``inflections``: ``acronym``, ``irregular`` and
+    ``uncountable`` with literal words, and ``plural`` and ``singular``
+    with a literal string rule (replaced where it first occurs, as Ruby's
+    ``sub!`` does). Returns False when a block changes inflection in a way
+    that is not read (regular expression rules, ``clear``, words that are
+    not literal), True otherwise."""
+    supported = True
+
+    def visit(node):
+        nonlocal supported
+        if (
+            node.type == "call"
+            and _text(node.child_by_field_name("method"), content) == "inflections"
+            and _ruby_path(node.child_by_field_name("receiver"), content)
+            in ("ActiveSupport::Inflector", "::ActiveSupport::Inflector")
+        ):
+            arguments = _ruby_words(node.child_by_field_name("arguments"), content)
+            block = node.child_by_field_name("block")
+            if block is None or arguments not in ([], ["en"]):
+                return
+            parameters = block.child_by_field_name("parameters")
+            names = [
+                _text(c, content)
+                for c in (parameters.named_children if parameters else ())
+                if c.type == "identifier"
+            ]
+            if len(names) != 1:
+                supported = False
+                return
+            for call in _descendants(block, "call"):
+                if _text(call.child_by_field_name("receiver"), content) != names[0]:
+                    continue
+                method = _text(call.child_by_field_name("method"), content)
+                words = _ruby_words(call.child_by_field_name("arguments"), content)
+                if method in ("human",):
+                    continue
+                if words is None or method not in (
+                    "acronym",
+                    "irregular",
+                    "uncountable",
+                    "plural",
+                    "singular",
+                ):
+                    supported = False
+                elif method in ("plural", "singular") and len(words) == 2:
+                    if "\\" in words[1]:
+                        supported = False
+                    else:
+                        inflections.rule(method, *words)
+                elif method == "acronym" and len(words) == 1:
+                    inflections.acronym(words[0])
+                elif method == "irregular" and len(words) == 2:
+                    inflections.irregular(*words)
+                elif method == "uncountable":
+                    inflections.uncountable(*words)
+                else:
+                    supported = False
+            return
+        for child in node.named_children:
+            visit(child)
+
+    visit(tree.root_node)
+    return supported
