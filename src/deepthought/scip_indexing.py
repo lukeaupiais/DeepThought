@@ -105,7 +105,10 @@ def index_typescript(workspace, *, node, indexer, output=None, timeout=180):
     try:
         from ._scip import scip_pb2
     except ImportError as exc:
-        raise ValueError("Provision the scip extra before indexing") from exc
+        raise RuntimeError(
+            "SCIP indexing requires protobuf, a core dependency; reinstall "
+            "deepthought-analysis-engine"
+        ) from exc
     started = time.monotonic()
     root = Path(workspace).resolve(strict=True)
     output = Path(output).absolute() if output is not None else root / "index.scip"

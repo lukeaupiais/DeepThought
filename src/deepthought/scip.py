@@ -45,186 +45,184 @@ def ingest_scip(
     try:
         from google.protobuf.message import DecodeError
         from ._scip import scip_pb2 as wire
-    except ImportError:
-        diagnostics.append(
-            Diagnostic(
-                "protocol_unavailable", "Provision the scip extra before ingestion"
+    except ImportError as exc:
+        # An index that cannot be read is not an index without facts.
+        raise RuntimeError(
+            "SCIP ingestion requires protobuf, a core dependency; reinstall "
+            "deepthought-analysis-engine"
+        ) from exc
+    try:
+        fd = os.open(Path(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("Index must be a regular file")
+            content = source.read(max_index_bytes + 1)
+        if len(content) > max_index_bytes:
+            raise ValueError("Index exceeds max_index_bytes")
+        index = wire.Index()
+        index.ParseFromString(content)
+        if not index.metadata.tool_info.name:
+            raise ValueError("Index is missing producing-tool metadata")
+        versions["protobuf"] = version("protobuf")
+        versions[index.metadata.tool_info.name] = index.metadata.tool_info.version
+        if default_position_encoding is not None:
+            versions["unspecified_position_encoding_fallback"] = (
+                default_position_encoding
             )
-        )
-        wire = None
-    if wire is not None:
-        try:
-            fd = os.open(Path(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-            with os.fdopen(fd, "rb") as source:
-                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
-                    raise ValueError("Index must be a regular file")
-                content = source.read(max_index_bytes + 1)
-            if len(content) > max_index_bytes:
-                raise ValueError("Index exceeds max_index_bytes")
-            index = wire.Index()
-            index.ParseFromString(content)
-            if not index.metadata.tool_info.name:
-                raise ValueError("Index is missing producing-tool metadata")
-            versions["protobuf"] = version("protobuf")
-            versions[index.metadata.tool_info.name] = index.metadata.tool_info.version
-            if default_position_encoding is not None:
-                versions["unspecified_position_encoding_fallback"] = (
-                    default_position_encoding
+        seen_files, seen_definitions = set(), set()
+        for doc in sorted(index.documents, key=lambda item: item.relative_path):
+            file = doc.relative_path
+            if not is_relative_file(file):
+                diagnostics.append(
+                    Diagnostic(
+                        "invalid_document_path",
+                        "SCIP document path must be canonical and relative",
+                    )
                 )
-            seen_files, seen_definitions = set(), set()
-            for doc in sorted(index.documents, key=lambda item: item.relative_path):
-                file = doc.relative_path
-                if not is_relative_file(file):
-                    diagnostics.append(
-                        Diagnostic(
-                            "invalid_document_path",
-                            "SCIP document path must be canonical and relative",
-                        )
+                continue
+            if path_prefix:
+                file = f"{path_prefix}/{file}"
+            if file in seen_files:
+                diagnostics.append(
+                    Diagnostic(
+                        "duplicate_document", "SCIP repeats a document path", file
                     )
-                    continue
-                if path_prefix:
-                    file = f"{path_prefix}/{file}"
-                if file in seen_files:
-                    diagnostics.append(
-                        Diagnostic(
-                            "duplicate_document", "SCIP repeats a document path", file
-                        )
-                    )
-                    continue
-                seen_files.add(file)
-                infos = {item.symbol: item for item in doc.symbols}
-                encoding = {1: "utf-8", 2: "utf-16", 3: "utf-32"}.get(
-                    doc.position_encoding,
-                    default_position_encoding
-                    if doc.position_encoding == 0 and default_position_encoding
-                    else "unspecified",
                 )
-                before = len(diagnostics)
-                if encoding == "unspecified":
-                    diagnostics.append(
-                        Diagnostic(
-                            "position_encoding_unspecified",
-                            "Indexer did not declare source coordinate encoding",
-                            file,
-                        )
+                continue
+            seen_files.add(file)
+            infos = {item.symbol: item for item in doc.symbols}
+            encoding = {1: "utf-8", 2: "utf-16", 3: "utf-32"}.get(
+                doc.position_encoding,
+                default_position_encoding
+                if doc.position_encoding == 0 and default_position_encoding
+                else "unspecified",
+            )
+            before = len(diagnostics)
+            if encoding == "unspecified":
+                diagnostics.append(
+                    Diagnostic(
+                        "position_encoding_unspecified",
+                        "Indexer did not declare source coordinate encoding",
+                        file,
                     )
-                ordinals = {}
-                for occurrence in sorted(
-                    doc.occurrences,
-                    key=lambda item: (
-                        tuple(item.range),
-                        item.symbol,
-                        item.symbol_roles,
-                    ),
+                )
+            ordinals = {}
+            for occurrence in sorted(
+                doc.occurrences,
+                key=lambda item: (
+                    tuple(item.range),
+                    item.symbol,
+                    item.symbol_roles,
+                ),
+            ):
+                if not occurrence.symbol and not occurrence.symbol_roles:
+                    continue
+                is_definition = bool(occurrence.symbol_roles & wire.Definition)
+                location = list(occurrence.range)
+                if len(location) == 3:
+                    location.insert(2, location[0])
+                if (
+                    len(location) != 4
+                    or min(location) < 0
+                    or tuple(location[:2]) > tuple(location[2:])
+                    or not occurrence.symbol.strip()
+                    or occurrence.symbol_roles < 0
                 ):
-                    if not occurrence.symbol and not occurrence.symbol_roles:
-                        continue
-                    is_definition = bool(occurrence.symbol_roles & wire.Definition)
-                    location = list(occurrence.range)
-                    if len(location) == 3:
-                        location.insert(2, location[0])
-                    if (
-                        len(location) != 4
-                        or min(location) < 0
-                        or tuple(location[:2]) > tuple(location[2:])
-                        or not occurrence.symbol.strip()
-                        or occurrence.symbol_roles < 0
-                    ):
-                        diagnostics.append(
-                            Diagnostic(
-                                "invalid_definition_range"
-                                if is_definition
-                                else "invalid_reference_range",
-                                "Invalid SCIP occurrence",
-                                file,
-                            )
-                        )
-                        continue
-                    native = occurrence.symbol
-                    if not is_definition:
-                        occurrence_key = (
+                    diagnostics.append(
+                        Diagnostic(
+                            "invalid_definition_range"
+                            if is_definition
+                            else "invalid_reference_range",
+                            "Invalid SCIP occurrence",
                             file,
-                            native,
-                            "Reference",
-                            tuple(location),
-                            occurrence.symbol_roles,
                         )
-                        if occurrence_key in seen_definitions:
-                            continue
-                        seen_definitions.add(occurrence_key)
-                        ordinal = ordinals.get((native, "Reference"), 0)
-                        ordinals[(native, "Reference")] = ordinal + 1
-                        references.append(
-                            Reference(
-                                identifier(
-                                    repository_id, file, native, "Reference", ordinal
-                                ),
-                                file,
-                                native,
-                                location[0] + 1,
-                                location[1],
-                                location[2] + 1,
-                                location[3],
-                                occurrence.symbol_roles,
-                                encoding,
-                            )
-                        )
-                        continue
-                    info = infos.get(native)
-                    try:
-                        kind = (
-                            wire.SymbolInformation.Kind.Name(info.kind)
-                            if info is not None
-                            else "UnspecifiedKind"
-                        )
-                    except ValueError:
-                        kind = "UnspecifiedKind"
-                        diagnostics.append(
-                            Diagnostic(
-                                "unsupported_symbol_kind",
-                                "Indexer used an unknown symbol kind",
-                                file,
-                            )
-                        )
-                    if kind == "UnspecifiedKind":
-                        kind = "Symbol"
-                    symbol = (
-                        info.display_name
-                        if info is not None and info.display_name
-                        else native
                     )
-                    occurrence_key = (file, native, kind, tuple(location))
+                    continue
+                native = occurrence.symbol
+                if not is_definition:
+                    occurrence_key = (
+                        file,
+                        native,
+                        "Reference",
+                        tuple(location),
+                        occurrence.symbol_roles,
+                    )
                     if occurrence_key in seen_definitions:
                         continue
                     seen_definitions.add(occurrence_key)
-                    ordinal = ordinals.get((native, kind), 0)
-                    ordinals[(native, kind)] = ordinal + 1
-                    identity = identifier(repository_id, file, native, kind, ordinal)
-                    definitions.append(
-                        Definition(
-                            identity,
+                    ordinal = ordinals.get((native, "Reference"), 0)
+                    ordinals[(native, "Reference")] = ordinal + 1
+                    references.append(
+                        Reference(
+                            identifier(
+                                repository_id, file, native, "Reference", ordinal
+                            ),
                             file,
-                            symbol,
-                            kind,
+                            native,
                             location[0] + 1,
                             location[1],
                             location[2] + 1,
                             location[3],
-                            native,
+                            occurrence.symbol_roles,
                             encoding,
                         )
                     )
-                digest = sha256(doc.SerializeToString(deterministic=True)).hexdigest()
-                coverage.append(
-                    FileCoverage(
+                    continue
+                info = infos.get(native)
+                try:
+                    kind = (
+                        wire.SymbolInformation.Kind.Name(info.kind)
+                        if info is not None
+                        else "UnspecifiedKind"
+                    )
+                except ValueError:
+                    kind = "UnspecifiedKind"
+                    diagnostics.append(
+                        Diagnostic(
+                            "unsupported_symbol_kind",
+                            "Indexer used an unknown symbol kind",
+                            file,
+                        )
+                    )
+                if kind == "UnspecifiedKind":
+                    kind = "Symbol"
+                symbol = (
+                    info.display_name
+                    if info is not None and info.display_name
+                    else native
+                )
+                occurrence_key = (file, native, kind, tuple(location))
+                if occurrence_key in seen_definitions:
+                    continue
+                seen_definitions.add(occurrence_key)
+                ordinal = ordinals.get((native, kind), 0)
+                ordinals[(native, kind)] = ordinal + 1
+                identity = identifier(repository_id, file, native, kind, ordinal)
+                definitions.append(
+                    Definition(
+                        identity,
                         file,
-                        doc.language or "unspecified",
-                        "partial" if len(diagnostics) != before else "analyzed",
-                        digest,
+                        symbol,
+                        kind,
+                        location[0] + 1,
+                        location[1],
+                        location[2] + 1,
+                        location[3],
+                        native,
+                        encoding,
                     )
                 )
-        except (OSError, ValueError, DecodeError) as exc:
-            diagnostics.append(Diagnostic("invalid_index", str(exc)))
+            digest = sha256(doc.SerializeToString(deterministic=True)).hexdigest()
+            coverage.append(
+                FileCoverage(
+                    file,
+                    doc.language or "unspecified",
+                    "partial" if len(diagnostics) != before else "analyzed",
+                    digest,
+                )
+            )
+    except (OSError, ValueError, DecodeError) as exc:
+        diagnostics.append(Diagnostic("invalid_index", str(exc)))
     status = (
         "succeeded"
         if not diagnostics
