@@ -53,6 +53,10 @@ class Definition:
     # Java methods and constructors declared ``private``, which subtypes do
     # not inherit: True. None elsewhere.
     private: bool | None = None
+    # Java methods declared in an enum constant's body (``A { void m() {} }``),
+    # named as the enum's members are: True. They are no members of the enum
+    # type; a call through it binds the enum's own or inherited method.
+    constant_body: bool | None = None
     # JavaScript and TypeScript methods declared ``static``: True. None
     # elsewhere.
     static: bool | None = None
@@ -87,8 +91,9 @@ class Definition:
     # JavaScript and TypeScript classes: the names of the instance fields the
     # body declares (``x = 1``, ``x: T``, ``declare x``) and of the
     # constructor's parameter properties (``private x: T``), which hide a
-    # method of that name the class inherits. None elsewhere, or when there
-    # is none.
+    # method of that name the class inherits. Java types: the names of every
+    # field the body declares (static, private or not), enum constants and
+    # record components. None elsewhere, or when there is none.
     properties: tuple[str, ...] | None = None
     # Go named types declared as a slice or array (``type byName []*T``):
     # that type, written as for ``result_type`` (``[]T``). None elsewhere.
@@ -139,6 +144,8 @@ class Definition:
             raise ValueError("parameter_types must be a tuple of nonempty strings")
         if self.private is not None and self.private is not True:
             raise ValueError("private must be True or None")
+        if self.constant_body not in (None, True):
+            raise ValueError("constant_body must be True or None")
         if self.static is not None and self.static is not True:
             raise ValueError("static must be True or None")
         if self.default_export is not None and self.default_export is not True:
@@ -259,8 +266,25 @@ class Import:
     # name each of ``names`` is exported under (aliases applied; ``*`` for
     # ``export *``, the namespace for ``export * as ns``). None elsewhere.
     exported_names: tuple[str, ...] | None = None
+    # JavaScript and TypeScript imports: (local, exported) for each name the
+    # statement binds that a local ``export { local as exported }`` (no
+    # ``from``) of the same module exports again, which re-exports what the
+    # import names. None elsewhere, or when there is none.
+    reexported_as: tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self):
+        if self.reexported_as is not None and (
+            type(self.reexported_as) is not tuple
+            or not self.reexported_as
+            or not all(
+                type(pair) is tuple
+                and len(pair) == 2
+                and all(isinstance(n, str) and n for n in pair)
+                and pair[0] in self.local_names
+                for pair in self.reexported_as
+            )
+        ):
+            raise ValueError("reexported_as must pair local names with exported names")
         if self.exported_names is not None and (
             type(self.exported_names) is not tuple
             or len(self.exported_names) != len(self.names)
@@ -381,25 +405,26 @@ class CallSite:
     # declared around the call names: (``X``, ``f``) for each such argument,
     # None for any other argument. None when there is no such argument.
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
-    # Rust calls ``x.m()`` whose receiver is the result of a call: the span
-    # (line, column, end line, end column) of that call, either the receiver
-    # itself (``T::new().m()``, ``x.a().m()``) or the value of the ``let``
-    # that is the innermost declaration of the local ``x`` and binds it alone
-    # without a type (``let x = T::new();``). None elsewhere.
+    # Java calls ``e.m()`` whose receiver ``e`` is itself a method call or a
+    # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
+    # line, end column) of ``e``. Rust calls ``x.m()`` whose receiver is the
+    # result of a call: the span of that call, either the receiver itself
+    # (``T::new().m()``, ``x.a().m()``) or the value of the ``let`` that is
+    # the innermost declaration of the local ``x`` and binds it alone without
+    # a type (``let x = T::new();``). None elsewhere.
     receiver_call: tuple[int, int, int, int] | None = None
+    # Java calls ``X.f.m()`` (three or more names): True when no variable or
+    # field named ``X`` can be in scope, so ``X`` names a type or package.
+    # None elsewhere.
+    type_qualified: bool | None = None
+    # Java calls ``x.m()`` whose ``receiver_type`` comes from a declaration
+    # outside a type around the call that may inherit a field (an anonymous
+    # class, an enum constant body, a class with bases): True, and the call
+    # binds that declaration only if none of those types inherits a field
+    # ``x``. None elsewhere.
+    receiver_inherits: bool | None = None
 
     def __post_init__(self):
-        if self.receiver_call is not None and (
-            self.receiver_type is not None
-            or type(self.receiver_call) is not tuple
-            or len(self.receiver_call) != 4
-            or not all(type(v) is int and v >= 0 for v in self.receiver_call)
-            or self.receiver_call[0] < 1
-        ):
-            raise ValueError(
-                "receiver_call must be a span (line, column, end line, end"
-                " column), without a receiver_type"
-            )
         if self.binding is not None and (
             type(self.binding) is not tuple
             or len(self.binding) not in (0, 2)
@@ -417,6 +442,12 @@ class CallSite:
             raise ValueError(
                 "receiver_binding must be (line, column) or () with a receiver_type"
             )
+        if self.receiver_call is not None and (
+            type(self.receiver_call) is not tuple
+            or len(self.receiver_call) != 4
+            or not all(type(v) is int and v >= 0 for v in self.receiver_call)
+        ):
+            raise ValueError("receiver_call must be a span of four integers")
         if self.argument_calls is not None and (
             type(self.argument_calls) is not tuple
             or len(self.argument_calls) != self.arguments
@@ -481,6 +512,12 @@ class CallSite:
             raise ValueError("receiver_steps must be nonempty strings after a type")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
+        if self.type_qualified not in (None, True):
+            raise ValueError("type_qualified must be True or None")
+        if self.receiver_inherits not in (None, True) or (
+            self.receiver_inherits and self.receiver_type is None
+        ):
+            raise ValueError("receiver_inherits must be True with a receiver_type")
         if self.argument_types is not None and (
             type(self.argument_types) is not tuple
             or len(self.argument_types) != self.arguments
@@ -803,6 +840,8 @@ class AnalysisResult:
                 del item["parameter_types"]
             if item["private"] is None:
                 del item["private"]
+            if item["constant_body"] is None:
+                del item["constant_body"]
             if item["static"] is None:
                 del item["static"]
             if item["default_export"] is None:
@@ -844,15 +883,21 @@ class AnalysisResult:
                 del item["receiver_binding"]
             if item["argument_calls"] is None:
                 del item["argument_calls"]
-            if item["argument_fields"] is None:
-                del item["argument_fields"]
             if item["receiver_call"] is None:
                 del item["receiver_call"]
+            if item["type_qualified"] is None:
+                del item["type_qualified"]
+            if item["receiver_inherits"] is None:
+                del item["receiver_inherits"]
+            if item["argument_fields"] is None:
+                del item["argument_fields"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
             if item["exported_names"] is None:
                 del item["exported_names"]
+            if item["reexported_as"] is None:
+                del item["reexported_as"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
@@ -921,6 +966,15 @@ class AnalysisResult:
                             if isinstance(item.get("exported_names"), list)
                             else {}
                         ),
+                        **(
+                            {
+                                "reexported_as": tuple(
+                                    tuple(pair) for pair in item["reexported_as"]
+                                )
+                            }
+                            if isinstance(item.get("reexported_as"), list)
+                            else {}
+                        ),
                     }
                 )
                 for item in data["imports"]
@@ -951,13 +1005,13 @@ class AnalysisResult:
                             else {}
                         ),
                         **(
-                            {"receiver_binding": tuple(item["receiver_binding"])}
-                            if isinstance(item.get("receiver_binding"), list)
+                            {"receiver_call": tuple(item["receiver_call"])}
+                            if isinstance(item.get("receiver_call"), list)
                             else {}
                         ),
                         **(
-                            {"receiver_call": tuple(item["receiver_call"])}
-                            if isinstance(item.get("receiver_call"), list)
+                            {"receiver_binding": tuple(item["receiver_binding"])}
+                            if isinstance(item.get("receiver_binding"), list)
                             else {}
                         ),
                         **(

@@ -1949,11 +1949,9 @@ class RustTests(unittest.TestCase):
         self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
         self.assertNotIn('"receiver_call": null', result.to_json())
         site = next(c for c in result.call_sites if c.receiver_call)
-        for bad in ((1, 2, 3), (0, 0, 1, 1), [1, 0, 1, 1], (1, -1, 1, 1)):
+        for bad in ((1, 2, 3), [1, 0, 1, 1], (1, -1, 1, 1)):
             with self.subTest(receiver_call=bad), self.assertRaises(ValueError):
                 dataclasses.replace(site, receiver_call=bad)
-        with self.assertRaises(ValueError):
-            dataclasses.replace(site, receiver_type="S")
 
     def test_tuple_variants_are_called_by_their_enum(self):
         result = analyze(

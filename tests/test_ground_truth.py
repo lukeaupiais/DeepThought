@@ -223,6 +223,36 @@ class JavaTruthTest(unittest.TestCase):
             },
         )
 
+    def test_a_call_on_an_erroneous_chain_is_a_possible_call(self):
+        sources = {
+            "src/a/B.java": (
+                "package a;\n"
+                "public class B {\n"
+                "  public B with(Class<?> c) { return this; }\n"
+                "  public String build() { return null; }\n"
+                "  public String build(int n) { return null; }\n"
+                "  void use() {\n"
+                "    new B().with(Missing.class).build();\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in sources.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            expected, _ = ground_truth.derive_java(directory)
+            possible, _ = ground_truth.derive_java(directory, recovered=True)
+        # `Missing` makes the chain erroneous, so javac leaves build()
+        # unbound: not a call it rules on, but a possible call to the
+        # build of B's declared type with no arguments.
+        self.assertNotIn(("src/a/B.java", 7, "build"), expected)
+        self.assertEqual(
+            possible[("src/a/B.java", 7, "build")],
+            {("src/a/B.java", 4, "callable")},
+        )
+
     def test_javac_binds_constructor_chains(self):
         sources = {
             "src/a/Base.java": "package a;\npublic class Base {\n"

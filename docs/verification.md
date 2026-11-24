@@ -745,6 +745,31 @@ are equivalent. Six are gaps nothing checks:
 | 683 | `_RustPaths._declared` | `or` to `and` | a module path read in another crate root's context |
 | 864 | `_RustPaths.resolve` | `not declared` to `declared` | the `not_declared` reason of unresolved Rust paths |
 
+A run can target the code one change added. `--lines A-B` (repeatable) keeps
+only mutants on those lines, and `--corpus NAME` (repeatable) only those
+corpora. Facts that `syntax.py` reads while analyzing are only seen if the
+corpora are analyzed again, so `--reanalyze` runs each mutant on a copy of the
+package and analyzes every selected corpus again:
+
+```sh
+python tools/mutate_resolution.py --module syntax --reanalyze \
+    --corpus ky --corpus hono --corpus preact --lines 2357-2431 --timeout 900
+```
+
+Results for the TypeScript and JavaScript receiver typing through fields,
+member chains and destructuring (the lines it added to `syntax.py` and
+`calls.py`), on ky, hono and preact:
+
+| Module | Mutants | Corpus | Error | Unit tests only | Survived |
+|---|---|---|---|---|---|
+| `syntax.py` (with `--reanalyze`) | 91 | 33 | 21 | 35 | 2 |
+| `calls.py` | 25 | 7 | 11 | 7 | 0 |
+
+The two survivors were gaps, and unit tests now cover both: the `static`
+flag of a TypeScript overload signature (`!=` for `==` marked every overload
+static), and the depth at which `_js_origin` stops following aliases (`>=`
+for `>` stopped one hop early).
+
 ## Historical replay
 
 `tools/replay_history.py` asks whether impact analysis anticipates what real
@@ -919,10 +944,13 @@ calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
 `derive-java --chains` lists them and they join the impact graph as
 `--extra-calls`. A call javac bound by error recovery (the proto classes
 are missing) is not ruled on: `derive-java --recovered` lists each one against
-every overload of the name it bound, the impact truth is derived a second time
+every overload of the name it bound, and a call javac left unbound because
+its receiver's type is erroneous although the receiver is a call it did bind
+(the `.create()` ending a `GsonBuilder` chain that registers a proto class) against every method of that name and arity the receiver's
+declared type has or inherits; the impact truth is derived a second time
 with those calls added (`--possible-calls`), and a dependent only that wider
 graph reaches is written as an `# unjudged` row for its seed. An engine
-dependent on such a row counts as unjudged, not extra; 238 rows cover gson's
+dependent on such a row counts as unjudged, not extra; 242 rows cover gson's
 proto tests, and 4 engine dependents land on them: the test methods at
 `LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, as dependents of
 `Gson.toJson(Object, Type)` and `JsonElement.newJsonStringBuilder()`.

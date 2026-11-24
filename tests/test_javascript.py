@@ -366,13 +366,13 @@ class JavaScriptCallTests(unittest.TestCase):
                 "only": ("linked", "b.js:only", CALL_JS_REEXPORT),
                 "S.only": ("linked", "b.js:only", CALL_JS_REEXPORT),
                 "dup": ("ambiguous", "multiple_declarations", None),
-                # A default export declared in place is followed; a
-                # namespace re-export, a cycle and an import exported by a
-                # separate clause are not.
+                # A default export declared in place, and an import
+                # exported by a separate clause, are followed; a namespace
+                # re-export and a cycle are not.
                 "Comp": ("linked", "c.js:Comp", CALL_JS_REEXPORT),
                 "ns.render": ("unresolved", "attribute_call", None),
                 "loop": ("unresolved", "imported_name_not_declared", None),
-                "r2": ("unresolved", "imported_name_not_declared", None),
+                "r2": ("linked", "a.js:render", CALL_JS_REEXPORT),
                 # A default that a named re-export gives is followed; a star
                 # export gives no default, and a namespace export no names.
                 "D2": ("linked", "b.js:only", CALL_JS_REEXPORT),
