@@ -1805,6 +1805,22 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   templates tagged `gql` or `graphql`, marked by a `/* GraphQL */` comment,
   or starting with `#graphql`. A substitution (`${fragment}`) is not read.
 
+Clients: in a Node package that depends on a GraphQL client
+(`@apollo/client`, `apollo-client`, `apollo-boost`, `react-apollo`,
+`@apollo/react-hooks`, `urql`, `@urql/core`, `graphql-request`,
+`react-relay`, `relay-runtime`), the operations of its GraphQL templates
+(as above) and of its `*.graphql`/`*.gql` files request the root fields
+they select. An alias requests its field, and `__typename` and fields marked
+`@client` (resolved by Apollo Client itself) are not requests. Each
+requested field links by `REQUESTS` (rule
+`service-contracts.graphql-client-operation`, pattern_matched; properties
+`request`, `operation_name`, `line`, `column`) from the declaration that
+holds the operation, or its file, to the field of the one server in the
+repository that resolves it. When no server resolves it, the edge goes to
+the one server package that declares it. A `.graphql` document with
+requests gets a `File` node (language `graphql`) that the repository
+`CONTAINS` (rule `service-contracts.repository-contains-graphql`).
+
 Counted as unread:
 - `graphql:schema_root_renamed`: a schema definition that names a root
   type other than `Query`, `Mutation` or `Subscription`;
@@ -1822,9 +1838,17 @@ Counted as unread:
 - `graphql:declared_not_resolved`: a declared field that no resolver
   handles, in a package whose resolver maps are all read;
 - `graphql:resolved_not_declared`: a resolved field missing from a package
-  that has schema files.
+  that has schema files;
+- `graphql:client_fragment_root`: a fragment spread or inline fragment among
+  an operation's root fields;
+- `graphql:client_field_unknown`: a requested field that no server of the
+  repository resolves or declares (an outside API, or drift);
+- `graphql:client_field_ambiguous`: a requested field that several servers
+  resolve.
 
-Clients and field resolvers of object types are not read yet.
+Field resolvers of object types, and fragments at the root of an
+operation, are not read yet. Clients link by field name across the
+repository, not by the server URL they are configured with.
 
 On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
 GraphQL servers, 23 of them also declared in schema files. The two
@@ -1858,6 +1882,15 @@ schemas declare and the resolver files read by hand:
   declared fields without a read resolver are `graphql:resolution_unknown`
   rather than reported as unimplemented. Apollo Client's `cacheRedirects` in
   the shared client code is not read as a resolver map.
+
+Clients were checked the same way. On `fullstack-tutorial` the two client
+packages hold 10 operations. Two are `@client`-only and request nothing.
+The other 8 are read and each links to the server field it names. One of
+these is the starter client's `GetLaunch`: it links to the finished server,
+the only one in the repository that resolves `launch`. On `spectrum` the
+four client operations in files the grammar parses fully are read. Three
+link to their mutations, and `subscribeWebPush` is
+`graphql:client_field_unknown`: the server no longer declares it.
 
 ### Gateways
 

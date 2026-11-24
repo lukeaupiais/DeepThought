@@ -24,11 +24,14 @@ from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.graphql import (
+    CLIENTS as GRAPHQL_CLIENTS,
     GraphqlDeclaration,
     RESOLVER_MAP_SERVERS,
+    client_operations,
     extract_nest_resolvers,
     extract_resolver_maps,
     follow_reference,
+    operation_fields,
     schema_fields,
     template_schemas,
 )
@@ -303,6 +306,25 @@ GRAPHQL_RESOLVER_RULES = {
         )
     ),
 }
+
+GRAPHQL_DOCUMENT_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.repository-contains-graphql",
+        "resolved",
+        "The repository has this GraphQL document (*.graphql, *.gql) at this path.",
+    )
+)
+GRAPHQL_CLIENT_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.graphql-client-operation",
+        "pattern_matched",
+        "An operation in a GraphQL template or .graphql file of a Node package "
+        "that depends on a GraphQL client (Apollo Client, urql, graphql-request, "
+        "Relay) selects a root field that exactly one GraphQL server of the "
+        "repository resolves, or, when none resolves it, that exactly one "
+        "declares.",
+    )
+)
 
 GRPC_CALL_RULE = register_rule(
     EvidenceRule(
@@ -625,6 +647,9 @@ class ServiceContractTool(AnalysisTool):
         resolver_map_packages = {}
         resolver_references = []
         partial_scripts = []
+        graphql_requests = []
+        graphql_documents = {}
+        client_packages = {}
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -776,6 +801,25 @@ class ServiceContractTool(AnalysisTool):
                     found = template_schemas(tree, content, coverage.file)
                     graphql_declared.extend(found[0])
                     unread.extend(found[1])
+            if coverage.language in ("javascript", "typescript") and any(
+                needle in content for needle in (b"gql", b"graphql", b"GraphQL")
+            ):
+                package = _node_package(root, coverage.file)
+                if package not in client_packages:
+                    client_packages[package] = bool(
+                        _package_dependencies(root, package) & GRAPHQL_CLIENTS
+                    )
+                if client_packages[package]:
+                    found = client_operations(
+                        tree,
+                        content,
+                        repo_url,
+                        coverage.file,
+                        result.definitions,
+                        coverage.language,
+                    )
+                    graphql_requests.extend(found[0])
+                    unread.extend(found[1])
             if coverage.language == "java" and b"cloud.stream" in content:
                 found = extract_stream(
                     tree, content, coverage.file, result.definitions, constants
@@ -791,12 +835,21 @@ class ServiceContractTool(AnalysisTool):
                 for part in relative.parts
             ):
                 continue
-            found = schema_fields(
-                path.read_text(encoding="utf-8", errors="replace"),
-                relative.as_posix(),
-            )
+            raw = path.read_bytes()
+            source = raw.decode("utf-8", errors="replace")
+            graphql_documents[relative.as_posix()] = sha256(raw).hexdigest()
+            found = schema_fields(source, relative.as_posix())
             graphql_declared.extend(found[0])
             unread.extend(found[1])
+            package = _node_package(root, relative.as_posix())
+            if package not in client_packages:
+                client_packages[package] = bool(
+                    _package_dependencies(root, package) & GRAPHQL_CLIENTS
+                )
+            if client_packages[package]:
+                found = operation_fields(source, relative.as_posix())
+                graphql_requests.extend(found[0])
+                unread.extend(found[1])
         # A script the grammar could not fully parse is not read; in a package
         # with resolver maps it may hold some, so its fields are unknown.
         for file in partial_scripts:
@@ -847,6 +900,35 @@ class ServiceContractTool(AnalysisTool):
         files, symbols, nodes, relationships = {}, {}, [], []
 
         def file_node(path):
+            if path not in files and path in graphql_documents:
+                # A GraphQL document no language tool reads: the repository
+                # contains it.
+                qualified = f"{repo_url}::{path}::file"
+                files[path] = NodeData(
+                    ["File"],
+                    {
+                        "qualified_name": qualified,
+                        "repo_url": repo_url,
+                        "path": path,
+                        "file_path": path,
+                        "name": path,
+                        "language": "graphql",
+                        "file_sha256": graphql_documents[path],
+                    },
+                )
+                relationships.append(
+                    RelationshipData(
+                        "CONTAINS",
+                        ["Repository"],
+                        {
+                            "qualified_name": f"{repo_url}::repository",
+                            "repo_url": repo_url,
+                        },
+                        ["File"],
+                        {"qualified_name": qualified, "repo_url": repo_url},
+                        _evidence(GRAPHQL_DOCUMENT_RULE),
+                    )
+                )
             if path not in files:
                 coverage = languages_by_file[path]
                 files[path] = NodeData(
@@ -1072,6 +1154,50 @@ class ServiceContractTool(AnalysisTool):
                         },
                     )
                 )
+        # Each root field a client selects, to the one server that resolves
+        # it (or else declares it).
+        resolving_scopes, declaring_servers = {}, {}
+        server_scopes = {
+            scope
+            for (scope, _, _), (_, resolving) in graphql_fields.items()
+            if resolving
+        } | opaque_scopes
+        for (scope, operation, field), (declared, resolving) in graphql_fields.items():
+            if resolving:
+                resolving_scopes.setdefault((operation, field), []).append(scope)
+            elif declared and scope in server_scopes:
+                declaring_servers.setdefault((operation, field), []).append(scope)
+        for request in graphql_requests:
+            key = (request.operation, request.field)
+            scopes = resolving_scopes.get(key) or declaring_servers.get(key) or []
+            if len(scopes) != 1:
+                reason = "client_field_ambiguous" if scopes else "client_field_unknown"
+                graphql_unread[reason] = graphql_unread.get(reason, 0) + 1
+                continue
+            full = f"{request.operation}.{request.field}"
+            if request.caller_id is None:
+                labels, source = file_node(request.file)
+            else:
+                labels, source = symbol_node(request.caller_id)
+            relationships.append(
+                RelationshipData(
+                    "REQUESTS",
+                    labels,
+                    {"qualified_name": source, "repo_url": repo_url},
+                    ["GraphqlField", "Contract"],
+                    {
+                        "qualified_name": f"{repo_url}::graphql::{scopes[0]}::{full}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "request": full,
+                        **({"operation_name": request.name} if request.name else {}),
+                        "line": request.line,
+                        "column": request.column,
+                        **_evidence(GRAPHQL_CLIENT_RULE),
+                    },
+                )
+            )
         grpc_names = {}
         for (service, method), declared in sorted(grpc.index.methods.items()):
             full = f"{service}/{method}"
@@ -1263,6 +1389,7 @@ class ServiceContractTool(AnalysisTool):
                 "message_destinations": len(topics),
                 "test_source_files_skipped": test_files,
                 "graphql_fields": len(graphql_fields),
+                "graphql_requests": len(graphql_requests),
                 "grpc_methods": len(grpc.index.methods),
                 "grpc_handlers": len(grpc.handlers),
                 "grpc_calls": len(grpc.calls),

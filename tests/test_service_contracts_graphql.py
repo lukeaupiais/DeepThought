@@ -435,5 +435,98 @@ class ResolverModuleTests(unittest.TestCase):
         self.assertEqual(unread["graphql:source_not_parsed"], 1)
 
 
+CLIENT = {
+    "server/package.json": '{"dependencies": {"@apollo/server": "4.0.0"}}',
+    "server/schema.graphql": """type Query { launches: [Launch] me: User shared: Int pending: Int }
+type Mutation { login(email: String): String }
+""",
+    "server/resolvers.js": """
+module.exports = {
+  Query: { launches: () => [], me: () => null, shared: () => 1 },
+  Mutation: { login: () => '' },
+};
+""",
+    "other/package.json": '{"dependencies": {"graphql-yoga": "5.0.0"}}',
+    "other/index.js": "const resolvers = { Query: { shared: () => 2 } };\nconst probe = gql`{ launches }`;\n",
+    "web/package.json": '{"dependencies": {"@apollo/client": "3.9.0"}}',
+    "web/src/queries.ts": """
+import { gql } from '@apollo/client';
+
+export const LAUNCHES = gql`
+  query GetLaunches($after: String) {
+    list: launches(after: $after) @connection(key: "l") { id }
+    isLoggedIn @client
+    __typename
+    ...Extra
+  }
+  ${FRAGMENT}
+`;
+
+export function useLogin() {
+  return useMutation(gql`mutation { login(email: "a") }`);
+}
+
+const AMBIGUOUS = gql`{ shared ghost }`;
+""",
+    "web/src/me.graphql": "query Me { me { id } }\nfragment Extra on Query { me { id } }\nquery { pending }\ntype Local { query: String }\nfragment Tail on Launch { id }\n",
+}
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class ClientTests(unittest.TestCase):
+    def test_client_operations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, CLIENT)
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        found = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[1:3],
+                r.properties["line"],
+                r.properties["column"],
+                r.properties.get("operation_name"),
+                r.target_match["qualified_name"].split("::", 2)[2],
+            )
+            for r in output.relationships
+            if r.type == "REQUESTS"
+            and "::graphql::" in r.target_match["qualified_name"]
+        )
+        for r in output.relationships:
+            if (
+                r.type == "REQUESTS"
+                and "::graphql::" in r.target_match["qualified_name"]
+            ):
+                self.assertEqual(
+                    r.properties["rule_id"],
+                    "service-contracts.graphql-client-operation",
+                )
+        self.assertEqual(
+            found,
+            [
+                (["web/src/me.graphql", "file"], 1, 11, "Me", "server::Query.me"),
+                (["web/src/me.graphql", "file"], 3, 8, None, "server::Query.pending"),
+                (
+                    ["web/src/queries.ts", "file"],
+                    6,
+                    10,
+                    "GetLaunches",
+                    "server::Query.launches",
+                ),
+                (
+                    ["web/src/queries.ts", "useLogin"],
+                    15,
+                    36,
+                    None,
+                    "server::Mutation.login",
+                ),
+            ],
+        )
+        unread = output.metadata.custom_metrics["unread"]
+        self.assertEqual(unread["graphql:client_fragment_root"], 1)
+        self.assertEqual(unread["graphql:client_field_ambiguous"], 1)
+        self.assertEqual(unread["graphql:client_field_unknown"], 1)
+        self.assertEqual(output.metadata.custom_metrics["graphql_requests"], 6)
+
+
 if __name__ == "__main__":
     unittest.main()
