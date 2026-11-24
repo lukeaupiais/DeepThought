@@ -4,8 +4,10 @@ import asyncio
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 from uuid import uuid4
 
 from deepthought.analysis_tools import (
@@ -489,6 +491,13 @@ class StatementTests(unittest.TestCase):
                 ("visits",),
                 ("pets",),
             ),
+            # System catalogs are not the application's tables.
+            "SELECT table_name FROM INFORMATION_SCHEMA.TABLES t "
+            "JOIN pg_catalog.pg_class c ON true JOIN pg_attribute a ON true "
+            "JOIN users u ON true": (("users",), ()),
+            "SELECT name FROM sqlite_master UNION SELECT name FROM sys.databases "
+            "UNION SELECT table_name FROM all_tables "
+            "UNION SELECT name FROM user_settings": (("user_settings",), ()),
             "WITH recent (id) AS (SELECT id FROM visits) SELECT * FROM recent": (
                 ("visits",),
                 (),
@@ -1123,10 +1132,28 @@ class ScriptSqlTests(unittest.TestCase):
         self.assertEqual(output.metadata.custom_metrics["sql_text"]["not_fixed"], 1)
 
 
+def go_edges(output):
+    return sorted(
+        (
+            r.type,
+            r.source_match["qualified_name"].split("::")[-2],
+            r.target_match["qualified_name"].rsplit("::", 1)[1],
+            r.properties["rule_id"].split(".", 1)[1],
+        )
+        for r in output.relationships
+        if r.type != "CONTAINS"
+    )
+
+
 @unittest.skipUnless(GO, "Install the go grammar")
 class GoSqlTests(unittest.TestCase):
+    """The tree-sitter rules, as they read Go without the Go toolchain."""
+
     def test_sql_text_and_gorm_table_names(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch("deepthought.go_facts.toolchain", return_value=None),
+        ):
             write(directory, GO_SQL)
             output = asyncio.run(
                 DataContractTool(directory).analyze("r", languages=["go"])
@@ -1157,6 +1184,205 @@ class GoSqlTests(unittest.TestCase):
             metrics["sql_text"],
             {"statements": 3, "not_fixed": 1, "unknown_entity": 0},
         )
+        self.assertEqual(
+            metrics["go_type_facts"]["files_not_checked"], {"go_not_installed": 2}
+        )
+
+
+GO_TYPED = {
+    "go.mod": "module example.com/shop\n\ngo 1.22\n\nrequire gorm.io/gorm v1.25.12\n",
+    "store/db.go": """package store
+
+import (
+\t"context"
+\t"database/sql"
+)
+
+// DBTX is the interface sqlc writes: its methods return database/sql types.
+type DBTX interface {
+\tExecContext(context.Context, string, ...interface{}) (sql.Result, error)
+\tQueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
+type Queries struct{ db DBTX }
+
+// DB embeds *sql.DB: its Exec is database/sql's.
+type DB struct{ *sql.DB }
+""",
+    "store/queries.go": """package store
+
+import "context"
+
+const getAccount = `-- name: GetAccount :one
+SELECT id FROM accounts WHERE id = $1`
+
+func (q *Queries) GetAccount(ctx context.Context, id int) {
+\tq.db.QueryRowContext(ctx, getAccount, id)
+}
+
+func (q *Queries) Archive(ctx context.Context, table string) {
+\tquery := "INSERT INTO archive SELECT * FROM " + table
+\tq.db.ExecContext(ctx, query)
+}
+
+func (q *Queries) Twice(ctx context.Context, late bool) {
+\tquery := "DELETE FROM sessions"
+\tif late {
+\t\tquery = "DELETE FROM audit"
+\t}
+\tq.db.ExecContext(ctx, query)
+}
+
+func Purge(db *DB) { db.Exec("DELETE FROM tokens") }
+""",
+    "store/models.go": """package store
+
+const usersTable = "users"
+
+type User struct{ ID int }
+
+func (User) TableName() string { return usersTable }
+""",
+    "store/migrations.go": """package store
+
+import "database/sql"
+
+// Calls in func literals of a package variable are read too.
+var migrations = []func(tx *sql.Tx) error{
+\tfunc(tx *sql.Tx) error {
+\t\tquery := "INSERT INTO schema_version VALUES (1)"
+\t\t_, err := tx.Exec(query)
+\t\treturn err
+\t},
+}
+""",
+    "web/search.go": """package web
+
+import "net/url"
+
+// Not SQL: url.Values.Get and a Get of the code's own type.
+type Cache struct{}
+
+func (Cache) Get(key string) string { return key }
+
+func Lookup(values url.Values, c Cache) {
+\tvalues.Get("select from the list")
+\tc.Get("SELECT * FROM cached")
+}
+""",
+}
+
+
+@unittest.skipUnless(GO and shutil.which("go"), "Install the go grammar and Go")
+class GoTypeFactsTests(unittest.TestCase):
+    """What the Go type checker (go/types) adds to the tree-sitter rules."""
+
+    def analyze(self, files):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            return asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["go"])
+            )
+
+    def test_typed_calls_constants_and_table_names(self):
+        output = self.analyze(GO_TYPED)
+        self.assertEqual(
+            go_edges(output),
+            [
+                ("MAPS_TO", "User", "users", "gorm-table-name-types"),
+                ("READS", "Queries.GetAccount", "accounts", "go-sql-types"),
+                ("WRITES", "Purge", "tokens", "go-sql-types"),
+                ("WRITES", "Queries.Archive", "archive", "go-sql-types"),
+                ("WRITES", "store/migrations.go", "schema_version", "go-sql-types"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        # Twice's query is assigned twice: its text is not fixed.
+        self.assertEqual(
+            metrics["sql_text"],
+            {"statements": 4, "not_fixed": 0, "unknown_entity": 0},
+        )
+        self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
+        self.assertEqual(metrics["go_type_facts"]["files_checked"], 5)
+
+    def test_same_calls_without_go(self):
+        # Without go/types none of these is read: the files that run SQL do
+        # not import a SQL package, and the TableName is a constant.
+        with mock.patch("deepthought.go_facts.toolchain", return_value=None):
+            output = self.analyze(GO_TYPED)
+        self.assertEqual(go_edges(output), [])
+
+    def test_untyped_calls_fall_back_to_tree_sitter(self):
+        files = {
+            "go.mod": "module example.com/shop\n\ngo 1.22\n",
+            "store/store.go": """package store
+
+import (
+\t"database/sql"
+
+\t"example.com/missing/dep"
+)
+
+func Load(db *sql.DB, other dep.Conn) {
+\tdb.Query("SELECT id FROM accounts")
+\tother.Query("SELECT id FROM orders")
+}
+""",
+        }
+        output = self.analyze(files)
+        self.assertEqual(
+            go_edges(output),
+            [
+                ("READS", "Load", "accounts", "go-sql-types"),
+                ("READS", "Load", "orders", "go-sql"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["go_type_facts"]["files_partly_checked"], 1
+        )
+
+    def test_files_outside_a_module(self):
+        files = {"main.go": "package main\n\nfunc main() {}\n"}
+        output = self.analyze(files)
+        self.assertEqual(
+            output.metadata.custom_metrics["go_type_facts"]["files_not_checked"],
+            {"no_go_module": 1},
+        )
+
+
+class GoToolchainTests(unittest.TestCase):
+    def test_wanted_toolchain(self):
+        from deepthought.go_facts import wanted_toolchain
+
+        for text, wanted in (
+            ("module m\n\ngo 1.26.0\n", "go1.26.0"),
+            ("module m\n\ngo 1.22\n", "go1.22.0"),
+            ("module m\n\ngo 1.20\n", "go1.20"),
+            ("module m\n\ngo 1.24\n\ntoolchain go1.26.10\n", "go1.26.10"),
+            ("module m\n", None),
+        ):
+            self.assertEqual(wanted_toolchain(text), wanted)
+
+    def test_module_cache_toolchain_only_when_newer_and_present(self):
+        from deepthought.go_facts import module_toolchain
+
+        with tempfile.TemporaryDirectory() as cache:
+            info = {
+                "GOVERSION": "go1.24.7",
+                "GOMODCACHE": cache,
+                "GOOS": "linux",
+                "GOARCH": "amd64",
+            }
+            newer = "module m\n\ngo 1.26.10\n"
+            self.assertEqual(module_toolchain("go", info, newer), "go")
+            path = (
+                Path(cache) / "golang.org/toolchain@v0.0.1-go1.26.10.linux-amd64/bin/go"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text("")
+            self.assertEqual(module_toolchain("go", info, newer), str(path))
+            older = "module m\n\ngo 1.22\n"
+            self.assertEqual(module_toolchain("go", info, older), "go")
 
 
 SHARED_COMPOSE_DATABASE = {

@@ -1028,7 +1028,7 @@
     },
     "confirmed": 6760,
     "contradicted": 0,
-    "expected": 3009,
+    "expected": 2994,
     "impact": {
       "by_depth": {
         "1": {
@@ -1064,9 +1064,9 @@
       "unresolved_expected": 1,
       "unresolved_unjudged": 59
     },
-    "missed": 722,
+    "missed": 707,
     "missed_by_engine_outcome": {
-      "no_call_site": 71,
+      "no_call_site": 56,
       "unresolved:attribute_call": 648,
       "unresolved:not_declared_in_class": 1,
       "unresolved:outside_class": 1,
@@ -1074,7 +1074,7 @@
     },
     "not_indexed": 328,
     "precision": 1.0,
-    "recall": 0.7601,
+    "recall": 0.7639,
     "unjudged": 45,
     "unresolved_expected": 666,
     "unresolved_unjudged": 28279
@@ -1499,6 +1499,13 @@
       "missed": 0,
       "wrong": 1
     },
+    "tables-miniflux-storage": {
+      "expected": 29,
+      "extra": 0,
+      "found": 25,
+      "missed": 4,
+      "wrong": 0
+    },
     "tables-node-express-boilerplate": {
       "expected": 2,
       "extra": 0,
@@ -1524,6 +1531,13 @@
       "expected": 45,
       "extra": 0,
       "found": 45,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-simplebank-sqlc": {
+      "expected": 20,
+      "extra": 0,
+      "found": 20,
       "missed": 0,
       "wrong": 0
     }

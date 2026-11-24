@@ -1,0 +1,328 @@
+{
+  "repo": "https://github.com/miniflux/v2",
+  "commit": "0b385d3795c1416353abf41386b59a94a46c09c0",
+  "labelled_by": "read by hand: 30 call sites drawn with random.Random(20261124) from the 124 Query/QueryRow/Exec calls in internal/storage outside tests; user.go:528 runs a query its callers pass in, so it is not counted",
+  "scope": "labelled",
+  "accesses": [
+    {
+      "file": "internal/storage/api_key.go",
+      "line": 20,
+      "tables": [
+        [
+          "api_keys",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/batch.go",
+      "line": 88,
+      "tables": [
+        [
+          "feeds",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/category.go",
+      "line": 30,
+      "tables": [
+        [
+          "categories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/category.go",
+      "line": 52,
+      "tables": [
+        [
+          "categories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/category.go",
+      "line": 266,
+      "tables": [
+        [
+          "categories",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/category.go",
+      "line": 285,
+      "tables": [
+        [
+          "categories",
+          "READS"
+        ],
+        [
+          "feeds",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/enclosure.go",
+      "line": 35,
+      "tables": [
+        [
+          "enclosures",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/enclosure.go",
+      "line": 127,
+      "tables": [
+        [
+          "enclosures",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/entry.go",
+      "line": 222,
+      "tables": [
+        [
+          "entries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/feed.go",
+      "line": 42,
+      "tables": [
+        [
+          "feeds",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/feed.go",
+      "line": 65,
+      "tables": [
+        [
+          "feeds",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/feed.go",
+      "line": 75,
+      "tables": [
+        [
+          "feeds",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/feed.go",
+      "line": 89,
+      "tables": [
+        [
+          "feeds",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/feed.go",
+      "line": 266,
+      "tables": [
+        [
+          "feeds",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/icon.go",
+      "line": 45,
+      "tables": [
+        [
+          "feed_icons",
+          "READS"
+        ],
+        [
+          "feeds",
+          "READS"
+        ],
+        [
+          "icons",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/icon.go",
+      "line": 69,
+      "tables": [
+        [
+          "icons",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/icon.go",
+      "line": 115,
+      "tables": [
+        [
+          "icons",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/icon.go",
+      "line": 146,
+      "tables": [
+        [
+          "feed_icons",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/integration.go",
+      "line": 27,
+      "tables": [
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/integration.go",
+      "line": 518,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/nav_metadata.go",
+      "line": 79,
+      "tables": [
+        [
+          "categories",
+          "READS"
+        ],
+        [
+          "entries",
+          "READS"
+        ],
+        [
+          "feeds",
+          "READS"
+        ],
+        [
+          "integrations",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/user.go",
+      "line": 35,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/user.go",
+      "line": 160,
+      "tables": [
+        [
+          "integrations",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/user.go",
+      "line": 292,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/user.go",
+      "line": 477,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/user.go",
+      "line": 676,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/web_session.go",
+      "line": 222,
+      "tables": [
+        [
+          "web_sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/webauthn.go",
+      "line": 176,
+      "tables": [
+        [
+          "webauthn_credentials",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "internal/storage/webauthn.go",
+      "line": 190,
+      "tables": [
+        [
+          "webauthn_credentials",
+          "READS"
+        ]
+      ]
+    }
+  ],
+  "not_counted": [
+    [
+      "internal/storage/user.go",
+      528
+    ]
+  ]
+}

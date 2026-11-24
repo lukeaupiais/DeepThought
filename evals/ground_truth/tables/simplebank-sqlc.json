@@ -1,0 +1,208 @@
+{
+  "repo": "https://github.com/techschool/simplebank",
+  "commit": "97f000fe58ad01a0774179ffa8884ac7784cf263",
+  "labelled_by": "tools/sqlc_table_labels.py (sqlc 1.29.0, PostgreSQL parser)",
+  "accesses": [
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 25,
+      "tables": [
+        [
+          "accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 54,
+      "tables": [
+        [
+          "accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 72,
+      "tables": [
+        [
+          "accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 82,
+      "tables": [
+        [
+          "accounts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 101,
+      "tables": [
+        [
+          "accounts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 128,
+      "tables": [
+        [
+          "accounts",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/account.sql.go",
+      "line": 166,
+      "tables": [
+        [
+          "accounts",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/entry.sql.go",
+      "line": 27,
+      "tables": [
+        [
+          "entries",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/entry.sql.go",
+      "line": 44,
+      "tables": [
+        [
+          "entries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/entry.sql.go",
+      "line": 70,
+      "tables": [
+        [
+          "entries",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/session.sql.go",
+      "line": 40,
+      "tables": [
+        [
+          "sessions",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/session.sql.go",
+      "line": 69,
+      "tables": [
+        [
+          "sessions",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/transfer.sql.go",
+      "line": 29,
+      "tables": [
+        [
+          "transfers",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/transfer.sql.go",
+      "line": 47,
+      "tables": [
+        [
+          "transfers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/transfer.sql.go",
+      "line": 77,
+      "tables": [
+        [
+          "transfers",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/user.sql.go",
+      "line": 33,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/user.sql.go",
+      "line": 59,
+      "tables": [
+        [
+          "users",
+          "READS"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/user.sql.go",
+      "line": 97,
+      "tables": [
+        [
+          "users",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/verify_email.sql.go",
+      "line": 29,
+      "tables": [
+        [
+          "verify_emails",
+          "WRITES"
+        ]
+      ]
+    },
+    {
+      "file": "db/sqlc/verify_email.sql.go",
+      "line": 61,
+      "tables": [
+        [
+          "verify_emails",
+          "WRITES"
+        ]
+      ]
+    }
+  ],
+  "not_counted": []
+}
