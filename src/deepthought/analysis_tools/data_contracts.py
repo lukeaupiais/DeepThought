@@ -47,6 +47,7 @@ from ..data_contracts import (
     extract_sqlalchemy,
     extract_typeorm,
     extract_sequelize,
+    extract_mongodb_collections,
     extract_mongoose,
     extract_php_doctrine,
     doctrine_xml,
@@ -662,6 +663,23 @@ MONGOOSE_CALL_RULE = register_rule(
         "import that resolves to a file exporting it, mongoose.model(name) "
         "or mongoose.models.name. Instance methods (doc.save()) and query "
         "chains held in variables are not read.",
+    )
+)
+
+MONGODB_COLLECTION_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongodb-collection",
+        "pattern_matched",
+        "In a file importing mongodb, mongoose or mongoskin (as a value or in "
+        "a typeof import() type), the code opens "
+        "a MongoDB driver collection by its literal name, "
+        "<db>.collection('name'), on a database handle: x.db, x.db(...), "
+        "x.connection, or a name the file binds only to one of those or "
+        "types as mongodb's Db. A read method (find, aggregate, ...) on the "
+        "collection, directly or through a variable holding it in the same "
+        "function, gives READS, a write method (insertOne, updateMany, "
+        "drop, ...) gives WRITES, and any other use gives both. The name is "
+        "the collection itself; no pluralizing applies.",
     )
 )
 
@@ -1750,6 +1768,28 @@ class DataContractTool(AnalysisTool):
                                 "column": use.column,
                             },
                         )
+        # MongoDB driver collections opened by name.
+        mongodb_counts = {"linked": 0}
+        for file, content, tree in script_trees:
+            for use in extract_mongodb_collections(
+                tree, content, file, result.definitions
+            ):
+                mongodb_counts["linked"] += 1
+                target = table(use.file, table_key(use.collection))
+                source = code(use.file, use.caller_id)
+                for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                    if used:
+                        link(
+                            kind,
+                            source,
+                            target,
+                            MONGODB_COLLECTION_RULE,
+                            {
+                                "collection": use.collection,
+                                "line": use.line,
+                                "column": use.column,
+                            },
+                        )
         # Doctrine ORM: entities, repositories and EntityManager calls.
         doctrine_classes, doctrine_uses, doctrine_renames = [], [], False
         php_texts = []
@@ -2173,6 +2213,7 @@ class DataContractTool(AnalysisTool):
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
                     "typeorm_child_entities": typeorm_child_counts,
+                    "mongodb_collections": mongodb_counts,
                     "orm_access_resolution": orm_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
