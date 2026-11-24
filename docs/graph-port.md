@@ -255,9 +255,10 @@ the chat model. The port answers from stored edges only:
   handler HANDLES is affected, and so is every declaration (or file) that
   REQUESTS that route, so impact crosses service boundaries along the HTTP
   contracts the `service-contracts` tool records (see "Service contracts").
-  Message destinations work the same way: forwards over PUBLISHES, then
-  backwards over CONSUMES, so a publisher change reaches every consumer of
-  the destination.
+  Message destinations and database tables work the same way: forwards over
+  PUBLISHES and WRITES, then backwards over CONSUMES and READS, so a
+  publisher or writer change reaches every consumer or reader (see
+  "Database tables").
   Those hops are `pattern_matched`, and the path's evidence says so. The
   traversal is a quantified path pattern, so this query needs Neo4j 5.9 or
   later.
@@ -1826,6 +1827,47 @@ alternatives all ten now link to exactly the two handlers the reviewer named
 unlinked: one calls an external host, one a path no service serves, and one
 call site posts to `.../order/{id}` in two services that accept only GET and
 DELETE there, which leaves the request ambiguous among POST routes.
+
+## Database tables
+
+Neither the original engine nor the port linked code to the database tables
+it uses. The `data-contracts` tool (`deepthought-graph index --tool
+tree-sitter --tool data-contracts --language java --snapshot REV`) records
+tables as `["DbTable", "Contract"]` nodes, so they join impact and the
+component roll-up like HTTP routes and message destinations:
+
+| Edge | Rule | Evidence | Read from |
+|---|---|---|---|
+| File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file (temporary tables, comments and string literals skipped) |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
+| Symbol -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-repository` | pattern_matched | an interface extending a Spring Data CRUD repository (READS and WRITES) or paging-and-sorting repository (READS) whose entity type argument is a mapped entity |
+
+Tables are told apart by name (case-insensitive, without schema or quotes)
+within a namespace. A module whose Spring configuration
+(`src/main/resources/application.*`, as for service names) fixes one
+`spring.datasource.url` uses that URL as its namespace, so services that
+point at the same persistent database share its tables. Otherwise, and for
+in-memory URLs (`:mem:`, `:memory:`), which give each process its own
+database, the namespace is the nearest package. One service's private
+`owners` is therefore not another's. URLs written with `${...}`, profiles and
+environment variables are not resolved, and migrations kept in a separate
+package from their entities meet them only through a shared datasource URL.
+SQL in strings, `@Query` and other persistence frameworks are not read yet.
+Test sources (`src/test/`) are skipped.
+
+`get_impact` goes forwards over WRITES and backwards over READS, so a change
+to a repository that writes a table reaches the repositories that read it.
+The component roll-up treats WRITES as providing a table and READS as using
+it.
+
+On spring-petclinic-microservices the tool finds 7 tables, declared by 14
+`CREATE TABLE` statements in the hsqldb and mysql schema files of three
+services. All 6 entities map to a table that their own service's DDL
+declares, with no unmatched mapping. Vet's `@JoinTable` maps
+`vet_specialties`, so all 7 declared tables are mapped. All 4 repositories
+resolve to their entity.
 
 ## Commit-linked snapshots
 

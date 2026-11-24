@@ -745,10 +745,11 @@ class GraphQueryService:
 
         The change set is the declaration and every declaration it CONTAINS.
         Dependents are reached backwards over CALLS, INHERITS_FROM,
-        IMPLEMENTS, REQUESTS and CONSUMES edges, and forwards over HANDLES and
-        PUBLISHES: a handler's route (a publisher's destination) depends on
-        it, and the callers requesting that route (the consumers of that
-        destination) depend on the route. At most ``max_depth`` hops. Each dependent is listed
+        IMPLEMENTS, REQUESTS, CONSUMES and READS edges, and forwards over
+        HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
+        destination, a writer's table) depends on it, and the callers
+        requesting that route (the consumers of that destination, the
+        readers of that table) depend on the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
         """
@@ -757,7 +758,7 @@ class GraphQueryService:
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
             "WHERE part.repo_url=$repo_url AND part.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT part) AS parts ",
-            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS|CONSUMES",
+            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS|CONSUMES|READS",
             qname,
             repo_url,
             snapshot_id,
@@ -766,7 +767,7 @@ class GraphQueryService:
             limit,
             max_output_bytes,
             timeout,
-            reverse="HANDLES|PUBLISHES",
+            reverse="HANDLES|PUBLISHES|WRITES",
         )
 
     async def get_file_impact(

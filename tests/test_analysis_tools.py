@@ -36,11 +36,19 @@ class RegistryTests(unittest.TestCase):
         metadata = tool_registry.list_tools()
         self.assertEqual(
             [m.name for m in metadata],
-            ["components", "scip", "service-contracts", "tree-sitter"],
+            [
+                "components",
+                "data-contracts",
+                "scip",
+                "service-contracts",
+                "tree-sitter",
+            ],
         )
         self.assertEqual(metadata[0].capabilities, {ToolCapability.DEPENDENCY_ANALYSIS})
         self.assertFalse(metadata[0].requires_binary)
-        metadata = metadata[1:]
+        self.assertEqual(metadata[1].supported_languages, {"java"})
+        self.assertEqual(metadata[1].capabilities, {ToolCapability.DEPENDENCY_ANALYSIS})
+        metadata = metadata[2:]
         self.assertEqual(metadata[0].supported_languages, {"typescript"})
         self.assertEqual(
             metadata[0].capabilities,
@@ -103,7 +111,7 @@ import deepthought.storage.graph
 import deepthought.graph_queries
 import deepthought.graph_cli
 import deepthought.graph_mcp
-assert [m.name for m in tools.tool_registry.list_tools()] == ['components', 'scip', 'service-contracts', 'tree-sitter']
+assert [m.name for m in tools.tool_registry.list_tools()] == ['components', 'data-contracts', 'scip', 'service-contracts', 'tree-sitter']
 for module in ('tree_sitter', 'tree_sitter_python', 'tree_sitter_typescript', 'neo4j', 'mcp', 'torch'):
     assert module not in sys.modules, module
 """
