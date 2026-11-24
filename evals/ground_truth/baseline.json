@@ -994,7 +994,7 @@
   "hono": {
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 3607,
+        "confirmed": 3609,
         "not_indexed": 186,
         "unjudged": 40
       },
@@ -1011,7 +1011,7 @@
         "not_indexed": 11
       },
       "tree-sitter.js-call-member-chain": {
-        "confirmed": 17
+        "confirmed": 19
       },
       "tree-sitter.js-call-private-name": {
         "confirmed": 1
@@ -1022,11 +1022,11 @@
         "unjudged": 1
       },
       "tree-sitter.js-call-typed-receiver": {
-        "confirmed": 633,
+        "confirmed": 634,
         "not_indexed": 2
       }
     },
-    "confirmed": 6760,
+    "confirmed": 6765,
     "contradicted": 0,
     "expected": 2994,
     "impact": {
@@ -1064,20 +1064,20 @@
       "unresolved_expected": 1,
       "unresolved_unjudged": 59
     },
-    "missed": 707,
+    "missed": 704,
     "missed_by_engine_outcome": {
-      "no_call_site": 56,
-      "unresolved:attribute_call": 648,
+      "no_call_site": 1,
+      "unresolved:attribute_call": 700,
       "unresolved:not_declared_in_class": 1,
       "unresolved:outside_class": 1,
       "unresolved:receiver_type_unknown": 1
     },
     "not_indexed": 328,
     "precision": 1.0,
-    "recall": 0.7639,
+    "recall": 0.7649,
     "unjudged": 45,
-    "unresolved_expected": 666,
-    "unresolved_unjudged": 28279
+    "unresolved_expected": 721,
+    "unresolved_unjudged": 37409
   },
   "httpx": {
     "ambiguous_no_candidates": 1,
@@ -1499,6 +1499,13 @@
       "missed": 0,
       "wrong": 1
     },
+    "tables-miniflux-storage": {
+      "expected": 29,
+      "extra": 0,
+      "found": 25,
+      "missed": 4,
+      "wrong": 0
+    },
     "tables-node-express-boilerplate": {
       "expected": 2,
       "extra": 0,
@@ -1524,6 +1531,13 @@
       "expected": 45,
       "extra": 0,
       "found": 45,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-simplebank-sqlc": {
+      "expected": 20,
+      "extra": 0,
+      "found": 20,
       "missed": 0,
       "wrong": 0
     }

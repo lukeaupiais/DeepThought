@@ -593,6 +593,25 @@
       "labels": "tables/backstage-knex.json",
       "oracle": "tree-sitter parse of every Knex call on a literal or constant table (tools/knex_labels.py), every label read by hand",
       "oracle_command": "python tools/knex_labels.py . backstage-knex.json --repo https://github.com/backstage/backstage"
+    },
+    {
+      "name": "tables-simplebank-sqlc",
+      "url": "https://github.com/techschool/simplebank",
+      "commit": "97f000fe58ad01a0774179ffa8884ac7784cf263",
+      "license": "MIT",
+      "language": "go-sql",
+      "labels": "tables/simplebank-sqlc.json",
+      "oracle": "sqlc 1.29.0 json generator (PostgreSQL parser and schema resolution)",
+      "oracle_command": "python tools/sqlc_table_labels.py . --sqlc sqlc"
+    },
+    {
+      "name": "tables-miniflux-storage",
+      "url": "https://github.com/miniflux/v2",
+      "commit": "0b385d3795c1416353abf41386b59a94a46c09c0",
+      "license": "Apache-2.0",
+      "language": "go-sql",
+      "labels": "tables/miniflux-storage.json",
+      "oracle": "hand-read sample of 30 storage call sites"
     }
   ]
 }
