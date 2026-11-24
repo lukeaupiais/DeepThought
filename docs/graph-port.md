@@ -4013,13 +4013,14 @@ module outside the standard library.
 
 Measured on four Go apps outside the corpora (Go 1.26.10, dependencies
 downloaded, every package fully checked), against the tree-sitter rules
-alone; no link was lost:
+alone; no link was lost but two reads of `information_schema.columns`,
+now left out as a catalog:
 
 | App | SQL statements | Files with READS/WRITES | GORM `TableName` links |
 |---|---|---|---|
 | miniflux/v2 | 42 → 132 | 8 → 15 | 0 → 0 |
 | techschool/simplebank (sqlc) | 0 → 20 | 0 → 6 | 0 → 0 |
-| flipped-aurora/gin-vue-admin | 2 → 19 | 2 → 35 | 2 → 23 |
+| flipped-aurora/gin-vue-admin | 2 → 19 | 2 → 30 | 2 → 23 |
 | gothinkster/golang-gin-realworld-example-app | unchanged | unchanged | unchanged |
 
 Calls are read anywhere in a file, including the func literals of a
