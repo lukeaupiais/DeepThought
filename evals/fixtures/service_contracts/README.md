@@ -21,6 +21,7 @@ matcher could find.
 | packt-chapter07.json, packt-chapter23.json | PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition @ db9e0fa7d41756224a149a5a870647e0f0426b2e (one chapter each; paths relative to it) | MIT | Java Spring Cloud Stream (StreamBridge, functional consumers), Gradle, Compose | RabbitMQ, Kafka |
 | websocket-gs-messaging-stomp.json | spring-guides/gs-messaging-stomp-websocket @ 45228a145a9fc0289aa87ed424870bfcd3c413d5 (complete/) | Apache-2.0 | Java Spring WebSocket + STOMP, JavaScript @stomp/stompjs | HTTP (handshake), STOMP destinations as messaging |
 | websocket-spring-boot-angular2-stomp.json | chriswhite199/spring-boot-angular2-stomp @ 78ade07e770f5c674a0111cb8df14ff315dfdef3 | Apache-2.0 | Java Spring WebSocket + STOMP + SockJS, TypeScript Angular ng2-stomp-service | HTTP (handshake), STOMP destinations as messaging |
+| jhipster-sample-app-websocket.json | jhipster/jhipster-sample-app-websocket @ 410a632c041f8ee50059362681b2a3a53f49361d | Apache-2.0 | Java Spring MVC + WebSocket/STOMP/SockJS, TypeScript Angular HttpClient/httpResource + @stomp/rx-stomp | HTTP (REST and handshake), STOMP destinations as messaging |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).

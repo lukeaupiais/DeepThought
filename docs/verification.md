@@ -412,6 +412,21 @@ through a config object, never through a `WebSocket` or `SockJS` constructor,
 and the browser's `publish`, `send` and `subscribe` calls are not read. The
 server side of each frame, `@MessageMapping` and `@SendTo`, is read already.
 
+jhipster/jhipster-sample-app-websocket (410a632) adds a generated
+Angular and Spring app, labelled by hand from every `HttpClient`,
+`httpResource` and STOMP call and every handler. It has 24 in-scope `http`
+links (REST calls and the SockJS handshake) and 3 STOMP frames. Two more
+clients have no handler and are listed under `unmatched_clients`:
+`PATCH /api/admin/users/{login}` and `GET /api/users/{id}`. Calls to
+Actuator endpoints and to Spring Security's login and logout filters have
+no handler method, so they are out of scope.
+
+Main reads none of them, with no false positives. Every REST URL is
+`${serverApiUrl}api/...`, and `serverApiUrl` is a build-time define that
+angular.json sets to `''`. The connect is `webSocketFactory: () =>
+SockJS(this.buildUrl())`. Before #176 the whole contract analysis of this
+repository failed on a comment inside import braces.
+
 ### Routes and GraphQL fields
 
 The contract corpora score links between services, so a route the engine
