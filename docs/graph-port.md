@@ -2315,6 +2315,50 @@ file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
 destination with unknown text is counted as unread.
 
+### STOMP destinations
+
+STOMP over WebSocket is read as messaging with broker `stomp`. A destination
+is the full STOMP destination a client names, and publishers and consumers
+meet at the `MessageDestination` of the same name:
+
+- **Consumers (Spring).** A method with `@MessageMapping` (from
+  `org.springframework.messaging.handler.annotation`) consumes each literal
+  path. The path is joined with the class's `@MessageMapping` path as
+  `AntPathMatcher.combine` joins slash paths, then put under each prefix that
+  the module's `MessageBrokerRegistry.setApplicationDestinationPrefixes`
+  sets (rule `service-contracts.spring-stomp-message-mapping`). A module that
+  sets no prefix uses the path itself. When the prefixes are not literal or
+  are set in more than one file, the mapping is `consume:application_prefix`.
+  A path that does not start with a slash is `consume:destination_not_literal`.
+- **Publishers (Spring).** `@SendTo` destinations, `@SubscribeMapping`
+  methods (they answer a subscription to the prefixed path), and
+  `convertAndSend(destination, ...)` on a name declared only as
+  `SimpMessagingTemplate`, `SimpMessageSendingOperations` or
+  `SimpMessageOperations` (rule `service-contracts.spring-stomp-send`).
+  `@SendToUser` and `convertAndSendToUser` are `publish:user_destination`. A
+  `@MessageMapping` method's default reply destination, used without
+  `@SendTo`, is not read.
+- **Clients (JavaScript/TypeScript).** These calls name a destination: `send`
+  and `subscribe` with a destination first, and `publish({destination})`.
+  The call must be on a name that every assignment in the file binds to
+  `Stomp.over`, `Stomp.client`, `webstomp.over`/`webstomp.client` or a
+  `@stomp/stompjs` `Client`, or on AngularJS ngStomp's `$stomp` (rules
+  `service-contracts.stompjs-send` and `stompjs-subscribe`).
+
+Destination patterns with `{variables}` are kept as written. A client
+destination with unknown text is not read, so it never meets them.
+
+| Repository | Literal STOMP sites | Outcome |
+|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 14 server mappings (2 prefixes), 10 client sends and subscribes | 9 of the 10 client sites meet their handler or publisher. The 10th subscribes to `/user/queue/chesslobby`, whose publisher is a `convertAndSendToUser` (unread). The 7 client sites built from variables are unread |
+| ben-rampel/Poker `025a147` | 1 mapping, 1 ngStomp send | Linked. The topic is built from a variable on both sides, so it is unread |
+| leansd/cotrip, ygunayer/realtime-messaging | 1 mapping + 1 `@SendTo` each | Found; the clients are in HTML |
+| ocinpp/springboot-sockjs-stomp-vue-sample | 2 `convertAndSend` | Found; the client is in HTML |
+| apssouza22/java-microservice (corpus) | 1 mapping, 1 `@SendTo`, 1 `convertAndSend` | Found; its messaging ground-truth score is unchanged |
+
+No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
+change.
+
 ### Spring Cloud Stream
 
 Spring Cloud Stream code names a binding and each service's configuration
