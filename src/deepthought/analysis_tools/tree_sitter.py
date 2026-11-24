@@ -20,6 +20,7 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
+from ..pyright_calls import PyrightDefinitions
 from ..scip_calls import bind_calls
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -621,9 +622,28 @@ CALL_RULES.update(
             "resolves to overload signatures (TypeScript overloads, Python "
             "@overload) links to the one implementation declared beside "
             "them; more than one leaves the call ambiguous.",
+            scip_calls.PYRIGHT_CALL_DEFINITION: "A Python call whose SCIP "
+            "target is one scip-python is known to get wrong, or that the "
+            "index records no occurrence for, links to the declaration "
+            "pinned pyright's go-to-definition gives for the callee's last "
+            "name.",
         }.items()
     }
 )
+
+
+def _bind(result, scip_indexes, root):
+    """Call bindings from the indexes, with pyright running for Python
+    calls when an index covers a Python file."""
+    python = any(
+        coverage.file.endswith((".py", ".pyi"))
+        for index, _ in scip_indexes
+        for coverage in index.coverage
+    )
+    if not python:
+        return bind_calls(result, scip_indexes, root)
+    with PyrightDefinitions(root) as pyright:
+        return bind_calls(result, scip_indexes, root, pyright)
 
 
 def _call_name(callee):
@@ -902,7 +922,7 @@ class TreeSitterTool(AnalysisTool):
         kinds = {d.id: d.kind for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
         call_counts, resolver_counts = {}, {}
-        binding = bind_calls(result, scip_indexes, self.repo_path)
+        binding = _bind(result, scip_indexes, self.repo_path)
         for resolution in binding.resolutions:
             producer = binding.producers.get(resolution.call_id)
             key = resolution.status + (
@@ -910,8 +930,8 @@ class TreeSitterTool(AnalysisTool):
             )
             call_counts[key] = call_counts.get(key, 0) + 1
             # Separately by who decided: the index (its "nothing here"
-            # included), the parser kept over a suspect index target, or the
-            # parser in a file no index covers.
+            # included), pyright for a Python call the index got wrong or
+            # missed, or the parser in a file no index covers.
             by_resolver = resolver_counts.setdefault(
                 binding.resolver(resolution.call_id), {}
             )
@@ -946,7 +966,7 @@ class TreeSitterTool(AnalysisTool):
                             "end_column": site.end_column,
                             "status": resolution.status,
                             # Which resolver left it unlinked, and why.
-                            "resolver": "tree-sitter" if producer is None else "scip",
+                            "resolver": binding.resolver(resolution.call_id),
                             **_produced(producer),
                             **(
                                 {"reason": resolution.reason}
