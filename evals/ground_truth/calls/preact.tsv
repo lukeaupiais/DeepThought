@@ -236,8 +236,6 @@ compat/src/render.js	82	is	-	0	external
 compat/src/render.js	89	test	-	0	external
 compat/src/render.js	105	forEach	-	0	external
 compat/src/render.js	106	defineProperty	-	0	external
-compat/src/render.js	108	get	-	0	external
-compat/src/render.js	111	set	-	0	external
 compat/src/render.js	112	defineProperty	-	0	external
 compat/src/render.js	135	preactRender	src/render.js	12	callable
 compat/src/render.js	136	callback	compat/src/render.js	128	value
@@ -7509,7 +7507,6 @@ test/browser/lifecycles/shouldComponentUpdate.test.jsx	84	setState	test/browser/
 test/browser/lifecycles/shouldComponentUpdate.test.jsx	85	rerender	test/browser/lifecycles/shouldComponentUpdate.test.jsx	12	local
 test/browser/lifecycles/shouldComponentUpdate.test.jsx	109	render	src/render.js	12	callable
 test/browser/lifecycles/shouldComponentUpdate.test.jsx	122	Proxy	-	0	external
-test/browser/lifecycles/shouldComponentUpdate.test.jsx	123	get	-	0	external
 test/browser/lifecycles/shouldComponentUpdate.test.jsx	124	get	-	0	external
 test/browser/lifecycles/shouldComponentUpdate.test.jsx	130	render	src/render.js	12	callable
 test/browser/lifecycles/shouldComponentUpdate.test.jsx	163	sort	-	0	external
@@ -8647,7 +8644,6 @@ test/browser/render.test.jsx	2161	render	src/render.js	12	callable
 test/browser/render.test.jsx	2162	expect	-	0	local
 test/browser/render.test.jsx	2176	defineProperties	-	0	external
 test/browser/render.test.jsx	2177	for	-	0	external
-test/browser/render.test.jsx	2181	get	-	0	external
 test/browser/render.test.jsx	2188	Test	test/browser/render.test.jsx	2166	local
 test/browser/render.test.jsx	2188	Test	test/browser/render.test.jsx	2167	local
 test/browser/render.test.jsx	2192	render	src/render.js	12	callable
@@ -9157,5 +9153,4 @@ vitest.config.mjs	217	playwright	-	0	local
 vitest.setup.js	5	addEventListener	-	0	external
 vitest.setup.js	9	test	-	0	external
 vitest.setup.js	16	defineProperty	-	0	external
-vitest.setup.js	17	get	-	0	external
 vitest.setup.js	21	defineProperty	-	0	external

@@ -288,6 +288,82 @@ class ScipCallTests(unittest.TestCase):
             ],
         )
 
+    def test_calls_on_results_are_recorded_for_the_index_only(self):
+        if True:
+            root = self.root
+            files = {
+                "a.ts": "class K { m() {} }\n"
+                "function make() { return new K() }\n"
+                "class S extends K { n() { super.m(); } }\n"
+                "make().m(); new K().m(); xs[0].m(); a?.b(); make()?.m();"
+                " (make()).m(); make().m.call(); f?.();\n"
+                # Receivers of other shapes are not recorded.
+                "(a as any)().m(); new (f())().m(); (a as any)[0].m(); f?.().m();\n",
+                "b.py": "def f():\n    pass\n"
+                "f().g()\nxs[0].m()\na.b().c.d()\n(f()).g()\n",
+            }
+            for name, text in files.items():
+                Path(root, name).write_text(text)
+            result = analyze_repository(
+                root, repository_id="r", languages=("typescript", "python")
+            )
+            parsed = {r.call_id: r for r in deepthought.calls.resolve_calls(result)}
+            chained = sorted(
+                (s.file, s.callee, s.callee_at, parsed[s.id].status)
+                for s in result.call_sites
+                if any(mark in s.callee for mark in ("(", "[", "?", "super"))
+            )
+            # No name-binding rule reads them: each is left unlinked.
+            self.assertEqual(
+                chained,
+                sorted(
+                    [
+                        ("a.ts", "super.m", (3, 32), "unresolved"),
+                        ("a.ts", "make().m", (4, 7), "unresolved"),
+                        ("a.ts", "new K().m", (4, 20), "unresolved"),
+                        ("a.ts", "xs[].m", (4, 31), "unresolved"),
+                        ("a.ts", "a?.b", (4, 39), "unresolved"),
+                        ("a.ts", "make()?.m", (4, 52), "unresolved"),
+                        ("a.ts", "make().m", (4, 66), "unresolved"),
+                        ("a.ts", "make().m.call", (4, 80), "unresolved"),
+                        ("a.ts", "f?.().m", (5, 60), "unresolved"),
+                        ("b.py", "f().g", (3, 4), "unresolved"),
+                        ("b.py", "xs[].m", (4, 6), "unresolved"),
+                        ("b.py", "a.b().c.d", (5, 8), "unresolved"),
+                        ("b.py", "f().g", (6, 6), "unresolved"),
+                    ]
+                ),
+            )
+            p = "scip-typescript npm demo 1 a.ts/"
+            ingested = self.index(
+                "chain",
+                "scip-typescript",
+                [
+                    (
+                        "a.ts",
+                        [
+                            (0, "K", p + "K#", True, 0),
+                            (0, "m", p + "K#m().", True, 0),
+                            (2, "m()", p + "K#m().", False, 0),
+                            (3, "m()", p + "K#m().", False, 0),
+                            (3, "m()", p + "K#m().", False, 1),
+                        ],
+                    )
+                ],
+                2,
+            )
+            binding = scip_calls.bind_calls(result, [ingested], root)
+            sites = {s.id: s for s in result.call_sites}
+            # The index binds them.
+            self.assertEqual(
+                sorted(
+                    (sites[r.call_id].callee, sites[r.call_id].line)
+                    for r in binding.resolutions
+                    if r.rule_id == scip_calls.SCIP_CALL_OCCURRENCE
+                ),
+                [("make().m", 4), ("new K().m", 4), ("super.m", 3)],
+            )
+
     def test_indexes_of_one_indexer_share_global_symbols(self):
         (self.root / "a.ts").write_text("export function helper() {}\n")
         (self.root / "c.ts").write_text(
@@ -328,6 +404,56 @@ class ScipCallTests(unittest.TestCase):
                 ("k", "linked", ("k", 3), scip_calls.SCIP_CALL_LOCAL_SYMBOL),
             ],
         )
+
+    def test_impact_follows_calls_bound_from_an_index(self):
+        import ground_truth
+
+        (self.root / "a.ts").write_text(
+            "class P { m() {} }\nfunction use(p: any) { p.m(); }\n"
+        )
+        q = "scip-typescript npm demo 1 a.ts/"
+        self.index(
+            "impact",
+            "scip-typescript",
+            [
+                (
+                    "a.ts",
+                    [
+                        (0, "P", q + "P#", True, 0),
+                        (0, "m", q + "P#m().", True, 0),
+                        (1, "use", q + "use().", True, 0),
+                        (1, "m()", q + "P#m().", False, 0),
+                    ],
+                )
+            ],
+            2,
+        )
+        calls = self.indexes / "calls.tsv"
+        calls.write_text("a.ts\t2\tm\ta.ts\t1\tcallable\n")
+        impact = self.indexes / "impact.tsv"
+        impact.write_text("a.ts\t1\tm\ta.ts\t2\tuse\t1\n")
+
+        def scored(*extra):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ground_truth.main(
+                    [
+                        "score",
+                        str(self.root),
+                        str(calls),
+                        "--language",
+                        "typescript",
+                        "--impact",
+                        str(impact),
+                        *extra,
+                    ]
+                )
+            found = json.loads(out.getvalue())["impact"]
+            return found["confirmed"], found["missed"]
+
+        # The parser leaves `p.m()` open; the index links it.
+        self.assertEqual(scored(), (0, 1))
+        self.assertEqual(scored("--scip", str(self.indexes / "impact.scip")), (1, 0))
 
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)

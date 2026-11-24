@@ -286,6 +286,11 @@ def derive(workspace, index):
             # A declaration the index records as a reference (scip-python
             # marks each @overload this way), not a call.
             continue
+        if template and _method_shorthand(_slice(line, 0, r.column, encoding), rest):
+            # An object-literal method `close(ws) { ... }` that implements
+            # an interface member: scip-typescript records the member as a
+            # reference there, but nothing is called.
+            continue
         if r.native_id.startswith("rust-analyzer ") and (
             r.line,
             len(_slice(line, 0, r.column, encoding).encode("utf-8")),
@@ -322,6 +327,44 @@ def derive(workspace, index):
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
     return expected, indexed
+
+
+_MODIFIERS = re.compile(
+    r"^\s*(?:(?:async|get|set|static|public|private|protected)\s+)*\*?\s*$"
+)
+
+
+def _method_shorthand(before, rest):
+    """Whether a name with ``before`` ahead of it and ``rest`` after it
+    starts a method definition: nothing but modifiers before it, then a
+    balanced parameter list (type parameters allowed), an optional return
+    type and an opening brace that ends the line."""
+    if not _MODIFIERS.match(before):
+        return False
+    text = rest.lstrip()
+    if text.startswith("<"):
+        depth = 0
+        for i, ch in enumerate(text):
+            depth += {"<": 1, ">": -1}.get(ch, 0)
+            if depth == 0:
+                text = text[i + 1 :].lstrip()
+                break
+        else:
+            return False
+    if not text.startswith("("):
+        return False
+    depth = 0
+    for i, ch in enumerate(text):
+        depth += {"(": 1, ")": -1}.get(ch, 0)
+        if depth == 0:
+            tail = text[i + 1 :].strip()
+            break
+    else:
+        return False
+    if tail.startswith(":"):
+        tail = tail.rstrip()
+        return tail.endswith("{") and "=>" not in tail
+    return tail == "{"
 
 
 _PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
@@ -827,6 +870,8 @@ def score_tables(corpus, workspace, examples=10):
         return score_driver_collections(labels, workspace, examples)
     if language == "knex":
         return score_knex_tables(labels, workspace, examples)
+    if language == "go-sql":
+        return score_go_sql_tables(labels, workspace, examples)
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -934,7 +979,11 @@ def score_driver_collections(labels, workspace, examples=10):
     found = sorted(k for k, v in expected.items() if read.get(k) == v)
     wrong = sorted(k for k, v in expected.items() if read.get(k) and read[k] != v)
     missed = sorted(k for k in expected if not read.get(k))
-    extra = sorted(k for k in read if k not in expected and k not in ignored)
+    extra = sorted(
+        k
+        for k in read
+        if k not in expected and k not in ignored and labels.get("scope") != "labelled"
+    )
     report = {
         "expected": len(expected),
         "found": len(found),
@@ -952,27 +1001,52 @@ def score_driver_collections(labels, workspace, examples=10):
 
 def score_knex_tables(labels, workspace, examples=10):
     """Knex query-builder table accesses against labels read by hand
-    (tools/knex_labels.py), per line.
+    (tools/knex_labels.py), per line: see ``score_line_tables``."""
+    return score_line_tables(
+        labels, workspace, examples, "data-contracts.knex", list(MONGOOSE_LANGUAGES)
+    )
 
-    A labelled line is *found* when the engine's Knex READS/WRITES/DECLARES
-    edges made at that line name exactly the labelled (table, access) pairs,
-    *wrong* when they name any other, and *missed* when there are none.
-    *extra* is a line the engine reads that the labels neither list nor set
-    aside under ``not_counted``.
+
+def score_go_sql_tables(labels, workspace, examples=10):
+    """SQL that Go code runs, against labels from sqlc's own analysis
+    (tools/sqlc_table_labels.py) or read by hand, per line: see
+    ``score_line_tables``. The module's dependencies are downloaded first
+    (``go mod download``, which builds and runs nothing), because the
+    engine types calls against them."""
+    for mod in sorted(Path(workspace).rglob("go.mod")):
+        subprocess.run(
+            ["go", "mod", "download"],
+            cwd=mod.parent,
+            env={**os.environ, "GOFLAGS": "-mod=mod", "GOWORK": "off"},
+            check=True,
+            capture_output=True,
+        )
+    return score_line_tables(
+        labels, workspace, examples, "data-contracts.go-sql", ["go"]
+    )
+
+
+def score_line_tables(labels, workspace, examples, rule_prefix, languages):
+    """Table accesses per line against labels.
+
+    A labelled line is *found* when the engine's READS/WRITES/DECLARES edges
+    of rules starting with ``rule_prefix`` made at that line name exactly
+    the labelled (table, access) pairs, *wrong* when they name any other,
+    and *missed* when there are none. *extra* is a line the engine reads
+    that the labels neither list nor set aside under ``not_counted``; labels
+    with ``"scope": "labelled"`` are a sample, so they count no extra.
     """
     import asyncio
 
     from deepthought.analysis_tools.data_contracts import DataContractTool
 
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze(
-            "tables", languages=list(MONGOOSE_LANGUAGES)
-        )
+        DataContractTool(Path(workspace)).analyze("tables", languages=languages)
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     read = defaultdict(set)
     for r in output.relationships:
-        if not str(r.properties.get("rule_id", "")).startswith("data-contracts.knex"):
+        if not str(r.properties.get("rule_id", "")).startswith(rule_prefix):
             continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
@@ -989,7 +1063,11 @@ def score_knex_tables(labels, workspace, examples=10):
     found = sorted(k for k, v in expected.items() if read.get(k) == v)
     wrong = sorted(k for k, v in expected.items() if read.get(k) and read[k] != v)
     missed = sorted(k for k in expected if not read.get(k))
-    extra = sorted(k for k in read if k not in expected and k not in ignored)
+    extra = sorted(
+        k
+        for k in read
+        if k not in expected and k not in ignored and labels.get("scope") != "labelled"
+    )
     report = {
         "expected": len(expected),
         "found": len(found),
@@ -1088,6 +1166,8 @@ def missing_requirements(manifest, names=()):
             for lang in (
                 MONGOOSE_LANGUAGES
                 if language in {"mongoose", "mongodb", "knex"}
+                else ("go",)
+                if language == "go-sql"
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])
@@ -1771,6 +1851,11 @@ def main(argv=None):
         type=Path,
         help="With --scip: write call sites where SCIP and parser targets differ",
     )
+    s.add_argument(
+        "--impact",
+        type=Path,
+        help="Also score impact against this impact truth (impact_truth.py)",
+    )
     c = sub.add_parser("check")
     c.add_argument("--corpus", action="append", default=[])
     c.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
@@ -1827,9 +1912,22 @@ def main(argv=None):
                     ),
                     "utf-8",
                 )
-        report, samples = score(
-            result, read_truth(args.truth), args.examples, resolutions
-        )
+        truth = read_truth(args.truth)
+        report, samples = score(result, truth, args.examples, resolutions)
+        if args.impact is not None:
+            import impact_truth
+
+            report["impact"], samples["impact"] = impact_truth.score(
+                result,
+                impact_truth.read(args.impact),
+                examples=args.examples,
+                aliases=impact_truth.read_aliases(args.impact),
+                nodes=impact_truth.read_nodes(args.impact),
+                unjudged=impact_truth.read_unjudged(args.impact),
+                indexed=truth[1],
+                fold_nested=bool({"typescript", "javascript"} & set(args.language)),
+                resolutions=resolutions,
+            )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0
     baseline = json.loads((CORPUS / "baseline.json").read_text("utf-8"))
