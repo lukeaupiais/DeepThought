@@ -202,6 +202,45 @@ class DeclarationTests(unittest.TestCase):
                         str(tree.root_node), str(parser.parse(content).root_node)
                     )
 
+    def test_tagged_template_type_arguments_are_read_as_blanks(self):
+        from deepthought.syntax import _error_rows, make_parser, parse_source
+
+        for suffix in (".ts", ".tsx"):
+            parser = make_parser("typescript", suffix)
+            for text, errors in (
+                (
+                    "function f() {\n  return sql<{ a: string; b: number }>`x ${y}`;\n}\n",
+                    0,
+                ),
+                ("const q = db.select(sql<string[]>`array[${v}]`.as('ids'));\n", 0),
+                (
+                    "const q = sql<{\n  a: string;\n}>`(\n  select 1\n)`;\nlet z = 1;\n",
+                    0,
+                ),
+                # Without type arguments before the template, nothing changes.
+                ("let y = a > `x`\nfunction f( {}\n", None),
+            ):
+                with self.subTest(suffix=suffix, text=text):
+                    content = text.encode()
+                    tree = parse_source(parser, "typescript", suffix, content)
+                    if errors is None:
+                        self.assertEqual(
+                            str(tree.root_node), str(parser.parse(content).root_node)
+                        )
+                        continue
+                    self.assertTrue(parser.parse(content).root_node.has_error)
+                    self.assertEqual(_error_rows(tree)[0], errors)
+                    # Offsets are kept: the template starts where it is written.
+                    template = content.index(b">`") + 1
+                    stack = [tree.root_node]
+                    starts = set()
+                    while stack:
+                        node = stack.pop()
+                        stack.extend(node.children)
+                        if node.type == "template_string":
+                            starts.add(node.start_byte)
+                    self.assertIn(template, starts)
+
     def test_malformed_tsx_has_explicit_partial_coverage(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "good.tsx").write_text(

@@ -88,7 +88,7 @@ from ..engine import analyze_repository
 from ..scip_calls import ScipReferences
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
-from ..syntax import make_parser
+from ..syntax import make_parser, parse_source
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .components import _nearest_packages
 from .contracts import (
@@ -443,17 +443,6 @@ KYSELY_SCIP_RULE = register_rule(
         "with with()/withRecursive() are left out.",
     )
 )
-KYSELY_IMPORT_RULE = register_rule(
-    EvidenceRule(
-        "data-contracts.kysely-import",
-        "pattern_matched",
-        "In a file that imports kysely and that no SCIP index covers, a "
-        "call of a method named like Kysely's table methods (as "
-        "data-contracts.kysely-scip lists them) with this table as a string "
-        "literal first argument; the receiver is not checked.",
-    )
-)
-
 SQL_RULES = {
     how: register_rule(EvidenceRule(f"data-contracts.{how}", "pattern_matched", text))
     for how, text in (
@@ -1109,7 +1098,7 @@ class DataContractTool(AnalysisTool):
             suffix = ".tsx" if file.endswith(".tsx") else ""
             if (language, suffix) not in parsers:
                 parsers[language, suffix] = make_parser(language, suffix)
-            tree = parsers[language, suffix].parse(content)
+            tree = parse_source(parsers[language, suffix], language, suffix, content)
             {
                 "java": trees,
                 "python": python_trees,
@@ -2155,7 +2144,8 @@ class DataContractTool(AnalysisTool):
                         link(kind, source, target, KNEX_QUERY_RULE, extra)
         # Kysely: table methods whose receiver a SCIP index resolves to
         # Kysely's own, or, in files no index covers, files importing kysely.
-        kysely_counts = {"calls_scip": 0, "calls_import": 0, "not_kysely": 0}
+        kysely_counts = {"calls_scip": 0, "not_kysely": 0, "no_scip_index": 0}
+        kysely_unindexed = set()
         partly_parsed = []
         for coverage in partial_scripts:
             if not references.covers(coverage.file):
@@ -2175,34 +2165,36 @@ class DataContractTool(AnalysisTool):
                 (
                     coverage.file,
                     content,
-                    parsers[coverage.language, suffix].parse(content),
+                    parse_source(
+                        parsers[coverage.language, suffix],
+                        coverage.language,
+                        suffix,
+                        content,
+                    ),
                 )
             )
         for file, content, tree in [*script_trees, *partly_parsed]:
             calls = extract_kysely(tree, content, file, result.definitions)
-            importing = None
+            if calls and not references.covers(file):
+                # The compiler decides what a call is; without its index the
+                # calls are not read, and the run says so.
+                if imports_kysely(content):
+                    kysely_counts["no_scip_index"] += len(calls)
+                    kysely_unindexed.add(file)
+                continue
             for call in calls:
                 found = references.symbols(file, call.line, call.column)
-                if found is not None:
-                    if not any(
-                        s.startswith(f"scip-typescript npm {KYSELY_MODULE} ")
-                        and s.endswith(f"#{call.method}().")
-                        for s in found
-                    ):
-                        kysely_counts["not_kysely"] += 1
-                        continue
-                    kysely_counts["calls_scip"] += 1
-                    tool, receipt = references.tool(file)
-                    rule = KYSELY_SCIP_RULE
-                    extra = {"indexer": tool, "receipt": receipt}
-                else:
-                    if importing is None:
-                        importing = imports_kysely(content)
-                    if not importing:
-                        kysely_counts["not_kysely"] += 1
-                        continue
-                    kysely_counts["calls_import"] += 1
-                    rule, extra = KYSELY_IMPORT_RULE, {}
+                if not any(
+                    s.startswith(f"scip-typescript npm {KYSELY_MODULE} ")
+                    and s.endswith(f"#{call.method}().")
+                    for s in found
+                ):
+                    kysely_counts["not_kysely"] += 1
+                    continue
+                kysely_counts["calls_scip"] += 1
+                tool, receipt = references.tool(file)
+                rule = KYSELY_SCIP_RULE
+                extra = {"indexer": tool, "receipt": receipt}
                 reads, writes = KYSELY_METHODS[call.method]
                 source = code(file, call.caller_id)
                 for name in call.tables:
@@ -2577,9 +2569,17 @@ class DataContractTool(AnalysisTool):
             + sorted(tables.values(), key=lambda n: n.properties["qualified_name"])
         )
         status = (
-            "partial" if unreadable or result.status != "succeeded" else "succeeded"
+            "partial"
+            if unreadable or kysely_unindexed or result.status != "succeeded"
+            else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        if kysely_unindexed:
+            warnings.append(
+                f"no_scip_index: {len(kysely_unindexed)} files importing kysely "
+                "have no scip-typescript index, so their Kysely queries are not "
+                "read; run deepthought index-scip and pass the index"
+            )
         # A limit stops the source walk: the files after it are unread, so
         # the tables and edges reported are a lower bound.
         limits = sorted({d.code for d in result.diagnostics if d.code in SOURCE_LIMITS})

@@ -736,7 +736,10 @@ def parse_source(parser, language: str, suffix: str, content: bytes):
     and that tree is used when it has fewer errors."""
     source = prepare_source(language, content)
     tree = parser.parse(source)
-    if language != "typescript" or suffix == ".tsx" or not tree.root_node.has_error:
+    if language != "typescript" or not tree.root_node.has_error:
+        return tree
+    tree, source = _tagged_template_types(parser, tree, source)
+    if suffix == ".tsx" or not tree.root_node.has_error:
         return tree
     errors = _error_rows(tree)
     repaired, offset = bytearray(source), 0
@@ -749,6 +752,49 @@ def parse_source(parser, language: str, suffix: str, content: bytes):
         return tree
     candidate = parser.parse(bytes(repaired))
     return candidate if _error_rows(candidate)[0] < errors[0] else tree
+
+
+def _tagged_template_types(parser, tree, source):
+    """(tree, source): the grammar fails on a tagged template with some
+    type arguments (``sql<{ a: string }>`...` ``, ``sql<string[]>`...` ``). The
+    type arguments before each such template, on a row an innermost error
+    spans, are read as blanks (line breaks kept, so every offset stays),
+    and that tree is used when it has fewer errors."""
+    errors = _error_rows(tree)
+    repaired = bytearray(source)
+    position = source.find(b">`")
+    while position != -1:
+        depth, start = 0, position
+        while start >= 0 and position - start < 4000:
+            character = source[start : start + 1]
+            if character == b">":
+                depth += 1
+            elif character == b"<":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif character == b"`":
+                start = -1
+                break
+            start -= 1
+        before = source[start - 1 : start] if start > 0 else b""
+        row = source.count(b"\n", 0, position)
+        if (
+            start > 0
+            and depth == 0
+            and (before.isalnum() or before in (b"_", b"$"))
+            and row in errors[1]
+        ):
+            for index in range(start, position + 1):
+                if repaired[index] not in (0x0A, 0x0D):
+                    repaired[index] = 0x20
+        position = source.find(b">`", position + 1)
+    if repaired == source:
+        return tree, source
+    candidate = parser.parse(bytes(repaired))
+    if _error_rows(candidate)[0] < errors[0]:
+        return candidate, bytes(repaired)
+    return tree, source
 
 
 def _error_rows(tree):

@@ -3941,7 +3941,6 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongodb-collection` | pattern_matched | a MongoDB driver collection opened by its literal name, `<db>.collection('name')`, in a file importing `mongodb`, `mongoose` or `mongoskin` (or typing `typeof import('mongoose')`) or below a `package.json` that depends on one (Node resolves the module from there; NodeBB keeps its manifest in `install/package.json` and stays unread), on a database handle: `x.db`, `x.db(...)`, `x.connection`, `a \|\| b` or `a ?? b` of handles, or a name the file binds (declarations and plain assignments; `let db;` alone binds nothing) only to handles or types as mongodb's `Db`. The method on the collection, directly, through a variable holding it in the same function, or through `this.f` anywhere in the file when the collection is assigned to `this.f`, gives READS (`find`, `aggregate`, `watch`, `stats`, ...) or WRITES (`insertOne`, `updateMany`, `drop`, `ensureIndex`, `initializeUnorderedBulkOp`, ...), and any other use both. On Countly (labels of #197) this links 577 of 1,148 accesses with 0 wrong, up from 16; the rest go through function parameters and names bound to values the file cannot see (`countlyDb = dbs[0]`). The collection is the same DbTable as a Mongoose model's |
 | File -[:DECLARES]-> DbTable | `data-contracts.knex-create-table` | pattern_matched | `K.schema.createTable('t', ...)` or `createTableIfNotExists` (also after `withSchema`) on a Knex instance as `data-contracts.knex-query` defines one; `K.schema.table` (an alter) is not a declaration |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.kysely-scip` | resolved | a scip-typescript index resolves the called method to Kysely's own `selectFrom`, a join (`innerJoin`, `leftJoin`, `rightJoin`, `fullJoin`, `crossJoin`, lateral joins), `insertInto`, `replaceInto`, `updateTable`, `deleteFrom` or `mergeInto`; its first argument is a string literal (alias dropped) or an array of them; selects and joins READ, the others WRITE |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.kysely-import` | pattern_matched | the same calls in a file that imports `kysely` and that no SCIP index covers; the receiver is not checked |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.knex-query` | pattern_matched | in a file importing `knex` or below a `package.json` depending on it, a Knex query names the table by a literal, or by a name bound to one by a module-level `const` of the file or imported by name from the one project module that declares it (when no function around the use declares that name again): `K('t')` (type arguments allowed), `K.table('t')`, `K.batchInsert('t', ...)`, or `table`, `from`, `into` and the `*join` methods in a builder chain rooted at a Knex instance outside `K.schema`. An instance is a name `knex` or a `.knex`/`.#knex` property, a name bound to a call of the imported knex factory, a parameter, property or constructor parameter property typed `Knex`, `Knex.Transaction`, `Knex.QueryBuilder`, a type alias the file declares once for one of them, or a union of them (and a name destructured as such a property, or cast `as Knex.Transaction`), or the parameter of a callback passed to an instance's `transaction()`. Alias (`t as x`) and schema are dropped, and names of common table expressions the file defines (`.with('x', ...)`) are not tables. `insert`, `update`, `del`/`delete`, `truncate`, `increment`, `decrement`, `upsert` or `merge` on the chain (or on a variable holding the query, in the same function) gives WRITES, plus READS with `select`, `first`, `pluck` or an aggregate; anything else gives READS, and a joined table is always READS. Query-builder callbacks (`function () { this.from('t') }`, `qb => qb.from('t')`) and builders kept in other object fields (Ghost's seeders' `this.transaction`) are not read. The position is the table argument's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
@@ -4472,32 +4471,40 @@ Superset's index is 124 MB, past `ingest_scip`'s default 50 MB cap.
 
 **Kysely.** Kysely queries name tables as string literals typed against
 the database interface: `db.selectFrom('asset as a').innerJoin('user', ...)`,
-`insertInto('album')`. Where a scip-typescript index covers the file (the
-`scip_indexes` the SQLAlchemy reader takes), a call counts only when the
-index resolves the method to Kysely's own (`scip-typescript npm kysely ...
-QueryCreator#selectFrom().`, `SelectQueryBuilder#innerJoin().`, ...), so the
-compiler checks the receiver. A file no index covers is read when it
-imports `kysely`. Common table expressions are not tables: a read of a name
+`insertInto('album')`. A call counts only when the scip-typescript index
+(the `scip_indexes` the SQLAlchemy reader takes) resolves the method to
+Kysely's own (`scip-typescript npm kysely ... QueryCreator#selectFrom().`,
+`SelectQueryBuilder#innerJoin().`, ...), so the compiler checks the
+receiver. The index is required: in a file that imports `kysely` and that
+no index covers, no call is read, the `kysely` metric counts the calls
+under `no_scip_index`, and the run is `partial` with a warning naming the
+missing index. Common table expressions are not tables: a read of a name
 that a `with`, `withRecursive` (or `with((cte) => cte('name'), ...)`) of
 the same statement declares is left out, except inside a non-recursive
 CTE's own body, where the name is the table. A write always names a table,
-since SQL writes no CTE. Files that tree-sitter parses only partly (its
-TypeScript grammar fails on a tagged template with an object type argument,
-``sql<{ a: string }>`...` ``) are read for Kysely calls only where an index
-confirms each call. The `kysely` metric counts `calls_scip`,
-`calls_import` and `not_kysely`.
+since SQL writes no CTE. The metric also counts `calls_scip` and
+`not_kysely` (a method the index resolves to another declaration).
 
 Why not hand rules: whether `x.selectFrom` is Kysely's is a question of the
 receiver's type, which the compiler answers; the table names themselves
 are literals.
 
+The TypeScript grammar fails on a tagged template whose type arguments
+hold an object or array type (``sql<{ a: string }>`...` ``,
+``sql<string[]>`...` ``), Kysely's raw SQL helper, and dropped the whole
+file. `parse_source` now reads such type arguments as blanks (line breaks
+kept, so every offset stays) on rows an error spans, and keeps that tree
+when it has fewer errors, as it does for generic call signatures. On
+immich-app/immich this parses 9 of the 11 TypeScript files that failed; the
+other 2 fail for other reasons. Files still parsed only partly are read for
+Kysely calls, since the index confirms each call.
+
 On immich-app/immich (server, scip-typescript 0.6.2 with the workspace's
 dependencies installed by `pnpm install --ignore-scripts`), main links no
 Kysely query; the tool now links 754 calls in 45 files (542 READS, 212
 WRITES), and every linked name is a table its schema declares (`@Table`) or
-Kysely's own `kysely_migrations`. Without the index it links 525 in the 39
-fully parsed files, the same calls there. Not read: table names passed as
-variables (`selectFrom(table)`, `db.dynamic.table(...)`), and test sources.
+Kysely's own `kysely_migrations`. Not read: table names passed as variables
+(`selectFrom(table)`, `db.dynamic.table(...)`), and test sources.
 
 ## Commit-linked snapshots
 

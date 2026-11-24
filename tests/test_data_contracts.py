@@ -645,7 +645,7 @@ KYSELY = {
     "Provision the typescript grammar",
 )
 class KyselyTests(unittest.TestCase):
-    def analyze(self, with_index):
+    def analyze(self, with_index, metrics=False):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, KYSELY)
             indexes = (self.index(directory),) if with_index else ()
@@ -664,7 +664,10 @@ class KyselyTests(unittest.TestCase):
             for r in output.relationships
             if r.type in ("READS", "WRITES")
         )
-        return edges, output.metadata.custom_metrics["kysely"]
+        found = output.metadata.custom_metrics
+        if metrics:
+            return edges, found["kysely"], found
+        return edges, found["kysely"]
 
     def index(self, directory):
         """A scip-typescript index whose method references are Kysely's,
@@ -728,23 +731,12 @@ class KyselyTests(unittest.TestCase):
         path.write_bytes(index.SerializeToString())
         return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
 
-    def test_files_importing_kysely_without_an_index(self):
-        edges, counts = self.analyze(False)
-        self.assertEqual(
-            edges,
-            [
-                ("READS", "Repo.cte", "asset", "kysely-import"),
-                ("READS", "Repo.list", "asset", "kysely-import"),
-                ("READS", "Repo.list", "user", "kysely-import"),
-                ("READS", "Repo.many", "person", "kysely-import"),
-                ("READS", "Repo.many", "pet", "kysely-import"),
-                ("READS", "Repo.rec", "tag", "kysely-import"),
-                ("WRITES", "Repo.add", "album", "kysely-import"),
-                ("WRITES", "Repo.shadow", "album", "kysely-import"),
-            ],
-        )
-        # other.ts imports no kysely; partial.ts is read only with an index.
-        self.assertEqual(counts, {"calls_scip": 0, "calls_import": 7, "not_kysely": 1})
+    def test_without_an_index_kysely_is_not_read_and_the_run_says_so(self):
+        edges, counts, metrics = self.analyze(False, metrics=True)
+        self.assertEqual(edges, [])
+        # repo.ts and partial.ts (repaired); other.ts does not import kysely.
+        self.assertEqual(counts, {"calls_scip": 0, "not_kysely": 0, "no_scip_index": 8})
+        self.assertEqual(metrics["analysis_status"], "partial")
 
     def test_methods_resolved_through_a_scip_index(self):
         edges, counts = self.analyze(True)
@@ -761,7 +753,7 @@ class KyselyTests(unittest.TestCase):
                 ("WRITES", "Repo.shadow", "album", "kysely-scip"),
             ],
         )
-        self.assertEqual(counts, {"calls_scip": 7, "calls_import": 0, "not_kysely": 2})
+        self.assertEqual(counts, {"calls_scip": 7, "not_kysely": 2, "no_scip_index": 0})
 
 
 class StatementTests(unittest.TestCase):
