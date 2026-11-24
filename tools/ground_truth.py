@@ -863,6 +863,7 @@ def check(names, cache, update=False, examples=10):
                 impact_truth.read(path),
                 examples=examples,
                 aliases=impact_truth.read_aliases(path),
+                nodes=impact_truth.read_nodes(path),
                 fold_nested=bool(
                     {"typescript", "javascript"} & set(corpus["languages"])
                 ),
