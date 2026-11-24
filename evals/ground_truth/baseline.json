@@ -71,11 +71,14 @@
       "tree-sitter.call-package-name": {
         "confirmed": 377
       },
+      "tree-sitter.go-call-conversion": {
+        "confirmed": 3
+      },
       "tree-sitter.go-call-typed-receiver": {
-        "confirmed": 696
+        "confirmed": 699
       }
     },
-    "confirmed": 1347,
+    "confirmed": 1353,
     "contradicted": 0,
     "expected": 1223,
     "impact": {
@@ -111,16 +114,15 @@
       "recall": 1.0,
       "unresolved_external": 276
     },
-    "missed": 12,
+    "missed": 6,
     "missed_by_engine_outcome": {
       "no_call_site": 1,
-      "unresolved:no_declaration": 3,
       "unresolved:not_declared_on_type": 4,
-      "unresolved:receiver_type_unknown": 4
+      "unresolved:receiver_type_unknown": 1
     },
     "precision": 1.0,
-    "recall": 0.9902,
-    "unresolved_expected": 11,
+    "recall": 0.9951,
+    "unresolved_expected": 5,
     "unresolved_unjudged": 2354
   },
   "click": {
@@ -221,12 +223,15 @@
       "tree-sitter.call-package-name": {
         "confirmed": 566
       },
+      "tree-sitter.go-call-conversion": {
+        "confirmed": 6
+      },
       "tree-sitter.go-call-typed-receiver": {
-        "confirmed": 1146,
+        "confirmed": 1159,
         "not_indexed": 2
       }
     },
-    "confirmed": 2190,
+    "confirmed": 2209,
     "contradicted": 0,
     "expected": 2197,
     "impact": {
@@ -236,20 +241,20 @@
           "expected": 309
         },
         "2": {
-          "confirmed": 530,
+          "confirmed": 531,
           "expected": 531
         },
         "3": {
-          "confirmed": 917,
+          "confirmed": 924,
           "expected": 924
         }
       },
-      "confirmed": 1755,
+      "confirmed": 1763,
       "expected": 1764,
       "extra": 0,
-      "missed": 9,
+      "missed": 1,
       "precision": 1.0,
-      "recall": 0.9949,
+      "recall": 0.9994,
       "seeds": 107,
       "seeds_undeclared": 0,
       "unjudged": 0
@@ -263,16 +268,14 @@
       "recall": 1.0,
       "unresolved_external": 174
     },
-    "missed": 19,
+    "missed": 2,
     "missed_by_engine_outcome": {
-      "unresolved:attribute_call": 11,
-      "unresolved:no_declaration": 6,
-      "unresolved:receiver_type_unknown": 2
+      "unresolved:attribute_call": 2
     },
     "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.9914,
-    "unresolved_expected": 21,
+    "recall": 0.9991,
+    "unresolved_expected": 2,
     "unresolved_unjudged": 2195
   },
   "contracts": {

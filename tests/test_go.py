@@ -474,7 +474,7 @@ class GoTests(unittest.TestCase):
                 "\t\ti.Name()\n"  # 42: the index
                 "\t}\n"
                 "\tfor _, n := range c.named {\n"
-                "\t\tn.Name()\n"  # 45: a named slice type is not followed
+                "\t\tn.Name()\n"  # 45: an element of a named slice type
                 "\t}\n"
                 "\t_, args, _ := c.Find()\n"
                 "\targs.Name()\n"  # 48: not the first result
@@ -552,6 +552,7 @@ class GoTests(unittest.TestCase):
             (30, "got.Name", ("cmd.go", "Command.Name")),
             (33, "as.Name", ("cmd.go", "Command.Name")),
             (35, "tool.Go", ("lib/lib.go", "T.Go")),
+            (45, "n.Name", ("cmd.go", "Command.Name")),
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(
@@ -562,7 +563,6 @@ class GoTests(unittest.TestCase):
             (39, "k.Name", ("unresolved", "attribute_call", None)),
             (39, "v.Name", unknown),
             (42, "i.Name", ("unresolved", "attribute_call", None)),
-            (45, "n.Name", unknown),
             (48, "args.Name", ("unresolved", "attribute_call", None)),
             (49, "c.missing.Root", unknown),
             (50, "c.Name().Root", ("unresolved", "not_declared_on_type", None)),
@@ -596,6 +596,76 @@ class GoTests(unittest.TestCase):
                 replace(cmd, fields=fields)
         with self.assertRaises(ValueError):
             replace(cmd, result_type="")
+
+    def test_conversions_named_slices_and_function_literal_results(self):
+        files = {
+            "go.mod": "module example.com/app\n",
+            "cmd.go": (
+                "package app\n"
+                "type Command struct{}\n"
+                'func (c *Command) Name() string { return "" }\n'
+                "type byName []*Command\n"
+                "func (s byName) Len() int { return len(s) }\n"
+                "type Grid [][]*Command\n"
+                "type Alias = byName\n"
+            ),
+            "use.go": (
+                "package app\n"
+                "func Use(cs []*Command, s byName, g Grid) {\n"
+                "\tbyName(cs).Len()\n"  # 3: a conversion, then its method
+                "\ts[0].Name()\n"  # 4: an element of a named slice type
+                "\tfor _, c := range s {\n"
+                "\t\tc.Name()\n"  # 6: ranged over
+                "\t}\n"
+                "\tg[0][0].Name()\n"  # 8: through two slices
+                "\tmake := func() *Command { return nil }\n"
+                "\tmake().Name()\n"  # 10: a literal shadowing make
+                "\tget := func() *Command { return nil }\n"
+                "\tx := get()\n"
+                "\tx.Name()\n"  # 13: a function literal's first result
+                "\tget().Name()\n"  # 14: called directly
+                "\tAlias(cs).Len()\n"  # 15: an alias is linked, not followed
+                "\tMissing(cs)\n"  # 16: declared nowhere
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].symbol if r.target_id else r.reason,
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "use.go"
+        }
+        typed = GO_CALL_TYPED_RECEIVER
+        self.assertEqual(
+            found,
+            {
+                (3, "byName"): ("byName", "tree-sitter.go-call-conversion"),
+                (3, "byName().Len"): ("byName.Len", typed),
+                (4, "s[].Name"): ("Command.Name", typed),
+                (6, "c.Name"): ("Command.Name", typed),
+                (8, "g[][].Name"): ("Command.Name", typed),
+                (10, "make"): ("no_declaration", None),
+                (10, "make().Name"): ("Command.Name", typed),
+                (12, "get"): ("no_declaration", None),
+                (13, "x.Name"): ("Command.Name", typed),
+                (14, "get"): ("no_declaration", None),
+                (14, "get().Name"): ("Command.Name", typed),
+                (15, "Alias"): ("Alias", "tree-sitter.go-call-conversion"),
+                (15, "Alias().Len"): ("receiver_type_unknown", None),
+                (16, "Missing"): ("no_declaration", None),
+            },
+        )
+        types = {d.symbol: d.underlying_type for d in result.definitions}
+        self.assertEqual(
+            (types["byName"], types["Grid"], types["Command"]),
+            ("[]Command", "[][]Command", None),
+        )
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
 
     def test_receivers_that_are_call_results_indexes_and_package_variables(self):
         files = {

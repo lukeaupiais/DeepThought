@@ -87,8 +87,16 @@ class Definition:
     # method of that name the class inherits. None elsewhere, or when there
     # is none.
     properties: tuple[str, ...] | None = None
+    # Go named types declared as a slice or array (``type byName []*T``):
+    # that type, written as for ``result_type`` (``[]T``). None elsewhere.
+    underlying_type: str | None = None
 
     def __post_init__(self):
+        if self.underlying_type is not None and (
+            not isinstance(self.underlying_type, str)
+            or not self.underlying_type.startswith("[]")
+        ):
+            raise ValueError("underlying_type must be a slice type or None")
         if self.result_type is not None and (
             not isinstance(self.result_type, str) or not self.result_type
         ):
@@ -774,6 +782,8 @@ class AnalysisResult:
                 del item["result_type"]
             if item["fields"] is None:
                 del item["fields"]
+            if item["underlying_type"] is None:
+                del item["underlying_type"]
             if item["properties"] is None:
                 del item["properties"]
         for item in data["call_sites"]:

@@ -25,6 +25,7 @@ CALL_MODULE_ATTRIBUTE = "tree-sitter.call-module-attribute"
 CALL_SELF_METHOD = "tree-sitter.call-self-method"
 CALL_PRIVATE_NAME = "tree-sitter.js-call-private-name"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
+GO_CALL_CONVERSION = "tree-sitter.go-call-conversion"
 GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 CALL_JS_REEXPORT = "tree-sitter.js-call-reexport"
@@ -52,6 +53,10 @@ _RUST_TYPES = {"Struct", "Enum", "Union", "TypeAlias"}
 # Rust declarations a call can name: functions and tuple structs.
 _RUST_CALLABLE = {"Function", "Struct"}
 _CALLABLE = {"Function", "Class"}
+# Go type declarations a conversion `T(x)` can name; an alias's methods are
+# its target's, so a conversion's result is followed only for the others.
+_GO_TYPES = {"Type", "Struct", "Interface"}
+_GO_CONVERSIONS = _GO_TYPES | {"TypeAlias"}
 _METHOD = {"Method", "Function"}
 
 
@@ -1502,6 +1507,16 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             for d in by_symbol.get((f, function_name), ())
             if d.kind == "Function"
         ]
+        if not found:
+            # `T(x)`: a conversion to the one type `T` of the package.
+            types = [
+                d
+                for f in files
+                for d in by_symbol.get((f, function_name), ())
+                if d.kind in _GO_TYPES
+            ]
+            if len(types) == 1:
+                return types[0].file, function_name
         if len(found) != 1 or found[0].result_type is None:
             return None
         return found[0].file, found[0].result_type
@@ -1515,7 +1530,14 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         for step in steps:
             if step == "[]":
                 if not typed.startswith("[]"):
-                    return None
+                    # A named slice type (`type byName []*T`): its element.
+                    files, type_name = go_named(file, typed)
+                    named = [
+                        d for f in files for d in by_symbol.get((f, type_name), ())
+                    ]
+                    if len(named) != 1 or named[0].underlying_type is None:
+                        return None
+                    file, typed = named[0].file, named[0].underlying_type
                 typed = typed[2:]
                 continue
             if step.endswith("()"):
@@ -1821,13 +1843,16 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     CallResolution(site.id, "ambiguous", reason="multiple_bindings")
                 )
             elif not bound and site.file in peers:
+                functions = top_level(peers[site.file], site.callee, _CALLABLE)
+                types = (
+                    []
+                    if functions
+                    else top_level(peers[site.file], site.callee, _GO_CONVERSIONS)
+                )
                 resolutions.append(
-                    _pick(
-                        site.id,
-                        top_level(peers[site.file], site.callee, _CALLABLE),
-                        CALL_PACKAGE_NAME,
-                        "no_declaration",
-                    )
+                    _pick(site.id, types, GO_CALL_CONVERSION, "no_declaration")
+                    if types
+                    else _pick(site.id, functions, CALL_PACKAGE_NAME, "no_declaration")
                 )
             elif bound and bound[0][0] is not None:
                 name, targets = bound[0]
