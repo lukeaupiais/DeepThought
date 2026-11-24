@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -275,6 +276,87 @@ class PythonCallTests(unittest.TestCase):
             )
         )
         self.assertEqual(imported[("main.py", 3, "g")][:2], ("linked", "m.py::g"))
+
+    def test_python_overload_signatures_yield_to_the_implementation(self):
+        result = analyze(
+            {
+                "lib.py": (
+                    "import typing\n"
+                    "import typing as t\n"
+                    "from typing import overload\n"
+                    "@overload\n"
+                    "def one(x: int) -> int: ...\n"
+                    "@t.overload\n"
+                    "def one(x: str) -> str: ...\n"
+                    "def one(x): return x\n"
+                    "@typing.overload\n"
+                    "def stub(x: int) -> int: ...\n"
+                    "@typing.overload\n"
+                    "def stub(x: str) -> str: ...\n"
+                    "@overload\n"
+                    "def two(x: int) -> int: ...\n"
+                    "if flag:\n"
+                    "    def two(x): return 1\n"
+                    "else:\n"
+                    "    def two(x): return 2\n"
+                    "@typing_extensions.overload\n"
+                    "def three(x: int) -> int: ...\n"
+                    "@typing.overload\n"
+                    "def three(x: str) -> str: ...\n"
+                    "def three(x): return x\n"
+                    "@cache\n"
+                    "def plain(): pass\n"
+                    "def plain(): pass\n"
+                ),
+                "main.py": (
+                    "from lib import one, stub, two, plain, three\n"
+                    "def go():\n"
+                    "    one(1)\n"
+                    "    stub(1)\n"
+                    "    two(1)\n"
+                    "    plain()\n"
+                    "    three(1)\n"
+                ),
+            },
+            "python",
+        )
+        definitions = {d.id: d for d in result.definitions}
+        self.assertEqual(
+            [(d.line, d.overload) for d in result.definitions if d.symbol == "one"],
+            [(5, True), (7, True), (8, None)],
+        )
+        found = links(result)
+        self.assertEqual(
+            found[("main.py", 3, "one")][:3],
+            ("linked", "lib.py::one", CALL_IMPORTED_NAME),
+        )
+        self.assertEqual(
+            definitions[
+                next(
+                    r.target_id
+                    for r in resolve_calls(result)
+                    if r.target_id and definitions[r.target_id].symbol == "one"
+                )
+            ].line,
+            8,
+        )
+        self.assertEqual(
+            found[("main.py", 7, "three")][:2], ("linked", "lib.py::three")
+        )
+        with self.assertRaises(ValueError):
+            replace(result.definitions[0], overload=False)
+        for line, callee in ((4, "stub"), (5, "two"), (6, "plain")):
+            with self.subTest(callee=callee):
+                self.assertEqual(found[("main.py", line, callee)][0], "ambiguous")
+        serialized = result.to_dict()["definitions"]
+        self.assertEqual(
+            [
+                ("overload" in d, d.get("overload"))
+                for d in serialized
+                if d["symbol"] == "one"
+            ],
+            [(True, True), (True, True), (False, None)],
+        )
 
     def test_python_reexports_are_followed_to_the_declaring_module(self):
         result = analyze(

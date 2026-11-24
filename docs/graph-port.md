@@ -156,7 +156,11 @@ arbitrary object gets no edge.
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
 A name bound both by an import and a local declaration, or declared more than
-once, is ambiguous and gets no edge. CALLS edges start at the calling
+once, is ambiguous and gets no edge. Python `typing.overload` signatures
+(`@overload`, `@typing.overload`, `@t.overload`, `@typing_extensions.overload`)
+are recorded with `overload: true` and declare call forms only: when the
+candidates are such signatures and one other declaration, the call links to
+that declaration, the function that runs. CALLS edges start at the calling
 declaration, or at the File for module-level calls, and carry the call ID,
 callee text, line and column. Tool metadata counts call resolutions by status
 and reason. The `calls` capability is not advertised, so an empty callers or

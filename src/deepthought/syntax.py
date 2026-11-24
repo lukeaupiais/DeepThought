@@ -1000,9 +1000,7 @@ def _python_overload(node, content) -> bool:
     """Whether a Python function is a ``typing.overload`` signature, which
     declares a call form and is not the function that runs."""
     parent = node.parent
-    if parent is None or parent.type != "decorated_definition":
-        return False
-    return any(
+    return parent is not None and any(
         child.type == "decorator"
         and _text(child, content).lstrip("@").strip() in _PYTHON_OVERLOADS
         for child in parent.children
