@@ -1901,8 +1901,13 @@ Python, JavaScript/TypeScript and Go sources are read too
   Prefixes given when a router is mounted (`register_blueprint`,
   `include_router`, `app.use`) are not read.
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
-  `request(method, url)`) and Locust `self.client` calls in files importing
-  `locust`; JavaScript `fetch` (with `options.method`), `axios`, `request` and
+  `request(method, url)`), the same calls on a client object (a
+  `requests.Session`, `httpx.Client`/`AsyncClient` or `aiohttp.ClientSession`
+  bound once to a name, named by an enclosing `with ... as`, or set once to
+  `self.NAME` in the class), and Locust `self.client` calls in files importing
+  `locust`. A literal `base_url` prefixes the path: httpx appends it to the
+  base path and aiohttp joins it as a relative reference; an absolute URL, or
+  a base that is not a literal, leaves the URL as written. JavaScript `fetch` (with `options.method`), `axios`, `request` and
   `superagent` (`.get(url)`, or `request({uri, method})`); Angular
   `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
