@@ -8,6 +8,7 @@ service by its simple name (``NewCartServiceClient``, ``CartServiceStub``,
 ambiguous and links nothing.
 """
 
+import dataclasses
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from hashlib import sha256
@@ -88,7 +89,9 @@ _STRINGS = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 
 
 def read_proto(text, file):
-    """(package, [ProtoMethod]) of a .proto file's text.
+    """(package, [ProtoMethod]) of a .proto file's text, for a file protoc
+    does not compile (``protoc.read_protos``) or when grpcio-tools is not
+    installed. Kept as it is: new proto features go to the protoc reader.
 
     Comments are removed (keeping line numbers); ``service`` blocks are read
     at the top level only; ``rpc Name (...) returns (...)`` statements inside
@@ -1009,6 +1012,8 @@ class GrpcFacts:
     calls: list
     resolutions: list
     unread: list  # (file, line, kind, reason)
+    # path -> "protoc" (compiled) | "fallback" (read by read_proto)
+    proto_readers: dict = dataclasses.field(default_factory=dict)
 
 
 _SKIPPED_DIRECTORIES = {".git", ".venv", "node_modules", "__pycache__", "vendor"}
@@ -1071,11 +1076,18 @@ def collect(root, sources, definitions, repository_id, protos):
     ``sources`` are (path, language, content) of analyzed files whose digest
     matched; ``protos`` are the .proto paths to read.
     """
-    methods, digests = [], {}
+    from .protoc import read_protos
+
+    methods, digests, texts = [], {}, {}
     for path in protos:
         data = (root / path).read_bytes()
         digests[path] = sha256(data).hexdigest()
-        methods.extend(read_proto(data.decode("utf-8", "replace"), path)[1])
+        texts[path] = data.decode("utf-8", "replace")
+    compiled = read_protos(root, list(protos), texts)
+    for path in protos:
+        read = compiled.get(path) or read_proto(texts[path], path)
+        methods.extend(read[1])
+    readers = {path: "protoc" if path in compiled else "fallback" for path in protos}
     index = ProtoIndex(methods)
     handlers, calls, unread, parsers = set(), [], [], {}
     parsed = []
@@ -1129,6 +1141,7 @@ def collect(root, sources, definitions, repository_id, protos):
     calls.sort(key=lambda c: (c.file, c.line, c.column, c.id))
     return GrpcFacts(
         proto_files=digests,
+        proto_readers=readers,
         index=index,
         handlers=sorted(
             handlers, key=lambda h: (h.service, h.method, h.file, h.line, h.handler_id)

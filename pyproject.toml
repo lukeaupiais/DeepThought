@@ -47,10 +47,14 @@ languages = [
   "tomli==2.2.1; python_version < '3.11'",
   # Manifest formats the components tool reads.
   "pyyaml==6.0.3",
+  # protoc, which reads .proto files for gRPC contracts.
+  "grpcio-tools==1.85.4",
 ]
 # Build and deployment manifests: TOML on Python 3.10, and Compose YAML.
 components = ["tomli==2.2.1; python_version < '3.11'", "pyyaml==6.0.3"]
 scip = ["protobuf==7.35.1"]
+# protoc (with the well-known types) for .proto files in gRPC contracts.
+grpc = ["grpcio-tools==1.85.4"]
 
 [project.scripts]
 deepthought = "deepthought.cli:main"
