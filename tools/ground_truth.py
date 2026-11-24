@@ -762,6 +762,17 @@ def declaration_regressions(report, baseline):
 
 def check(names, cache, update=False, examples=10):
     manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
+    known = {
+        entry["name"]
+        for entries in manifest.values()
+        if isinstance(entries, list)
+        for entry in entries
+        if isinstance(entry, dict) and "name" in entry
+    }
+    unknown = sorted(set(names) - known)
+    if unknown:
+        # A misspelled name would otherwise check nothing and pass.
+        raise ValueError("no such corpus: " + ", ".join(unknown))
     missing = missing_requirements(manifest, names)
     if missing:
         raise RuntimeError(
@@ -1395,7 +1406,7 @@ def main(argv=None):
         reports, failed = check(
             set(args.corpus), args.cache, args.update_baseline, args.examples
         )
-    except RuntimeError as error:
+    except (RuntimeError, ValueError) as error:
         print(f"ground_truth check: {error}", file=sys.stderr)
         return 2
     coverage = rule_coverage(reports)

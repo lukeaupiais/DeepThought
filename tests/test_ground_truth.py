@@ -432,7 +432,7 @@ class RequirementTests(unittest.TestCase):
             ),
             redirect_stderr(io.StringIO()) as stderr,
         ):
-            self.assertEqual(ground_truth.main(["check", "--corpus", "x"]), 2)
+            self.assertEqual(ground_truth.main(["check", "--corpus", "click"]), 2)
         self.assertIn("not installed: yaml", stderr.getvalue())
 
 
@@ -459,6 +459,16 @@ class DeclarationRegressionTests(unittest.TestCase):
             self.assertEqual(
                 len(rows), baseline["declarations"][entry["name"]]["expected"]
             )
+
+
+class UnknownCorpusTests(unittest.TestCase):
+    def test_a_misspelled_corpus_name_fails_instead_of_checking_nothing(self):
+        with tempfile.TemporaryDirectory() as cache:
+            with self.assertRaisesRegex(ValueError, "no such corpus: clik"):
+                ground_truth.check(["clik"], Path(cache))
+        with redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(ground_truth.main(["check", "--corpus", "clik"]), 2)
+        self.assertIn("no such corpus: clik", stderr.getvalue())
 
 
 @unittest.skipUnless(
