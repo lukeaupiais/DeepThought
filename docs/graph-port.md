@@ -749,7 +749,26 @@ read, so their methods stay unresolved.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity`.
+none is `no_matching_arity`. When several are left, the argument types the
+call writes choose among them as javac does (JLS 15.12.2). An argument's type
+is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
+`long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
+`(T) e`, or a variable whose declaration writes its type (as for
+`receiver_type` below); `CallSite.argument_types` records them. The phases
+are tried in order: without boxing, with boxing, then variable arity. In the
+first phase where some method applies, the most specific one is linked:
+each of its parameter types is a subtype of the other's. Subtypes are known
+for repository types through their declared bases, for primitives by
+widening, and for the `java.lang` types a literal or boxing gives (`String`,
+`Class`, the box types), which are listed with every supertype. A type outside
+the repository has no other known supertype than `Object`, and a type
+parameter has no known bound, so a check against either is unknown. An
+unknown argument or check makes a method possibly applicable, and the call is
+linked only when the choice holds for every outcome of the unknown checks:
+one method possible from that phase on, or a method that applies and is more
+specific than every other possible one. A `private` method is not a
+candidate outside the top-level class that declares it. Otherwise the call
+stays ambiguous among the arity candidates.
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
