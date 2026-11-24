@@ -73,6 +73,10 @@ class RenameAndCompileTests(unittest.TestCase):
         # sub imports the package left failing, so it was never compiled.
         self.assertIn(("r.go", 9, "Mount", "sub/", 0, "blocked"), rows)
 
+    def test_an_interface_method_reports_the_types_that_satisfied_it(self):
+        rows = self.rows("r.go", 4, "Mount")
+        self.assertIn(("r.go", 4, "Mount", "r.go", 11, "implements"), rows)
+
     def test_renamed_uses_let_importers_compile(self):
         rows = self.rows("w.go", 3, "Wrap")
         self.assertEqual(rows, [("w.go", 3, "Wrap", "sub/s.go", 5, "reference")])
