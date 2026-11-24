@@ -15,7 +15,9 @@
       "inherits": "inherits/click.tsv",
       "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
       "imports": "imports/click.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language python"
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language python",
+      "impact": "impact/click.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/click.tsv HISTORY --language python --revision 08b803cf32ceb2ae6a772c62d5da42757a897d44"
     },
     {
       "name": "ky",
@@ -31,7 +33,9 @@
       "inherits": "inherits/ky.tsv",
       "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
       "imports": "imports/ky.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript"
+      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "impact": "impact/ky.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ky.tsv HISTORY --language typescript --revision 3541888878c4d303a8bc2ad61815f4e048f55a5d"
     },
     {
       "name": "cobra",
@@ -46,7 +50,9 @@
       "oracle_command": "scip-go",
       "imports": "imports/cobra.tsv",
       "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language go --directory",
-      "imports_granularity": "directory"
+      "imports_granularity": "directory",
+      "impact": "impact/cobra.tsv",
+      "impact_command": "go run tools/go_function_spans.go . > spans.tsv && python tools/impact_truth.py derive index.scip evals/ground_truth/calls/cobra.tsv HISTORY --language go --revision adbc8813901bba65827259daa8e22ff94ec1f30e --spans spans.tsv"
     },
     {
       "name": "anyhow",
@@ -58,7 +64,9 @@
       ],
       "truth": "calls/anyhow.tsv",
       "oracle": "rust-analyzer 1.100.0 (0ef1bc3 2026-11-09)",
-      "oracle_command": "rust-analyzer scip ."
+      "oracle_command": "rust-analyzer scip .",
+      "impact": "impact/anyhow.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/anyhow.tsv HISTORY --language rust --revision c89c9b82b155f701a20eb4a9d3609ad09df5a62f"
     },
     {
       "name": "ripgrep",
@@ -70,7 +78,9 @@
       ],
       "truth": "calls/ripgrep.tsv",
       "oracle": "rust-analyzer 1.100.0 (0ef1bc3 2026-11-09)",
-      "oracle_command": "rust-analyzer scip ."
+      "oracle_command": "rust-analyzer scip .",
+      "impact": "impact/ripgrep.tsv",
+      "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ripgrep.tsv HISTORY --language rust --revision 4a51093f78bfbef86d89275f4916fd6b6039fe9e"
     },
     {
       "name": "gson",
@@ -84,7 +94,9 @@
       "oracle": "javac (OpenJDK 21.0.13) through tools/JavaCallTruth.java",
       "oracle_command": "python tools/ground_truth.py derive-java .",
       "inherits": "inherits/gson.tsv",
-      "inherits_command": "python tools/ground_truth.py derive-java . --bases"
+      "inherits_command": "python tools/ground_truth.py derive-java . --bases",
+      "impact": "impact/gson.tsv",
+      "impact_command": "java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED tools/JavaMethodSpans.java . > spans.tsv && python tools/impact_truth.py derive - evals/ground_truth/calls/gson.tsv HISTORY --language java --revision d9b5079eaa4567219771bba6d04289cf45c7589b --spans spans.tsv"
     }
   ],
   "contracts_description": "Hand-labelled cross-service links (evals/fixtures/service_contracts, see its README), scored with tools/check_contracts_ground_truth.py. The corpus file's own repo and commit must match the entry here.",

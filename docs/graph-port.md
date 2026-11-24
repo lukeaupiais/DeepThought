@@ -1380,11 +1380,15 @@ Symbols join the enclosing modules and classes and the path written in a
 name with `.` (`class B::C` in `module A` is `A.B.C`; `class ::C` starts at
 the top). A `def` in a class or module body, in its `class << self` or in a
 block written there (`included do`, `Class.new do`) is a `Method`, whether it
-defines an instance or a singleton method (`def self.m`); elsewhere, at the
-top level or in a block outside any class, it is a `Function`. A class whose
+defines an instance or a singleton method (`def self.m`); so is a `def` with
+a receiver anywhere (`def YAML.load`, `def self.helper` at the top level),
+which defines a method of that object, and so is a `def` in `class << obj`.
+Any other `def` at the top level or in a block outside any class is a
+`Function`. A class whose
 name is not a constant path (`class self::Dynamic`) and what it holds are not
-recorded, nor is a `def` inside a method body, which only defines a method
-when that method runs. Methods made by metaprogramming (`attr_reader`,
+recorded. A `def` inside a method body is recorded under the same scope as
+the method around it, since it defines its method when that method runs
+(Ruby allows no class or module there). Methods made by metaprogramming (`attr_reader`,
 `define_method`), constants, imports (`require`), calls and superclasses are
 not recorded for Ruby yet.
 
@@ -1397,11 +1401,11 @@ same file, is put down to it; every other difference is unexplained.
 
 | Corpus | Files (with syntax errors) | Prism | Matched | Tree-sitter only: syntax error / after one | Prism only: syntax error / after one |
 |---|---|---|---|---|---|
-| rack/rack `b432304` | 95 (0) | 1,010 | 1,010 | 0 / 0 | 0 / 0 |
-| sinatra/sinatra `2e3f791` | 147 (0) | 1,164 | 1,164 | 0 / 0 | 0 / 0 |
+| rack/rack `b432304` | 95 (0) | 1,014 | 1,014 | 0 / 0 | 0 / 0 |
+| sinatra/sinatra `2e3f791` | 147 (0) | 1,168 | 1,168 | 0 / 0 | 0 / 0 |
 | heartcombo/devise `05811fb` | 197 (9) | 1,040 | 1,035 | 6 / 0 | 2 / 3 |
-| jekyll/jekyll `97c3bdc` | 162 (0) | 1,405 | 1,405 | 0 / 0 | 0 / 0 |
-| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,577 | 11,577 | 0 / 0 | 0 / 0 |
+| jekyll/jekyll `97c3bdc` | 162 (0) | 1,406 | 1,406 | 0 / 0 | 0 / 0 |
+| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,593 | 11,593 | 0 / 0 | 0 / 0 |
 
 No difference is unexplained. devise's syntax errors are its generator
 templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
@@ -1420,10 +1424,14 @@ join the namespace and the enclosing class-like declaration with `.`
 statements after it up to the next one, and a braced `namespace A\B { }`
 scopes its body (`namespace { }` is the global namespace). A declaration in a
 conditional block (`if (!function_exists('f')) { function f() {} }`, common
-in WordPress) is recorded, once for each branch that declares it. One in a
-function or method body, a closure or an anonymous class is not, since PHP
-declares it only when that code runs, and neither are namespaces themselves,
-constants, properties, enum cases, calls or bases yet.
+in WordPress) is recorded, once for each branch that declares it. So is one
+in a function or method body or a closure: PHP declares it in the current
+namespace when that code runs, so its symbol is namespace-qualified
+(`App.Http.helper`, not `App.Http.Controller.make.helper`). The methods of
+an anonymous class are named by the path to the class
+(`App.Http.Controller.make.handle` for one in `Controller::make`).
+Namespaces themselves, constants, properties, enum cases, calls and bases are
+not recorded yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1437,11 +1445,11 @@ unexplained.
 
 | Corpus | Files (with syntax errors) | PHP-Parser | Matched | PHP-Parser only: grammar error |
 |---|---|---|---|---|
-| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,897 | 1,897 | 0 |
-| guzzle/guzzle `ba6574f` | 149 (0) | 3,334 | 3,334 | 0 |
-| composer/composer `edc2b0d` | 653 (0) | 5,951 | 5,951 | 0 |
-| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,688 | 13,687 | 1 |
-| laravel/framework `817f2fc` | 3,205 (1) | 37,497 | 37,497 | 0 |
+| Seldaek/monolog `6d4cf3a` | 230 (0) | 1,929 | 1,929 | 0 |
+| guzzle/guzzle `ba6574f` | 149 (0) | 3,380 | 3,380 | 0 |
+| composer/composer `edc2b0d` | 653 (0) | 5,968 | 5,968 | 0 |
+| WordPress/WordPress `e1cb5b9` | 2,072 (0) | 13,731 | 13,730 | 1 |
+| laravel/framework `817f2fc` | 3,205 (1) | 38,123 | 38,123 | 0 |
 
 No difference is unexplained, and no declaration is reported by tree-sitter
 alone. The grammar error is WordPress's `function readonly()`, a fallback for
@@ -1787,17 +1795,48 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   name (`@Query('cats')`), the `name` of its options, or else the method
   name. It links to the field by `HANDLES` (rule
   `service-contracts.nestjs-graphql-resolver`, pattern_matched).
+- Resolver maps, in the JavaScript and TypeScript files of a Node package
+  whose `package.json` depends on a server that takes them (`@apollo/server`,
+  `apollo-server*`, `@apollo/subgraph`, `graphql-tools`,
+  `@graphql-tools/schema`, `graphql-yoga`, `mercurius`): each member with a
+  literal name of an object literal under a `Query`, `Mutation` or
+  `Subscription` key resolves that field (rule
+  `service-contracts.graphql-resolver-map`, pattern_matched). The map stands
+  alone or is the server's `resolvers` option; the same keys nested under
+  any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
+  resolvers. A member that is a function declared in the file
+  (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
+  function, anything else to the file.
+- A root key bound to a name is followed: to an object literal of the same
+  file (`const Query = {...}`), or to a relative module of the repository
+  bound by `require` (whole, destructured or `.Name`) or `import` (default,
+  named or namespace). The module's `module.exports`, `export default`,
+  `exports.Name` or `export const Name` object literal lists the fields,
+  and a namespace import takes its exported functions and constants.
+- In those packages, GraphQL templates declare fields as schema files do:
+  templates tagged `gql` or `graphql`, marked by a `/* GraphQL */` comment,
+  or starting with `#graphql`. A substitution (`${fragment}`) is not read.
 
 Counted as unread:
-- `graphql:schema_root_renamed`: a schema that renames its root types;
+- `graphql:schema_root_renamed`: a schema definition that names a root
+  type other than `Query`, `Mutation` or `Subscription`;
 - `graphql:field_not_literal`: a resolver name that is not literal;
-- `graphql:declared_not_resolved`: a declared field that no read resolver
-  handles;
+- `graphql:resolver_map_not_literal`: a `Query` (or other root) key whose
+  value is not an object literal (`{Query: queries}`);
+- `graphql:resolver_spread`: a spread or other member of a resolver map
+  whose fields are not listed in place (`{...more}`);
+- `graphql:source_not_parsed`: a script of such a package, naming a root
+  type, that the grammar could not fully parse (for example one with Flow
+  annotations); service contracts skip such files;
+- `graphql:resolution_unknown`: a declared field without a read resolver in
+  a package that has any of the three above, where it may be resolved by
+  code the tool does not read;
+- `graphql:declared_not_resolved`: a declared field that no resolver
+  handles, in a package whose resolver maps are all read;
 - `graphql:resolved_not_declared`: a resolved field missing from a package
   that has schema files.
 
-Clients, resolver maps (Apollo `resolvers` objects) and field resolvers of
-object types are not read yet.
+Clients and field resolvers of object types are not read yet.
 
 On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
 GraphQL servers, 23 of them also declared in schema files. The two
@@ -1807,6 +1846,30 @@ resolvers. In the schema-first samples, every declared field has a
 resolver and every resolver has a declaration. The four root fields that
 the samples' end-to-end tests query (other than introspection) are all
 among them.
+
+Resolver maps were checked on two Apollo servers, against the fields their
+schemas declare and the resolver files read by hand:
+
+- `apollographql/fullstack-tutorial` (commit `fca98de`): the server's six
+  root fields are declared in a `gql` template and all six are resolved, by
+  the right functions. The client package depends on `@apollo/client` only
+  and adds nothing.
+- `howtographql/graphql-js` (commit `e0a3a21`): the resolvers are CommonJS
+  modules (`module.exports = { feed }`) joined in `src/index.js` as
+  `{ Query, Mutation, Subscription }`. Of the 8 root fields in
+  `src/schema.graphql`, the 7 with a resolver are read, each from its
+  module, and `Query.info`, which has none, is the one
+  `declared_not_resolved`.
+- `withspectrum/spectrum` (commit `e8ebdcb`): 30 root fields are declared in
+  `/* GraphQL */` templates, 26 of which have a resolver in the code (the
+  other four are the `dummy` fields of the root types and a removed
+  `invoice` query). 19 are read, each by its right resolver, and none is
+  wrong. The seven missed are in three resolver files whose Flow type
+  annotations the JavaScript grammar cannot parse; such files are left out
+  of every contract. They count as `graphql:source_not_parsed`, so the 11
+  declared fields without a read resolver are `graphql:resolution_unknown`
+  rather than reported as unimplemented. Apollo Client's `cacheRedirects` in
+  the shared client code is not read as a resolver map.
 
 ### Gateways
 
@@ -2083,7 +2146,7 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --language python --language typescript --snapshot
+tree-sitter --tool data-contracts --language java --language python --language typescript --language go --snapshot
 REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
@@ -2108,6 +2171,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-entity-manager` | pattern_matched | on a variable or field declared as a jakarta or javax `EntityManager`: `persist`, `merge` or `remove` (WRITES) of a parameter, local or field declared as a mapped entity, or `find`/`getReference` (READS) of its class literal |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name` | pattern_matched | a Go type of the same package whose `TableName() string` method returns a string literal (GORM's `Tabler`), in a file importing a Go SQL package; GORM's default pluralized names are not computed |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2197,6 +2262,13 @@ hits it does not take are not Prisma Client calls (`db.orm.public.User`,
 or a property that names no model). On nestjs/nest's `sample/` apps it maps
 both TypeORM entities (`user`, `photo`) and links both
 `@InjectRepository` services and the 5 Prisma calls of the GraphQL sample.
+
+On jmoiron/sqlx the Go rule reads 166 statements, every one with fixed
+table names. A single-line `grep` for a query method followed by SQL finds
+25 lines the tool links no table from: 7 are in comments, 12 are statements
+that name no table (`SELECT 'null' AS raw`), and 6 pass the text through a
+local alias of `Rebind` (`r := db.Rebind`), which is not followed. The tool
+also reads the statements that span lines.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create

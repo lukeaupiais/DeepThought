@@ -475,6 +475,25 @@ def regressions(report, baseline):
     return problems
 
 
+def impact_regressions(report, baseline):
+    """Fewer oracle dependents reached, more wrong ones, or a changed truth."""
+    problems = []
+    if report["confirmed"] < baseline["confirmed"]:
+        problems.append(f"confirmed {baseline['confirmed']} -> {report['confirmed']}")
+    if report["extra"] > baseline["extra"]:
+        problems.append(f"extra {baseline['extra']} -> {report['extra']}")
+    if (report["seeds"], report["expected"]) != (
+        baseline["seeds"],
+        baseline["expected"],
+    ):
+        problems.append(
+            f"seeds/expected {baseline['seeds']}/{baseline['expected']} -> "
+            f"{report['seeds']}/{report['expected']} "
+            "(the truth file changed; update the baseline in the same commit)"
+        )
+    return problems
+
+
 CONTRACT_COUNTS = ("true_positive", "predicted", "labelled_in_scope")
 
 
@@ -629,6 +648,25 @@ def check(names, cache, update=False, examples=10):
                 problems += [
                     "imports: " + p
                     for p in regressions(imported, baseline[corpus["name"]]["imports"])
+                ]
+        if "impact" in corpus:
+            import impact_truth
+
+            path = CORPUS / corpus["impact"]
+            impact, impact_samples = impact_truth.score(
+                result,
+                impact_truth.read(path),
+                examples=examples,
+                aliases=impact_truth.read_aliases(path),
+            )
+            report["impact"] = impact
+            samples["impact"] = impact_samples
+            if not update and "impact" in baseline.get(corpus["name"], {}):
+                problems += [
+                    "impact: " + p
+                    for p in impact_regressions(
+                        impact, baseline[corpus["name"]]["impact"]
+                    )
                 ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
