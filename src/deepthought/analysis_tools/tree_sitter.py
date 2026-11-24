@@ -240,6 +240,16 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.C_INCLUDE_RELATIVE,
+                "resolved",
+                "A C '#include \"path\"' names the analyzed file at that path "
+                "relative to the directory of the including file, which the "
+                "compiler searches first. Include paths given to the compiler "
+                "are not read.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.PHP_USE_NAMESPACE,
                 "resolved",
                 "A PHP 'use' names no declared class-like type but a namespace "
@@ -503,6 +513,16 @@ CALL_RULES.update(
             "'Self::V(...)' where 'E' (read as a call's path is) or the type of "
             "the impl around the call is an enum that declares the variant "
             "'V' names that variant, ahead of any associated function.",
+            call_rules.C_CALL_STATIC: "A C call 'f(...)' in a file whose "
+            "translation unit (the file and the files its quoted includes "
+            "reach) declares a function 'f' 'static' names the unit's "
+            "definition of 'f', unless a parameter, local or file-scope variable, or a macro "
+            "anywhere in the repository's C files, is named 'f'.",
+            call_rules.C_CALL_EXTERNAL: "A C call 'f(...)' in a file whose "
+            "translation unit declares no function 'f' 'static' names the one definition of 'f' "
+            "without 'static' in the repository's C files, unless a parameter, "
+            "local or file-scope variable, or a macro anywhere in those files, "
+            "is named 'f'.",
         }.items()
     }
 )

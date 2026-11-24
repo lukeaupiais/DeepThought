@@ -29,6 +29,7 @@ from .syntax import (
     LANGUAGES,
     extract,
     extract_c,
+    extract_c_call_sites,
     extract_cpp,
     extract_csharp,
     extract_php,
@@ -480,9 +481,16 @@ def analyze_repository(
                         )
                     )
                 if language == "c":
-                    # C: declarations only so far.
-                    definitions.extend(
-                        extract_c(tree, content, repository_id, relative)
+                    # C: declarations, includes and calls.
+                    declared = extract_c(tree, content, repository_id, relative)
+                    definitions.extend(declared)
+                    imports.extend(
+                        extract_imports(tree, content, repository_id, relative, "c")
+                    )
+                    call_sites.extend(
+                        extract_c_call_sites(
+                            tree, content, repository_id, relative, declared
+                        )
                     )
                     continue
                 if language == "cpp":

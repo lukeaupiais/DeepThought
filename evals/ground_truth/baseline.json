@@ -732,6 +732,30 @@
           "missed": 0
         }
       },
+      "calls": {
+        "ambiguous_unjudged": 75,
+        "by_rule": {
+          "tree-sitter.c-call-external": {
+            "confirmed": 1090,
+            "unjudged": 47
+          },
+          "tree-sitter.c-call-static": {
+            "confirmed": 549,
+            "unjudged": 7
+          }
+        },
+        "confirmed": 1639,
+        "contradicted": 0,
+        "expected": 1638,
+        "missed": 2,
+        "missed_by_engine_outcome": {
+          "no_call_site": 2
+        },
+        "precision": 1.0,
+        "recall": 0.9988,
+        "unjudged": 54,
+        "unresolved_unjudged": 2513
+      },
       "expected": 261,
       "extra": 3,
       "found": 261,
