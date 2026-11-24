@@ -181,6 +181,28 @@ class DdlTests(unittest.TestCase):
         )
         self.assertIsNone(extract_ddl("bad.sql", b"\xff\xfe"))
 
+    def test_create_table_readers(self):
+        text = b"""-- a comment; not a statement end
+CREATE TEMPORARY TABLE scratch (x INT);
+CREATE FUNCTION f() RETURNS void AS $$ BEGIN CREATE TABLE inner_t (x INT); END $$ LANGUAGE plpgsql;
+CREATE TABLE IF NOT EXISTS events
+(
+  id String CODEC(ZSTD(1))
+) ENGINE = MergeTree ORDER BY id;
+CREATE TABLE "Ids" (
+  seq bigint GENERATED ALWAYS AS IDENTITY (sequence name "s" INCREMENT BY 1),
+  n int
+);
+"""
+        found = extract_ddl("m.sql", text)
+        self.assertEqual(
+            [(d.line, d.name, d.schema, d.reader) for d in found],
+            [
+                (4, "events", None, "sqlglot"),
+                (8, "ids", None, "tokens_not_parsed"),
+            ],
+        )
+
     def test_default_physical_names(self):
         self.assertEqual(
             [
