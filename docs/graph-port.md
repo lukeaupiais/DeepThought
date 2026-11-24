@@ -2434,6 +2434,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.doctrine-table` | pattern_matched | a Doctrine entity (`#[ORM\Entity]` attribute, `@ORM\Entity` docblock annotation, or `<entity>` of a `.orm.xml` mapping, which takes precedence over the class) with a fixed `Table` name; a subclass in a `SINGLE_TABLE` hierarchy takes its root entity's table, a `JOINED` subclass its own, and mapped superclasses and embeddables give none. Also a fixed `JoinTable` name on a property. Names resolve through `namespace` and `use` statements |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.doctrine-default-table` | name_matched | a Doctrine entity without a `Table` name: its short class name under the configured naming strategy, read from the `naming_strategy` of the Symfony `doctrine` configuration or a bootstrap's `setNamingStrategy(new UnderscoreNamingStrategy(...))`. The default strategy keeps the name (`BlogPost`), `underscore` snake-cases it (`blog_post`), number aware (`oauth2_client`) with `underscore_number_aware` or from ORM 3, whose version comes from `composer.lock`, else `composer.json`. A custom strategy, or a `loadClassMetadata` listener that calls `setPrimaryTable`/`setTableName`, leaves the repository's Doctrine tables unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-call` | pattern_matched | READS: a repository's own `createQueryBuilder` and finders (the repository's entity from `parent::__construct($registry, X::class)` or the entity's `repositoryClass`), finders (`find`, `findBy`, `findOneBy`, `findAll`, `count`, `matching`, magic `findByX`) on a property or parameter typed with the repository class, unless the repository declares that method, `getRepository(X::class)` finders, `find(X::class, ...)` and query builder `from(X::class, ...)`. WRITES: `update(X::class, ...)`, `delete(X::class, ...)`, and `persist`/`remove` of a variable typed with the entity (a parameter, a property, or `new X()` in the method) |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-dql` | pattern_matched | DQL passed to `createQuery` or `setDQL`, read as PHP text is (literals, heredocs, `.` joins, local variables) with `X::class` parts resolved: the entities its FROM and JOIN clauses name are read, the target of UPDATE or DELETE is written. Names are fully qualified or `Bundle:Entity` aliases, which resolve through the bundle class of that name in the repository (`AppBundle:Post` is `App\Entity\Post` when `AppBundle` is in `App`); association joins (`JOIN p.tags t`) are not followed |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file and `Object.assign`/lodash merges. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, or `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`) |
@@ -2474,7 +2475,7 @@ the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
-`tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
+`tests/`, `Tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
 The tool reads at most 10,000 source files by default (`graph index --tool
 data-contracts --max-files N` raises it). When a file count or byte limit
 stops the walk, the run is `partial`, the `source_limits` metric names the
@@ -2660,9 +2661,12 @@ the 4 tables its migrations alter (`Part`, `PartKeeprUser`, `PartParameter`,
 table in a `loadClassMetadata` subscriber, so its 16 entities are left
 unresolved instead of named without the prefix. Sylius declares its models
 as mapped superclasses that its resource bundle turns into entities at
-run time; only their join tables are read. DQL text (`createQuery`),
-entities whose type is not declared where they are persisted, PHP and YAML
-mapping drivers and custom repository base classes are not read yet.
+run time; only their join tables are read. On PartKeepr the tool reads
+the DQL of all 37 `createQuery` calls outside its tests, most of them
+through `PartKeeprPartBundle:Part`-style aliases. Entities whose type is not
+declared where they are persisted, PHP and YAML mapping drivers and custom
+repository base classes are not read yet. Symfony's `Tests/` directories
+are skipped with the other PHP test trees.
 
 On HabitRPG/habitica `02edf1a` all 18 `mongoose.model` models and the 4
 `Task` discriminators are mapped, and the default names of the 7 that the

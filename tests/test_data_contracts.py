@@ -2344,8 +2344,16 @@ class PostController
         $employee = new Employee();
         $this->em->remove($employee);
         $qb->update(Oauth2Client::class, 'o')->getQuery()->execute();
+        $dql = 'SELECT p FROM ' . Person::class . ' p JOIN p.manager m';
+        $this->em->createQuery($dql . ' WHERE p.id IN (SELECT c.id FROM AppBundle:Comment c)');
+        $this->em->createQuery('DELETE FROM App\\\\Entity\\\\Invoice i');
     }
 }
+""",
+    "src/AppBundle.php": """\
+<?php
+namespace App;
+class AppBundle {}
 """,
     "tests/PostTest.php": """\
 <?php
@@ -2425,9 +2433,12 @@ class DoctrineTests(unittest.TestCase):
                 ("READS", "blog_post", "doctrine-call", "BlogPost", post, 15),
                 ("READS", "blog_post", "doctrine-call", "BlogPost", repository, 13),
                 ("READS", "blog_post", "doctrine-call", "BlogPost", repository, 17),
+                ("READS", "comments", "doctrine-dql", "Comment", post, 28),
                 ("READS", "invoices", "doctrine-call", "Invoice", post, 18),
                 ("READS", "people", "doctrine-call", "Person", post, 17),
+                ("READS", "people", "doctrine-dql", "Person", post, 28),
                 ("WRITES", "comments", "doctrine-call", "Comment", post, 23),
+                ("WRITES", "invoices", "doctrine-dql", "Invoice", post, 29),
                 ("WRITES", "oauth2client", "doctrine-call", "Oauth2Client", post, 26),
                 ("WRITES", "people", "doctrine-call", "Employee", post, 25),
             ],
@@ -2437,7 +2448,7 @@ class DoctrineTests(unittest.TestCase):
         self.assertEqual(metrics["doctrine_unresolved"], {})
         self.assertEqual(
             metrics["doctrine_access_resolution"],
-            {"linked": 8, "not_an_entity": 0, "unresolved_entity": 0},
+            {"linked": 11, "not_an_entity": 0, "unresolved_entity": 0},
         )
 
     def test_metadata_listener_leaves_tables_unresolved(self):
@@ -2460,7 +2471,7 @@ class Prefix
         self.assertFalse([r for r in output.relationships if r.type != "CONTAINS"])
         metrics = output.metadata.custom_metrics
         self.assertEqual(metrics["doctrine_unresolved"], {"metadata_listener": 6})
-        self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 8)
+        self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 11)
 
 
 if __name__ == "__main__":

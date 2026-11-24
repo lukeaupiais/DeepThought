@@ -593,6 +593,17 @@ DOCTRINE_CALL_RULE = register_rule(
         "these types are not type-checked.",
     )
 )
+DOCTRINE_DQL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-dql",
+        "pattern_matched",
+        "DQL text the code fixes, passed to createQuery or setDQL, names this "
+        "entity (fully qualified, through X::class, or as a Bundle:Entity "
+        "alias of a bundle class of the repository) in a FROM or JOIN "
+        "(READS) or as the target of UPDATE or DELETE (WRITES); association "
+        "joins are not followed. The receiver is not type-checked.",
+    )
+)
 MONGOOSE_COLLECTION_RULE = register_rule(
     EvidenceRule(
         "data-contracts.mongoose-collection",
@@ -643,11 +654,12 @@ def _is_test_source(path):
 
 
 def _is_ruby_test(path):
-    """Rails and Laravel test trees (test/, tests/, spec/ and their nested
-    copies) and vendored third-party code (vendor/, where Bundler caches
-    gems and Composer installs packages)."""
+    """Rails, Laravel and Symfony test trees (test/, tests/, Tests/, spec/
+    and their nested copies) and vendored third-party code (vendor/, where
+    Bundler caches gems and Composer installs packages)."""
     return any(
-        part in ("test", "tests", "spec", "vendor") for part in path.split("/")[:-1]
+        part in ("test", "tests", "Tests", "spec", "vendor")
+        for part in path.split("/")[:-1]
     )
 
 
@@ -1680,6 +1692,24 @@ class DataContractTool(AnalysisTool):
                         {"entity": c.path, "join_table": True, "line": line},
                     )
         declared_methods = {c.path: set(c.methods) for c in doctrine_classes}
+        bundles = {}
+        for c in doctrine_classes:
+            short = c.path.rpartition("\\")[2]
+            if short.endswith("Bundle") and c.class_id is not None:
+                bundles.setdefault(short, set()).add(c.path.rpartition("\\")[0])
+
+        def dql_entity(written):
+            """The entity a DQL name means: itself, or a Bundle:Entity alias."""
+            bundle, colon, name = written.partition(":")
+            if not colon:
+                return written
+            namespaces = bundles.get(bundle, set())
+            return (
+                f"{next(iter(namespaces))}\\Entity\\{name}"
+                if len(namespaces) == 1
+                else None
+            )
+
         doctrine_counts = {"linked": 0, "not_an_entity": 0, "unresolved_entity": 0}
         for use in doctrine_uses:
             if (
@@ -1691,6 +1721,8 @@ class DataContractTool(AnalysisTool):
             if use.finder in declared_methods.get(use.repository, ()):
                 continue  # the repository's own method, read where it is defined
             entity = use.entity or doctrine_repositories.get(use.repository)
+            if use.how == "dql":
+                entity = dql_entity(entity)
             mapped = doctrine_tables.get(entity)
             if mapped is None:
                 reason = (
@@ -1709,7 +1741,7 @@ class DataContractTool(AnalysisTool):
                         kind,
                         source,
                         target,
-                        DOCTRINE_CALL_RULE,
+                        DOCTRINE_DQL_RULE if use.how == "dql" else DOCTRINE_CALL_RULE,
                         {"entity": entity, "line": use.line, "column": use.column},
                     )
         # Laravel: migrations, Eloquent models and their calls.
