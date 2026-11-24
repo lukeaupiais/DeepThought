@@ -24,6 +24,7 @@ from deepthought.calls import (
     RUST_CALL_LOCAL_ITEM,
     RUST_CALL_PATH,
     RUST_CALL_SELF_METHOD,
+    RUST_CALL_TYPED_RECEIVER,
     resolve_calls,
 )
 from deepthought.inheritance import (
@@ -1364,7 +1365,15 @@ class RustTests(unittest.TestCase):
                     ("util/src/shapes.rs", "Unit.new"),
                     RUST_CALL_ASSOCIATED,
                 ),
-                ("app/src/lib.rs", 18, "x.clone", "unresolved", None, "method_call"),
+                # Typed, but no impl declares clone (a derive is not read).
+                (
+                    "app/src/lib.rs",
+                    18,
+                    "x.clone",
+                    "unresolved",
+                    None,
+                    "associated_item",
+                ),
                 ("app/src/lib.rs", 19, "Some", "unresolved", None, "unbound_name"),
                 (
                     "app/src/lib.rs",
@@ -1658,6 +1667,155 @@ class RustTests(unittest.TestCase):
             },
         )
 
+    def test_receivers_typed_by_their_declarations(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "x"\n',
+                "src/a.rs": "pub struct A;\nimpl A { pub fn m(&self) {} }\n",
+                "src/lib.rs": (
+                    "pub mod a;\n"
+                    "use a::A;\n"
+                    "pub struct B;\n"
+                    "impl B { pub fn go(&self) {} }\n"
+                    "pub struct W<T>(T);\n"  # 5
+                    "impl<T> W<T> { fn w(&self) {} }\n"
+                    "pub fn f(x: A, y: &mut a::A, z: B, w: W<A>, p: *const A, d: &dyn Tr) {\n"
+                    "    x.m(); y.m(); z.go(); w.w(); p.m(); d.m();\n"  # 8
+                    "    let x = 3;\n"
+                    "    x.m();\n"  # 10
+                    "    let (q, _): (A, A) = todo!(); let W(r): W<A> = W(A);\n"
+                    "    q.m(); r.m();\n"  # 12
+                    "    if let Some(z) = None::<A> { z.m(); }\n"
+                    "    for y in [A] { y.m(); }\n"  # 14
+                    "    match 1 { w => w.m() }\n"
+                    "    let c = |k: A, y| { k.m(); y.m() };\n"  # 16
+                    "    let s: A = A;\n"
+                    "    s.missing(); s.m();\n"  # 18
+                    "    fn inner() { s.m(); }\n"
+                    "}\n"
+                    "pub fn g<A>(t: A, mut v: a::A) { t.m(); v.m(); }\n"  # 21
+                    "impl B { pub fn h(&self, o: &Self, b: Box<B>) { o.go(); b.go(); } }\n"
+                    "pub trait Tr { fn m(&self); }\n"
+                    "pub fn d(W(i): W<A>) { i.m(); }\n"  # 24
+                ),
+            }
+        )
+        sites = {c.id: c for c in result.call_sites}
+        names = {d.id: d.symbol for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].column): (
+                sites[r.call_id].callee,
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/lib.rs" and "." in sites[r.call_id].callee
+        }
+        typed = RUST_CALL_TYPED_RECEIVER
+        self.maxDiff = None
+        self.assertEqual(
+            found,
+            {
+                # Parameters through references, paths and type arguments.
+                (8, 4): ("x.m", "A.m", typed),
+                (8, 11): ("y.m", "A.m", typed),
+                (8, 18): ("z.go", "B.go", typed),
+                (8, 26): ("w.w", "W.w", typed),
+                # A raw pointer and a trait object are not followed.
+                (8, 33): ("p.m", None, "method_call"),
+                (8, 40): ("d.m", None, "method_call"),
+                # The innermost declaration decides: an untyped `let`, a
+                # pattern, `if let`, `for` and a match arm give no type.
+                (10, 4): ("x.m", None, "method_call"),
+                (12, 4): ("q.m", None, "method_call"),
+                (12, 11): ("r.m", None, "method_call"),
+                (13, 33): ("z.m", None, "method_call"),
+                (14, 19): ("y.m", None, "method_call"),
+                (15, 19): ("w.m", None, "method_call"),
+                (16, 24): ("k.m", "A.m", typed),
+                (16, 31): ("y.m", None, "method_call"),
+                (18, 4): ("s.missing", None, "associated_item"),
+                (18, 17): ("s.m", "A.m", typed),
+                # A nested function does not see the outer `s`.
+                (19, 17): ("s.m", None, "method_call"),
+                # A type parameter shadows the type of its name.
+                (21, 33): ("t.m", None, "method_call"),
+                (21, 40): ("v.m", "A.m", typed),
+                (22, 48): ("o.go", "B.go", typed),
+                # A parameter pattern gives no type.
+                (24, 23): ("i.m", None, "method_call"),
+                # Box is no repository type.
+                (22, 56): ("b.go", None, "receiver_type_unknown"),
+            },
+        )
+        receivers = {
+            (c.line, c.column): c.receiver_type
+            for c in result.call_sites
+            if c.file == "src/lib.rs"
+        }
+        self.assertEqual(receivers[(8, 11)], "a::A")
+        self.assertEqual(receivers[(22, 48)], "Self")
+        self.assertIsNone(receivers[(8, 33)])
+
+    def test_calls_in_standard_macro_arguments(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "x"\n',
+                "src/lib.rs": (
+                    "pub struct A;\n"
+                    "impl A { pub fn m(&self) -> bool { true } }\n"
+                    "pub fn f() -> i32 { 1 }\n"
+                    "macro_rules! mine { ($e:expr) => { $e } }\n"
+                    "pub fn run(x: A) {\n"  # 5
+                    '    assert!(x.m(), "{}", f(),);\n'
+                    '    assert_eq!(f(), =>); std::println!("{}", f());\n'
+                    "    let v = vec![f(); 2]; debug_assert!(vec![f()].is_empty());\n"
+                    "    assert!({ let s: A = A; s.m() });\n"
+                    '    mine!(f()); other::println!(f()); core::write!(w, "", f());\n'  # 10
+                    "    let x = 1; assert!(x.m());\n"
+                    "}\n"
+                    "pub fn g<A>(t: A) { assert!(t.m()); assert_eq!(f() =>, 1); }\n"
+                    'pub fn tail() -> String { format!("{}", f()) }\n'
+                ),
+            }
+        )
+        sites = {c.id: c for c in result.call_sites}
+        names = {d.id: d.symbol for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].column): (
+                sites[r.call_id].callee,
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        path = RUST_CALL_PATH
+        typed = RUST_CALL_TYPED_RECEIVER
+        self.maxDiff = None
+        self.assertEqual(
+            found,
+            {
+                # Each argument is read in place, a typed receiver included.
+                (6, 12): ("x.m", "A.m", typed),
+                (6, 25): ("f", "f", path),
+                # An argument that is no expression is skipped alone.
+                (7, 15): ("f", "f", path),
+                (7, 45): ("f", "f", path),
+                (8, 17): ("f", "f", path),
+                # A nested invocation, and a block's own declarations.
+                (8, 45): ("f", "f", path),
+                (9, 28): ("s.m", "A.m", typed),
+                # Other macros and paths are not read.
+                (10, 58): ("f", "f", path),
+                # The innermost declaration still decides.
+                (11, 23): ("x.m", None, "method_call"),
+                # So does a type parameter, and an argument with an error
+                # is skipped.
+                (13, 28): ("t.m", None, "method_call"),
+                # The last invocation of a file has no `;` after it.
+            },
+        )
+
     def test_methods_and_associated_functions_resolve_through_impls(self):
         result = analyze(
             {
@@ -1713,6 +1871,7 @@ class RustTests(unittest.TestCase):
         names = {d.id: (d.symbol, d.line) for d in result.definitions}
         sites = {c.id: c for c in result.call_sites}
         assoc, method = RUST_CALL_ASSOCIATED, RUST_CALL_SELF_METHOD
+        typed = RUST_CALL_TYPED_RECEIVER
         self.maxDiff = None
         self.assertEqual(
             sorted(
@@ -1767,11 +1926,11 @@ class RustTests(unittest.TestCase):
                 (29, 4, "Q::alias_only", None, "type_alias", []),
                 (30, 4, "Q::deflt", ("T2.deflt", 16), assoc, []),
                 # Receiver types are not inferred.
-                (31, 4, "x.talk", None, "method_call", []),
+                (31, 4, "x.talk", ("shapes.P.talk", 6), typed, []),
                 (32, 4, "self.a.b", None, "method_call", []),
                 (33, 4, "shapes::P::make", ("shapes.P.make", 6), assoc, []),
                 # Only `self` has the impl's type.
-                (37, 8, "x.talk", None, "method_call", []),
+                (37, 8, "x.talk", ("shapes.P.talk", 6), typed, []),
                 (38, 8, "Self::make::x", None, "associated_item", []),
                 # Self inside a trait written in an impl is not the impl's.
                 (39, 33, "Self::make", None, "associated_item", []),
