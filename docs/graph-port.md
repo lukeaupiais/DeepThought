@@ -1997,7 +1997,35 @@ the same way. A `configurationFile` (JSON or YAML) supplies settings under the
 pom's own. Without `apiPackage`, the generator's default applies
 (`org.openapitools.api` for spring, `org.openapitools.client.api` for java).
 
-Gradle builds are not read yet.
+Gradle builds that apply `org.openapi.generator` are read the same way
+(`deepthought.service_contracts.openapi_gradle`): the `openApiGenerate { }`
+block and each task of type `GenerateTask` (Groovy `task x(type: ...)`,
+Kotlin `tasks.register<GenerateTask>`, `tasks.register("x", GenerateTask::class)`
+and `by tasks.registering(GenerateTask::class)`), with comments skipped.
+
+A setting is read when it is written `name = value`, `name.set(value)` or
+`name value` at the block's top level, and its value is one of:
+- a string literal (`.toString()` allowed), with `$rootDir`, `$projectDir`
+  and their `${...}`/`project.`/`rootProject.` forms replaced; the root is
+  the nearest `settings.gradle(.kts)`, and a relative `inputSpec` is
+  relative to the project directory;
+- a boolean;
+- for `configOptions`, a Groovy map literal or a Kotlin `mapOf(... to ...)`.
+
+Any other value of a setting that matters (generator, spec, package,
+library, name affixes, options) makes the task `openapi:config_not_literal`.
+The plugin version comes from a `plugins { id ... version ... }` block in
+the build or its settings, or from a buildscript
+`openapi-generator-gradle-plugin` classpath, with `gradle.properties`
+values from the root down to the project replaced.
+
+Checked on three public builds; each one is read as written:
+
+| Build | Read as | Outcome |
+|---|---|---|
+| Guardian-Development/contract-first-service (`7be7d87`) | spring, plugin 4.3.1 | `generator_version` |
+| maschnetwork/openapi-code-generator (`d2ebb3a`) | kotlin-spring, a relative spec | `not_spring_server` |
+| The plugin's own `samples/local-spec` (v7.4.0) | all 5 tasks, version from `gradle.properties` | kotlin, go and csharp are not read; the java client is read |
 
 #### Generated Java clients
 
