@@ -802,6 +802,7 @@ line); a `new` binds the class it creates.
 | google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
 | apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
 | google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
+| junit-team/junit5 | 18,630 / 19,306 | 8 | 668 | 9,343 | 6,233 |
 
 Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
 36,756) and methods inherited from library types (`unbound_name`). Most of guava's
@@ -815,9 +816,13 @@ to the statically imported `LangAssertions` methods of the same name. The 37
 contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
 mostly overloads with the same arity elsewhere in the hierarchy that fit the
 argument types better (`putBytes`, `hashBytes`, `append`), which a count of
-arguments cannot tell apart. junit5 is not reported: javac
-stops attributing most of its roots without their libraries, leaving
-nothing to compare.
+arguments cannot tell apart. junit5's 8 contradictions are the same case
+(`ReflectionUtils.getFullyQualifiedMethodName`), and javac binds none for 657
+of its links for the same reason as in commons-lang: the statically imported
+`PreconditionAssertions` methods take lambdas typed by libraries that are
+not on javac's class path. junit5 indents with tabs; the oracle counts a tab
+as one column, as the analysis does, rather than expanding it to the next
+tab stop as javac's `LineMap.getColumnNumber` would.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -833,9 +838,12 @@ type lookup as calls, and links with `tree-sitter.java-base-type`
 | google/gson | 210 / 210 | 0 | 0 | 0 | 61 |
 | apache/commons-lang | 588 / 588 | 0 | 0 | 0 | 159 |
 | google/guava | 3,336 / 3,336 | 0 | 594 | 0 | 2,301 |
+| junit-team/junit5 | 1,370 / 1,370 | 0 | 0 | 1 | 158 |
 
 Guava's 594 ambiguous bases are test roots extending a type both
-`guava/src` and `android/guava/src` declare.
+`guava/src` and `android/guava/src` declare. junit5's one missed base is in a
+default-package file (`DefaultPackageTest extends VintageTest`, imported from
+`com.example.vintage`); why its import is not followed is not yet explained.
 
 ## Rust
 
