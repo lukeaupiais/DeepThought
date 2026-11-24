@@ -2017,21 +2017,26 @@ with a reason:
 | `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
 | `not_in_index` | The indexer ran but has no document for the file, e.g. a file outside every tsconfig |
 
-It exits 3 when any file is uncovered (`--allow-uncovered` exits 0), so a
-missing or failing indexer is never read as a file without references. On the
+The indexers are required engine dependencies and there is no opt-out. It
+exits 3 when a file is uncovered because an indexer is missing, failed, timed
+out, is another version or saw its inputs change, so a missing or failing
+indexer is never read as a file without references. A file no compiler can
+index (`no_go_module`, `not_in_index`) is named on stderr
+with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
 (external targets the earlier environment left unresolved).
 
-`deepthought-graph index` indexes by default. Whenever the run includes the
-`tree-sitter` tool (the default tool), it first runs the pinned indexers for
-the run's Python, TypeScript, JavaScript and Go files, into a temporary
-directory or `--scip-output-dir DIR` to keep them, and the tree-sitter tool
-binds call sites in covered files through those indexes (see Calls). Each
-analyzed file without an index is named on stderr with its reason, and the run
-stops before importing anything unless `--allow-uncovered`; with it, those
-files' calls fall back to the parser's rules. The import report carries a
+`deepthought-graph index` always indexes, whichever tools the run selects. It
+first runs the pinned indexers for the run's Python, TypeScript, JavaScript
+and Go files, into a temporary directory or `--scip-output-dir DIR` to keep
+them. The tree-sitter tool binds call sites in covered files through those
+indexes (see Calls), and the `scip` tool reads them unless `--scip-index`
+names stored indexes instead. Each analyzed file without an index is named on
+stderr with its reason. When an indexer is missing or failed, the run stops
+before importing anything; only files no compiler can index keep the parser's
+call rules. The import report carries a
 `scip` object: each indexer run, the covered file count and the uncovered
 files with their reasons. `--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
