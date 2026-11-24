@@ -94,6 +94,8 @@ from ..service_contracts.script_constants import (
 from ..service_contracts.web import (
     compose_express_prefixes,
     compose_python_prefixes,
+    axios_exports,
+    axios_imports,
     express_routers,
     extract_web,
     go_router_calls,
@@ -1916,6 +1918,32 @@ class ServiceContractTool(AnalysisTool):
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
+        axios_exported = {}
+
+        def axios_imported(file):
+            """{local name: base URL} of the axios instances ``file``
+            imports from repository modules."""
+            if scripts is None or file not in scripts.sources:
+                return None
+            tree, content, _ = scripts.sources[file]
+            if b"import" not in content:
+                return None
+
+            def exports_of(specifier):
+                target = scripts.resolve(file, specifier)
+                if target is None or target not in scripts.sources:
+                    return {}
+                if target not in axios_exported:
+                    t, c, language = scripts.sources[target]
+                    axios_exported[target] = (
+                        axios_exports(t, c, language, scripts.externals(target))
+                        if b"axios" in c
+                        else {}
+                    )
+                return axios_exported[target]
+
+            return axios_imports(tree, content, exports_of)
+
         calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
             if coverage.language == "csharp":
@@ -2018,6 +2046,11 @@ class ServiceContractTool(AnalysisTool):
                     calls_of=(
                         functools.partial(calls.calls, coverage.file)
                         if calls is not None and coverage.file in scripts.sources
+                        else None
+                    ),
+                    axios_imported=(
+                        axios_imported(coverage.file)
+                        if coverage.language in ("javascript", "typescript")
                         else None
                     ),
                 )

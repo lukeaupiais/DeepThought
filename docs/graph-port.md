@@ -2194,8 +2194,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   `locust`. A literal `base_url` prefixes the path: httpx appends it to the
   base path and aiohttp joins it as a relative reference; an absolute URL, or
   a base that is not a literal, leaves the URL as written. JavaScript `fetch` (with `options.method`), `axios`, `request` and
-  `superagent` (`.get(url)`, or `request({uri, method})`); Angular
-  `HttpClient` and `httpResource` (below); Go `http.Get`,
+  `superagent` (`.get(url)`, or `request({uri, method})`), and the same
+  verb calls, `request({url, method})` or a call of the instance itself on an
+  axios instance: a name bound once to `axios.create(config)`, `this.NAME`
+  given that call as its one value in the class (a field initializer or a
+  `this.NAME =` assignment), or a name imported from a repository module
+  that exports one (`export default NAME`, `export const NAME =`, `export {
+  NAME }` or `export default axios.create(...)`). The config's literal
+  `baseURL` is joined to the request URL with one slash, unless the URL is
+  absolute or protocol-relative, and a protocol-relative URL is read as
+  http; a config that is not an object literal, or spreads one, gives an
+  unknown base. Angular `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
 - **URL values.** String literals, `+`, template strings and f-strings,
   `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names
