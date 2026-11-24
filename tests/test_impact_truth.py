@@ -383,3 +383,38 @@ class InterfaceDispatchTests(unittest.TestCase):
             impact_truth.read_dispatch(path),
             {("r.go", 4): {("r.go", 9), ("sub/s.go", 5)}},
         )
+
+    def test_a_test_type_implements_an_interface_over_package_types(self):
+        # The interface's signature names a type of its own package, so a
+        # test-file implementation matches only the copy checked with tests.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        files = {
+            "go.mod": "module example.com/m\n\ngo 1.21\n",
+            "f.go": (
+                "package m\n"
+                "\n"
+                "type Cmd struct{}\n"
+                "\n"
+                "type Flag interface {\n"
+                "\tRun(c *Cmd) error\n"
+                "}\n"
+            ),
+            "f_test.go": (
+                "package m\n"
+                "\n"
+                "type custom struct{}\n"
+                "\n"
+                "func (custom) Run(c *Cmd) error { return nil }\n"
+            ),
+        }
+        for name, text in files.items():
+            (root / name).write_text(text, "utf-8")
+        completed = subprocess.run(
+            ["go", "run", str(ROOT / "tools/go_interface_dispatch.go"), str(root)],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, "GOFLAGS": "-mod=mod", "GOWORK": "off"},
+        )
+        self.assertEqual(completed.stdout.splitlines(), ["f.go\t6\tf_test.go\t5"])
