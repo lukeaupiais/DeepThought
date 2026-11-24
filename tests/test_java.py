@@ -1006,6 +1006,41 @@ class JavaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replace(site, arguments=2, argument_types=("int",))
 
+    def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
+        lines = [
+            "package p;",
+            "class Foo {}",
+            "record R() {}",
+            "class Api {",
+            "  void cl(Cloneable x) {}",  # 5
+            "  void cl(int[] x) {}",  # 6
+            "  void one(Foo x) {}",  # 7
+            "  void one(int[] x) {}",  # 8
+            "  void rec(Record x) {}",  # 9
+            "  void rec(Object x) {}",  # 10
+            "}",
+            "class Main {",
+            "  void m(Api a) {",
+            "    a.cl(null);",  # 14: an array is Cloneable
+            "    a.one(new Ext());",  # 15: an unknown class is no array
+            "    a.rec(new R());",  # 16: a record extends Record
+            "  }",
+            "}",
+        ]
+        result = analyze({"src/p/Api.java": "\n".join(lines) + "\n"})
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].line: (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].callee.startswith("a.")
+        }
+        self.assertEqual(found, {14: 6, 15: 7, 16: [9, 10]})
+
     def test_an_override_needs_parameter_types_that_may_be_the_same(self):
         files = {
             "src/p/Range.java": (
