@@ -53,6 +53,10 @@ class Definition:
     # Java methods and constructors declared ``private``, which subtypes do
     # not inherit: True. None elsewhere.
     private: bool | None = None
+    # Java methods declared in an enum constant's body (``A { void m() {} }``),
+    # named as the enum's members are: True. They are no members of the enum
+    # type; a call through it binds the enum's own or inherited method.
+    constant_body: bool | None = None
     # JavaScript and TypeScript methods declared ``static``: True. None
     # elsewhere.
     static: bool | None = None
@@ -84,8 +88,9 @@ class Definition:
     # JavaScript and TypeScript classes: the names of the instance fields the
     # body declares (``x = 1``, ``x: T``, ``declare x``) and of the
     # constructor's parameter properties (``private x: T``), which hide a
-    # method of that name the class inherits. None elsewhere, or when there
-    # is none.
+    # method of that name the class inherits. Java types: the names of every
+    # field the body declares (static, private or not), enum constants and
+    # record components. None elsewhere, or when there is none.
     properties: tuple[str, ...] | None = None
     # Go named types declared as a slice or array (``type byName []*T``):
     # that type, written as for ``result_type`` (``[]T``). None elsewhere.
@@ -136,6 +141,8 @@ class Definition:
             raise ValueError("parameter_types must be a tuple of nonempty strings")
         if self.private is not None and self.private is not True:
             raise ValueError("private must be True or None")
+        if self.constant_body not in (None, True):
+            raise ValueError("constant_body must be True or None")
         if self.static is not None and self.static is not True:
             raise ValueError("static must be True or None")
         if self.default_export is not None and self.default_export is not True:
@@ -399,6 +406,16 @@ class CallSite:
     # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
     # line, end column) of ``e``. None elsewhere.
     receiver_call: tuple[int, int, int, int] | None = None
+    # Java calls ``X.f.m()`` (three or more names): True when no variable or
+    # field named ``X`` can be in scope, so ``X`` names a type or package.
+    # None elsewhere.
+    type_qualified: bool | None = None
+    # Java calls ``x.m()`` whose ``receiver_type`` comes from a declaration
+    # outside a type around the call that may inherit a field (an anonymous
+    # class, an enum constant body, a class with bases): True, and the call
+    # binds that declaration only if none of those types inherits a field
+    # ``x``. None elsewhere.
+    receiver_inherits: bool | None = None
 
     def __post_init__(self):
         if self.binding is not None and (
@@ -488,6 +505,12 @@ class CallSite:
             raise ValueError("receiver_steps must be nonempty strings after a type")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
+        if self.type_qualified not in (None, True):
+            raise ValueError("type_qualified must be True or None")
+        if self.receiver_inherits not in (None, True) or (
+            self.receiver_inherits and self.receiver_type is None
+        ):
+            raise ValueError("receiver_inherits must be True with a receiver_type")
         if self.argument_types is not None and (
             type(self.argument_types) is not tuple
             or len(self.argument_types) != self.arguments
@@ -810,6 +833,8 @@ class AnalysisResult:
                 del item["parameter_types"]
             if item["private"] is None:
                 del item["private"]
+            if item["constant_body"] is None:
+                del item["constant_body"]
             if item["static"] is None:
                 del item["static"]
             if item["default_export"] is None:
@@ -853,6 +878,10 @@ class AnalysisResult:
                 del item["argument_calls"]
             if item["receiver_call"] is None:
                 del item["receiver_call"]
+            if item["type_qualified"] is None:
+                del item["type_qualified"]
+            if item["receiver_inherits"] is None:
+                del item["receiver_inherits"]
             if item["argument_fields"] is None:
                 del item["argument_fields"]
         for item in data["imports"]:
