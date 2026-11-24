@@ -1,0 +1,3031 @@
+{
+ "repository": "https://github.com/discourse/discourse",
+ "commit": "5fc74b5b7ab119222a52efa61391cbbd73fb95c2",
+ "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+ "models": [
+  {
+   "class": "AccessControlList",
+   "files": [
+    "app/models/access_control_list.rb"
+   ],
+   "table": "access_control_lists"
+  },
+  {
+   "class": "AdPlugin::AdImpression",
+   "files": [
+    "plugins/discourse-adplugin/app/models/ad_plugin/ad_impression.rb"
+   ],
+   "table": "ad_plugin_impressions"
+  },
+  {
+   "class": "AdPlugin::HouseAd",
+   "files": [
+    "plugins/discourse-adplugin/app/models/ad_plugin/house_ad.rb"
+   ],
+   "table": "ad_plugin_house_ads"
+  },
+  {
+   "class": "AdPlugin::HouseAdRoute",
+   "files": [
+    "plugins/discourse-adplugin/app/models/ad_plugin/house_ad_route.rb"
+   ],
+   "table": "ad_plugin_house_ads_routes"
+  },
+  {
+   "class": "AdminDashboardReport",
+   "files": [
+    "app/models/admin_dashboard_report.rb"
+   ],
+   "table": "admin_dashboard_reports"
+  },
+  {
+   "class": "AdminDashboardSection",
+   "files": [
+    "app/models/admin_dashboard_section.rb"
+   ],
+   "table": "admin_dashboard_sections"
+  },
+  {
+   "class": "AdminNotice",
+   "files": [
+    "app/models/admin_notice.rb"
+   ],
+   "table": "admin_notices"
+  },
+  {
+   "class": "AiAgent",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_agent.rb"
+   ],
+   "table": "ai_agents"
+  },
+  {
+   "class": "AiAgentMcpServer",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_agent_mcp_server.rb"
+   ],
+   "table": "ai_agent_mcp_servers"
+  },
+  {
+   "class": "AiApiAuditLog",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_api_audit_log.rb"
+   ],
+   "table": "ai_api_audit_logs"
+  },
+  {
+   "class": "AiApiRequestStat",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_api_request_stat.rb"
+   ],
+   "table": "ai_api_request_stats"
+  },
+  {
+   "class": "AiArtifact",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_artifact.rb"
+   ],
+   "table": "ai_artifacts"
+  },
+  {
+   "class": "AiArtifactKeyValue",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_artifact_key_value.rb"
+   ],
+   "table": "ai_artifact_key_values"
+  },
+  {
+   "class": "AiArtifactShare",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_artifact_share.rb"
+   ],
+   "table": "ai_artifact_shares"
+  },
+  {
+   "class": "AiArtifactShareKeyValue",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_artifact_share_key_value.rb"
+   ],
+   "table": "ai_artifact_share_key_values"
+  },
+  {
+   "class": "AiArtifactVersion",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_artifact_version.rb"
+   ],
+   "table": "ai_artifact_versions"
+  },
+  {
+   "class": "AiMcpOauthToken",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_mcp_oauth_token.rb"
+   ],
+   "table": "ai_mcp_oauth_tokens"
+  },
+  {
+   "class": "AiMcpServer",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_mcp_server.rb"
+   ],
+   "table": "ai_mcp_servers"
+  },
+  {
+   "class": "AiModerationSetting",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_moderation_setting.rb"
+   ],
+   "table": "ai_moderation_settings"
+  },
+  {
+   "class": "AiPostImageCaption",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_post_image_caption.rb"
+   ],
+   "table": "ai_post_image_captions"
+  },
+  {
+   "class": "AiReviewableSuggestion",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_reviewable_suggestion.rb"
+   ],
+   "table": "ai_reviewable_suggestions"
+  },
+  {
+   "class": "AiSecret",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_secret.rb"
+   ],
+   "table": "ai_secrets"
+  },
+  {
+   "class": "AiSpamLog",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_spam_log.rb"
+   ],
+   "table": "ai_spam_logs"
+  },
+  {
+   "class": "AiSummary",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_summary.rb"
+   ],
+   "table": "ai_summaries"
+  },
+  {
+   "class": "AiTool",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_tool.rb"
+   ],
+   "table": "ai_tools"
+  },
+  {
+   "class": "AiToolAction",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_tool_action.rb"
+   ],
+   "table": "ai_tool_actions"
+  },
+  {
+   "class": "AiToolSecretBinding",
+   "files": [
+    "plugins/discourse-ai/app/models/ai_tool_secret_binding.rb"
+   ],
+   "table": "ai_tool_secret_bindings"
+  },
+  {
+   "class": "AllowedPmUser",
+   "files": [
+    "app/models/allowed_pm_user.rb"
+   ],
+   "table": "allowed_pm_users"
+  },
+  {
+   "class": "AnonymousUser",
+   "files": [
+    "app/models/anonymous_user.rb"
+   ],
+   "table": "anonymous_users"
+  },
+  {
+   "class": "ApiKey",
+   "files": [
+    "app/models/api_key.rb"
+   ],
+   "table": "api_keys"
+  },
+  {
+   "class": "ApiKeyScope",
+   "files": [
+    "app/models/api_key_scope.rb"
+   ],
+   "table": "api_key_scopes"
+  },
+  {
+   "class": "AppearanceChange",
+   "files": [
+    "app/models/appearance_change.rb"
+   ],
+   "table": "appearance_changes"
+  },
+  {
+   "class": "ApplicationRequest",
+   "files": [
+    "app/models/application_request.rb"
+   ],
+   "table": "application_requests"
+  },
+  {
+   "class": "AskAiLog",
+   "files": [
+    "plugins/discourse-ai/app/models/ask_ai_log.rb"
+   ],
+   "table": "ask_ai_logs"
+  },
+  {
+   "class": "AskAiReport",
+   "files": [
+    "plugins/discourse-ai/app/models/ask_ai_report.rb"
+   ],
+   "table": "ask_ai_reports"
+  },
+  {
+   "class": "AskAiReportSubject",
+   "files": [
+    "plugins/discourse-ai/app/models/ask_ai_report_subject.rb"
+   ],
+   "table": "ask_ai_report_subjects"
+  },
+  {
+   "class": "AskAiReportSubjectAsk",
+   "files": [
+    "plugins/discourse-ai/app/models/ask_ai_report_subject_ask.rb"
+   ],
+   "table": "ask_ai_report_subject_asks"
+  },
+  {
+   "class": "Assignment",
+   "files": [
+    "plugins/discourse-assign/app/models/assignment.rb"
+   ],
+   "table": "assignments"
+  },
+  {
+   "class": "AssociatedGroup",
+   "files": [
+    "app/models/associated_group.rb"
+   ],
+   "table": "associated_groups"
+  },
+  {
+   "class": "BackupDraftPost",
+   "files": [
+    "app/models/backup_draft_post.rb"
+   ],
+   "table": "backup_draft_posts"
+  },
+  {
+   "class": "BackupDraftTopic",
+   "files": [
+    "app/models/backup_draft_topic.rb"
+   ],
+   "table": "backup_draft_topics"
+  },
+  {
+   "class": "BackupMetadata",
+   "files": [
+    "app/models/backup_metadata.rb"
+   ],
+   "table": "backup_metadata"
+  },
+  {
+   "class": "Badge",
+   "files": [
+    "app/models/badge.rb"
+   ],
+   "table": "badges"
+  },
+  {
+   "class": "BadgeGrouping",
+   "files": [
+    "app/models/badge_grouping.rb"
+   ],
+   "table": "badge_groupings"
+  },
+  {
+   "class": "BadgeType",
+   "files": [
+    "app/models/badge_type.rb"
+   ],
+   "table": "badge_types"
+  },
+  {
+   "class": "BaseTimer",
+   "files": [
+    "app/models/base_timer.rb"
+   ],
+   "table": "topic_timers"
+  },
+  {
+   "class": "Blog::Instance",
+   "files": [
+    "plugins/blog/app/models/blog/instance.rb"
+   ],
+   "table": "blog_instances"
+  },
+  {
+   "class": "Blog::Path",
+   "files": [
+    "plugins/blog/app/models/blog/path.rb"
+   ],
+   "table": "blog_paths"
+  },
+  {
+   "class": "Blog::Publication",
+   "files": [
+    "plugins/blog/app/models/blog/publication.rb"
+   ],
+   "table": "blog_publications"
+  },
+  {
+   "class": "Blog::Review",
+   "files": [
+    "plugins/blog/app/models/blog/review.rb"
+   ],
+   "table": "blog_reviews"
+  },
+  {
+   "class": "Blog::ReviewFeedback",
+   "files": [
+    "plugins/blog/app/models/blog/review_feedback.rb"
+   ],
+   "table": "blog_review_feedback"
+  },
+  {
+   "class": "Blog::Revision",
+   "files": [
+    "plugins/blog/app/models/blog/revision.rb"
+   ],
+   "table": "blog_revisions"
+  },
+  {
+   "class": "Boards::Board",
+   "files": [
+    "plugins/boards/app/models/boards/board.rb"
+   ],
+   "table": "discourse_kanban_boards"
+  },
+  {
+   "class": "Boards::BoardHistory",
+   "files": [
+    "plugins/boards/app/models/boards/board_history.rb"
+   ],
+   "table": "discourse_kanban_board_histories"
+  },
+  {
+   "class": "Boards::Card",
+   "files": [
+    "plugins/boards/app/models/boards/card.rb"
+   ],
+   "table": "discourse_kanban_cards"
+  },
+  {
+   "class": "Boards::CardHistory",
+   "files": [
+    "plugins/boards/app/models/boards/card_history.rb"
+   ],
+   "table": "discourse_kanban_card_histories"
+  },
+  {
+   "class": "Boards::Column",
+   "files": [
+    "plugins/boards/app/models/boards/column.rb"
+   ],
+   "table": "discourse_kanban_columns"
+  },
+  {
+   "class": "Bookmark",
+   "files": [
+    "app/models/bookmark.rb"
+   ],
+   "table": "bookmarks"
+  },
+  {
+   "class": "BrowserPageviewCountryDailyRollup",
+   "files": [
+    "app/models/browser_pageview_country_daily_rollup.rb"
+   ],
+   "table": "browser_pageview_country_daily_rollups"
+  },
+  {
+   "class": "BrowserPageviewCrawlerDailyRollup",
+   "files": [
+    "app/models/browser_pageview_crawler_daily_rollup.rb"
+   ],
+   "table": "browser_pageview_crawler_daily_rollups"
+  },
+  {
+   "class": "BrowserPageviewEntryUrlDailyRollup",
+   "files": [
+    "app/models/browser_pageview_entry_url_daily_rollup.rb"
+   ],
+   "table": "browser_pageview_entry_url_daily_rollups"
+  },
+  {
+   "class": "BrowserPageviewEvent",
+   "files": [
+    "app/models/browser_pageview_event.rb"
+   ],
+   "table": "browser_pageview_events"
+  },
+  {
+   "class": "BrowserPageviewEventScore",
+   "files": [
+    "app/models/browser_pageview_event_score.rb"
+   ],
+   "table": "browser_pageview_event_scores"
+  },
+  {
+   "class": "BrowserPageviewReferrerDailyRollup",
+   "files": [
+    "app/models/browser_pageview_referrer_daily_rollup.rb"
+   ],
+   "table": "browser_pageview_referrer_daily_rollups"
+  },
+  {
+   "class": "BrowserPageviewSessionEngagement",
+   "files": [
+    "app/models/browser_pageview_session_engagement.rb"
+   ],
+   "table": "browser_pageview_session_engagements"
+  },
+  {
+   "class": "BrowserPageviewSessionEngagementDailyRollup",
+   "files": [
+    "app/models/browser_pageview_session_engagement_daily_rollup.rb"
+   ],
+   "table": "browser_pageview_session_engagement_daily_rollups"
+  },
+  {
+   "class": "Category",
+   "files": [
+    "app/models/category.rb"
+   ],
+   "table": "categories"
+  },
+  {
+   "class": "CategoryActivityDailyRollup",
+   "files": [
+    "app/models/category_activity_daily_rollup.rb"
+   ],
+   "table": "category_activity_daily_rollups"
+  },
+  {
+   "class": "CategoryCustomField",
+   "files": [
+    "app/models/category_custom_field.rb"
+   ],
+   "table": "category_custom_fields"
+  },
+  {
+   "class": "CategoryFeaturedTopic",
+   "files": [
+    "app/models/category_featured_topic.rb"
+   ],
+   "table": "category_featured_topics"
+  },
+  {
+   "class": "CategoryFormTemplate",
+   "files": [
+    "app/models/category_form_template.rb"
+   ],
+   "table": "category_form_templates"
+  },
+  {
+   "class": "CategoryGroup",
+   "files": [
+    "app/models/category_group.rb"
+   ],
+   "table": "category_groups"
+  },
+  {
+   "class": "CategoryLocalization",
+   "files": [
+    "app/models/category_localization.rb"
+   ],
+   "table": "category_localizations"
+  },
+  {
+   "class": "CategoryModerationGroup",
+   "files": [
+    "app/models/category_moderation_group.rb"
+   ],
+   "table": "category_moderation_groups"
+  },
+  {
+   "class": "CategoryPostingReviewGroup",
+   "files": [
+    "app/models/category_posting_review_group.rb"
+   ],
+   "table": "category_posting_review_groups"
+  },
+  {
+   "class": "CategoryRequiredTagGroup",
+   "files": [
+    "app/models/category_required_tag_group.rb"
+   ],
+   "table": "category_required_tag_groups"
+  },
+  {
+   "class": "CategorySearchData",
+   "files": [
+    "app/models/category_search_data.rb"
+   ],
+   "table": "category_search_data"
+  },
+  {
+   "class": "CategorySetting",
+   "files": [
+    "app/models/category_setting.rb"
+   ],
+   "table": "category_settings"
+  },
+  {
+   "class": "CategoryTag",
+   "files": [
+    "app/models/category_tag.rb"
+   ],
+   "table": "category_tags"
+  },
+  {
+   "class": "CategoryTagGroup",
+   "files": [
+    "app/models/category_tag_group.rb"
+   ],
+   "table": "category_tag_groups"
+  },
+  {
+   "class": "CategoryTagStat",
+   "files": [
+    "app/models/category_tag_stat.rb"
+   ],
+   "table": "category_tag_stats"
+  },
+  {
+   "class": "CategoryUser",
+   "files": [
+    "app/models/category_user.rb"
+   ],
+   "table": "category_users"
+  },
+  {
+   "class": "Chat::AllMention",
+   "files": [
+    "plugins/chat/app/models/chat/all_mention.rb"
+   ],
+   "table": "chat_mentions"
+  },
+  {
+   "class": "Chat::CategoryChannel",
+   "files": [
+    "plugins/chat/app/models/chat/category_channel.rb"
+   ],
+   "table": "chat_channels"
+  },
+  {
+   "class": "Chat::Channel",
+   "files": [
+    "plugins/chat/app/models/chat/channel.rb"
+   ],
+   "table": "chat_channels"
+  },
+  {
+   "class": "Chat::ChannelArchive",
+   "files": [
+    "plugins/chat/app/models/chat/channel_archive.rb"
+   ],
+   "table": "chat_channel_archives"
+  },
+  {
+   "class": "Chat::ChannelCustomField",
+   "files": [
+    "plugins/chat/app/models/chat/channel_custom_field.rb"
+   ],
+   "table": "channel_custom_fields"
+  },
+  {
+   "class": "Chat::DirectMessage",
+   "files": [
+    "plugins/chat/app/models/chat/direct_message.rb"
+   ],
+   "table": "direct_message_channels"
+  },
+  {
+   "class": "Chat::DirectMessageChannel",
+   "files": [
+    "plugins/chat/app/models/chat/direct_message_channel.rb"
+   ],
+   "table": "chat_channels"
+  },
+  {
+   "class": "Chat::DirectMessageUser",
+   "files": [
+    "plugins/chat/app/models/chat/direct_message_user.rb"
+   ],
+   "table": "direct_message_users"
+  },
+  {
+   "class": "Chat::Draft",
+   "files": [
+    "plugins/chat/app/models/chat/draft.rb"
+   ],
+   "table": "chat_drafts"
+  },
+  {
+   "class": "Chat::GroupMention",
+   "files": [
+    "plugins/chat/app/models/chat/group_mention.rb"
+   ],
+   "table": "chat_mentions"
+  },
+  {
+   "class": "Chat::HereMention",
+   "files": [
+    "plugins/chat/app/models/chat/here_mention.rb"
+   ],
+   "table": "chat_mentions"
+  },
+  {
+   "class": "Chat::IncomingWebhook",
+   "files": [
+    "plugins/chat/app/models/chat/incoming_webhook.rb"
+   ],
+   "table": "incoming_chat_webhooks"
+  },
+  {
+   "class": "Chat::Mention",
+   "files": [
+    "plugins/chat/app/models/chat/mention.rb"
+   ],
+   "table": "chat_mentions"
+  },
+  {
+   "class": "Chat::MentionNotification",
+   "files": [
+    "plugins/chat/app/models/chat/mention_notification.rb"
+   ],
+   "table": "chat_mention_notifications"
+  },
+  {
+   "class": "Chat::Message",
+   "files": [
+    "plugins/chat/app/models/chat/message.rb"
+   ],
+   "table": "chat_messages"
+  },
+  {
+   "class": "Chat::MessageCustomField",
+   "files": [
+    "plugins/chat/app/models/chat/message_custom_field.rb"
+   ],
+   "table": "message_custom_fields"
+  },
+  {
+   "class": "Chat::MessageHotlinkedMedia",
+   "files": [
+    "plugins/chat/app/models/chat/message_hotlinked_media.rb"
+   ],
+   "table": "chat_message_hotlinked_media"
+  },
+  {
+   "class": "Chat::MessageInteraction",
+   "files": [
+    "plugins/chat/app/models/chat/message_interaction.rb"
+   ],
+   "table": "chat_message_interactions"
+  },
+  {
+   "class": "Chat::MessageLink",
+   "files": [
+    "plugins/chat/app/models/chat/message_link.rb"
+   ],
+   "table": "chat_message_links"
+  },
+  {
+   "class": "Chat::MessageReaction",
+   "files": [
+    "plugins/chat/app/models/chat/message_reaction.rb"
+   ],
+   "table": "chat_message_reactions"
+  },
+  {
+   "class": "Chat::MessageRevision",
+   "files": [
+    "plugins/chat/app/models/chat/message_revision.rb"
+   ],
+   "table": "chat_message_revisions"
+  },
+  {
+   "class": "Chat::MessageSearchData",
+   "files": [
+    "plugins/chat/app/models/chat/message_search_data.rb"
+   ],
+   "table": "chat_message_search_data"
+  },
+  {
+   "class": "Chat::NullMessage",
+   "files": [
+    "plugins/chat/app/models/chat/null_message.rb"
+   ],
+   "table": "chat_messages"
+  },
+  {
+   "class": "Chat::NullUser",
+   "files": [
+    "plugins/chat/app/models/chat/null_user.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Chat::PinnedMessage",
+   "files": [
+    "plugins/chat/app/models/chat/pinned_message.rb"
+   ],
+   "table": "chat_pinned_messages"
+  },
+  {
+   "class": "Chat::ReviewableMessage",
+   "files": [
+    "plugins/chat/app/models/chat/reviewable_message.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "Chat::Thread",
+   "files": [
+    "plugins/chat/app/models/chat/thread.rb"
+   ],
+   "table": "chat_threads"
+  },
+  {
+   "class": "Chat::ThreadCustomField",
+   "files": [
+    "plugins/chat/app/models/chat/thread_custom_field.rb"
+   ],
+   "table": "thread_custom_fields"
+  },
+  {
+   "class": "Chat::UserChatChannelMembership",
+   "files": [
+    "plugins/chat/app/models/chat/user_chat_channel_membership.rb"
+   ],
+   "table": "user_chat_channel_memberships"
+  },
+  {
+   "class": "Chat::UserChatThreadMembership",
+   "files": [
+    "plugins/chat/app/models/chat/user_chat_thread_membership.rb"
+   ],
+   "table": "user_chat_thread_memberships"
+  },
+  {
+   "class": "Chat::UserMention",
+   "files": [
+    "plugins/chat/app/models/chat/user_mention.rb"
+   ],
+   "table": "chat_mentions"
+  },
+  {
+   "class": "Chat::WebhookEvent",
+   "files": [
+    "plugins/chat/app/models/chat/webhook_event.rb"
+   ],
+   "table": "chat_webhook_events"
+  },
+  {
+   "class": "ChatMessageCustomPrompt",
+   "files": [
+    "plugins/discourse-ai/app/models/chat_message_custom_prompt.rb"
+   ],
+   "table": "chat_message_custom_prompts"
+  },
+  {
+   "class": "ChildTheme",
+   "files": [
+    "app/models/child_theme.rb"
+   ],
+   "table": "child_themes"
+  },
+  {
+   "class": "ClassificationResult",
+   "files": [
+    "plugins/discourse-ai/app/models/classification_result.rb"
+   ],
+   "table": "classification_results"
+  },
+  {
+   "class": "ColorScheme",
+   "files": [
+    "app/models/color_scheme.rb"
+   ],
+   "table": "color_schemes"
+  },
+  {
+   "class": "ColorSchemeColor",
+   "files": [
+    "app/models/color_scheme_color.rb"
+   ],
+   "table": "color_scheme_colors"
+  },
+  {
+   "class": "CompletionPrompt",
+   "files": [
+    "plugins/discourse-ai/app/models/completion_prompt.rb"
+   ],
+   "table": "completion_prompts"
+  },
+  {
+   "class": "CustomEmoji",
+   "files": [
+    "app/models/custom_emoji.rb"
+   ],
+   "table": "custom_emojis"
+  },
+  {
+   "class": "DecisionModel",
+   "files": [
+    "plugins/discourse-ai/app/models/decision_model.rb"
+   ],
+   "table": "decision_models"
+  },
+  {
+   "class": "DecisionModelCreditAllocation",
+   "files": [
+    "plugins/discourse-ai/app/models/decision_model_credit_allocation.rb"
+   ],
+   "table": "decision_model_credit_allocations"
+  },
+  {
+   "class": "DecisionModelCreditDailyUsage",
+   "files": [
+    "plugins/discourse-ai/app/models/decision_model_credit_daily_usage.rb"
+   ],
+   "table": "decision_model_credit_daily_usages"
+  },
+  {
+   "class": "DecisionModelFeatureCreditCost",
+   "files": [
+    "plugins/discourse-ai/app/models/decision_model_feature_credit_cost.rb"
+   ],
+   "table": "decision_model_feature_credit_costs"
+  },
+  {
+   "class": "Developer",
+   "files": [
+    "app/models/developer.rb"
+   ],
+   "table": "developers"
+  },
+  {
+   "class": "DirectoryColumn",
+   "files": [
+    "app/models/directory_column.rb"
+   ],
+   "table": "directory_columns"
+  },
+  {
+   "class": "DirectoryItem",
+   "files": [
+    "app/models/directory_item.rb"
+   ],
+   "table": "directory_items"
+  },
+  {
+   "class": "DiscourseAi::AiBot::ConversationStar",
+   "files": [
+    "plugins/discourse-ai/app/models/discourse_ai/ai_bot/conversation_star.rb"
+   ],
+   "table": "discourse_ai_ai_bot_conversation_stars"
+  },
+  {
+   "class": "DiscourseAutomation::Automation",
+   "files": [
+    "plugins/automation/app/models/discourse_automation/automation.rb"
+   ],
+   "table": "discourse_automation_automations"
+  },
+  {
+   "class": "DiscourseAutomation::Field",
+   "files": [
+    "plugins/automation/app/models/discourse_automation/field.rb"
+   ],
+   "table": "discourse_automation_fields"
+  },
+  {
+   "class": "DiscourseAutomation::PendingAutomation",
+   "files": [
+    "plugins/automation/app/models/discourse_automation/pending_automation.rb"
+   ],
+   "table": "discourse_automation_pending_automations"
+  },
+  {
+   "class": "DiscourseAutomation::PendingPm",
+   "files": [
+    "plugins/automation/app/models/discourse_automation/pending_pm.rb"
+   ],
+   "table": "discourse_automation_pending_pms"
+  },
+  {
+   "class": "DiscourseAutomation::Stat",
+   "files": [
+    "plugins/automation/app/models/discourse_automation/stat.rb"
+   ],
+   "table": "discourse_automation_stats"
+  },
+  {
+   "class": "DiscourseAutomation::UserGlobalNotice",
+   "files": [
+    "plugins/automation/app/models/discourse_automation/user_global_notice.rb"
+   ],
+   "table": "discourse_automation_user_global_notices"
+  },
+  {
+   "class": "DiscourseChatIntegration::Channel",
+   "files": [
+    "plugins/discourse-chat-integration/app/models/channel.rb"
+   ],
+   "table": "plugin_store_rows"
+  },
+  {
+   "class": "DiscourseChatIntegration::PluginModel",
+   "files": [
+    "plugins/discourse-chat-integration/app/models/plugin_model.rb"
+   ],
+   "table": "plugin_store_rows"
+  },
+  {
+   "class": "DiscourseChatIntegration::Rule",
+   "files": [
+    "plugins/discourse-chat-integration/app/models/rule.rb"
+   ],
+   "table": "plugin_store_rows"
+  },
+  {
+   "class": "DiscourseDataExplorer::Query",
+   "files": [
+    "plugins/discourse-data-explorer/app/models/discourse_data_explorer/query.rb"
+   ],
+   "table": "data_explorer_queries"
+  },
+  {
+   "class": "DiscourseDataExplorer::QueryGroup",
+   "files": [
+    "plugins/discourse-data-explorer/app/models/discourse_data_explorer/query_group.rb"
+   ],
+   "table": "data_explorer_query_groups"
+  },
+  {
+   "class": "DiscourseDataExplorer::QueryStat",
+   "files": [
+    "plugins/discourse-data-explorer/app/models/discourse_data_explorer/query_stat.rb"
+   ],
+   "table": "data_explorer_query_stats"
+  },
+  {
+   "class": "DiscourseDataExplorer::QueryTag",
+   "files": [
+    "plugins/discourse-data-explorer/app/models/discourse_data_explorer/query_tag.rb"
+   ],
+   "table": "data_explorer_tags"
+  },
+  {
+   "class": "DiscourseDataExplorer::QueryTagMapping",
+   "files": [
+    "plugins/discourse-data-explorer/app/models/discourse_data_explorer/query_tag_mapping.rb"
+   ],
+   "table": "data_explorer_query_tags"
+  },
+  {
+   "class": "DiscourseEvents::Calendar::Event",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/calendar/event.rb"
+   ],
+   "table": "calendar_events"
+  },
+  {
+   "class": "DiscourseEvents::Events::Event",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/events/event.rb"
+   ],
+   "table": "discourse_post_event_events"
+  },
+  {
+   "class": "DiscourseEvents::Events::EventDate",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/events/event_date.rb"
+   ],
+   "table": "discourse_calendar_post_event_dates"
+  },
+  {
+   "class": "DiscourseEvents::Events::EventHost",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/events/event_host.rb"
+   ],
+   "table": "discourse_post_event_hosts"
+  },
+  {
+   "class": "DiscourseEvents::Events::Invitee",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/events/invitee.rb"
+   ],
+   "table": "discourse_post_event_invitees"
+  },
+  {
+   "class": "DiscourseEvents::Holidays::DisabledHoliday",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/holidays/disabled_holiday.rb"
+   ],
+   "table": "discourse_calendar_disabled_holidays"
+  },
+  {
+   "class": "DiscourseEvents::Livestream::TopicChatChannel",
+   "files": [
+    "plugins/discourse-events/app/models/discourse_events/livestream/topic_chat_channel.rb"
+   ],
+   "table": "livestream_topic_chat_channels"
+  },
+  {
+   "class": "DiscourseGamification::GamificationLeaderboard",
+   "files": [
+    "plugins/discourse-gamification/app/models/discourse_gamification/gamification_leaderboard.rb"
+   ],
+   "table": "gamification_leaderboards"
+  },
+  {
+   "class": "DiscourseGamification::GamificationLeaderboardScore",
+   "files": [
+    "plugins/discourse-gamification/app/models/discourse_gamification/gamification_leaderboard_score.rb"
+   ],
+   "table": "gamification_leaderboard_scores"
+  },
+  {
+   "class": "DiscourseGamification::GamificationScoreEvent",
+   "files": [
+    "plugins/discourse-gamification/app/models/discourse_gamification/gamification_score_event.rb"
+   ],
+   "table": "gamification_score_events"
+  },
+  {
+   "class": "DiscourseGithubPlugin::GithubCommit",
+   "files": [
+    "plugins/discourse-github/app/models/github_commit.rb"
+   ],
+   "table": "github_commits"
+  },
+  {
+   "class": "DiscourseGithubPlugin::GithubRepo",
+   "files": [
+    "plugins/discourse-github/app/models/github_repo.rb"
+   ],
+   "table": "github_repos"
+  },
+  {
+   "class": "DiscourseReactions::Reaction",
+   "files": [
+    "plugins/discourse-reactions/app/models/discourse_reactions/reaction.rb"
+   ],
+   "table": "discourse_reactions_reactions"
+  },
+  {
+   "class": "DiscourseReactions::ReactionUser",
+   "files": [
+    "plugins/discourse-reactions/app/models/discourse_reactions/reaction_user.rb"
+   ],
+   "table": "discourse_reactions_reaction_users"
+  },
+  {
+   "class": "DiscourseRssPolling::PollAttempt",
+   "files": [
+    "plugins/discourse-rss-polling/app/models/discourse_rss_polling/poll_attempt.rb"
+   ],
+   "table": "discourse_rss_polling_poll_attempts"
+  },
+  {
+   "class": "DiscourseRssPolling::RssFeed",
+   "files": [
+    "plugins/discourse-rss-polling/app/models/discourse_rss_polling/rss_feed.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/action/analyze_item.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/action/build_preview.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/action/fetch_feed.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/action/imported_topics.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/action/log_change.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/destroy.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/find_by_id.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/poll.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/set_enabled.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/test.rb",
+    "plugins/discourse-rss-polling/app/services/discourse_rss_polling/rss_feed/update.rb"
+   ],
+   "table": "rss_feeds"
+  },
+  {
+   "class": "DiscourseSolved::SharedIssue",
+   "files": [
+    "plugins/discourse-solved/app/models/discourse_solved/shared_issue.rb"
+   ],
+   "table": "discourse_solved_shared_issues"
+  },
+  {
+   "class": "DiscourseSolved::SolvedTopic",
+   "files": [
+    "plugins/discourse-solved/app/models/discourse_solved/solved_topic.rb"
+   ],
+   "table": "discourse_solved_solved_topics"
+  },
+  {
+   "class": "DiscourseSolved::TopicAnswer",
+   "files": [
+    "plugins/discourse-solved/app/models/discourse_solved/topic_answer.rb"
+   ],
+   "table": "discourse_solved_topic_answers"
+  },
+  {
+   "class": "DiscourseSubscriptions::Customer",
+   "files": [
+    "plugins/discourse-subscriptions/app/models/discourse_subscriptions/customer.rb"
+   ],
+   "table": "discourse_subscriptions_customers"
+  },
+  {
+   "class": "DiscourseSubscriptions::Product",
+   "files": [
+    "plugins/discourse-subscriptions/app/models/discourse_subscriptions/product.rb"
+   ],
+   "table": "products"
+  },
+  {
+   "class": "DiscourseSubscriptions::Subscription",
+   "files": [
+    "plugins/discourse-subscriptions/app/models/discourse_subscriptions/subscription.rb"
+   ],
+   "table": "subscriptions"
+  },
+  {
+   "class": "DiscourseTemplates::UsageCount",
+   "files": [
+    "plugins/discourse-templates/app/models/discourse_templates/usage_count.rb"
+   ],
+   "table": "discourse_templates_usage_count"
+  },
+  {
+   "class": "DiscourseTopicVoting::CategorySetting",
+   "files": [
+    "plugins/discourse-topic-voting/app/models/discourse_topic_voting/category_setting.rb"
+   ],
+   "table": "topic_voting_category_settings"
+  },
+  {
+   "class": "DiscourseTopicVoting::TopicVoteCount",
+   "files": [
+    "plugins/discourse-topic-voting/app/models/discourse_topic_voting/topic_vote_count.rb"
+   ],
+   "table": "topic_voting_topic_vote_count"
+  },
+  {
+   "class": "DiscourseTopicVoting::Vote",
+   "files": [
+    "plugins/discourse-topic-voting/app/models/discourse_topic_voting/vote.rb"
+   ],
+   "table": "topic_voting_votes"
+  },
+  {
+   "class": "DiscourseWorkflows::AiAuthoringSession",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/ai_authoring_session.rb"
+   ],
+   "table": "discourse_workflows_ai_authoring_sessions"
+  },
+  {
+   "class": "DiscourseWorkflows::Credential",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/credential.rb"
+   ],
+   "table": "discourse_workflows_credentials"
+  },
+  {
+   "class": "DiscourseWorkflows::DataTable",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/data_table.rb"
+   ],
+   "table": "discourse_workflows_data_tables"
+  },
+  {
+   "class": "DiscourseWorkflows::Execution",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/execution.rb"
+   ],
+   "table": "discourse_workflows_executions"
+  },
+  {
+   "class": "DiscourseWorkflows::ExecutionData",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/execution_data.rb"
+   ],
+   "table": "discourse_workflows_execution_data"
+  },
+  {
+   "class": "DiscourseWorkflows::ExecutionStat",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/execution_stat.rb"
+   ],
+   "table": "discourse_workflows_execution_stats"
+  },
+  {
+   "class": "DiscourseWorkflows::ReviewableAgent",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/reviewable_agent.rb"
+   ],
+   "table": "discourse_workflows_reviewable_agents"
+  },
+  {
+   "class": "DiscourseWorkflows::Variable",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/variable.rb"
+   ],
+   "table": "discourse_workflows_variables"
+  },
+  {
+   "class": "DiscourseWorkflows::Webhook",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/webhook.rb"
+   ],
+   "table": "discourse_workflows_webhooks"
+  },
+  {
+   "class": "DiscourseWorkflows::Workflow",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow.rb"
+   ],
+   "table": "discourse_workflows_workflows"
+  },
+  {
+   "class": "DiscourseWorkflows::WorkflowCallRun",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow_call_run.rb"
+   ],
+   "table": "discourse_workflows_workflow_call_runs"
+  },
+  {
+   "class": "DiscourseWorkflows::WorkflowDependency",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow_dependency.rb"
+   ],
+   "table": "discourse_workflows_workflow_dependencies"
+  },
+  {
+   "class": "DiscourseWorkflows::WorkflowPublishHistory",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow_publish_history.rb"
+   ],
+   "table": "discourse_workflows_workflow_publish_history"
+  },
+  {
+   "class": "DiscourseWorkflows::WorkflowTag",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow_tag.rb"
+   ],
+   "table": "discourse_workflows_tags"
+  },
+  {
+   "class": "DiscourseWorkflows::WorkflowTagMapping",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow_tag_mapping.rb"
+   ],
+   "table": "discourse_workflows_workflow_tags"
+  },
+  {
+   "class": "DiscourseWorkflows::WorkflowVersion",
+   "files": [
+    "plugins/discourse-workflows/app/models/discourse_workflows/workflow_version.rb"
+   ],
+   "table": "discourse_workflows_workflow_versions"
+  },
+  {
+   "class": "DismissedTopicUser",
+   "files": [
+    "app/models/dismissed_topic_user.rb"
+   ],
+   "table": "dismissed_topic_users"
+  },
+  {
+   "class": "DoNotDisturbTiming",
+   "files": [
+    "app/models/do_not_disturb_timing.rb"
+   ],
+   "table": "do_not_disturb_timings"
+  },
+  {
+   "class": "Draft",
+   "files": [
+    "app/models/draft.rb"
+   ],
+   "table": "drafts"
+  },
+  {
+   "class": "DraftSequence",
+   "files": [
+    "app/models/draft_sequence.rb"
+   ],
+   "table": "draft_sequences"
+  },
+  {
+   "class": "Dsa::Notice",
+   "files": [
+    "app/models/dsa/notice.rb"
+   ],
+   "table": "dsa_notices"
+  },
+  {
+   "class": "DsaStatementOfRecord",
+   "files": [
+    "app/models/dsa_statement_of_record.rb"
+   ],
+   "table": "dsa_statement_of_records"
+  },
+  {
+   "class": "EmailChangeRequest",
+   "files": [
+    "app/models/email_change_request.rb"
+   ],
+   "table": "email_change_requests"
+  },
+  {
+   "class": "EmailLog",
+   "files": [
+    "app/models/email_log.rb"
+   ],
+   "table": "email_logs"
+  },
+  {
+   "class": "EmailLoginCode",
+   "files": [
+    "app/models/email_login_code.rb"
+   ],
+   "table": "email_login_codes"
+  },
+  {
+   "class": "EmailToken",
+   "files": [
+    "app/models/email_token.rb"
+   ],
+   "table": "email_tokens"
+  },
+  {
+   "class": "EmbeddableHost",
+   "files": [
+    "app/models/embeddable_host.rb"
+   ],
+   "table": "embeddable_hosts"
+  },
+  {
+   "class": "EmbeddableHostTag",
+   "files": [
+    "app/models/embeddable_host_tag.rb"
+   ],
+   "table": "embeddable_host_tags"
+  },
+  {
+   "class": "EmbeddingDefinition",
+   "files": [
+    "plugins/discourse-ai/app/models/embedding_definition.rb"
+   ],
+   "table": "embedding_definitions"
+  },
+  {
+   "class": "ExternalUploadStub",
+   "files": [
+    "app/models/external_upload_stub.rb"
+   ],
+   "table": "external_upload_stubs"
+  },
+  {
+   "class": "Flag",
+   "files": [
+    "app/models/flag.rb"
+   ],
+   "table": "flags"
+  },
+  {
+   "class": "FormTemplate",
+   "files": [
+    "app/models/form_template.rb"
+   ],
+   "table": "form_templates"
+  },
+  {
+   "class": "GivenDailyLike",
+   "files": [
+    "app/models/given_daily_like.rb"
+   ],
+   "table": "given_daily_likes"
+  },
+  {
+   "class": "Group",
+   "files": [
+    "app/models/group.rb"
+   ],
+   "table": "groups"
+  },
+  {
+   "class": "GroupArchivedMessage",
+   "files": [
+    "app/models/group_archived_message.rb"
+   ],
+   "table": "group_archived_messages"
+  },
+  {
+   "class": "GroupAssociatedGroup",
+   "files": [
+    "app/models/group_associated_group.rb"
+   ],
+   "table": "group_associated_groups"
+  },
+  {
+   "class": "GroupCategoryNotificationDefault",
+   "files": [
+    "app/models/group_category_notification_default.rb"
+   ],
+   "table": "group_category_notification_defaults"
+  },
+  {
+   "class": "GroupCustomField",
+   "files": [
+    "app/models/group_custom_field.rb"
+   ],
+   "table": "group_custom_fields"
+  },
+  {
+   "class": "GroupHistory",
+   "files": [
+    "app/models/group_history.rb"
+   ],
+   "table": "group_histories"
+  },
+  {
+   "class": "GroupMention",
+   "files": [
+    "app/models/group_mention.rb"
+   ],
+   "table": "group_mentions"
+  },
+  {
+   "class": "GroupRequest",
+   "files": [
+    "app/models/group_request.rb"
+   ],
+   "table": "group_requests"
+  },
+  {
+   "class": "GroupTagNotificationDefault",
+   "files": [
+    "app/models/group_tag_notification_default.rb"
+   ],
+   "table": "group_tag_notification_defaults"
+  },
+  {
+   "class": "GroupUser",
+   "files": [
+    "app/models/group_user.rb"
+   ],
+   "table": "group_users"
+  },
+  {
+   "class": "IgnoredUser",
+   "files": [
+    "app/models/ignored_user.rb"
+   ],
+   "table": "ignored_users"
+  },
+  {
+   "class": "IncomingDomain",
+   "files": [
+    "app/models/incoming_domain.rb"
+   ],
+   "table": "incoming_domains"
+  },
+  {
+   "class": "IncomingEmail",
+   "files": [
+    "app/models/incoming_email.rb"
+   ],
+   "table": "incoming_emails"
+  },
+  {
+   "class": "IncomingLink",
+   "files": [
+    "app/models/incoming_link.rb"
+   ],
+   "table": "incoming_links"
+  },
+  {
+   "class": "IncomingReferer",
+   "files": [
+    "app/models/incoming_referer.rb"
+   ],
+   "table": "incoming_referers"
+  },
+  {
+   "class": "InferredConcept",
+   "files": [
+    "plugins/discourse-ai/app/models/inferred_concept.rb"
+   ],
+   "table": "inferred_concepts"
+  },
+  {
+   "class": "InferredConceptPost",
+   "files": [
+    "plugins/discourse-ai/app/models/inferred_concept_post.rb"
+   ],
+   "table": "inferred_concept_posts"
+  },
+  {
+   "class": "InferredConceptTopic",
+   "files": [
+    "plugins/discourse-ai/app/models/inferred_concept_topic.rb"
+   ],
+   "table": "inferred_concept_topics"
+  },
+  {
+   "class": "Invite",
+   "files": [
+    "app/models/invite.rb"
+   ],
+   "table": "invites"
+  },
+  {
+   "class": "InvitedGroup",
+   "files": [
+    "app/models/invited_group.rb"
+   ],
+   "table": "invited_groups"
+  },
+  {
+   "class": "InvitedUser",
+   "files": [
+    "app/models/invited_user.rb"
+   ],
+   "table": "invited_users"
+  },
+  {
+   "class": "JavascriptCache",
+   "files": [
+    "app/models/javascript_cache.rb"
+   ],
+   "table": "javascript_caches"
+  },
+  {
+   "class": "LinkedTopic",
+   "files": [
+    "app/models/linked_topic.rb"
+   ],
+   "table": "linked_topics"
+  },
+  {
+   "class": "LlmCreditAllocation",
+   "files": [
+    "plugins/discourse-ai/app/models/llm_credit_allocation.rb"
+   ],
+   "table": "llm_credit_allocations"
+  },
+  {
+   "class": "LlmCreditDailyUsage",
+   "files": [
+    "plugins/discourse-ai/app/models/llm_credit_daily_usage.rb"
+   ],
+   "table": "llm_credit_daily_usages"
+  },
+  {
+   "class": "LlmFeatureCreditCost",
+   "files": [
+    "plugins/discourse-ai/app/models/llm_feature_credit_cost.rb"
+   ],
+   "table": "llm_feature_credit_costs"
+  },
+  {
+   "class": "LlmModel",
+   "files": [
+    "plugins/discourse-ai/app/models/llm_model.rb"
+   ],
+   "table": "llm_models"
+  },
+  {
+   "class": "LlmQuota",
+   "files": [
+    "plugins/discourse-ai/app/models/llm_quota.rb"
+   ],
+   "table": "llm_quotas"
+  },
+  {
+   "class": "LlmQuotaUsage",
+   "files": [
+    "plugins/discourse-ai/app/models/llm_quota_usage.rb"
+   ],
+   "table": "llm_quota_usages"
+  },
+  {
+   "class": "McpAuditLog",
+   "files": [
+    "app/models/mcp_audit_log.rb"
+   ],
+   "table": "mcp_audit_logs"
+  },
+  {
+   "class": "McpGroupScope",
+   "files": [
+    "app/models/mcp_group_scope.rb"
+   ],
+   "table": "mcp_group_scopes"
+  },
+  {
+   "class": "McpOauthAccessToken",
+   "files": [
+    "app/models/mcp_oauth_access_token.rb"
+   ],
+   "table": "mcp_oauth_access_tokens"
+  },
+  {
+   "class": "McpOauthAuthorization",
+   "files": [
+    "app/models/mcp_oauth_authorization.rb"
+   ],
+   "table": "mcp_oauth_authorizations"
+  },
+  {
+   "class": "McpOauthAuthorizationCode",
+   "files": [
+    "app/models/mcp_oauth_authorization_code.rb"
+   ],
+   "table": "mcp_oauth_authorization_codes"
+  },
+  {
+   "class": "McpOauthAuthorizationScope",
+   "files": [
+    "app/models/mcp_oauth_authorization_scope.rb"
+   ],
+   "table": "mcp_oauth_authorization_scopes"
+  },
+  {
+   "class": "McpOauthClient",
+   "files": [
+    "app/models/mcp_oauth_client.rb"
+   ],
+   "table": "mcp_oauth_clients"
+  },
+  {
+   "class": "McpOauthRefreshToken",
+   "files": [
+    "app/models/mcp_oauth_refresh_token.rb"
+   ],
+   "table": "mcp_oauth_refresh_tokens"
+  },
+  {
+   "class": "McpPrimitive",
+   "files": [
+    "app/models/mcp_primitive.rb"
+   ],
+   "table": "mcp_primitives"
+  },
+  {
+   "class": "ModelAccuracy",
+   "files": [
+    "plugins/discourse-ai/app/models/model_accuracy.rb"
+   ],
+   "table": "model_accuracies"
+  },
+  {
+   "class": "MovedPost",
+   "files": [
+    "app/models/moved_post.rb"
+   ],
+   "table": "moved_posts"
+  },
+  {
+   "class": "MutedUser",
+   "files": [
+    "app/models/muted_user.rb"
+   ],
+   "table": "muted_users"
+  },
+  {
+   "class": "NestedTopic",
+   "files": [
+    "app/models/nested_topic.rb"
+   ],
+   "table": "nested_topics"
+  },
+  {
+   "class": "NestedViewPostStat",
+   "files": [
+    "app/models/nested_view_post_stat.rb"
+   ],
+   "table": "nested_view_post_stats"
+  },
+  {
+   "class": "Notification",
+   "files": [
+    "app/models/notification.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "Oauth2UserInfo",
+   "files": [
+    "app/models/oauth2_user_info.rb"
+   ],
+   "table": "oauth2_user_infos"
+  },
+  {
+   "class": "OnceoffLog",
+   "files": [
+    "app/models/onceoff_log.rb"
+   ],
+   "table": "onceoff_logs"
+  },
+  {
+   "class": "OptimizedImage",
+   "files": [
+    "app/models/optimized_image.rb"
+   ],
+   "table": "optimized_images"
+  },
+  {
+   "class": "OptimizedVideo",
+   "files": [
+    "app/models/optimized_video.rb"
+   ],
+   "table": "optimized_videos"
+  },
+  {
+   "class": "Permalink",
+   "files": [
+    "app/models/permalink.rb"
+   ],
+   "table": "permalinks"
+  },
+  {
+   "class": "PluginStoreRow",
+   "files": [
+    "app/models/plugin_store_row.rb"
+   ],
+   "table": "plugin_store_rows"
+  },
+  {
+   "class": "PolicyUser",
+   "files": [
+    "plugins/discourse-policy/app/models/policy_user.rb"
+   ],
+   "table": "policy_users"
+  },
+  {
+   "class": "Poll",
+   "files": [
+    "plugins/poll/app/models/poll.rb"
+   ],
+   "table": "polls"
+  },
+  {
+   "class": "PollOption",
+   "files": [
+    "plugins/poll/app/models/poll_option.rb"
+   ],
+   "table": "poll_options"
+  },
+  {
+   "class": "PollVote",
+   "files": [
+    "plugins/poll/app/models/poll_vote.rb"
+   ],
+   "table": "poll_votes"
+  },
+  {
+   "class": "Post",
+   "files": [
+    "app/models/post.rb",
+    "plugins/discourse-ai/app/models/post_custom_prompt.rb"
+   ],
+   "table": "posts"
+  },
+  {
+   "class": "PostAction",
+   "files": [
+    "app/models/post_action.rb"
+   ],
+   "table": "post_actions"
+  },
+  {
+   "class": "PostActionType",
+   "files": [
+    "app/models/post_action_type.rb"
+   ],
+   "table": "post_action_types"
+  },
+  {
+   "class": "PostCustomField",
+   "files": [
+    "app/models/post_custom_field.rb"
+   ],
+   "table": "post_custom_fields"
+  },
+  {
+   "class": "PostCustomPrompt",
+   "files": [
+    "plugins/discourse-ai/app/models/post_custom_prompt.rb"
+   ],
+   "table": "post_custom_prompts"
+  },
+  {
+   "class": "PostDetail",
+   "files": [
+    "app/models/post_detail.rb"
+   ],
+   "table": "post_details"
+  },
+  {
+   "class": "PostHotlinkedMedia",
+   "files": [
+    "app/models/post_hotlinked_media.rb"
+   ],
+   "table": "post_hotlinked_media"
+  },
+  {
+   "class": "PostLocalization",
+   "files": [
+    "app/models/post_localization.rb"
+   ],
+   "table": "post_localizations"
+  },
+  {
+   "class": "PostPolicy",
+   "files": [
+    "plugins/discourse-policy/app/models/post_policy.rb"
+   ],
+   "table": "post_policies"
+  },
+  {
+   "class": "PostPolicyGroup",
+   "files": [
+    "plugins/discourse-policy/app/models/post_policy_group.rb"
+   ],
+   "table": "post_policy_groups"
+  },
+  {
+   "class": "PostReply",
+   "files": [
+    "app/models/post_reply.rb"
+   ],
+   "table": "post_replies"
+  },
+  {
+   "class": "PostReplyKey",
+   "files": [
+    "app/models/post_reply_key.rb"
+   ],
+   "table": "post_reply_keys"
+  },
+  {
+   "class": "PostRevision",
+   "files": [
+    "app/models/post_revision.rb"
+   ],
+   "table": "post_revisions"
+  },
+  {
+   "class": "PostSearchData",
+   "files": [
+    "app/models/post_search_data.rb"
+   ],
+   "table": "post_search_data"
+  },
+  {
+   "class": "PostStat",
+   "files": [
+    "app/models/post_stat.rb"
+   ],
+   "table": "post_stats"
+  },
+  {
+   "class": "PostTiming",
+   "files": [
+    "app/models/post_timing.rb"
+   ],
+   "table": "post_timings"
+  },
+  {
+   "class": "PostVotingComment",
+   "files": [
+    "plugins/discourse-post-voting/app/models/post_voting_comment.rb"
+   ],
+   "table": "post_voting_comments"
+  },
+  {
+   "class": "PostVotingCommentCustomField",
+   "files": [
+    "plugins/discourse-post-voting/app/models/post_voting_comment_custom_field.rb"
+   ],
+   "table": "post_voting_comment_custom_fields"
+  },
+  {
+   "class": "PostVotingVote",
+   "files": [
+    "plugins/discourse-post-voting/app/models/post_voting_vote.rb"
+   ],
+   "table": "post_voting_votes"
+  },
+  {
+   "class": "ProblemCheckTracker",
+   "files": [
+    "app/models/problem_check_tracker.rb"
+   ],
+   "table": "problem_check_trackers"
+  },
+  {
+   "class": "PublishedPage",
+   "files": [
+    "app/models/published_page.rb"
+   ],
+   "table": "published_pages"
+  },
+  {
+   "class": "PushSubscription",
+   "files": [
+    "app/models/push_subscription.rb"
+   ],
+   "table": "push_subscriptions"
+  },
+  {
+   "class": "QuotedPost",
+   "files": [
+    "app/models/quoted_post.rb"
+   ],
+   "table": "quoted_posts"
+  },
+  {
+   "class": "RagDocumentFragment",
+   "files": [
+    "plugins/discourse-ai/app/models/rag_document_fragment.rb"
+   ],
+   "table": "rag_document_fragments"
+  },
+  {
+   "class": "RagDocumentSource",
+   "files": [
+    "plugins/discourse-ai/app/models/rag_document_source.rb"
+   ],
+   "table": "rag_document_sources"
+  },
+  {
+   "class": "RedeliveringWebhookEvent",
+   "files": [
+    "app/models/redelivering_webhook_event.rb"
+   ],
+   "table": "redelivering_webhook_events"
+  },
+  {
+   "class": "RemoteTheme",
+   "files": [
+    "app/models/remote_theme.rb"
+   ],
+   "table": "remote_themes"
+  },
+  {
+   "class": "Reviewable",
+   "files": [
+    "app/models/reviewable.rb",
+    "lib/reviewable/actions.rb",
+    "lib/reviewable/author_penalty.rb",
+    "lib/reviewable/collection.rb",
+    "lib/reviewable/conversation.rb",
+    "lib/reviewable/editable_fields.rb",
+    "lib/reviewable/perform_result.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "Reviewable::UnknownType",
+   "files": [
+    "app/models/reviewable/unknown_type.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableAiChatMessage",
+   "files": [
+    "plugins/discourse-ai/app/models/reviewable_ai_chat_message.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableAiPost",
+   "files": [
+    "plugins/discourse-ai/app/models/reviewable_ai_post.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableAiToolAction",
+   "files": [
+    "plugins/discourse-ai/app/models/reviewable_ai_tool_action.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableClaimedTopic",
+   "files": [
+    "app/models/reviewable_claimed_topic.rb"
+   ],
+   "table": "reviewable_claimed_topics"
+  },
+  {
+   "class": "ReviewableFlaggedPost",
+   "files": [
+    "app/models/reviewable_flagged_post.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableHistory",
+   "files": [
+    "app/models/reviewable_history.rb"
+   ],
+   "table": "reviewable_histories"
+  },
+  {
+   "class": "ReviewableLiveUser",
+   "files": [
+    "plugins/live/app/models/reviewable_live_user.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableNote",
+   "files": [
+    "app/models/reviewable_note.rb"
+   ],
+   "table": "reviewable_notes"
+  },
+  {
+   "class": "ReviewablePost",
+   "files": [
+    "app/models/reviewable_post.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewablePostVotingComment",
+   "files": [
+    "plugins/discourse-post-voting/app/models/reviewable_post_voting_comment.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableQueuedPost",
+   "files": [
+    "app/models/reviewable_queued_post.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ReviewableScore",
+   "files": [
+    "app/models/reviewable_score.rb"
+   ],
+   "table": "reviewable_scores"
+  },
+  {
+   "class": "ReviewableUser",
+   "files": [
+    "app/models/reviewable_user.rb"
+   ],
+   "table": "reviewables"
+  },
+  {
+   "class": "ScreenedEmail",
+   "files": [
+    "app/models/screened_email.rb"
+   ],
+   "table": "screened_emails"
+  },
+  {
+   "class": "ScreenedIpAddress",
+   "files": [
+    "app/models/screened_ip_address.rb"
+   ],
+   "table": "screened_ip_addresses"
+  },
+  {
+   "class": "ScreenedUrl",
+   "files": [
+    "app/models/screened_url.rb"
+   ],
+   "table": "screened_urls"
+  },
+  {
+   "class": "SearchLog",
+   "files": [
+    "app/models/search_log.rb"
+   ],
+   "table": "search_logs"
+  },
+  {
+   "class": "SharedAiConversation",
+   "files": [
+    "plugins/discourse-ai/app/models/shared_ai_conversation.rb"
+   ],
+   "table": "shared_ai_conversations"
+  },
+  {
+   "class": "SharedDraft",
+   "files": [
+    "app/models/shared_draft.rb"
+   ],
+   "table": "shared_drafts"
+  },
+  {
+   "class": "ShelvedNotification",
+   "files": [
+    "app/models/shelved_notification.rb"
+   ],
+   "table": "shelved_notifications"
+  },
+  {
+   "class": "SidebarSection",
+   "files": [
+    "app/models/sidebar_section.rb"
+   ],
+   "table": "sidebar_sections"
+  },
+  {
+   "class": "SidebarSectionLink",
+   "files": [
+    "app/models/sidebar_section_link.rb"
+   ],
+   "table": "sidebar_section_links"
+  },
+  {
+   "class": "SidebarSectionLocalization",
+   "files": [
+    "app/models/sidebar_section_localization.rb"
+   ],
+   "table": "sidebar_section_localizations"
+  },
+  {
+   "class": "SidebarUrl",
+   "files": [
+    "app/models/sidebar_url.rb"
+   ],
+   "table": "sidebar_urls"
+  },
+  {
+   "class": "SidebarUrlLocalization",
+   "files": [
+    "app/models/sidebar_url_localization.rb"
+   ],
+   "table": "sidebar_url_localizations"
+  },
+  {
+   "class": "SilencedAssignment",
+   "files": [
+    "plugins/discourse-assign/app/models/silenced_assignment.rb"
+   ],
+   "table": "silenced_assignments"
+  },
+  {
+   "class": "SingleSignOnRecord",
+   "files": [
+    "app/models/single_sign_on_record.rb"
+   ],
+   "table": "single_sign_on_records"
+  },
+  {
+   "class": "SiteSetting",
+   "files": [
+    "app/models/site_setting.rb"
+   ],
+   "table": "site_settings"
+  },
+  {
+   "class": "SiteSettingGroup",
+   "files": [
+    "app/models/site_setting_group.rb"
+   ],
+   "table": "site_setting_groups"
+  },
+  {
+   "class": "SiteSettingLocalization",
+   "files": [
+    "app/models/site_setting_localization.rb"
+   ],
+   "table": "site_setting_localizations"
+  },
+  {
+   "class": "Sitemap",
+   "files": [
+    "app/models/sitemap.rb"
+   ],
+   "table": "sitemaps"
+  },
+  {
+   "class": "SkippedEmailLog",
+   "files": [
+    "app/models/skipped_email_log.rb"
+   ],
+   "table": "skipped_email_logs"
+  },
+  {
+   "class": "StylesheetCache",
+   "files": [
+    "app/models/stylesheet_cache.rb"
+   ],
+   "table": "stylesheet_cache"
+  },
+  {
+   "class": "Tag",
+   "files": [
+    "app/models/tag.rb"
+   ],
+   "table": "tags"
+  },
+  {
+   "class": "TagGroup",
+   "files": [
+    "app/models/tag_group.rb"
+   ],
+   "table": "tag_groups"
+  },
+  {
+   "class": "TagGroupMembership",
+   "files": [
+    "app/models/tag_group_membership.rb"
+   ],
+   "table": "tag_group_memberships"
+  },
+  {
+   "class": "TagGroupPermission",
+   "files": [
+    "app/models/tag_group_permission.rb"
+   ],
+   "table": "tag_group_permissions"
+  },
+  {
+   "class": "TagLocalization",
+   "files": [
+    "app/models/tag_localization.rb"
+   ],
+   "table": "tag_localizations"
+  },
+  {
+   "class": "TagSearchData",
+   "files": [
+    "app/models/tag_search_data.rb"
+   ],
+   "table": "tag_search_data"
+  },
+  {
+   "class": "TagUser",
+   "files": [
+    "app/models/tag_user.rb"
+   ],
+   "table": "tag_users"
+  },
+  {
+   "class": "Theme",
+   "files": [
+    "app/models/theme.rb"
+   ],
+   "table": "themes"
+  },
+  {
+   "class": "ThemeField",
+   "files": [
+    "app/models/theme_field.rb"
+   ],
+   "table": "theme_fields"
+  },
+  {
+   "class": "ThemeModifierSet",
+   "files": [
+    "app/models/theme_modifier_set.rb"
+   ],
+   "table": "theme_modifier_sets"
+  },
+  {
+   "class": "ThemeSetting",
+   "files": [
+    "app/models/theme_setting.rb"
+   ],
+   "table": "theme_settings"
+  },
+  {
+   "class": "ThemeSettingsMigration",
+   "files": [
+    "app/models/theme_settings_migration.rb"
+   ],
+   "table": "theme_settings_migrations"
+  },
+  {
+   "class": "ThemeSiteSetting",
+   "files": [
+    "app/models/theme_site_setting.rb"
+   ],
+   "table": "theme_site_settings"
+  },
+  {
+   "class": "ThemeSvgSprite",
+   "files": [
+    "app/models/theme_svg_sprite.rb"
+   ],
+   "table": "theme_svg_sprites"
+  },
+  {
+   "class": "ThemeTranslationOverride",
+   "files": [
+    "app/models/theme_translation_override.rb"
+   ],
+   "table": "theme_translation_overrides"
+  },
+  {
+   "class": "TopTopic",
+   "files": [
+    "app/models/top_topic.rb"
+   ],
+   "table": "top_topics"
+  },
+  {
+   "class": "Topic",
+   "files": [
+    "app/models/topic.rb",
+    "app/models/topic/keyword_search.rb"
+   ],
+   "table": "topics"
+  },
+  {
+   "class": "TopicAllowedGroup",
+   "files": [
+    "app/models/topic_allowed_group.rb"
+   ],
+   "table": "topic_allowed_groups"
+  },
+  {
+   "class": "TopicAllowedUser",
+   "files": [
+    "app/models/topic_allowed_user.rb"
+   ],
+   "table": "topic_allowed_users"
+  },
+  {
+   "class": "TopicCustomField",
+   "files": [
+    "app/models/topic_custom_field.rb"
+   ],
+   "table": "topic_custom_fields"
+  },
+  {
+   "class": "TopicEmbed",
+   "files": [
+    "app/models/topic_embed.rb"
+   ],
+   "table": "topic_embeds"
+  },
+  {
+   "class": "TopicEmbedAlias",
+   "files": [
+    "app/models/topic_embed_alias.rb"
+   ],
+   "table": "topic_embed_aliases"
+  },
+  {
+   "class": "TopicGroup",
+   "files": [
+    "app/models/topic_group.rb"
+   ],
+   "table": "topic_groups"
+  },
+  {
+   "class": "TopicHotScore",
+   "files": [
+    "app/models/topic_hot_score.rb"
+   ],
+   "table": "topic_hot_scores"
+  },
+  {
+   "class": "TopicInvite",
+   "files": [
+    "app/models/topic_invite.rb"
+   ],
+   "table": "topic_invites"
+  },
+  {
+   "class": "TopicLink",
+   "files": [
+    "app/models/topic_link.rb"
+   ],
+   "table": "topic_links"
+  },
+  {
+   "class": "TopicLinkClick",
+   "files": [
+    "app/models/topic_link_click.rb"
+   ],
+   "table": "topic_link_clicks"
+  },
+  {
+   "class": "TopicLocalization",
+   "files": [
+    "app/models/topic_localization.rb"
+   ],
+   "table": "topic_localizations"
+  },
+  {
+   "class": "TopicSearchData",
+   "files": [
+    "app/models/topic_search_data.rb"
+   ],
+   "table": "topic_search_data"
+  },
+  {
+   "class": "TopicTag",
+   "files": [
+    "app/models/topic_tag.rb"
+   ],
+   "table": "topic_tags"
+  },
+  {
+   "class": "TopicThumbnail",
+   "files": [
+    "app/models/topic_thumbnail.rb"
+   ],
+   "table": "topic_thumbnails"
+  },
+  {
+   "class": "TopicTimer",
+   "files": [
+    "app/models/topic_timer.rb"
+   ],
+   "table": "topic_timers"
+  },
+  {
+   "class": "TopicUser",
+   "files": [
+    "app/models/topic_user.rb"
+   ],
+   "table": "topic_users"
+  },
+  {
+   "class": "TopicViewItem",
+   "files": [
+    "app/models/topic_view_item.rb"
+   ],
+   "table": "topic_views"
+  },
+  {
+   "class": "TopicViewStat",
+   "files": [
+    "app/models/topic_view_stat.rb"
+   ],
+   "table": "topic_view_stats"
+  },
+  {
+   "class": "TranslationOverride",
+   "files": [
+    "app/models/translation_override.rb"
+   ],
+   "table": "translation_overrides"
+  },
+  {
+   "class": "UnsubscribeKey",
+   "files": [
+    "app/models/unsubscribe_key.rb"
+   ],
+   "table": "unsubscribe_keys"
+  },
+  {
+   "class": "UpcomingChangeEvent",
+   "files": [
+    "app/models/upcoming_change_event.rb"
+   ],
+   "table": "upcoming_change_events"
+  },
+  {
+   "class": "Upload",
+   "files": [
+    "app/models/upload.rb"
+   ],
+   "table": "uploads"
+  },
+  {
+   "class": "UploadReference",
+   "files": [
+    "app/models/upload_reference.rb"
+   ],
+   "table": "upload_references"
+  },
+  {
+   "class": "User",
+   "files": [
+    "app/models/user.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "UserAction",
+   "files": [
+    "app/models/user_action.rb"
+   ],
+   "table": "user_actions"
+  },
+  {
+   "class": "UserApiKey",
+   "files": [
+    "app/models/user_api_key.rb"
+   ],
+   "table": "user_api_keys"
+  },
+  {
+   "class": "UserApiKeyClient",
+   "files": [
+    "app/models/user_api_key_client.rb"
+   ],
+   "table": "user_api_key_clients"
+  },
+  {
+   "class": "UserApiKeyClientScope",
+   "files": [
+    "app/models/user_api_key_client_scope.rb"
+   ],
+   "table": "user_api_key_client_scopes"
+  },
+  {
+   "class": "UserApiKeyScope",
+   "files": [
+    "app/models/user_api_key_scope.rb"
+   ],
+   "table": "user_api_key_scopes"
+  },
+  {
+   "class": "UserArchivedMessage",
+   "files": [
+    "app/models/user_archived_message.rb"
+   ],
+   "table": "user_archived_messages"
+  },
+  {
+   "class": "UserAssociatedAccount",
+   "files": [
+    "app/models/user_associated_account.rb"
+   ],
+   "table": "user_associated_accounts"
+  },
+  {
+   "class": "UserAssociatedGroup",
+   "files": [
+    "app/models/user_associated_group.rb"
+   ],
+   "table": "user_associated_groups"
+  },
+  {
+   "class": "UserAuthToken",
+   "files": [
+    "app/models/user_auth_token.rb"
+   ],
+   "table": "user_auth_tokens"
+  },
+  {
+   "class": "UserAuthTokenLog",
+   "files": [
+    "app/models/user_auth_token_log.rb"
+   ],
+   "table": "user_auth_token_logs"
+  },
+  {
+   "class": "UserAvatar",
+   "files": [
+    "app/models/user_avatar.rb"
+   ],
+   "table": "user_avatars"
+  },
+  {
+   "class": "UserBadge",
+   "files": [
+    "app/models/user_badge.rb"
+   ],
+   "table": "user_badges"
+  },
+  {
+   "class": "UserCustomField",
+   "files": [
+    "app/models/user_custom_field.rb"
+   ],
+   "table": "user_custom_fields"
+  },
+  {
+   "class": "UserEmail",
+   "files": [
+    "app/models/user_email.rb"
+   ],
+   "table": "user_emails"
+  },
+  {
+   "class": "UserExport",
+   "files": [
+    "app/models/user_export.rb"
+   ],
+   "table": "user_exports"
+  },
+  {
+   "class": "UserField",
+   "files": [
+    "app/models/user_field.rb"
+   ],
+   "table": "user_fields"
+  },
+  {
+   "class": "UserFieldOption",
+   "files": [
+    "app/models/user_field_option.rb"
+   ],
+   "table": "user_field_options"
+  },
+  {
+   "class": "UserHistory",
+   "files": [
+    "app/models/user_history.rb"
+   ],
+   "table": "user_histories"
+  },
+  {
+   "class": "UserIpAddressHistory",
+   "files": [
+    "app/models/user_ip_address_history.rb"
+   ],
+   "table": "user_ip_address_histories"
+  },
+  {
+   "class": "UserNotificationSchedule",
+   "files": [
+    "app/models/user_notification_schedule.rb"
+   ],
+   "table": "user_notification_schedules"
+  },
+  {
+   "class": "UserOpenId",
+   "files": [
+    "app/models/user_open_id.rb"
+   ],
+   "table": "user_open_ids"
+  },
+  {
+   "class": "UserOption",
+   "files": [
+    "app/models/user_option.rb"
+   ],
+   "table": "user_options"
+  },
+  {
+   "class": "UserPassword",
+   "files": [
+    "app/models/user_password.rb"
+   ],
+   "table": "user_passwords"
+  },
+  {
+   "class": "UserProfile",
+   "files": [
+    "app/models/user_profile.rb"
+   ],
+   "table": "user_profiles"
+  },
+  {
+   "class": "UserProfileView",
+   "files": [
+    "app/models/user_profile_view.rb"
+   ],
+   "table": "user_profile_views"
+  },
+  {
+   "class": "UserRequiredFieldsVersion",
+   "files": [
+    "app/models/user_required_fields_version.rb"
+   ],
+   "table": "user_required_fields_versions"
+  },
+  {
+   "class": "UserSearchData",
+   "files": [
+    "app/models/user_search_data.rb"
+   ],
+   "table": "user_search_data"
+  },
+  {
+   "class": "UserSecondFactor",
+   "files": [
+    "app/models/user_second_factor.rb"
+   ],
+   "table": "user_second_factors"
+  },
+  {
+   "class": "UserSecurityKey",
+   "files": [
+    "app/models/user_security_key.rb"
+   ],
+   "table": "user_security_keys"
+  },
+  {
+   "class": "UserStat",
+   "files": [
+    "app/models/user_stat.rb"
+   ],
+   "table": "user_stats"
+  },
+  {
+   "class": "UserStatus",
+   "files": [
+    "app/models/user_status.rb"
+   ],
+   "table": "user_statuses"
+  },
+  {
+   "class": "UserUpload",
+   "files": [
+    "app/models/user_upload.rb"
+   ],
+   "table": "user_uploads"
+  },
+  {
+   "class": "UserVisit",
+   "files": [
+    "app/models/user_visit.rb"
+   ],
+   "table": "user_visits"
+  },
+  {
+   "class": "UserVisitDailyRollup",
+   "files": [
+    "app/models/user_visit_daily_rollup.rb"
+   ],
+   "table": "user_visit_daily_rollups"
+  },
+  {
+   "class": "UserWarning",
+   "files": [
+    "app/models/user_warning.rb"
+   ],
+   "table": "user_warnings"
+  },
+  {
+   "class": "WatchedWord",
+   "files": [
+    "app/models/watched_word.rb"
+   ],
+   "table": "watched_words"
+  },
+  {
+   "class": "WatchedWordGroup",
+   "files": [
+    "app/models/watched_word_group.rb"
+   ],
+   "table": "watched_word_groups"
+  },
+  {
+   "class": "WebCrawlerRequest",
+   "files": [
+    "app/models/web_crawler_request.rb"
+   ],
+   "table": "web_crawler_requests"
+  },
+  {
+   "class": "WebHook",
+   "files": [
+    "app/models/web_hook.rb"
+   ],
+   "table": "web_hooks"
+  },
+  {
+   "class": "WebHookEvent",
+   "files": [
+    "app/models/web_hook_event.rb"
+   ],
+   "table": "web_hook_events"
+  },
+  {
+   "class": "WebHookEventType",
+   "files": [
+    "app/models/web_hook_event_type.rb"
+   ],
+   "table": "web_hook_event_types"
+  },
+  {
+   "class": "WebHookEventTypesHook",
+   "files": [
+    "app/models/web_hook_event_types_hook.rb"
+   ],
+   "table": "web_hook_event_types_hooks"
+  },
+  {
+   "class": "WebHookEventsDailyAggregate",
+   "files": [
+    "app/models/web_hook_events_daily_aggregate.rb"
+   ],
+   "table": "web_hook_events_daily_aggregates"
+  }
+ ],
+ "not_counted": [
+  {
+   "class": "ApplyAclTargetSpecTarget",
+   "files": [
+    "spec/services/access_control_list/apply_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "BuildReplacementAclTargetSpecTarget",
+   "files": [
+    "spec/services/access_control_list/action/build_replacement_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "CustomFieldsTestItem",
+   "files": [
+    "spec/lib/concern/has_custom_fields_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "CustomFieldsTestItemCustomField",
+   "files": [
+    "spec/lib/concern/has_custom_fields_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "EvaluateModificationRequestTestTarget",
+   "files": [
+    "spec/requests/access_control_lists_controller_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "EvaluateModificationTestTargetClass",
+   "files": [
+    "spec/services/access_control_list/evaluate_modification_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "JsonApiKitSpec::EndpointTopic",
+   "files": [
+    "spec/integration/json_api_kit/relationship_endpoints_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "JsonApiKitSpec::RelationshipTopic",
+   "files": [
+    "spec/integration/json_api_kit/renamed_relationships_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "JsonApiKitSpec::RelationshipUser",
+   "files": [
+    "spec/integration/json_api_kit/renamed_relationships_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "JsonApiKitSpec::SplitImage",
+   "files": [
+    "spec/integration/json_api_kit/split_attributes_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "Live::CoPresence",
+   "files": [
+    "plugins/live/app/models/live/co_presence.rb"
+   ],
+   "reason": "table_name_not_literal"
+  },
+  {
+   "class": "Live::Invite",
+   "files": [
+    "plugins/live/app/models/live/invite.rb"
+   ],
+   "reason": "table_name_not_literal"
+  },
+  {
+   "class": "Live::Recording",
+   "files": [
+    "plugins/live/app/models/live/recording.rb"
+   ],
+   "reason": "table_name_not_literal"
+  },
+  {
+   "class": "Live::Room",
+   "files": [
+    "plugins/live/app/models/live/room.rb"
+   ],
+   "reason": "table_name_not_literal"
+  },
+  {
+   "class": "Live::RoomMembership",
+   "files": [
+    "plugins/live/app/models/live/room_membership.rb"
+   ],
+   "reason": "table_name_not_literal"
+  },
+  {
+   "class": "Live::Session",
+   "files": [
+    "plugins/live/app/models/live/session.rb"
+   ],
+   "reason": "table_name_not_literal"
+  },
+  {
+   "class": "ModelItem",
+   "files": [
+    "spec/lib/concern/has_search_data_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "ModelItemSearchData",
+   "files": [
+    "spec/lib/concern/has_search_data_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "MyReviewable",
+   "files": [
+    "spec/lib/plugin/instance_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "MyScrubbableReviewable",
+   "files": [
+    "spec/lib/plugin/instance_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "RailsCacheCounter",
+   "files": [
+    "spec/lib/concern/cached_counting_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "ReviewablePhony",
+   "files": [
+    "spec/requests/reviewables_controller_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "ReviewableTestRecord",
+   "files": [
+    "spec/models/reviewable_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "SchemaMigrationDetail",
+   "files": [
+    "spec/lib/freedom_patches/schema_migration_details_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "SearchableRecord",
+   "files": [
+    "spec/lib/concern/searchable_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "SearchableRecordSearchData",
+   "files": [
+    "spec/lib/concern/searchable_spec.rb"
+   ],
+   "reason": "test_only"
+  },
+  {
+   "class": "TestItem",
+   "files": [
+    "spec/lib/concern/positionable_spec.rb"
+   ],
+   "reason": "test_only"
+  }
+ ]
+}

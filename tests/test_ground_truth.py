@@ -79,6 +79,19 @@ class GroundTruthTest(unittest.TestCase):
             [["main.py", 11, "Widget"], ["main.py", 15, "helper"]],
         )
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_typescript"), "TypeScript grammar"
+    )
+    def test_a_private_name_matches_the_index_name_without_its_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "a.ts").write_text(
+                "class K {\n  #run() {}\n  go() { this.#run(); }\n}\n"
+            )
+            result = ground_truth.analyze(Path(directory), ("typescript",))
+        truth = ({("a.ts", 3, "run"): {("a.ts", 2, "callable")}}, {"a.ts"})
+        report, _ = ground_truth.score(result, truth)
+        self.assertEqual((report["confirmed"], report["missed"]), (1, 0))
+
     def test_regressions_against_the_baseline(self):
         baseline = {"expected": 10, "confirmed": 8, "contradicted": 0}
         self.assertEqual(ground_truth.regressions(dict(baseline), baseline), [])
@@ -419,7 +432,7 @@ class RequirementTests(unittest.TestCase):
             ),
             redirect_stderr(io.StringIO()) as stderr,
         ):
-            self.assertEqual(ground_truth.main(["check", "--corpus", "x"]), 2)
+            self.assertEqual(ground_truth.main(["check", "--corpus", "click"]), 2)
         self.assertIn("not installed: yaml", stderr.getvalue())
 
 
@@ -446,6 +459,16 @@ class DeclarationRegressionTests(unittest.TestCase):
             self.assertEqual(
                 len(rows), baseline["declarations"][entry["name"]]["expected"]
             )
+
+
+class UnknownCorpusTests(unittest.TestCase):
+    def test_a_misspelled_corpus_name_fails_instead_of_checking_nothing(self):
+        with tempfile.TemporaryDirectory() as cache:
+            with self.assertRaisesRegex(ValueError, "no such corpus: clik"):
+                ground_truth.check(["clik"], Path(cache))
+        with redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(ground_truth.main(["check", "--corpus", "clik"]), 2)
+        self.assertIn("no such corpus: clik", stderr.getvalue())
 
 
 @unittest.skipUnless(
@@ -507,6 +530,54 @@ class RouteTruthTests(unittest.TestCase):
         self.assertEqual(
             ground_truth.route_regressions(report, baseline),
             ["http found 2 -> 1", "http extra 0 -> 1"],
+        )
+
+
+@unittest.skipUnless(importlib.util.find_spec("tree_sitter_ruby"), "the Ruby grammar")
+class TableTruthTests(unittest.TestCase):
+    FILES = {
+        "app/models/application_record.rb": (
+            "class ApplicationRecord < ActiveRecord::Base\n"
+            "  self.abstract_class = true\nend\n"
+        ),
+        "app/models/user.rb": "class User < ApplicationRecord\nend\n",
+        "app/models/post.rb": (
+            "class Post < ApplicationRecord\n  self.table_name = 'articles'\nend\n"
+        ),
+        "app/models/tag.rb": "class Tag < ApplicationRecord\nend\n",
+    }
+
+    def test_models_against_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            for name, text in self.FILES.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels = Path(tmp) / "labels.json"
+            labels.write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {"class": "User", "table": "users"},
+                            {"class": "Post", "table": "posts"},
+                            {"class": "Comment", "table": "comments"},
+                        ],
+                        "not_counted": [{"class": "Tag", "reason": "test_only"}],
+                    }
+                ),
+                "utf-8",
+            )
+            report, samples = ground_truth.score_tables({"labels": labels}, root)
+        # Post maps to a table the labels do not give; Comment is not read;
+        # Tag is set aside, so it is not extra.
+        self.assertEqual(
+            report, {"expected": 3, "found": 1, "wrong": 1, "missed": 1, "extra": 0}
+        )
+        self.assertEqual(samples["wrong"], [["Post", "posts", ["articles"]]])
+        baseline = {"expected": 3, "found": 2, "wrong": 0, "missed": 1, "extra": 0}
+        self.assertEqual(
+            ground_truth.table_regressions(report, baseline),
+            ["found 2 -> 1", "wrong 0 -> 1"],
         )
 
 

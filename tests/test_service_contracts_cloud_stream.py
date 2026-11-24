@@ -467,5 +467,95 @@ class FunctionalBindingTests(unittest.TestCase):
         )
 
 
+CONSUMER = """
+package {package};
+
+import java.util.function.Consumer;
+import org.springframework.context.annotation.Bean;
+
+public class Processor {{
+    @Bean
+    public Consumer<String> messageProcessor() {{ return s -> {{}}; }}
+}}
+"""
+
+GRADLE_FILES = {
+    "settings.gradle": "include ':util', ':microservices:product', ':microservices:review'\n",
+    "util/build.gradle": "dependencies {\n  implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit'\n}\n",
+    # Two binders from Gradle, one of them through a project dependency;
+    # the default profile picks rabbit, a profile switches to kafka.
+    "microservices/product/build.gradle": (
+        "dependencies {\n"
+        "  implementation project(':util')\n"
+        '  implementation "org.springframework.cloud:spring-cloud-starter-stream-kafka"\n'
+        "  // implementation 'org.springframework.cloud:spring-cloud-stream-binder-kafka-streams'\n"
+        "}\n"
+    ),
+    f"microservices/product/{RESOURCES}/application.yml": (
+        "spring.application.name: product\n"
+        "spring.cloud.stream:\n"
+        "  defaultBinder: rabbit\n"
+        "  bindings.messageProcessor-in-0:\n"
+        "    destination: products\n"
+        "---\n"
+        "spring.config.activate.on-profile: kafka\n"
+        "spring.cloud.stream.defaultBinder: kafka\n"
+    ),
+    f"microservices/product/{JAVA}/product/Processor.java": CONSUMER.format(
+        package="product"
+    ),
+    # No spring.application.name: a stream application that is no service.
+    "microservices/review/build.gradle": (
+        "dependencies { implementation 'org.springframework.cloud:spring-cloud-starter-stream-kafka' }\n"
+    ),
+    f"microservices/review/{JAVA}/review/Processor.java": CONSUMER.format(
+        package="review"
+    ),
+    # A project dependency the settings do not lead to: the build is not read.
+    "custom/build.gradle": "dependencies { implementation project(':moved') }\n",
+    f"custom/{RESOURCES}/application.properties": "spring.application.name=custom\n",
+    f"custom/{JAVA}/custom/Processor.java": CONSUMER.format(package="custom"),
+    # A Gradle app without a binder: not a stream application.
+    "plain/build.gradle": (
+        "dependencies {\n"
+        "  implementation 'org.springframework.boot:spring-boot-starter-web'\n"
+        "  // implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit'\n"
+        "  /* implementation 'org.springframework.cloud:spring-cloud-starter-stream-kafka' */\n"
+        "}\n"
+    ),
+    # Neither a service nor a build fully read: unread, not dropped.
+    "loose/build.gradle": "dependencies { implementation project(':gone') }\n",
+    f"loose/{JAVA}/loose/Processor.java": CONSUMER.format(package="loose"),
+    f"plain/{RESOURCES}/application.properties": "spring.application.name=plain\n",
+    f"plain/{JAVA}/plain/Processor.java": CONSUMER.format(package="plain"),
+}
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class GradleBinderTests(unittest.TestCase):
+    def test_gradle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, GRADLE_FILES)
+            tool = ServiceContractTool(root)
+            asyncio.run(tool.analyze("r"))
+            endpoints, unread = tool.last_messages
+        self.assertEqual(
+            [
+                (e.file.split("/")[1], e.role, e.broker, e.destination)
+                for e in endpoints
+            ],
+            [("product", "consume", "amqp", "products/#")],
+        )
+        self.assertEqual(
+            sorted((u.file.split("/")[0], u.role, u.reason) for u in unread),
+            [
+                ("custom", "consume", "build_not_read"),
+                ("loose", "consume", "no_service"),
+                ("microservices", "consume", "no_service"),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

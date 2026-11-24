@@ -44,7 +44,7 @@ from ..service_contracts.messaging import (
     MessageUnread,
     extract_messaging,
 )
-from ..service_contracts.openapi import generated_spring_apis
+from ..service_contracts.openapi import generated_apis
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
@@ -278,6 +278,48 @@ REQUEST_RULES = {
         )
     ),
 }
+_OPENAPI_CLIENT = (
+    "A call of a method of a Java API class that an "
+    "openapi-generator-maven-plugin execution (generator java, version 4 or "
+    "later) in a pom.xml of the repository makes from a spec sends that "
+    "operation: on a name declared once in the file with that class as its "
+    "type, or on a new instance. The method and path are the operation's, "
+    "under the spec's first server URL, or under an unknown base when the "
+    "module calls setBasePath, setServers or setServerIndex. "
+)
+OPENAPI_REQUEST_RULES = {
+    contract_rules.HTTP_SERVICE_PATH: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-service-path",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The server URL's literal host equals exactly one service's "
+            "spring.application.name, and the request fits this route of that "
+            "service more specifically than any other.",
+        )
+    ),
+    contract_rules.HTTP_PATH: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-path",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "The host names no known service, and the request fits this "
+            "route more specifically than any other route in the repository; "
+            "the host and port are not checked.",
+        )
+    ),
+    contract_rules.HTTP_GATEWAY: register_rule(
+        EvidenceRule(
+            "service-contracts.openapi-client-gateway",
+            "pattern_matched",
+            _OPENAPI_CLIENT
+            + "With an unknown base, the path starts with the literal prefix "
+            "of a gateway route and, with that prefix replaced, fits this "
+            "route of the route's target service more specifically than any "
+            "other.",
+        )
+    ),
+}
 GRPC_SERVER_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "pattern_matched", description))
     for rule_id, description in (
@@ -362,6 +404,55 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+_BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
+
+
+def _build_unread(maven, module):
+    """True when a module's build, or one it depends on, is not fully read:
+    neither a pom.xml nor a Gradle file, or a Gradle project() not found."""
+    if module not in maven.dependencies:
+        return True
+    pending, seen = [module], set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if current in maven.unresolved:
+            return True
+        pending += [
+            m
+            for artifact in maven.dependencies.get(current, [])
+            for m in maven.artifacts.get(artifact, [])
+        ]
+    return False
+
+
+def _binder(config, marker, binding, binders):
+    """The broker (kafka or amqp) a binding uses in a service with
+    ``binders``: the only one, or with several, the binder its
+    ``spring.cloud.stream.bindings.<binding>.binder`` or the service's
+    ``spring.cloud.stream.default-binder`` names in the default profile, by
+    ``spring.cloud.stream.binders.<name>.type`` or the standard names."""
+    if len(binders) == 1:
+        return next(iter(binders))
+
+    def single(*keys):
+        found = {
+            v for k in keys for v in config.values(marker, k, default_profile=True)
+        }
+        return next(iter(found)) if len(found) == 1 else None
+
+    name = single(f"spring.cloud.stream.bindings.{binding}.binder") or single(
+        "spring.cloud.stream.default-binder", "spring.cloud.stream.defaultBinder"
+    )
+    if name is None or "${" in name:
+        return None
+    kind = single(f"spring.cloud.stream.binders.{name}.type") or name
+    broker = _BINDER_TYPES.get(kind)
+    return broker if broker in binders else None
+
+
 def _stream_endpoints(root, config, sites, repo_url):
     """Message endpoints of Spring Cloud Stream binding sites, one per
     service that runs the code (see ``service_contracts.cloud_stream``)."""
@@ -387,7 +478,12 @@ def _stream_endpoints(root, config, sites, repo_url):
                 for m in maven.dependents(module)
                 if config.service(f"{m}/pom.xml")[0] is not None
             ]
-        if not deploying and site.function is None:
+        if not deploying and (
+            site.function is None
+            or maven.binders(module)
+            or _build_unread(maven, module)
+        ):
+            # A functional bean is only a binding in a stream application.
             unread.append(MessageUnread(site.file, site.line, site.role, "no_service"))
         placed.append((site, module, deploying))
     # The functional beans each service runs, for its function definition.
@@ -400,13 +496,17 @@ def _stream_endpoints(root, config, sites, repo_url):
         for current in deploying:
             marker = f"{current}/pom.xml"
             service = config.service(marker)[0]
-            binder = maven.binder(current)
-            if binder is None:
-                # A functional bean outside a stream application is no binding.
-                if site.function is None or maven.binders(current):
-                    unread.append(
-                        MessageUnread(site.file, site.line, site.role, "binder_unknown")
-                    )
+            binders = maven.binders(current)
+            if not binders:
+                # A functional bean outside a stream application is no binding,
+                # unless the build that would say so is not read.
+                if site.function is None:
+                    reason = "binder_unknown"
+                elif _build_unread(maven, current):
+                    reason = "build_not_read"
+                else:
+                    continue
+                unread.append(MessageUnread(site.file, site.line, site.role, reason))
                 continue
             binding = site.binding
             if site.function is not None:
@@ -443,6 +543,12 @@ def _stream_endpoints(root, config, sites, repo_url):
                         MessageUnread(site.file, site.line, site.role, reason)
                     )
                     continue
+            binder = _binder(config, marker, binding, binders)
+            if binder is None:
+                unread.append(
+                    MessageUnread(site.file, site.line, site.role, "binder_unknown")
+                )
+                continue
             configured = config.values(
                 marker, f"spring.cloud.stream.bindings.{binding}.destination"
             )
@@ -772,11 +878,20 @@ class ServiceContractTool(AnalysisTool):
                     seen.add(qualified)
                     constants[qualified] = fields
         # Spring interfaces openapi-generator makes from specs at build time.
-        generated, openapi_unread = (
-            generated_spring_apis(root)
+        # Java API classes it makes for clients, and the modules that set a
+        # client's base URL at run time (ApiClient.setBasePath / setServers).
+        generated, generated_clients, openapi_unread = (
+            generated_apis(root)
             if any(c.language == "java" for c, _, _ in sources)
-            else ({}, [])
+            else ({}, {}, [])
         )
+        base_set = {
+            _module_root(root, coverage.file)
+            for coverage, content, _ in sources
+            if coverage.language == "java"
+            and generated_clients
+            and re.search(rb"\.(setBasePath|setServers|setServerIndex)\(", content)
+        }
         # A module whose Java code calls setExchange has no fixed template
         # exchange; otherwise it is spring.rabbitmq.template.exchange, or the
         # default exchange "" when that key is not set.
@@ -811,6 +926,8 @@ class ServiceContractTool(AnalysisTool):
                     context_path=context_path,
                     constants=constants,
                     generated=generated,
+                    clients=generated_clients,
+                    client_base_fixed=_module_root(root, coverage.file) not in base_set,
                 )
             else:
                 found = extract_web(
@@ -1150,7 +1267,18 @@ class ServiceContractTool(AnalysisTool):
                             if resolution.gateway
                             else {}
                         ),
-                        **_evidence(REQUEST_RULES[resolution.rule_id]),
+                        **(
+                            {"declared_in": request.declared_in}
+                            if request.declared_in
+                            else {}
+                        ),
+                        **_evidence(
+                            (
+                                OPENAPI_REQUEST_RULES
+                                if request.client == "openapi-java"
+                                else REQUEST_RULES
+                            )[resolution.rule_id]
+                        ),
                     },
                 )
             )
@@ -1451,12 +1579,18 @@ class ServiceContractTool(AnalysisTool):
             key = f"{item.kind}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
         handled = {r.declared_in for r in routes if r.declared_in}
-        for operations in generated.values():
-            for operation in operations:
-                if f"{operation.spec_file}:{operation.spec_line}" not in handled:
-                    # No controller in the repository overrides it.
-                    key = "openapi:operation_not_handled"
-                    unread_counts[key] = unread_counts.get(key, 0) + 1
+        # An operation in several interfaces (several tags) counts once.
+        for declared in sorted(
+            {
+                f"{operation.spec_file}:{operation.spec_line}"
+                for operations in generated.values()
+                for operation in operations
+            }
+            - handled
+        ):
+            # No controller in the repository overrides it.
+            key = "openapi:operation_not_handled"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
         for reason, count in graphql_unread.items():
             unread_counts[f"graphql:{reason}"] = count
         for item in openapi_unread:

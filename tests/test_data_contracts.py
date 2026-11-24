@@ -1178,6 +1178,67 @@ class RailsTests(unittest.TestCase):
         )
         self.assertEqual(mapped, ["legacy_orders"])
 
+    def test_class_prefixes_vendored_code_and_call_shorthand(self):
+        files = {
+            "app/models/application_record.rb": (
+                "class ApplicationRecord < ActiveRecord::Base\n"
+                "  self.abstract_class = true\nend\n"
+            ),
+            "app/models/gdpr_delete_request.rb": (
+                "class GDPRDeleteRequest < ApplicationRecord\n"
+                '  def self.table_name_prefix\n    "users_"\n  end\nend\n'
+            ),
+            "app/models/users/setting.rb": (
+                "module Users\n  class Setting < ApplicationRecord\n"
+                '    self.table_name_prefix = "users_"\n  end\nend\n'
+            ),
+            "app/models/users/notification_setting.rb": (
+                "module Users\n  class NotificationSetting < Users::Setting\n"
+                "  end\nend\n"
+            ),
+            "app/models/users/base.rb": (
+                "module Users\n  class Base < ApplicationRecord\n"
+                "    self.abstract_class = true\n"
+                '    self.table_name_prefix = "users_"\n  end\nend\n'
+            ),
+            "app/models/users/profile.rb": (
+                "module Users\n  class Profile < Base\n  end\nend\n"
+            ),
+            "app/models/follow.rb": "class Follow < ApplicationRecord\nend\n",
+            "vendor/cache/acts_as_follower/templates/model.rb": (
+                "class Follow < ActiveRecord::Base\nend\n"
+            ),
+            "app/services/list.rb": (
+                "class List\n  def call\n    step.(1)\n    Follow.where(a: 1)\n"
+                "  end\nend\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["ruby"])
+            )
+        mapped = sorted(
+            (
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.type == "MAPS_TO"
+        )
+        self.assertEqual(
+            mapped,
+            [
+                ("Follow", "follows"),
+                ("GDPRDeleteRequest", "users_gdpr_delete_requests"),
+                ("Users.NotificationSetting", "users_settings"),
+                ("Users.Profile", "users_profiles"),
+                ("Users.Setting", "users_settings"),
+            ],
+        )
+        reads = [r for r in output.relationships if r.type == "READS"]
+        self.assertEqual(len(reads), 1)
+
 
 GORM = {
     "go.mod": "module example.com/shop\n\ngo 1.22\n",
@@ -1380,6 +1441,420 @@ class DrizzleTests(unittest.TestCase):
         self.assertEqual(metrics["drizzle_tables"], {"tables": 2, "not_fixed": 1})
         self.assertEqual(
             metrics["drizzle_access_resolution"], {"linked": 4, "not_a_table": 0}
+        )
+
+
+MYBATIS = {
+    "pom.xml": "<project><artifactId>shop</artifactId></project>",
+    "src/main/java/com/shop/OrderMapper.java": """\
+package com.shop;
+
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Select;
+
+public interface OrderMapper {
+    Order find(long id);
+    void place(Order order);
+    java.util.List<Order> search(String table);
+
+    @Select({"SELECT o.* FROM orders o", "JOIN customers c ON c.id = o.customer_id"})
+    java.util.List<Order> withCustomers();
+
+    @Delete("<script>DELETE FROM orders <where><if test='id != null'>id = #{id}</if></where></script>")
+    void purge(Long id);
+}
+""",
+    "src/main/resources/com/shop/OrderMapper.xml": """\
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shop.OrderMapper">
+  <sql id="columns">id, total</sql>
+  <select id="find" resultType="Order">
+    SELECT <include refid="columns"/> FROM orders
+    <where>
+      <if test="id != null">id = #{id}</if>
+      <if test="vip">AND id IN (SELECT order_id FROM vip_orders)</if>
+    </where>
+  </select>
+  <insert id="place">
+    <selectKey keyProperty="id" resultType="long" order="BEFORE">
+      SELECT nextval FROM order_seq
+    </selectKey>
+    INSERT INTO orders (id, total) VALUES (#{id}, #{total})
+  </insert>
+  <select id="search">SELECT * FROM ${table}</select>
+  <select id="nested">SELECT * FROM order_lines</select>
+</mapper>
+""",
+}
+
+
+class MyBatisTests(unittest.TestCase):
+    def test_mapper_xml_and_annotations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, MYBATIS)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["java"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "OrderMapper.find", "orders", "mybatis-mapper-xml"),
+                ("READS", "OrderMapper.find", "vip_orders", "mybatis-mapper-xml"),
+                (
+                    "READS",
+                    "OrderMapper.withCustomers",
+                    "customers",
+                    "mybatis-annotation",
+                ),
+                ("READS", "OrderMapper.withCustomers", "orders", "mybatis-annotation"),
+                # A statement no mapper method names belongs to its file.
+                (
+                    "READS",
+                    "src/main/resources/com/shop/OrderMapper.xml",
+                    "order_lines",
+                    "mybatis-mapper-xml",
+                ),
+                ("WRITES", "OrderMapper.place", "orders", "mybatis-mapper-xml"),
+                ("WRITES", "OrderMapper.purge", "orders", "mybatis-annotation"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            metrics["mybatis_mapper_statements"],
+            {"statements": 4, "not_fixed": 1, "method_found": 3},
+        )
+
+
+LARAVEL = {
+    "database/migrations/2024_01_01_000000_create_tables.php": """\
+<?php
+use Illuminate\\Support\\Facades\\Schema;
+
+return new class {
+    public function up(): void
+    {
+        Schema::create('user_profiles', function ($table) {});
+        Schema::create('legacy_songs_new', function ($table) {});
+        Schema::rename('legacy_songs_new', 'legacy_songs');
+    }
+};
+""",
+    "app/Models/Base.php": """\
+<?php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Model;
+
+abstract class Base extends Model
+{
+}
+""",
+    "app/Models/UserProfile.php": """\
+<?php
+namespace App\\Models;
+
+class UserProfile extends Base
+{
+}
+""",
+    "app/Models/Song.php": """\
+<?php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Model as Eloquent;
+
+class Song extends Eloquent
+{
+    protected $table = 'legacy_songs';
+}
+""",
+    "app/Models/Single.php": """\
+<?php
+namespace App\\Models;
+
+class Single extends Song
+{
+}
+""",
+    "app/Models/Membership.php": """\
+<?php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Relations\\Pivot;
+
+class Membership extends Pivot
+{
+}
+""",
+    "app/Services/Library.php": """\
+<?php
+namespace App\\Services;
+
+use App\\Models\\{Song, UserProfile as Profile};
+use Illuminate\\Support\\Arr;
+use Illuminate\\Support\\Facades\\DB;
+
+class Library
+{
+    public function prune(): void
+    {
+        Song::where('plays', 0)->delete();
+        Profile::firstOrCreate(['id' => 1]);
+        DB::table('audit as a')->insert([]);
+        Arr::where([], fn () => true);
+    }
+}
+""",
+}
+
+
+SEQUELIZE = {
+    "package.json": '{"name": "shop"}',
+    "tsconfig.json": """{
+  // Comments and trailing commas, as tsconfig allows.
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@server/*": ["./server/*"], },
+  },
+}
+""",
+    "migrations/20240101-create.js": """\
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("Users", {});
+    await queryInterface.createTable({ tableName: "line_items" }, {});
+    await queryInterface.renameTable("Tags", "labels");
+    await somethingElse.createTable("not_a_table", {});
+  },
+};
+""",
+    "server/db.js": """\
+const { Sequelize } = require("sequelize");
+const sequelize = new Sequelize("sqlite::memory:", {
+  define: { underscored: true },
+});
+module.exports = sequelize;
+""",
+    "server/models/user.js": """\
+const { Model, DataTypes } = require("sequelize");
+module.exports = (sequelize) => {
+  class User extends Model {}
+  User.init({ name: DataTypes.STRING }, { sequelize, underscored: false });
+  return User;
+};
+""",
+    "server/models/tag.js": """\
+module.exports = (sequelize, DataTypes) => {
+  const Tag = sequelize.define("tag", {}, { tableName: "labels" });
+  const Note = sequelize.define("Note", {}, { tableName: dynamicName });
+  return Tag;
+};
+""",
+    "server/models/base/IdModel.ts": """\
+import { Model as SequelizeModel } from "sequelize-typescript";
+class IdModel extends SequelizeModel {}
+export default IdModel;
+""",
+    "app/models/base/IdModel.ts": """\
+export default class IdModel {}
+""",
+    "server/models/LineItem.ts": """\
+import { Table } from "sequelize-typescript";
+import IdModel from "@server/models/base/IdModel";
+
+@Table({ modelName: "LineItem" })
+class LineItem extends IdModel {}
+export default LineItem;
+""",
+    "server/routes/orders.js": """\
+const db = require("../models");
+const { User } = require("../models");
+const Widget = require("./widget");
+
+async function checkout(sequelize) {
+  const user = await User.findByPk(1);
+  await db.LineItem.bulkCreate([]);
+  await sequelize.models.tag.findOrCreate({ where: {} });
+  await Widget.create({});
+  await user.save();
+}
+module.exports = { checkout };
+""",
+}
+
+
+class SequelizeTests(unittest.TestCase):
+    def test_default_names_match_sequelize(self):
+        from deepthought.data_contracts import (
+            inflection_pluralize,
+            inflection_underscore,
+            sequelize_table_name,
+        )
+
+        for word, plural in (
+            ("person", "people"),
+            ("Category", "Categories"),
+            ("status", "statuses"),
+            ("analysis", "analyses"),
+            ("news", "news"),
+            ("men", "men"),
+            ("datum", "data"),
+            ("bus", "buses"),
+        ):
+            self.assertEqual(inflection_pluralize(word), plural)
+        self.assertEqual(
+            inflection_underscore("MessageProperties"), "message_properties"
+        )
+        self.assertEqual(sequelize_table_name("UserProfile"), "UserProfiles")
+        self.assertEqual(
+            sequelize_table_name("UserProfile", underscored=True), "user_profiles"
+        )
+        self.assertEqual(
+            sequelize_table_name("UserProfile", freeze=True), "UserProfile"
+        )
+
+    def test_migrations_models_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SEQUELIZE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["javascript", "typescript"]
+                )
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("model"),
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("DECLARES", "labels", "sequelize-migration-table", None),
+                ("DECLARES", "line_items", "sequelize-migration-table", None),
+                ("DECLARES", "users", "sequelize-migration-table", None),
+                ("MAPS_TO", "labels", "sequelize-table-name", "tag"),
+                ("MAPS_TO", "line_items", "sequelize-default-table-name", "LineItem"),
+                ("MAPS_TO", "users", "sequelize-default-table-name", "User"),
+                ("READS", "labels", "sequelize-call", "tag"),
+                ("READS", "users", "sequelize-call", "User"),
+                ("WRITES", "labels", "sequelize-call", "tag"),
+                ("WRITES", "line_items", "sequelize-call", "LineItem"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["sequelize_models"], 3)
+        self.assertEqual(metrics["sequelize_unresolved"], 1)
+        self.assertEqual(
+            metrics["sequelize_access_resolution"], {"linked": 3, "not_a_model": 1}
+        )
+
+
+class LaravelTests(unittest.TestCase):
+    def test_default_names_match_laravel(self):
+        from deepthought.data_contracts import laravel_table_name
+
+        for name, table in (
+            ("UserProfile", "user_profiles"),
+            ("Person", "people"),
+            ("SongAnalysis", "song_analyses"),
+            ("Criterion", "criteria"),
+            ("Media", "media"),
+            ("HTTPLog", "h_t_t_p_logs"),
+            ("Related", "related"),
+            ("App\\Models\\Category", "categories"),
+        ):
+            self.assertEqual(laravel_table_name(name), table)
+
+    def test_migrations_models_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, LARAVEL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["php"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS" and r.type != "DECLARES"
+        )
+        declared = sorted(
+            r.target_match["qualified_name"].rsplit("::", 1)[1]
+            for r in output.relationships
+            if r.type == "DECLARES"
+        )
+        self.assertEqual(
+            declared, ["legacy_songs", "legacy_songs_new", "user_profiles"]
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "MAPS_TO",
+                    "App.Models.Single",
+                    "legacy_songs",
+                    "eloquent-table-name",
+                ),
+                ("MAPS_TO", "App.Models.Song", "legacy_songs", "eloquent-table-name"),
+                (
+                    "MAPS_TO",
+                    "App.Models.UserProfile",
+                    "user_profiles",
+                    "eloquent-default-table-name",
+                ),
+                (
+                    "READS",
+                    "App.Services.Library.prune",
+                    "legacy_songs",
+                    "eloquent-call",
+                ),
+                (
+                    "READS",
+                    "App.Services.Library.prune",
+                    "user_profiles",
+                    "eloquent-call",
+                ),
+                ("WRITES", "App.Services.Library.prune", "audit", "laravel-db-table"),
+                (
+                    "WRITES",
+                    "App.Services.Library.prune",
+                    "legacy_songs",
+                    "eloquent-call",
+                ),
+                (
+                    "WRITES",
+                    "App.Services.Library.prune",
+                    "user_profiles",
+                    "eloquent-call",
+                ),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["eloquent_models"], 3)
+        self.assertEqual(metrics["eloquent_unresolved"], 1)
+        self.assertEqual(
+            metrics["eloquent_access_resolution"],
+            {"linked": 3, "not_a_model": 1, "not_fixed": 0},
         )
 
 

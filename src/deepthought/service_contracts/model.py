@@ -55,6 +55,8 @@ class HttpRequest:
     target_service: str | None = None
     # How many URLs the call site may request; each is one request.
     alternatives: int = 1
+    # "file:line" of the spec operation a generated client method sends.
+    declared_in: str | None = None
 
 
 @dataclass(frozen=True)

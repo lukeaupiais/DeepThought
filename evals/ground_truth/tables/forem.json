@@ -1,0 +1,949 @@
+{
+ "repository": "https://github.com/forem/forem",
+ "commit": "1f13196719c74b151df2bc86e2b42e34e1bae9f7",
+ "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+ "models": [
+  {
+   "class": "AddHttpsStatusToPodcastEpisodes::PodcastEpisode",
+   "files": [
+    "db/migrate/20190705114625_add_https_status_to_podcast_episodes.rb"
+   ],
+   "table": "podcast_episodes"
+  },
+  {
+   "class": "AddPublishedToPodcasts::Podcast",
+   "files": [
+    "db/migrate/20190801083510_add_published_to_podcasts.rb"
+   ],
+   "table": "podcasts"
+  },
+  {
+   "class": "AgentSession",
+   "files": [
+    "app/models/agent_session.rb"
+   ],
+   "table": "agent_sessions"
+  },
+  {
+   "class": "Ahoy::Event",
+   "files": [
+    "app/models/ahoy/event.rb"
+   ],
+   "table": "ahoy_events"
+  },
+  {
+   "class": "Ahoy::Visit",
+   "files": [
+    "app/models/ahoy/visit.rb"
+   ],
+   "table": "ahoy_visits"
+  },
+  {
+   "class": "AiAudit",
+   "files": [
+    "app/models/ai_audit.rb"
+   ],
+   "table": "ai_audits"
+  },
+  {
+   "class": "Announcement",
+   "files": [
+    "app/models/announcement.rb"
+   ],
+   "table": "announcements"
+  },
+  {
+   "class": "ApiSecret",
+   "files": [
+    "app/models/api_secret.rb"
+   ],
+   "table": "api_secrets"
+  },
+  {
+   "class": "Article",
+   "files": [
+    "app/models/article.rb"
+   ],
+   "table": "articles"
+  },
+  {
+   "class": "ArticleActivity",
+   "files": [
+    "app/models/article_activity.rb"
+   ],
+   "table": "article_activities"
+  },
+  {
+   "class": "AudienceSegment",
+   "files": [
+    "app/models/audience_segment.rb"
+   ],
+   "table": "audience_segments"
+  },
+  {
+   "class": "AuditLog",
+   "files": [
+    "app/models/audit_log.rb",
+    "app/queries/audit_log/unpublish_alls_query.rb"
+   ],
+   "table": "audit_logs"
+  },
+  {
+   "class": "Badge",
+   "files": [
+    "app/models/badge.rb"
+   ],
+   "table": "badges"
+  },
+  {
+   "class": "BadgeAchievement",
+   "files": [
+    "app/models/badge_achievement.rb"
+   ],
+   "table": "badge_achievements"
+  },
+  {
+   "class": "BanishedUser",
+   "files": [
+    "app/models/banished_user.rb"
+   ],
+   "table": "banished_users"
+  },
+  {
+   "class": "Billboard",
+   "files": [
+    "app/models/billboard.rb"
+   ],
+   "table": "display_ads"
+  },
+  {
+   "class": "BillboardCampaign",
+   "files": [
+    "app/models/billboard_campaign.rb"
+   ],
+   "table": "billboard_campaigns"
+  },
+  {
+   "class": "BillboardEvent",
+   "files": [
+    "app/models/billboard_event.rb"
+   ],
+   "table": "display_ad_events"
+  },
+  {
+   "class": "BillboardPlacementAreaConfig",
+   "files": [
+    "app/models/billboard_placement_area_config.rb"
+   ],
+   "table": "billboard_placement_area_configs"
+  },
+  {
+   "class": "BlockedEmailDomain",
+   "files": [
+    "app/models/blocked_email_domain.rb"
+   ],
+   "table": "blocked_email_domains"
+  },
+  {
+   "class": "Broadcast",
+   "files": [
+    "app/models/broadcast.rb"
+   ],
+   "table": "broadcasts"
+  },
+  {
+   "class": "CoAuthorInvitation",
+   "files": [
+    "app/models/co_author_invitation.rb"
+   ],
+   "table": "co_author_invitations"
+  },
+  {
+   "class": "Collection",
+   "files": [
+    "app/models/collection.rb"
+   ],
+   "table": "collections"
+  },
+  {
+   "class": "Comment",
+   "files": [
+    "app/models/comment.rb"
+   ],
+   "table": "comments"
+  },
+  {
+   "class": "Concept",
+   "files": [
+    "app/models/concept.rb"
+   ],
+   "table": "concepts"
+  },
+  {
+   "class": "ConceptAccess",
+   "files": [
+    "app/models/concept_access.rb"
+   ],
+   "table": "concept_accesses"
+  },
+  {
+   "class": "ConceptDailyMetric",
+   "files": [
+    "app/models/concept_daily_metric.rb"
+   ],
+   "table": "concept_daily_metrics"
+  },
+  {
+   "class": "ConceptMembership",
+   "files": [
+    "app/models/concept_membership.rb"
+   ],
+   "table": "concept_memberships"
+  },
+  {
+   "class": "Config",
+   "files": [
+    "app/models/config.rb"
+   ],
+   "table": "configs"
+  },
+  {
+   "class": "ConsumerApp",
+   "files": [
+    "app/models/consumer_app.rb"
+   ],
+   "table": "consumer_apps"
+  },
+  {
+   "class": "ContextNote",
+   "files": [
+    "app/models/context_note.rb"
+   ],
+   "table": "context_notes"
+  },
+  {
+   "class": "ContextNotification",
+   "files": [
+    "app/models/context_notification.rb"
+   ],
+   "table": "context_notifications"
+  },
+  {
+   "class": "Credit",
+   "files": [
+    "app/models/credit.rb"
+   ],
+   "table": "credits"
+  },
+  {
+   "class": "DataUpdateScript",
+   "files": [
+    "app/models/data_update_script.rb"
+   ],
+   "table": "data_update_scripts"
+  },
+  {
+   "class": "Device",
+   "files": [
+    "app/models/device.rb"
+   ],
+   "table": "devices"
+  },
+  {
+   "class": "DiscussionLock",
+   "files": [
+    "app/models/discussion_lock.rb"
+   ],
+   "table": "discussion_locks"
+  },
+  {
+   "class": "Email",
+   "files": [
+    "app/models/email.rb"
+   ],
+   "table": "emails"
+  },
+  {
+   "class": "EmailAuthorization",
+   "files": [
+    "app/models/email_authorization.rb"
+   ],
+   "table": "email_authorizations"
+  },
+  {
+   "class": "Event",
+   "files": [
+    "app/models/event.rb"
+   ],
+   "table": "events"
+  },
+  {
+   "class": "EventSignup",
+   "files": [
+    "app/models/event_signup.rb"
+   ],
+   "table": "event_signups"
+  },
+  {
+   "class": "FeedConfig",
+   "files": [
+    "app/models/feed_config.rb"
+   ],
+   "table": "feed_configs"
+  },
+  {
+   "class": "FeedConfigAssignment",
+   "files": [
+    "app/models/feed_config_assignment.rb"
+   ],
+   "table": "feed_config_assignments"
+  },
+  {
+   "class": "FeedEvent",
+   "files": [
+    "app/models/feed_event.rb"
+   ],
+   "table": "feed_events"
+  },
+  {
+   "class": "FeedEventReceipt",
+   "files": [
+    "app/models/feed_event_receipt.rb"
+   ],
+   "table": "feed_event_receipts"
+  },
+  {
+   "class": "FeedbackMessage",
+   "files": [
+    "app/models/feedback_message.rb"
+   ],
+   "table": "feedback_messages"
+  },
+  {
+   "class": "Feeds::ImportItem",
+   "files": [
+    "app/models/feeds/import_item.rb"
+   ],
+   "table": "feed_import_items"
+  },
+  {
+   "class": "Feeds::ImportLog",
+   "files": [
+    "app/models/feeds/import_log.rb"
+   ],
+   "table": "feed_import_logs"
+  },
+  {
+   "class": "Feeds::Source",
+   "files": [
+    "app/models/feeds/source.rb"
+   ],
+   "table": "feed_sources"
+  },
+  {
+   "class": "FlagAppeal",
+   "files": [
+    "app/models/flag_appeal.rb"
+   ],
+   "table": "flag_appeals"
+  },
+  {
+   "class": "Follow",
+   "files": [
+    "app/models/follow.rb"
+   ],
+   "table": "follows"
+  },
+  {
+   "class": "GDPRDeleteRequest",
+   "files": [
+    "app/models/gdpr_delete_request.rb"
+   ],
+   "table": "users_gdpr_delete_requests"
+  },
+  {
+   "class": "GithubIssue",
+   "files": [
+    "app/models/github_issue.rb"
+   ],
+   "table": "github_issues"
+  },
+  {
+   "class": "GithubRepo",
+   "files": [
+    "app/models/github_repo.rb"
+   ],
+   "table": "github_repos"
+  },
+  {
+   "class": "HtmlVariant",
+   "files": [
+    "app/models/html_variant.rb"
+   ],
+   "table": "html_variants"
+  },
+  {
+   "class": "Identity",
+   "files": [
+    "app/models/identity.rb"
+   ],
+   "table": "identities"
+  },
+  {
+   "class": "Invitation",
+   "files": [
+    "app/models/invitation.rb"
+   ],
+   "table": "invitations"
+  },
+  {
+   "class": "Label",
+   "files": [
+    "app/models/label.rb"
+   ],
+   "table": "labels"
+  },
+  {
+   "class": "LeadSubmission",
+   "files": [
+    "app/models/lead_submission.rb"
+   ],
+   "table": "lead_submissions"
+  },
+  {
+   "class": "LinkedDomain",
+   "files": [
+    "app/models/linked_domain.rb"
+   ],
+   "table": "linked_domains"
+  },
+  {
+   "class": "LiquidEmbedReference",
+   "files": [
+    "app/models/liquid_embed_reference.rb"
+   ],
+   "table": "liquid_embed_references"
+  },
+  {
+   "class": "LiquidTags::UserSubscriptionTag",
+   "files": [
+    "app/models/liquid_tags/user_subscription_tag.rb"
+   ],
+   "table": "user_subscription_tags"
+  },
+  {
+   "class": "Listing",
+   "files": [
+    "app/models/listing.rb"
+   ],
+   "table": "classified_listings"
+  },
+  {
+   "class": "MediaStore",
+   "files": [
+    "app/models/media_store.rb"
+   ],
+   "table": "media_stores"
+  },
+  {
+   "class": "Mention",
+   "files": [
+    "app/models/mention.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "Mod",
+   "files": [
+    "app/models/mod.rb"
+   ],
+   "table": "mods"
+  },
+  {
+   "class": "ModeratorAction",
+   "files": [
+    "app/models/moderator_action.rb"
+   ],
+   "table": "moderator_actions"
+  },
+  {
+   "class": "NavigationLink",
+   "files": [
+    "app/models/navigation_link.rb"
+   ],
+   "table": "navigation_links"
+  },
+  {
+   "class": "Note",
+   "files": [
+    "app/models/note.rb"
+   ],
+   "table": "notes"
+  },
+  {
+   "class": "Notification",
+   "files": [
+    "app/models/notification.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "NotificationSubscription",
+   "files": [
+    "app/models/notification_subscription.rb"
+   ],
+   "table": "notification_subscriptions"
+  },
+  {
+   "class": "OnboardingChecklist",
+   "files": [
+    "app/models/onboarding_checklist.rb"
+   ],
+   "table": "onboarding_checklists"
+  },
+  {
+   "class": "Organization",
+   "files": [
+    "app/models/organization.rb"
+   ],
+   "table": "organizations"
+  },
+  {
+   "class": "OrganizationLeadForm",
+   "files": [
+    "app/models/organization_lead_form.rb"
+   ],
+   "table": "organization_lead_forms"
+  },
+  {
+   "class": "OrganizationMembership",
+   "files": [
+    "app/models/organization_membership.rb"
+   ],
+   "table": "organization_memberships"
+  },
+  {
+   "class": "OrganizationPageManagement",
+   "files": [
+    "app/models/organization_page_management.rb"
+   ],
+   "table": "organization_page_managements"
+  },
+  {
+   "class": "Overview",
+   "files": [
+    "app/models/overview.rb"
+   ],
+   "table": "overviews"
+  },
+  {
+   "class": "Page",
+   "files": [
+    "app/models/page.rb"
+   ],
+   "table": "pages"
+  },
+  {
+   "class": "PageTemplate",
+   "files": [
+    "app/models/page_template.rb"
+   ],
+   "table": "page_templates"
+  },
+  {
+   "class": "PageView",
+   "files": [
+    "app/models/page_view.rb"
+   ],
+   "table": "page_views"
+  },
+  {
+   "class": "Permission",
+   "files": [
+    "app/models/permission.rb"
+   ],
+   "table": "permissions"
+  },
+  {
+   "class": "Podcast",
+   "files": [
+    "app/models/podcast.rb"
+   ],
+   "table": "podcasts"
+  },
+  {
+   "class": "PodcastEpisode",
+   "files": [
+    "app/models/podcast_episode.rb"
+   ],
+   "table": "podcast_episodes"
+  },
+  {
+   "class": "PodcastEpisodeAppearance",
+   "files": [
+    "app/models/podcast_episode_appearance.rb"
+   ],
+   "table": "podcast_episode_appearances"
+  },
+  {
+   "class": "PodcastOwnership",
+   "files": [
+    "app/models/podcast_ownership.rb"
+   ],
+   "table": "podcast_ownerships"
+  },
+  {
+   "class": "Poll",
+   "files": [
+    "app/models/poll.rb"
+   ],
+   "table": "polls"
+  },
+  {
+   "class": "PollOption",
+   "files": [
+    "app/models/poll_option.rb"
+   ],
+   "table": "poll_options"
+  },
+  {
+   "class": "PollSkip",
+   "files": [
+    "app/models/poll_skip.rb"
+   ],
+   "table": "poll_skips"
+  },
+  {
+   "class": "PollTextResponse",
+   "files": [
+    "app/models/poll_text_response.rb"
+   ],
+   "table": "poll_text_responses"
+  },
+  {
+   "class": "PollVote",
+   "files": [
+    "app/models/poll_vote.rb"
+   ],
+   "table": "poll_votes"
+  },
+  {
+   "class": "PrivilegedReaction",
+   "files": [
+    "app/models/privileged_reaction.rb"
+   ],
+   "table": "privileged_reactions"
+  },
+  {
+   "class": "Profile",
+   "files": [
+    "app/models/profile.rb"
+   ],
+   "table": "profiles"
+  },
+  {
+   "class": "ProfileField",
+   "files": [
+    "app/models/profile_field.rb"
+   ],
+   "table": "profile_fields"
+  },
+  {
+   "class": "ProfileFieldGroup",
+   "files": [
+    "app/models/profile_field_group.rb"
+   ],
+   "table": "profile_field_groups"
+  },
+  {
+   "class": "ProfilePin",
+   "files": [
+    "app/models/profile_pin.rb"
+   ],
+   "table": "profile_pins"
+  },
+  {
+   "class": "RatingVote",
+   "files": [
+    "app/models/rating_vote.rb"
+   ],
+   "table": "rating_votes"
+  },
+  {
+   "class": "Reaction",
+   "files": [
+    "app/models/reaction.rb"
+   ],
+   "table": "reactions"
+  },
+  {
+   "class": "RecommendedArticlesList",
+   "files": [
+    "app/models/recommended_articles_list.rb"
+   ],
+   "table": "recommended_articles_lists"
+  },
+  {
+   "class": "RequestRedirect",
+   "files": [
+    "app/models/request_redirect.rb"
+   ],
+   "table": "request_redirects"
+  },
+  {
+   "class": "ResponseTemplate",
+   "files": [
+    "app/models/response_template.rb"
+   ],
+   "table": "response_templates"
+  },
+  {
+   "class": "Role",
+   "files": [
+    "app/models/role.rb"
+   ],
+   "table": "roles"
+  },
+  {
+   "class": "ScheduledAutomation",
+   "files": [
+    "app/models/scheduled_automation.rb"
+   ],
+   "table": "scheduled_automations"
+  },
+  {
+   "class": "Secret",
+   "files": [
+    "app/models/secret.rb"
+   ],
+   "table": "secrets"
+  },
+  {
+   "class": "SegmentedUser",
+   "files": [
+    "app/models/segmented_user.rb"
+   ],
+   "table": "segmented_users"
+  },
+  {
+   "class": "Settings::AiFunctions",
+   "files": [
+    "app/models/settings/ai_functions.rb"
+   ],
+   "table": "settings_ai_functions"
+  },
+  {
+   "class": "Settings::Authentication",
+   "files": [
+    "app/models/settings/authentication.rb",
+    "app/services/settings/authentication/upsert.rb"
+   ],
+   "table": "settings_authentications"
+  },
+  {
+   "class": "Settings::Campaign",
+   "files": [
+    "app/models/settings/campaign.rb"
+   ],
+   "table": "settings_campaigns"
+  },
+  {
+   "class": "Settings::Community",
+   "files": [
+    "app/models/settings/community.rb"
+   ],
+   "table": "settings_communities"
+  },
+  {
+   "class": "Settings::General",
+   "files": [
+    "app/models/settings/general.rb",
+    "app/services/settings/general/upsert.rb"
+   ],
+   "table": "site_configs"
+  },
+  {
+   "class": "Settings::RateLimit",
+   "files": [
+    "app/models/settings/rate_limit.rb"
+   ],
+   "table": "settings_rate_limits"
+  },
+  {
+   "class": "Settings::SMTP",
+   "files": [
+    "app/models/settings/smtp.rb"
+   ],
+   "table": "settings_smtp"
+  },
+  {
+   "class": "Settings::UserExperience",
+   "files": [
+    "app/models/settings/user_experience.rb"
+   ],
+   "table": "settings_user_experiences"
+  },
+  {
+   "class": "Subforem",
+   "files": [
+    "app/models/subforem.rb"
+   ],
+   "table": "subforems"
+  },
+  {
+   "class": "Survey",
+   "files": [
+    "app/models/survey.rb"
+   ],
+   "table": "surveys"
+  },
+  {
+   "class": "SurveyCompletion",
+   "files": [
+    "app/models/survey_completion.rb"
+   ],
+   "table": "survey_completions"
+  },
+  {
+   "class": "TagAdjustment",
+   "files": [
+    "app/models/tag_adjustment.rb"
+   ],
+   "table": "tag_adjustments"
+  },
+  {
+   "class": "TagSubforemRelationship",
+   "files": [
+    "app/models/tag_subforem_relationship.rb"
+   ],
+   "table": "tag_subforem_relationships"
+  },
+  {
+   "class": "Tool",
+   "files": [
+    "app/models/tool.rb"
+   ],
+   "table": "tools"
+  },
+  {
+   "class": "Trend",
+   "files": [
+    "app/models/trend.rb"
+   ],
+   "table": "trends"
+  },
+  {
+   "class": "TrendMembership",
+   "files": [
+    "app/models/trend_membership.rb"
+   ],
+   "table": "trend_memberships"
+  },
+  {
+   "class": "Tweet",
+   "files": [
+    "app/models/tweet.rb"
+   ],
+   "table": "tweets"
+  },
+  {
+   "class": "User",
+   "files": [
+    "app/models/user.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "UserActivity",
+   "files": [
+    "app/models/user_activity.rb"
+   ],
+   "table": "user_activities"
+  },
+  {
+   "class": "UserBlock",
+   "files": [
+    "app/models/user_block.rb"
+   ],
+   "table": "user_blocks"
+  },
+  {
+   "class": "UserLanguage",
+   "files": [
+    "app/models/user_language.rb"
+   ],
+   "table": "user_languages"
+  },
+  {
+   "class": "UserQuery",
+   "files": [
+    "app/models/user_query.rb"
+   ],
+   "table": "user_queries"
+  },
+  {
+   "class": "UserRole",
+   "files": [
+    "app/models/user_role.rb"
+   ],
+   "table": "users_roles"
+  },
+  {
+   "class": "UserSubscription",
+   "files": [
+    "app/models/user_subscription.rb"
+   ],
+   "table": "user_subscriptions"
+  },
+  {
+   "class": "UserVisitContext",
+   "files": [
+    "app/models/user_visit_context.rb"
+   ],
+   "table": "user_visit_contexts"
+  },
+  {
+   "class": "Users::NotificationSetting",
+   "files": [
+    "app/models/users/notification_setting.rb"
+   ],
+   "table": "users_notification_settings"
+  },
+  {
+   "class": "Users::Setting",
+   "files": [
+    "app/models/users/setting.rb"
+   ],
+   "table": "users_settings"
+  },
+  {
+   "class": "Users::SuspendedUsername",
+   "files": [
+    "app/models/users/suspended_username.rb"
+   ],
+   "table": "users_suspended_usernames"
+  },
+  {
+   "class": "WebpageReference",
+   "files": [
+    "app/models/webpage_reference.rb"
+   ],
+   "table": "webpage_references"
+  },
+  {
+   "class": "Welcome",
+   "files": [
+    "app/models/welcome.rb"
+   ],
+   "table": "welcomes"
+  },
+  {
+   "class": "WelcomeNotification",
+   "files": [
+    "app/models/welcome_notification.rb"
+   ],
+   "table": "welcome_notifications"
+  }
+ ],
+ "not_counted": []
+}

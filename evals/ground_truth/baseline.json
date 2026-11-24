@@ -88,23 +88,23 @@
       "by_depth": {
         "1": {
           "confirmed": 104,
-          "expected": 351
+          "expected": 285
         },
         "2": {
           "confirmed": 380,
-          "expected": 505
+          "expected": 502
         },
         "3": {
           "confirmed": 51,
-          "expected": 295
+          "expected": 293
         }
       },
       "confirmed": 535,
-      "expected": 1151,
+      "expected": 1080,
       "extra": 0,
-      "missed": 616,
+      "missed": 545,
       "precision": 1.0,
-      "recall": 0.4648,
+      "recall": 0.4954,
       "seeds": 144,
       "seeds_undeclared": 0
     },
@@ -206,6 +206,34 @@
     "unresolved_unjudged": 1932
   },
   "contracts": {
+    "contracts-graphql-apollo-fullstack-tutorial": {
+      "graphql": {
+        "call_sites": {
+          "labelled_in_scope": 7,
+          "predicted": 7,
+          "true_positive": 7
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        }
+      }
+    },
+    "contracts-graphql-apollo-spotify-showcase": {
+      "graphql": {
+        "call_sites": {
+          "labelled_in_scope": 46,
+          "predicted": 46,
+          "true_positive": 46
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 2,
+          "true_positive": 2
+        }
+      }
+    },
     "contracts-msecend-apssouza22-java-microservice": {
       "http": {
         "call_sites": {
@@ -321,6 +349,34 @@
           "labelled_in_scope": 1,
           "predicted": 1,
           "true_positive": 1
+        }
+      }
+    },
+    "contracts-packt-chapter07": {
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
+    "contracts-packt-chapter23": {
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
         }
       }
     },
@@ -541,32 +597,38 @@
         "confirmed": 120,
         "not_indexed": 522,
         "unjudged": 1
+      },
+      "tree-sitter.call-self-method": {
+        "confirmed": 88
+      },
+      "tree-sitter.js-call-private-name": {
+        "confirmed": 9
       }
     },
-    "confirmed": 225,
+    "confirmed": 322,
     "contradicted": 0,
     "expected": 143,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 36,
+          "confirmed": 62,
           "expected": 65
         },
         "2": {
-          "confirmed": 16,
+          "confirmed": 45,
           "expected": 58
         },
         "3": {
-          "confirmed": 10,
+          "confirmed": 32,
           "expected": 52
         }
       },
-      "confirmed": 62,
+      "confirmed": 139,
       "expected": 175,
-      "extra": 4,
-      "missed": 113,
-      "precision": 0.9394,
-      "recall": 0.3543,
+      "extra": 5,
+      "missed": 36,
+      "precision": 0.9653,
+      "recall": 0.7943,
       "seeds": 38,
       "seeds_undeclared": 0
     },
@@ -588,18 +650,17 @@
       "recall": 1.0,
       "unresolved": 8
     },
-    "missed": 106,
+    "missed": 9,
     "missed_by_engine_outcome": {
-      "no_call_site": 97,
       "unresolved:attribute_call": 4,
       "unresolved:unsupported_binding": 5
     },
     "not_indexed": 661,
     "precision": 1.0,
-    "recall": 0.2587,
+    "recall": 0.9371,
     "unjudged": 1,
     "unresolved_expected": 9,
-    "unresolved_unjudged": 11575
+    "unresolved_unjudged": 11587
   },
   "ripgrep": {
     "ambiguous_includes": 18,
@@ -686,6 +747,43 @@
         "extra": 0,
         "found": 19
       }
+    }
+  },
+  "tables": {
+    "tables-discourse": {
+      "expected": 402,
+      "extra": 0,
+      "found": 398,
+      "missed": 4,
+      "wrong": 0
+    },
+    "tables-forem": {
+      "expected": 134,
+      "extra": 0,
+      "found": 134,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-lobsters": {
+      "expected": 42,
+      "extra": 0,
+      "found": 42,
+      "missed": 0,
+      "wrong": 0
+    },
+    "tables-mastodon": {
+      "expected": 276,
+      "extra": 0,
+      "found": 275,
+      "missed": 0,
+      "wrong": 1
+    },
+    "tables-rubygems-org": {
+      "expected": 45,
+      "extra": 0,
+      "found": 45,
+      "missed": 0,
+      "wrong": 0
     }
   }
 }

@@ -159,6 +159,44 @@
         "http",
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-graphql-apollo-fullstack-tutorial",
+      "url": "https://github.com/apollographql/fullstack-tutorial",
+      "commit": "fca98dec747244a6cd08e3611f826db01617e208",
+      "labels": "../fixtures/service_contracts/graphql-apollo-fullstack-tutorial.json",
+      "kinds": [
+        "graphql"
+      ]
+    },
+    {
+      "name": "contracts-graphql-apollo-spotify-showcase",
+      "url": "https://github.com/apollographql/spotify-showcase",
+      "commit": "5a9afc5c96ef5a60f07d438dab5088bf0f6d661e",
+      "labels": "../fixtures/service_contracts/graphql-apollo-spotify-showcase.json",
+      "kinds": [
+        "graphql"
+      ]
+    },
+    {
+      "name": "contracts-packt-chapter07",
+      "url": "https://github.com/PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition",
+      "commit": "db9e0fa7d41756224a149a5a870647e0f0426b2e",
+      "root": "Chapter07",
+      "labels": "../fixtures/service_contracts/packt-chapter07.json",
+      "kinds": [
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-packt-chapter23",
+      "url": "https://github.com/PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition",
+      "commit": "db9e0fa7d41756224a149a5a870647e0f0426b2e",
+      "root": "Chapter23",
+      "labels": "../fixtures/service_contracts/packt-chapter23.json",
+      "kinds": [
+        "messaging"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
@@ -233,6 +271,54 @@
       "commit": "e0a3a21dbf8e594226250b04fdc0a5776493e64d",
       "license": "MIT (package.json)",
       "labels": "routes/howtographql-graphql-js.json"
+    }
+  ],
+  "tables_description": "ActiveRecord model tables: each model's table as ActiveRecord computes it from the app's own declarations and inflections (tools/rails_table_oracle.rb), never by running the app.",
+  "tables": [
+    {
+      "name": "tables-lobsters",
+      "url": "https://github.com/lobsters/lobsters",
+      "commit": "d23941fd73b7a0a7280f1f40c54013b4e4db5328",
+      "license": "BSD-3-Clause",
+      "labels": "tables/lobsters.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-rubygems-org",
+      "url": "https://github.com/rubygems/rubygems.org",
+      "commit": "6f51e324634a0820c54be2fc28533b721abadc95",
+      "license": "MIT",
+      "labels": "tables/rubygems-org.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-mastodon",
+      "url": "https://github.com/mastodon/mastodon",
+      "commit": "fe9d1508663a3394ef28ad60afe80cc7fb04ac71",
+      "license": "AGPL-3.0",
+      "labels": "tables/mastodon.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-forem",
+      "url": "https://github.com/forem/forem",
+      "commit": "1f13196719c74b151df2bc86e2b42e34e1bae9f7",
+      "license": "AGPL-3.0",
+      "labels": "tables/forem.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-discourse",
+      "url": "https://github.com/discourse/discourse",
+      "commit": "5fc74b5b7ab119222a52efa61391cbbd73fb95c2",
+      "license": "GPL-2.0",
+      "labels": "tables/discourse.json",
+      "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+      "oracle_command": "ruby tools/rails_table_oracle.rb ."
     }
   ]
 }

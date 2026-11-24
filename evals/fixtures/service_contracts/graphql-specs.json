@@ -1,0 +1,49 @@
+[
+  {
+    "corpus": "apollo-fullstack-tutorial",
+    "repo": "https://github.com/apollographql/fullstack-tutorial",
+    "commit": "fca98dec747244a6cd08e3611f826db01617e208",
+    "license": "MIT",
+    "languages": ["TypeScript (React, Apollo Client)", "JavaScript (Apollo Server)"],
+    "sources": [
+      "manual reading of final/client/src/index.tsx (ApolloClient uri http://localhost:4000/graphql), final/server/src/index.js and the start/ packages at the pinned commit"
+    ],
+    "servers": [
+      {"name": "server", "root": "final/server", "schema": ["final/server/src/schema.js"]},
+      {"name": "start-server", "root": "start/server", "schema": ["start/server/src/schema.js"]}
+    ],
+    "clients": [
+      {"service": "client", "root": "final/client", "servers": ["server"]},
+      {"service": "start-client", "root": "start/client", "servers": ["start-server"]},
+      {"service": "server", "root": "final/server", "dont_care": "server's own tests run the operation against an in-process ApolloServer"},
+      {"service": "start-server", "root": "start/server", "dont_care": "server's own tests run the operation against an in-process ApolloServer"}
+    ],
+    "notes": [
+      "final/ and start/ are separate apps. start/ is the tutorial's starting point: start/server/src/schema.js is empty, so the one operation in start/client (cart-item.tsx, Query.launch) has no server that declares the field. It is listed under unmatched_clients: linking it to final/server would join two apps that are never deployed together.",
+      "Fields marked @client (isLoggedIn, cartItems) are Apollo local state and are not call sites."
+    ]
+  },
+  {
+    "corpus": "apollo-spotify-showcase",
+    "repo": "https://github.com/apollographql/spotify-showcase",
+    "commit": "5a9afc5c96ef5a60f07d438dab5088bf0f6d661e",
+    "license": "MIT",
+    "languages": ["TypeScript (React, Apollo Client)", "TypeScript (Apollo Server subgraphs)", "Apollo Router (YAML)"],
+    "sources": [
+      "manual reading of docker-compose.yml, router/router.yaml and client/src/apollo at the pinned commit: the client talks to the router, which plans each root field to the subgraph that declares it"
+    ],
+    "servers": [
+      {"name": "playback", "root": "subgraphs/playback", "schema": ["subgraphs/playback/schema.graphql"]},
+      {"name": "spotify", "root": "subgraphs/spotify", "schema": ["subgraphs/spotify/schema.graphql"]}
+    ],
+    "not_clients": ["client/schema.graphql", "client/src/apollo/localSchema.graphql"],
+    "clients": [
+      {"service": "client", "root": "client/src", "hop": "federated_router"}
+    ],
+    "notes": [
+      "client/schema.graphql is the client's copy of the composed supergraph schema and client/src/apollo/localSchema.graphql declares local-only fields; neither is a server. A tool that reads either as a server scope finds every field in two scopes.",
+      "client/src/apollo/persisted-query-manifest.json and client/src/types/api.ts are build outputs that restate the operations; they are not call sites.",
+      "hop=federated_router: the client sends the operation to the router (router/router.yaml), which routes the root field to its subgraph."
+    ]
+  }
+]
