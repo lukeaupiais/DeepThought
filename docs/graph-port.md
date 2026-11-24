@@ -151,7 +151,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
-| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` where `x` is declared in the function around the call and the innermost visible declaration writes a named type: a parameter, receiver or named result (`c *Command`), `var x T`, a typed `const`, or `x := T{...}`, `&T{...}`, `new(T)` or `make(T)`. It links to the method `M` declared on `T`, in the caller's package or, for `pkg.T`, in the package the file imports as `pkg`. Methods promoted from embedded fields are not followed, and a function that declares a local type of that name gets no link |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
@@ -2048,7 +2048,16 @@ read as a method of a generated interface:
   per group (Spring's `toApiName` takes no `apiNamePrefix`), where the groups are the operation's tags with `useTags`
   (`default` when it has none) and its first path segment without it, as
   the generator's `addOperationToGroup` does;
-- the method is the `operationId` with a lower-case first letter.
+- the method is the `operationId` with a lower-case first letter. Without
+  one, it is the name the generator makes (`getOrGenerateOperationId`): the
+  path segments without braces and then the HTTP method, the first with a
+  lower-case first letter and the rest camelized (`/policies/{id}` GET is
+  `policiesIdGet`). That name is read only when the first segment is letters
+  and digits and the others are letters and digits joined by hyphens.
+  Anything else is `openapi:operation_id`;
+- `apiPackage`, `apiNamePrefix` and `apiNameSuffix` are read from the
+  execution's configuration or its `configOptions`, as the generator reads
+  both. Two different values are `openapi:config_conflict`.
 
 A `@RestController`/`@Controller` class that implements the interface and
 declares exactly one method of that name handles the operation. The route is
@@ -2168,7 +2177,7 @@ interface type are not read, because a server may implement it too.
 |---|---|---|
 | TPE-TicketYa (`cdf3173`, 6 services, plugin 7.16) | 7 | 7 linked, each to the controller method of the operation (precision 7/7, recall 7/7) |
 | oficina-agua-pagos (`0040a10`, plugin 7.21) | 2 | 2 requests found, unresolved: the bank and ERP servers are JSON mock definitions, not code in the repository |
-| cf-kaizen (`449d8d0`, plugin 7.18) | 3 | Not read: the spec's operations have no `operationId` (`openapi:operation_id`, 63) |
+| cf-kaizen (`449d8d0`, plugin 7.18) | 75 | 75 requests found, using generated operation names and `apiPackage` from `configOptions`. All are unresolved: the servers, cf-butler and cf-hoover, are other repositories |
 
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The

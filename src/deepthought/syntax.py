@@ -247,6 +247,15 @@ def extract(
                 arity = {"macro_export": _rust_macro_export(node)}
             elif node.type == "function_definition" and _python_overload(node, content):
                 arity = {"overload": True}
+            if file.endswith(".go"):
+                if node.type in {
+                    "function_declaration",
+                    "method_declaration",
+                    "method_elem",
+                }:
+                    arity = {"result_type": _go_result_type(node, content)}
+                elif kind == "Struct":
+                    arity = {"fields": _go_fields(node, content)}
             definition = Definition(
                 id=identifier(repository_id, file, symbol, kind, ordinal),
                 file=file,
@@ -2427,57 +2436,110 @@ _GO_SCOPES = _GO_FUNCTIONS | {
 }
 
 
-def _go_type_name(node, content):
-    """``T`` or ``pkg.T`` for a Go named type, through a pointer and type
-    arguments; None for any other type."""
-    while node is not None and node.type in {"pointer_type", "generic_type"}:
-        node = (
-            next((c for c in node.named_children if c.type != "type_arguments"), None)
-            if node.type == "pointer_type"
-            else node.child_by_field_name("type")
-        )
+def _go_type(node, content, generic=frozenset()):
+    """A Go type as ``T`` or ``pkg.T``, with ``[]`` before it for each slice
+    or array around it, through pointers and type arguments; None for any
+    other type, or a type parameter in ``generic``."""
+    prefix = ""
+    while node is not None:
+        if node.type == "pointer_type":
+            node = next(
+                (c for c in node.named_children if c.type != "type_arguments"), None
+            )
+        elif node.type == "generic_type":
+            node = node.child_by_field_name("type")
+        elif node.type in {"slice_type", "array_type"}:
+            prefix += "[]"
+            node = node.child_by_field_name("element")
+        else:
+            break
     if node is None:
         return None
     if node.type == "type_identifier":
-        return _text(node, content)
+        name = _text(node, content)
+        return None if name in generic else prefix + name
     if node.type == "qualified_type":
         package = node.child_by_field_name("package")
         name = node.child_by_field_name("name")
         if package is not None and name is not None:
-            return f"{_text(package, content)}.{_text(name, content)}"
+            return f"{prefix}{_text(package, content)}.{_text(name, content)}"
     return None
 
 
-def _go_value_type(node, content):
-    """The type of a Go value whose type is written in it: ``T{...}``,
-    ``&T{...}``, ``new(T)`` and ``make(T)``; None for any other value."""
+def _go_type_parameters(node, content):
+    """Names of the type parameters a Go function, type, method (its
+    receiver's type arguments) or interface method (its type's) declares."""
+    while node is not None and node.type == "method_elem":
+        node = node.parent
+        while node is not None and node.type != "type_spec":
+            node = node.parent
     if node is None:
-        return None
-    if node.type == "unary_expression" and _text(node, content).startswith("&"):
-        node = node.child_by_field_name("operand")
-        if node is None or node.type != "composite_literal":
-            return None
-    if node.type == "composite_literal":
-        return _go_type_name(node.child_by_field_name("type"), content)
-    if node.type == "call_expression":
-        function = node.child_by_field_name("function")
-        arguments = node.child_by_field_name("arguments")
-        if (
-            function is not None
-            and _text(function, content) in {"new", "make"}
-            and arguments is not None
-            and len(arguments.named_children) == 1
-        ):
-            return _go_type_name(arguments.named_children[0], content)
-    return None
+        return frozenset()
+    names = set()
+    parameters = node.child_by_field_name("type_parameters")
+    for declaration in parameters.named_children if parameters is not None else ():
+        names.update(
+            _text(name, content) for name in declaration.children_by_field_name("name")
+        )
+    receiver = node.child_by_field_name("receiver")
+    stack = [receiver] if node.type == "method_declaration" and receiver else []
+    while stack:
+        current = stack.pop()
+        if current.type == "type_arguments":
+            names.update(
+                _text(item, content)
+                for item in current.named_children
+                for item in [item.named_children[0] if item.named_children else item]
+                if item.type == "type_identifier"
+            )
+        else:
+            stack.extend(current.named_children)
+    return frozenset(names)
+
+
+def _go_result_type(node, content):
+    """The type of the first result of a Go function, method or interface
+    method, as ``_go_type`` writes it."""
+    result = node.child_by_field_name("result")
+    if result is not None and result.type == "parameter_list":
+        first = next(
+            (c for c in result.named_children if c.type == "parameter_declaration"),
+            None,
+        )
+        result = first.child_by_field_name("type") if first is not None else None
+    return _go_type(result, content, _go_type_parameters(node, content))
+
+
+def _go_fields(node, content):
+    """(name, type) for each field of a Go struct type spec whose type
+    ``_go_type`` writes; an embedded field is named by its type. None when
+    there is none."""
+    struct = node.child_by_field_name("type")
+    generic = _go_type_parameters(node, content)
+    found = []
+    for declarations in struct.named_children:
+        for field in declarations.named_children:
+            if field.type != "field_declaration":
+                continue
+            typed = _go_type(field.child_by_field_name("type"), content, generic)
+            if typed is None:
+                continue
+            names = field.children_by_field_name("name")
+            if names:
+                found.extend((_text(name, content), typed) for name in names)
+            else:
+                found.append((typed.split(".")[-1], typed))
+    return tuple(found) or None
 
 
 def _go_declarations(function, name, content):
     """Each declaration of ``name`` in a Go function and the functions
-    nested in it, as (scope node, visible from, type or None): parameters,
-    receivers and named results are visible in the whole function; any
-    other declaration is visible after it, in the innermost scope around
-    it. The type is the one the declaration writes."""
+    nested in it, as (scope node, visible from, type or None, value or
+    None): parameters, receivers and named results are visible in the whole
+    function; any other declaration is visible after it, in the innermost
+    scope around it. The type is the one the declaration writes; without
+    one, the value is the expression it takes its type from, with ``[]``
+    for an element of a ``range`` over it."""
     found = []
     stack = [function]
     while stack:
@@ -2490,22 +2552,19 @@ def _go_declarations(function, name, content):
             if owner is None:
                 continue
             names = node.children_by_field_name("name")
-            written = node.child_by_field_name("type")
-            kind = (
-                _go_type_name(written, content)
-                if node.type == "parameter_declaration"
-                else None
-            )
+            kind = _go_type(node.child_by_field_name("type"), content)
+            if kind is not None and node.type == "variadic_parameter_declaration":
+                kind = "[]" + kind
             for declared in names:
                 if _text(declared, content) == name:
-                    found.append((owner, (0, 0), kind))
+                    found.append((owner, (0, 0), kind, None))
             continue
         if node.type in {"var_spec", "const_spec"}:
             names = node.children_by_field_name("name")
             written = node.child_by_field_name("type")
             value = node.child_by_field_name("value")
             values = value.named_children if value is not None else []
-            kind = _go_type_name(written, content) if written is not None else None
+            kind = _go_type(written, content) if written is not None else None
         elif node.type in {
             "short_var_declaration",
             "range_clause",
@@ -2524,9 +2583,14 @@ def _go_declarations(function, name, content):
         for index, declared in enumerate(names):
             if _text(declared, content) != name:
                 continue
-            typed = kind
-            if typed is None and len(values) == len(names):
-                typed = _go_value_type(values[index], content)
+            value = None
+            if len(values) == len(names):
+                value = values[index]
+            elif len(values) == 1 and index == 0:
+                # `x, err := c.M()`: x is the first result.
+                value = values[0]
+            elif node.type == "range_clause" and index == 1:
+                value = ("[]", node.child_by_field_name("right"))
             scope = node.parent
             while scope is not None and scope.type not in _GO_SCOPES:
                 scope = scope.parent
@@ -2537,7 +2601,7 @@ def _go_declarations(function, name, content):
                 if node.type in {"range_clause", "type_switch_statement"}
                 else (node.end_point.row, node.end_point.column)
             )
-            found.append((scope, visible, typed))
+            found.append((scope, visible, kind, value))
     return found
 
 
@@ -2554,27 +2618,28 @@ def _go_local_types(function, content):
     return names
 
 
-def _go_receiver_type(node, content, callee, cache):
-    """For a Go call ``x.M()`` where ``x`` is declared in the outermost
-    function around it (a function literal at package level too), the type
-    that declaration writes (``T`` or ``pkg.T``); None when ``x`` is not
-    declared there or its declaration writes no named type."""
-    parts = callee.split(".")
-    if len(parts) != 2:
+def _go_step(found, step):
+    """``found`` (a type and the steps after it) followed by one more step;
+    an element of a written slice type is taken at once."""
+    if found is None:
         return None
-    outer, ancestor = None, node.parent
-    while ancestor is not None:
-        if ancestor.type in _GO_FUNCTIONS:
-            outer = ancestor
-        ancestor = ancestor.parent
-    if outer is None:
-        return None
-    key = (outer.id, parts[0])
+    typed, steps = found
+    # A type with steps after it is never a slice: `[]` is taken at once.
+    if typed.startswith("[]"):
+        return (typed[2:], ()) if step == "[]" else None
+    return typed, (*steps, step)
+
+
+def _go_variable_type(name, node, outer, content, cache, depth):
+    """(type, steps) of the variable ``name`` the Go expression ``node``
+    sees, from its innermost visible declaration in ``outer``; None when
+    there is none or it gives no type."""
+    key = (outer.id, name)
     if key not in cache:
-        cache[key] = _go_declarations(outer, parts[0], content)
+        cache[key] = _go_declarations(outer, name, content)
     at = (node.start_point.row, node.start_point.column)
-    best, depth = None, -1
-    for scope, visible, kind in cache[key]:
+    best, depth_seen = None, -1
+    for scope, visible, kind, value in cache[key]:
         if not (
             scope.start_byte <= node.start_byte and node.end_byte <= scope.end_byte
         ):
@@ -2585,18 +2650,136 @@ def _go_receiver_type(node, content, callee, cache):
         while up is not None:
             level, up = level + 1, up.parent
         # In one scope, a later `x, err :=` reuses the first x.
-        if level > depth:
-            best, depth = (visible, kind), level
-    if best is None or best[1] is None:
+        if level > depth_seen:
+            best, depth_seen = (kind, value), level
+    if best is None:
         return None
-    kind = best[1]
-    if "." not in kind:
+    kind, value = best
+    if kind is not None:
+        return kind, ()
+    if isinstance(value, tuple):
+        return _go_step(
+            _go_expression_type(value[1], outer, content, cache, depth + 1), "[]"
+        )
+    return _go_expression_type(value, outer, content, cache, depth + 1)
+
+
+def _go_expression_type(node, outer, content, cache, depth=0):
+    """(type, steps) of a Go expression whose type follows from what is
+    written in it and in the declarations of the variables it names: a
+    variable, ``T{...}``, ``&x`` (any unary operator), ``new(T)``, ``make(T, ...)``, ``x.(T)``,
+    and ``x.f``, ``x.M()`` and ``x[i]`` on such an expression, as steps for
+    the resolver to follow; None for any other expression."""
+    if node is None or depth > 16:
+        return None
+    if node.type == "parenthesized_expression":
+        return _go_expression_type(
+            node.named_children[0], outer, content, cache, depth + 1
+        )
+    if node.type == "unary_expression":
+        # `&e`, `*e`, `-e`: the operand's type, pointers aside. A `<-e`
+        # operand is a channel, whose type is never recorded.
+        return _go_expression_type(
+            node.child_by_field_name("operand"), outer, content, cache, depth + 1
+        )
+    if node.type in {"composite_literal", "type_assertion_expression"}:
+        typed = _go_type(node.child_by_field_name("type"), content)
+        return None if typed is None else (typed, ())
+    if node.type == "identifier":
+        return _go_variable_type(
+            _text(node, content), node, outer, content, cache, depth
+        )
+    if node.type == "selector_expression":
+        field = node.child_by_field_name("field")
+        return _go_step(
+            _go_expression_type(
+                node.child_by_field_name("operand"), outer, content, cache, depth + 1
+            ),
+            _text(field, content),
+        )
+    if node.type == "index_expression":
+        return _go_step(
+            _go_expression_type(
+                node.child_by_field_name("operand"), outer, content, cache, depth + 1
+            ),
+            "[]",
+        )
+    if node.type == "call_expression":
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if function is None or arguments is None:
+            return None
+        if _text(function, content) in {"new", "make"} and arguments.named_children:
+            typed = _go_type(arguments.named_children[0], content)
+            return None if typed is None else (typed, ())
+        if function.type == "selector_expression":
+            method = function.child_by_field_name("field")
+            return _go_step(
+                _go_expression_type(
+                    function.child_by_field_name("operand"),
+                    outer,
+                    content,
+                    cache,
+                    depth + 1,
+                ),
+                f"{_text(method, content)}()",
+            )
+    return None
+
+
+def _go_receiver_type(node, content, callee, cache):
+    """For a Go call ``x.M()`` or ``x.f.M()`` where ``x`` is declared in the
+    outermost function around it (a function literal at package level too),
+    the receiver's type as ``_go_expression_type`` gives it: (type, steps
+    or None); None when that gives no type."""
+    parts = callee.split(".")
+    if len(parts) < 2:
+        return None
+    outer, ancestor = None, node.parent
+    while ancestor is not None:
+        if ancestor.type in _GO_FUNCTIONS:
+            outer = ancestor
+        ancestor = ancestor.parent
+    if outer is None:
+        return None
+    found = _go_variable_type(parts[0], node, outer, content, cache, 0)
+    for field in parts[1:-1]:
+        found = _go_step(found, field)
+    if found is None:
+        return None
+    typed, steps = found
+    if not steps and typed.startswith("[]"):
+        return None
+    base = typed.lstrip("[]")
+    if "." not in base:
+        # A type declared in the function, or a type parameter, is not the
+        # package's type of that name.
         types = ("types", outer.id)
         if types not in cache:
-            cache[types] = _go_local_types(outer, content)
-        if kind in cache[types]:
+            cache[types] = _go_local_types(outer, content) | {
+                name
+                for function in _go_enclosing_functions(node)
+                for name in _go_type_parameters(function, content)
+            }
+        if base in cache[types]:
             return None
-    return kind
+    return typed, steps or None
+
+
+def _go_receiver_fields(node, content, callee, cache):
+    """CallSite fields for the receiver type of a Go call."""
+    found = _go_receiver_type(node, content, callee, cache)
+    if found is None:
+        return {}
+    return {"receiver_type": found[0], "receiver_steps": found[1]}
+
+
+def _go_enclosing_functions(node):
+    """The Go function and method declarations around ``node``."""
+    while node is not None:
+        if node.type in {"function_declaration", "method_declaration"}:
+            yield node
+        node = node.parent
 
 
 def extract_call_sites(
@@ -2664,15 +2847,23 @@ def extract_call_sites(
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python
                         else None,
-                        receiver_type=_java_receiver_type(
-                            node, content, callee, receivers
-                        )
-                        if java
-                        else _python_receiver_type(node, content, callee, bindings)
-                        if python
-                        else _go_receiver_type(node, content, callee, receivers)
-                        if go
-                        else None,
+                        **(
+                            {
+                                "receiver_type": _java_receiver_type(
+                                    node, content, callee, receivers
+                                )
+                            }
+                            if java
+                            else {
+                                "receiver_type": _python_receiver_type(
+                                    node, content, callee, bindings
+                                )
+                            }
+                            if python
+                            else _go_receiver_fields(node, content, callee, receivers)
+                            if go
+                            else {}
+                        ),
                     )
                 )
         stack.extend(reversed(children(node)))
