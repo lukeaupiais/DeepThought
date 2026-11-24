@@ -1710,6 +1710,50 @@ the candidates as a host would. The link uses rule
 relative URLs (`api/vet/vets`) are read against the site root, as for a page
 served there.
 
+### OpenAPI spec-first Spring services
+
+A spec-first Spring service keeps its routes in an OpenAPI document, and
+`openapi-generator-maven-plugin` turns the document into Java interfaces at
+build time. Its controllers implement those interfaces, so the repository
+holds no mapping annotations for these routes
+(`deepthought.service_contracts.openapi`). For each plugin execution in a
+`pom.xml` with generator `spring` (library `spring-boot` or none), plugin
+version 7 or later, `interfaceOnly` true and no `delegatePattern`, every
+operation of the `inputSpec` file (OpenAPI 3 or Swagger 2, YAML or JSON) is
+read as a method of a generated interface:
+
+- the interface is `apiPackage.<apiNamePrefix><Group><apiNameSuffix>`, where
+  the group is the operation's first tag with `useTags` (`default` when it
+  has none) and the first path segment without it;
+- the method is the `operationId` with a lower-case first letter.
+
+A `@RestController`/`@Controller` class that implements the interface and
+declares exactly one method of that name handles the operation. The route is
+the operation's path joined with the class's `@RequestMapping` path and the
+servlet context path, since version 7's default `requestMappingMode` puts no
+base path on the interface. Its `HttpRoute` node records the operation's
+`declared_in` spec location. The rule is
+`service-contracts.openapi-spring-route` (pattern_matched).
+
+Counted as unread instead of guessed:
+- an execution with another generator or library (`spring-cloud` is a Feign
+  client), an older plugin, a generated controller, a base path on the
+  interface (`requestMappingMode` `api_interface`), or a spec that is not a
+  file in the repository;
+- an `operationId` that is not a plain Java identifier;
+- a method that is overloaded or not overridden (the generated default
+  answers 501);
+- `openapi:operation_not_handled`, for each operation that no controller in
+  the repository handles.
+
+Gradle builds and generated clients are not read yet.
+
+On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
+become routes, each on the controller method named by its operationId. The
+37th, `failingRequest`, has no implementing controller and is reported as
+not handled. The project's own MockMvc tests request 36 distinct method and
+path pairs under `/api`, and they are exactly the 36 routes.
+
 ### gRPC
 
 The same tool reads gRPC contracts from `.proto` files and from Go, Python,
