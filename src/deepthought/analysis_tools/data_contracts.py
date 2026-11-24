@@ -1396,8 +1396,8 @@ class DataContractTool(AnalysisTool):
                     SA_SCIP_RULES[access.how],
                     {
                         "model": access.model,
-                        "line": access.line,
-                        "column": access.column,
+                        "line": access.model_line,
+                        "column": access.model_column,
                         "indexer": tool,
                         "receipt": receipt,
                     },
@@ -1413,7 +1413,11 @@ class DataContractTool(AnalysisTool):
                 code(access.file, access.caller_id),
                 targets[0],
                 SA_NAME_RULES[access.how],
-                {"model": access.model, "line": access.line, "column": access.column},
+                {
+                    "model": access.model,
+                    "line": access.model_line,
+                    "column": access.model_column,
+                },
             )
         # SQL and JPQL text that Java code runs.
         entity_tables = {}

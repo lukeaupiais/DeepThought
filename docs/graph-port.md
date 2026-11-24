@@ -4386,7 +4386,9 @@ the tree-sitter tool takes), a model name written in `.query(...)`,
 `select`/`insert`/`update`/`delete`, `Model.query`, `.get(Model, key)` or
 `.select_from(Model)` links to the table of the class the index resolves
 it to (`deepthought.scip_calls.ScipReferences`), and to nothing when that
-class is not mapped. A resolved declaration must carry the written name,
+class is not mapped. Each access edge's `line` and `column` are where the
+model name is written, which in a statement spanning lines can be after
+the call's first line. A resolved declaration must carry the written name,
 as in call binding. Files no index covers keep the name rules, which link
 only when one mapped class of the repository has the name; `.get` and
 `.select_from` are linked only through an index, since `get` is the
