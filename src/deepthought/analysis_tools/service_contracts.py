@@ -38,6 +38,7 @@ from ..service_contracts.deployed import (
 )
 from ..service_contracts.gateways import (
     nginx_routes,
+    ocelot_routes,
     spring_gateway_routes,
     yarp_routes,
 )
@@ -1060,7 +1061,8 @@ def _gateways(root, config, sources):
     """Gateway routes: Spring Cloud Gateway routes in the configuration of
     the analyzed Java files' modules, nginx proxy locations in ``*.conf``
     and ``*.conf.template`` files outside hidden and dependency folders, and
-    YARP routes in the ``appsettings*.json`` of analyzed C# projects."""
+    YARP and Ocelot routes in the JSON configuration of analyzed C#
+    projects."""
     routes, unread, seen = [], [], set()
     for coverage, _, _ in sources:
         if coverage.language != "java":
@@ -1098,27 +1100,42 @@ def _gateways(root, config, sources):
         found = nginx_routes(text, relative.as_posix())
         routes.extend(found[0])
         unread.extend(found[1])
-    # YARP: the ReverseProxy section of the base .NET configuration
-    # (appsettings.json) of a project with analyzed C# sources. Environment
-    # files (appsettings.Development.json, ...) are overlays for one
-    # environment and are not read, as Spring profile documents are not.
+    # .NET gateways: YARP's ReverseProxy section and Ocelot routes in the
+    # base JSON configuration of a project with analyzed C# sources. An
+    # environment file (appsettings.Development.json, ocelot.Docker.json)
+    # beside its base file (appsettings.json, ocelot.json) is an overlay for
+    # one environment and is not read, as Spring profile documents are not.
     projects = {
         PurePosixPath(c.file).parent for c, _, _ in sources if c.language == "csharp"
     }
-    for relative in _config_paths(root, {"appsettings.json"}):
-        if not any(PurePosixPath(relative).parent in (p, *p.parents) for p in projects):
+    for directory, folders, files in os.walk(root):
+        folders[:] = sorted(
+            f
+            for f in folders
+            if not f.startswith(".")
+            and f not in ("node_modules", "vendor", "bin", "obj")
+        )
+        here = PurePosixPath(directory).relative_to(PurePosixPath(root))
+        if not any(here in (p, *p.parents) for p in projects):
             continue
-        if any(part in ("bin", "obj") for part in PurePosixPath(relative).parts):
-            continue
-        try:
-            text = (root / relative).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "ReverseProxy" not in text:
-            continue
-        found = yarp_routes(text, relative)
-        routes.extend(found[0])
-        unread.extend(found[1])
+        names = {f for f in files if f.lower().endswith(".json")}
+        for name in sorted(names):
+            stem = name[: -len(".json")]
+            if "." in stem and stem.rpartition(".")[0] + ".json" in names:
+                continue
+            try:
+                text = (root / here / name).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            relative = (here / name).as_posix()
+            if name == "appsettings.json" and "ReverseProxy" in text:
+                found = yarp_routes(text, relative)
+            elif "UpstreamPathTemplate" in text:
+                found = ocelot_routes(text, relative)
+            else:
+                continue
+            routes.extend(found[0])
+            unread.extend(found[1])
     return routes, unread
 
 
