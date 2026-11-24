@@ -1678,6 +1678,35 @@ Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
 
+### NestJS controllers
+
+In TypeScript files that import from `@nestjs/common`, a class decorated
+`@Controller(path)` (a string, an array of strings, `{ path }`, or nothing)
+declares a route for each method decorator `@Get`, `@Post`, `@Put`,
+`@Delete`, `@Patch`, `@Options`, `@Head` or `@All` imported from that
+package, under each controller path and method path. `:id` is a variable
+and a final `*name` segment matches the rest. The handler is the method.
+The application's global prefix comes from `setGlobalPrefix("literal")` in
+a TypeScript file of the same Node package (nearest `package.json`), and
+applies to every route of that package. The rule is
+`service-contracts.nestjs-route` (pattern_matched).
+
+Counted as unread instead of guessed, by reason:
+- `version`: a controller or method with a version, since URI versioning
+  depends on the versioning type;
+- `versioning`: every route of a package that calls `enableVersioning`;
+- `router_module`: every route of a package that uses `RouterModule`;
+- `global_prefix_options`, `global_prefix_not_literal` and
+  `global_prefix_ambiguous`: every route of a package whose global prefix
+  has exclusions, is not a literal, or is set to two different values.
+
+On the 39 samples of the NestJS repository (commit `fed38a71`), 81 routes
+are read from 81 route decorators. The samples' own end-to-end tests make
+83 requests with a literal path, leaving out GraphQL and Swagger JSON. 81
+of them match a route of the same sample. The other two are not controller
+routes: the Swagger UI page, and a test that expects 404 for `GET` on a
+`POST` route.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
