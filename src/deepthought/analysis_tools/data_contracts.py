@@ -854,6 +854,8 @@ class DataContractTool(AnalysisTool):
                 continue
             if language == "go" and file.endswith("_test.go"):
                 continue
+            if language in ("javascript", "typescript") and _is_script_test(file):
+                continue
             suffix = ".tsx" if file.endswith(".tsx") else ""
             if (language, suffix) not in parsers:
                 parsers[language, suffix] = make_parser(language, suffix)
@@ -1566,8 +1568,6 @@ class DataContractTool(AnalysisTool):
                     digests[path] = sha256(content).hexdigest()
                     mongoose_specs.append(spec)
         for file, content, tree in script_trees:
-            if _is_script_test(file):
-                continue
             found = extract_mongoose(tree, content, file, result.definitions)
             if found is not None:
                 mongoose_files[file] = found
