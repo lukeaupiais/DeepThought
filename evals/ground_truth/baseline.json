@@ -151,32 +151,36 @@
       },
       "tree-sitter.call-package-name": {
         "confirmed": 566
+      },
+      "tree-sitter.go-call-typed-receiver": {
+        "confirmed": 942,
+        "not_indexed": 2
       }
     },
-    "confirmed": 1044,
+    "confirmed": 1986,
     "contradicted": 0,
     "expected": 2197,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 52,
+          "confirmed": 290,
           "expected": 309
         },
         "2": {
-          "confirmed": 50,
+          "confirmed": 383,
           "expected": 531
         },
         "3": {
-          "confirmed": 17,
+          "confirmed": 602,
           "expected": 924
         }
       },
-      "confirmed": 119,
+      "confirmed": 1275,
       "expected": 1764,
       "extra": 0,
-      "missed": 1645,
+      "missed": 489,
       "precision": 1.0,
-      "recall": 0.0675,
+      "recall": 0.7228,
       "seeds": 107,
       "seeds_undeclared": 0
     },
@@ -189,16 +193,17 @@
       "recall": 1.0,
       "unresolved_external": 174
     },
-    "missed": 1153,
+    "missed": 214,
     "missed_by_engine_outcome": {
       "no_call_site": 32,
-      "unresolved:attribute_call": 1115,
+      "unresolved:attribute_call": 176,
       "unresolved:no_declaration": 6
     },
+    "not_indexed": 2,
     "precision": 1.0,
-    "recall": 0.4752,
-    "unresolved_expected": 1133,
-    "unresolved_unjudged": 1934
+    "recall": 0.9026,
+    "unresolved_expected": 191,
+    "unresolved_unjudged": 1932
   },
   "contracts": {
     "contracts-msecend-apssouza22-java-microservice": {
