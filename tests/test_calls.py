@@ -1286,6 +1286,8 @@ class TypeScriptCallTests(unittest.TestCase):
             (7, "b.route", "base.ts::Base.route"),
             (15, "local.own", "main.ts::h.App.own"),
             (21, "st.get", "app.ts::Store.get"),
+            # An interface declares the method signature called.
+            (7, "s.area", "main.ts::Shape.area"),
         ):
             with self.subTest(callee=callee):
                 self.assertEqual(
@@ -1303,10 +1305,9 @@ class TypeScriptCallTests(unittest.TestCase):
             (10, "w.go", "base_not_resolved"),
             (12, "l.toString", "not_declared_on_type"),
             (15, "local.run", "not_declared_on_type"),
-            # Map is no repository class, Shape no class, Merged has members
-            # its interface declares, and `made` and `d` write no type.
+            # Map is no repository class, Merged has members its interface
+            # declares, and `made` and `d` write no type.
             (7, "g.get", "attribute_call"),
-            (7, "s.area", "attribute_call"),
             (11, "m.a", "attribute_call"),
             (16, "made.run", "attribute_call"),
             (17, "d.run", "attribute_call"),
@@ -1349,6 +1350,129 @@ class TypeScriptCallTests(unittest.TestCase):
         for bad in ((), ("",), ["x"], (1,)):
             with self.subTest(properties=bad), self.assertRaises(ValueError):
                 replace(owner, properties=bad)
+
+    def test_receivers_typed_by_interfaces(self):
+        result = analyze(
+            {
+                "router.ts": (
+                    "export interface Router<T> {\n"
+                    "  add(path: string, h: T): void\n"
+                    "  handler: () => void\n"
+                    "}\n"
+                    "export interface Named extends Router<string> { name(): string }\n"
+                    "export interface Wide extends Named, External { wide(): void }\n"
+                    "export interface Loop extends Back {}\n"
+                    "export interface Back extends Loop {}\n"
+                    "export class Impl implements Router<string> { add() {} handler = () => {} }\n"
+                ),
+                "main.ts": (
+                    "import type { Router, Named, Wide, Loop } from './router';\n"
+                    "import { Impl } from './router';\n"
+                    "interface Local { run(): void }\n"
+                    "interface Twice { a(): void }\n"
+                    "interface Twice { b(): void }\n"  # 5
+                    "function f(r: Router<string>, n: Named, w: Wide, l: Local, t: Twice) {\n"
+                    "  r.add('/', 'x'); n.add('/', 'y'); n.name(); w.add('/', 'z');\n"
+                    "  w.wide(); l.run(); t.a(); r.handler(); r.gone();\n"
+                    "}\n"
+                    "function g(o: Router<string> | undefined, p: null | Local, q: Local | Impl) {\n"  # 10
+                    "  o.add('/', 'u'); p.run(); q.run();\n"
+                    "}\n"
+                    "function h(z: Loop) { z.spin(); Local.run() }\n"
+                    "let late: Router<number> | undefined = undefined;\n"
+                    "late.add('/', 1);\n"  # 15
+                ),
+                "bases.ts": (
+                    "interface A { m(): void }\n"
+                    "interface B extends A {}\n"
+                    "interface C extends A {}\n"
+                    "interface D extends B, C {}\n"
+                    "interface E extends B, Tail {}\n"  # 5
+                    "interface Tail { t(): void }\n"
+                    "class Base { inner: Tail; go() {} }\n"
+                    "interface X extends Base {}\n"
+                    "const Anon = class Hidden { m() {} };\n"
+                    "function f(d: D, e: E, x: X, h: Hidden) {\n"  # 10
+                    "  d.m(); e.t(); x.go(); x.inner.t(); h.m();\n"
+                    "}\n"
+                ),
+                "param.ts": (
+                    "interface Local { run(): void }\n"
+                    "function k<Local>(v: Local) { v.run() }\n"
+                ),
+                "inner.ts": (
+                    "interface Local { run(): void }\n"
+                    "namespace N { export interface Local { other(): void } }\n"
+                    "function m(l: Local) { l.run() }\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for line, callee, target in (
+            # An imported interface, also through `extends`.
+            (7, "r.add", "router.ts::Router.add"),
+            (7, "n.add", "router.ts::Router.add"),
+            (7, "n.name", "router.ts::Named.name"),
+            (8, "w.wide", "router.ts::Wide.wide"),
+            # A top-level interface of the file.
+            (8, "l.run", "main.ts::Local.run"),
+            # `T | undefined` and `T | null` hold a T where called.
+            (11, "o.add", "router.ts::Router.add"),
+            (11, "p.run", "main.ts::Local.run"),
+            (15, "late.add", "router.ts::Router.add"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", target, CALL_JS_TYPED_RECEIVER, None),
+                )
+        for line, callee, reason in (
+            # A base that is no repository interface may declare it.
+            (7, "w.add", "base_not_resolved"),
+            (13, "z.spin", "base_not_resolved"),
+            # A property of a function type, and nothing declared.
+            (8, "r.handler", "not_declared_on_type"),
+            (8, "r.gone", "not_declared_on_type"),
+            # Merged declarations, a union of two types, and an interface
+            # used as a value.
+            (8, "t.a", "attribute_call"),
+            (11, "q.run", "attribute_call"),
+            (13, "Local.run", "attribute_call"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)], ("unresolved", None, None, reason)
+                )
+        # Every interface extended is searched, and one method reached
+        # twice is one target.
+        for callee, target in (("d.m", "bases.ts::A.m"), ("e.t", "bases.ts::Tail.t")):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("bases.ts", 11, callee)],
+                    ("linked", target, CALL_JS_TYPED_RECEIVER, None),
+                )
+        # An interface extending a class, and a class expression's name,
+        # which no enclosing scope declares.
+        for callee, reason in (
+            ("x.go", "base_not_resolved"),
+            ("x.inner.t", "receiver_type_unknown"),
+            ("h.m", "attribute_call"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("bases.ts", 11, callee)], ("unresolved", None, None, reason)
+                )
+        # A type parameter of that name shadows the interface.
+        self.assertEqual(
+            found[("param.ts", 2, "v.run")],
+            ("unresolved", None, None, "attribute_call"),
+        )
+        # An interface of that name in a namespace may be the one meant.
+        self.assertEqual(
+            found[("inner.ts", 3, "l.run")],
+            ("unresolved", None, None, "attribute_call"),
+        )
 
     def test_a_binding_that_declares_no_callable_links_nothing(self):
         result = analyze({"main.ts": "enum E { A }\nE();\n"}, "typescript")
@@ -1644,6 +1768,8 @@ class TypeScriptCallTests(unittest.TestCase):
             (26, "c.svc.run", "main.ts::Svc.run"),
             (27, "made.run", "main.ts::Svc.run"),
             (28, "h.header", "req.ts::Req.header"),
+            # A field typed with an interface.
+            (16, "this.shape.area", "main.ts::Shape.area"),
         ):
             with self.subTest(line=line, callee=callee):
                 # The implementation runs, not an overload signature.
@@ -1652,11 +1778,10 @@ class TypeScriptCallTests(unittest.TestCase):
                     ("linked", target, CALL_JS_MEMBER_CHAIN, None),
                 )
         for line, callee, reason in (
-            # Untyped, external, an interface, a method, a parameter that is
-            # no property, and nothing declared.
+            # Untyped, external, a method, a parameter that is no property,
+            # and nothing declared.
             (16, "this.untyped.x", "receiver_type_unknown"),
             (16, "this.ext.y", "receiver_type_unknown"),
-            (16, "this.shape.area", "receiver_type_unknown"),
             (17, "this.go.call", "receiver_type_unknown"),
             (30, "c.plain.run", "receiver_type_unknown"),
             (30, "c.nope.run", "receiver_type_unknown"),
@@ -1689,7 +1814,8 @@ class TypeScriptCallTests(unittest.TestCase):
         self.assertFalse(targets[("req.ts", "Req.header", 2)].static)
         fields = {d.symbol: d.fields for d in result.definitions if d.kind == "Class"}
         self.assertEqual(
-            fields["Ctx"], (("made", "Svc"), ("ext", "Ext"), ("svc", "Svc"))
+            fields["Ctx"],
+            (("made", "Svc"), ("ext", "Ext"), ("shape", "Shape"), ("svc", "Svc")),
         )
         self.assertEqual(
             fields["Base"], (("req", "Req"), ("head", "Req"), ("alt", "Req"))

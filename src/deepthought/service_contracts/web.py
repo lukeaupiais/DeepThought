@@ -12,6 +12,7 @@ only through the file's own imports and bindings; URLs are folded by
 """
 
 import re
+from types import SimpleNamespace
 
 from ..syntax import identifier
 from .folding import Folder, text
@@ -1496,11 +1497,14 @@ def _go_router_path(path):
     )
 
 
-def _go_router_prefixes(context, imports):
-    """A function giving the path prefix of a Gin or Echo router expression:
-    (package path, prefix), the prefix PLACEHOLDER when the router is a
-    group passed in; None when the expression is not a known router."""
+def _go_router_prefixes(context, imports, mounts=None):
+    """A function giving the path prefixes of a Gin or Echo router
+    expression: (package path, prefixes), a prefix PLACEHOLDER for a group
+    passed in that ``mounts`` ({(function name, parameter index): prefixes},
+    from the calls in the package) does not give; None when the expression
+    is not a known router."""
     content, root = context.content, context.root
+    mounts = mounts or {}
     packages = {n: p for n, p in imports.items() if p in _GO_ROUTERS}
     # Struct fields typed with a router: field name -> types written.
     fields = {}
@@ -1518,9 +1522,9 @@ def _go_router_prefixes(context, imports):
             return None
         _, _, roots, groups, _ = _GO_ROUTERS[packages[local]]
         if name in roots:
-            return packages[local], ""
+            return packages[local], ("",)
         if name in groups:
-            return packages[local], PLACEHOLDER
+            return packages[local], (PLACEHOLDER,)
         return None
 
     def scope_of(node):
@@ -1546,7 +1550,7 @@ def _go_router_prefixes(context, imports):
             written = text(operand, content)
             if written in packages:
                 constructors = _GO_ROUTERS[packages[written]][1]
-                return (packages[written], "") if field in constructors else None
+                return (packages[written], ("",)) if field in constructors else None
             if field == "Use" and packages.get(written) is None:
                 # Gin's Use returns the router it was called on.
                 found = prefix(operand, depth + 1)
@@ -1558,7 +1562,7 @@ def _go_router_prefixes(context, imports):
             if parent is None or arguments is None or not arguments.named_children:
                 return None
             own = context.folder.evaluate(arguments.named_children[0])
-            return parent[0], parent[1] + own
+            return parent[0], tuple(p + own for p in parent[1])
         if node.type == "selector_expression":
             name = text(node.child_by_field_name("field"), content)
             found = {typed(k) for k in fields.get(name, ())}
@@ -1594,15 +1598,69 @@ def _go_router_prefixes(context, imports):
                 return None
             for holder in ("receiver", "parameters"):
                 parameters = scope.child_by_field_name(holder)
+                index = -1
                 for parameter in parameters.named_children if parameters else ():
                     kind = parameter.child_by_field_name("type")
                     for written in parameter.children_by_field_name("name"):
-                        if text(written, content) == name and kind is not None:
-                            return typed(text(kind, content))
+                        index += 1
+                        if text(written, content) != name or kind is None:
+                            continue
+                        found = typed(text(kind, content))
+                        function = scope.child_by_field_name("name")
+                        key = (
+                            text(function, content)
+                            if holder == "parameters"
+                            and scope.type == "function_declaration"
+                            else None,
+                            index,
+                        )
+                        if found and found[1] == (PLACEHOLDER,) and key in mounts:
+                            return found[0], mounts[key]
+                        return found
             scope = scope_of(scope.parent)
         return None
 
     return prefix
+
+
+def go_router_calls(tree, content, mounts=None):
+    """The Gin and Echo routers a Go file passes to functions: (callee,
+    parameter index, prefixes), where the callee is ("", name) for a
+    function of the file's own package or (import path, name), and the
+    prefixes are those of a known router (none of them unknown)."""
+    root = tree.root_node
+    imports = _go_imports(root, content)
+    if not any(p in _GO_ROUTERS for p in imports.values()):
+        return []
+    context = SimpleNamespace(
+        content=content, root=root, folder=Folder("go", root, content)
+    )
+    prefix = _go_router_prefixes(context, imports, mounts)
+    found = []
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if function is None or arguments is None:
+            continue
+        if function.type == "identifier":
+            callee = ("", text(function, content))
+        elif function.type == "selector_expression":
+            operand = text(function.child_by_field_name("operand"), content)
+            if operand not in imports:
+                continue
+            callee = (
+                imports[operand],
+                text(function.child_by_field_name("field"), content),
+            )
+        else:
+            continue
+        for index, argument in enumerate(arguments.named_children):
+            router = prefix(argument)
+            if router is not None and not any(PLACEHOLDER in p for p in router[1]):
+                found.append((callee, index, router[1]))
+    return found
 
 
 def extract_go(context, package):
@@ -1617,7 +1675,7 @@ def extract_go(context, package):
         p in ("github.com/gorilla/mux",) for p in imports.values()
     )
     routers = (
-        _go_router_prefixes(context, imports)
+        _go_router_prefixes(context, imports, context.mounts)
         if any(p in _GO_ROUTERS for p in imports.values())
         else None
     )
@@ -1681,16 +1739,17 @@ def extract_go(context, package):
                     path_node, handlers = positional[0], positional[1:]
                 else:
                     continue
-                path = _go_router_path(router[1] + context.folder.evaluate(path_node))
-                path, base_unknown = _unknown_base(path)
-                context.route(
-                    node,
-                    methods,
-                    path,
-                    framework,
-                    anchored(handlers[handler_index]),
-                    base_unknown,
-                )
+                for base in router[1]:
+                    path = _go_router_path(base + context.folder.evaluate(path_node))
+                    path, base_unknown = _unknown_base(path)
+                    context.route(
+                        node,
+                        methods,
+                        path,
+                        framework,
+                        anchored(handlers[handler_index]),
+                        base_unknown,
+                    )
                 continue
         if routing and field in ("HandleFunc", "Handle") and len(positional) >= 2:
             path = context.folder.evaluate(positional[0])

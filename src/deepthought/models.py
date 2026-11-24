@@ -109,6 +109,16 @@ class Definition:
     # ``default`` aside (see ``default_export``). None elsewhere, or when
     # there is none.
     export_aliases: tuple[str, ...] | None = None
+    # Go functions, methods and interface methods: the parameter and result
+    # types, without names, as ``(T1,T2)(R1,R2)`` (``...T`` for a variadic one); a named type is written
+    # as in the source (``T``, ``pkg.T``). None when a type is a type
+    # parameter, an instantiated generic, or a struct or non-empty interface
+    # literal. None elsewhere.
+    signature: str | None = None
+    # Go interface types: the types each embedded element writes (``Reader``,
+    # ``io.Reader``; a union or ``~T`` constraint as written, without spaces).
+    # None elsewhere, or when there is none.
+    embeds: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.underlying_type is not None and (
@@ -143,6 +153,16 @@ class Definition:
             or not all(isinstance(name, str) and name for name in self.export_aliases)
         ):
             raise ValueError("export_aliases must be a tuple of nonempty strings")
+        if self.signature is not None and (
+            not isinstance(self.signature, str) or not self.signature.startswith("(")
+        ):
+            raise ValueError("signature must be a parenthesized string or None")
+        if self.embeds is not None and (
+            type(self.embeds) is not tuple
+            or not self.embeds
+            or not all(isinstance(name, str) and name for name in self.embeds)
+        ):
+            raise ValueError("embeds must be a tuple of nonempty strings")
         if self.parameter_types is not None and (
             type(self.parameter_types) is not tuple
             or not all(isinstance(t, str) and t for t in self.parameter_types)
@@ -873,6 +893,10 @@ class AnalysisResult:
                 del item["properties"]
             if item["export_aliases"] is None:
                 del item["export_aliases"]
+            if item["signature"] is None:
+                del item["signature"]
+            if item["embeds"] is None:
+                del item["embeds"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -1099,6 +1123,9 @@ class AnalysisResult:
                         "parameter_types": tuple(item["parameter_types"])
                         if isinstance(item.get("parameter_types"), list)
                         else item.get("parameter_types"),
+                        "embeds": tuple(item["embeds"])
+                        if isinstance(item.get("embeds"), list)
+                        else item.get("embeds"),
                     }
                 )
                 for item in data["definitions"]
