@@ -192,6 +192,14 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
                 (exported, name, targets)
                 for name, exported in zip(item.names, item.exported_names)
             )
+        if item.reexported_as is not None:
+            # `import { a as b } from 'm'; export { b as c }` re-exports what
+            # `export { a as c } from 'm'` would.
+            imported = dict(zip(item.local_names, item.names))
+            reexports[item.file].extend(
+                (exported, imported[local], targets)
+                for local, exported in item.reexported_as
+            )
         local_names = item.local_names
         if not local_names and not item.names and targets:
             # A Go import without an alias binds the package's declared name.

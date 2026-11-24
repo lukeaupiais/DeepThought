@@ -1697,6 +1697,11 @@ def extract_imports(
         "php": _php_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
+    exports = (
+        _js_local_exports(tree.root_node, content)
+        if visit is _typescript_imports and language != "rust"
+        else {}
+    )
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
@@ -1727,10 +1732,44 @@ def extract_imports(
                     local_names=local_names,
                     block=block,
                     exported_names=exported[0] if exported else None,
+                    reexported_as=_js_reexported(local_names, exports),
                 )
             )
         stack.extend(reversed(children(node)))
     return imports
+
+
+def _js_local_exports(root, content):
+    """{local: exported names} for each ``export { local as name }`` (no
+    ``from``) of a JavaScript or TypeScript module, ``export { local }``,
+    ``default`` and ``export default local`` included."""
+    found = {}
+    for child in root.named_children:
+        if child.type != "export_statement" or child.child_by_field_name("source"):
+            continue
+        value = child.child_by_field_name("value")
+        if value is not None:
+            # `export default name`; other values match no local name.
+            found.setdefault(_text(value, content), []).append("default")
+        for clause in child.named_children:
+            for specifier in clause.named_children:
+                if specifier.type != "export_specifier":
+                    continue
+                name = specifier.child_by_field_name("name")
+                alias = specifier.child_by_field_name("alias") or name
+                found.setdefault(_text(name, content), []).append(_text(alias, content))
+    return found
+
+
+def _js_reexported(local_names, exports):
+    """``Import.reexported_as`` of a JavaScript or TypeScript import that
+    binds ``local_names``, or None."""
+    pairs = tuple(
+        dict.fromkeys(
+            (local, name) for local in local_names for name in exports.get(local, ())
+        )
+    )
+    return pairs or None
 
 
 def _rust_block(node):
