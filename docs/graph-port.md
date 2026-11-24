@@ -1697,8 +1697,8 @@ namespace when that code runs, so its symbol is namespace-qualified
 (`App.Http.helper`, not `App.Http.Controller.make.helper`). The methods of
 an anonymous class are named by the path to the class
 (`App.Http.Controller.make.handle` for one in `Controller::make`).
-Namespaces themselves, constants, properties, enum cases and bases are
-not recorded yet.
+Namespaces themselves, constants, properties and enum cases are not
+recorded yet.
 
 `tools/compare_php_declarations_with_php_parser.py` checks this against
 nikic/PHP-Parser (v5.4.0, run with PHP 8.3.6), the parser PHPStan, Psalm and
@@ -1766,6 +1766,21 @@ guzzle's `src/Handler/StreamHandler.php` imports `Openssl\Session`, which the
 repository declares only in a test file (the real class comes from an
 extension), and it is linked there.
 
+### PHP bases
+
+A named class's `extends` (kind `extends`) and `implements` entries
+(`implements`), an interface's `extends` entries (`extends`), an enum's
+`implements` entries, and the traits a `use` declaration in a class, trait
+or enum body names (kind `uses`) are supertype facts. `Supertype.name` is the
+name as written and `Supertype.qualified_name` the name read against the
+namespace and the `use` declarations before it, as PHP reads a class name.
+Each links, with rule `tree-sitter.php-base-name` (`resolved`), to the one
+declaration of that name (ignoring ASCII case) of the kind the clause takes:
+a class for a class's `extends`, an interface for `implements` and an
+interface's `extends`, a trait for `uses`. None is `type_not_declared`
+(PHP's own `Countable`, a Composer dependency, or a name of another kind).
+A trait use's adaptations (`insteadof`, `as`) are not read.
+
 ### PHP calls
 
 A call is recorded when PHP's name resolution fixes its target from the
@@ -1799,20 +1814,29 @@ method names. Resolution, all `resolved`:
   repository declares as a function. The global fallback assumes the
   namespace's function is not declared outside the repository (by a Composer
   dependency).
-- `tree-sitter.php-call-new`: the class, or its own `__construct` when it
-  declares one. An inherited constructor is not followed.
+- `tree-sitter.php-call-new`: the `__construct` the class declares, or
+  finds by the lookup below; else the class.
 - `tree-sitter.php-call-static-method`: `C::m()`, `self::m()` and
   `parent::m()` link to the method `m` the class declares.
 - `tree-sitter.php-call-this-method`: `$this->m()` and `static::m()` link to
   the method `m` the class-like declaration around the call declares; a
   subclass may override it at run time.
+- `tree-sitter.php-call-inherited-method`: when the class does not declare
+  `m`, the method PHP's lookup finds through the resolved bases (see PHP
+  bases): in the traits the class uses (and the traits they use), else in
+  the class it extends, and so on up. A trait's method wins over the
+  parent's, as in PHP. One trait reached twice gives its method once; two
+  traits that both declare it are `ambiguous`, since `insteadof` is not
+  read. The lookup stops with `base_not_resolved` at a trait or parent that
+  does not resolve (a Composer dependency, such as PHPUnit's `TestCase`) or
+  at a cycle.
 
 Two declarations (functions declared in both branches of an
-`if (!function_exists(...))`) are `ambiguous`. A method the class does not
-declare itself (inherited, from a trait, or handled by `__call` or
-`__callStatic`, as Laravel's facades are) is `not_declared_on_type`, and a
-name the repository does not declare (a PHP function, a Composer dependency)
-is `not_defined`.
+`if (!function_exists(...))`, or a class declared in two files) are
+`ambiguous`. A method that nothing on the lookup declares (handled by
+`__call` or `__callStatic`, as Laravel's facades are, or declared only by an
+interface) is `not_declared_on_type`, and a name the repository does not
+declare (a PHP function, a Composer dependency) is `not_defined`.
 
 ## C#
 

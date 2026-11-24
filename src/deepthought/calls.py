@@ -1684,7 +1684,7 @@ class _PhpCalls:
     then in the class it extends, through the resolved bases."""
 
     def __init__(self, result, languages):
-        self.result, self.languages = result, languages
+        self.result = result
         self.functions, self.methods, self.types = (defaultdict(list) for _ in range(3))
         for d in result.definitions:
             if languages.get(d.file) != "php":
@@ -1713,8 +1713,6 @@ class _PhpCalls:
             self._bases = defaultdict(lambda: (None, []))
             for resolution in resolve_supertypes(self.result):
                 item = facts[resolution.call_id]
-                if self.languages.get(item.file) != "php":
-                    continue
                 parent, traits = self._bases[item.owner_id]
                 target = by_id.get(resolution.target_id)
                 if item.kind == "uses":
@@ -1724,6 +1722,17 @@ class _PhpCalls:
                 self._bases[item.owner_id] = (parent, traits)
         return self._bases
 
+    def own(self, owner, method):
+        """The methods named ``method`` the class-like ``owner`` declares
+        (not an anonymous class's in a function of the same name)."""
+        return [
+            d
+            for d in self.methods.get(f"{self.fold(owner.symbol)}.{method}", ())
+            if d.file == owner.file
+            and (d.line, d.column) >= (owner.line, owner.column)
+            and (d.end_line, d.end_column) <= (owner.end_line, owner.end_column)
+        ]
+
     def member(self, owner, method, seen=frozenset()):
         """``(declarations, reason)``: the methods named ``method`` that the
         class-like ``owner`` has, its own first, then its traits' (every
@@ -1731,11 +1740,7 @@ class _PhpCalls:
         if owner.id in seen:
             return [], "base_not_resolved"
         seen = seen | {owner.id}
-        own = [
-            d
-            for d in self.methods.get(f"{self.fold(owner.symbol)}.{method}", ())
-            if d.file == owner.file
-        ]
+        own = self.own(owner, method)
         if own:
             return own, None
         parent, traits = self.bases()[owner.id]
@@ -1776,15 +1781,19 @@ class _PhpCalls:
                 site.callee
             ).startswith("static::")
             rule = PHP_CALL_THIS_METHOD if late else PHP_CALL_STATIC_METHOD
-            found = self.methods.get(names[0], ())
             owner, method = names[0].rsplit(".", 1)
             owners = self.types.get(owner, ())
-            if found or not owners:
-                return _pick(site.id, found, rule, "not_defined")
-            if len(owners) > 1:
+            if len(owners) != 1:
+                # A class the repository does not declare, or declares twice
+                # (each may declare or inherit the method).
                 return CallResolution(
-                    site.id, "ambiguous", reason="multiple_declarations"
+                    site.id,
+                    "ambiguous" if owners else "unresolved",
+                    reason="multiple_declarations" if owners else "not_defined",
                 )
+            own = self.own(owners[0], method)
+            if own:
+                return _pick(site.id, own, rule, "not_defined")
             found, reason = self.member(owners[0], method)
             # Inherited, or from a trait; magic methods are not followed.
             return _pick(site.id, found, PHP_CALL_INHERITED_METHOD, reason)

@@ -529,11 +529,11 @@ interface Shape extends Named, \Countable { function area(); }
 interface Named {}
 trait Loud { function shout() {} function hello() {} }
 class Root { function __construct() {} function hello() {} function root() {} }
-class Mid extends Root implements Shape { use Greets, Loud; function area() {} }
+class Mid extends Root implements /* shape */ Shape { use Greets, Loud; function area() {} }
 class Leaf extends Mid {
     function go() {
         $this->hello(); $this->shout(); $this->root(); $this->wave(); $this->area();
-        parent::hello(); self::root(); static::shout(); $this->nothing(); new Leaf();
+        parent::hello(); self::root(); static::shout(); $this->nothing(); new Leaf(); Shape::count(); Widget::size(); Gadget::size(); Gizmo::size(); Dup::m();
     }
 }
 class Outside extends VendorBase { function go() { $this->helper(); new Outside(); } }
@@ -542,12 +542,54 @@ class Both { use Loud, Echoes; function go() { $this->shout(); $this->hello(); }
 class A extends B { function go() { $this->loop(); } }
 class B extends A {}
 enum Suit: string implements Named { use Loud; case H = 'h'; function go() { $this->shout(); } }
+class Wrong extends Loud {}
+trait Partial { use Gone; }
+class P { use Partial; function go() { $this->q(); } }
+function Widget() { return new class { function size() {} }; }
+class Dup { function m() {} }
+class Gadget {}
+function Gadget() { return new class { function size() {} }; }
+function Gizmo() { return new class { function size() {} }; }
+class Gizmo {}
 """,
                 "t.php": r"""<?php
 namespace App\Traits;
 trait Greets { use \App\Loud; function wave() {} }
 namespace App;
 trait Echoes { function shout() {} }
+class Widget {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}
+class Dup {}
 """,
             }
         )
@@ -591,21 +633,21 @@ trait Echoes { function shout() {} }
                     ("h.php", "App.Root"),
                     PHP_BASE_NAME,
                 ),
-                ("h.php", 9, 34): (
+                ("h.php", 9, 46): (
                     "App.Mid",
                     "implements",
                     "App.Shape",
                     ("h.php", "App.Shape"),
                     PHP_BASE_NAME,
                 ),
-                ("h.php", 9, 46): (
+                ("h.php", 9, 58): (
                     "App.Mid",
                     "uses",
                     "App.Traits.Greets",
                     ("t.php", "App.Traits.Greets"),
                     PHP_BASE_NAME,
                 ),
-                ("h.php", 9, 54): (
+                ("h.php", 9, 66): (
                     "App.Mid",
                     "uses",
                     "App.Loud",
@@ -673,6 +715,27 @@ trait Echoes { function shout() {} }
                     "uses",
                     "App.Loud",
                     ("h.php", "App.Loud"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 22, 20): (
+                    "App.Wrong",
+                    "extends",
+                    "App.Loud",
+                    None,
+                    "type_not_declared",
+                ),
+                ("h.php", 23, 20): (
+                    "App.Partial",
+                    "uses",
+                    "App.Gone",
+                    None,
+                    "type_not_declared",
+                ),
+                ("h.php", 24, 14): (
+                    "App.P",
+                    "uses",
+                    "App.Partial",
+                    ("h.php", "App.Partial"),
                     PHP_BASE_NAME,
                 ),
                 ("t.php", 3, 19): (
@@ -745,6 +808,11 @@ trait Echoes { function shout() {} }
                     ("h.php", "App.Root.__construct"),
                     PHP_CALL_NEW,
                 ),
+                ("h.php", 13, 86): ("Shape::count", None, "not_declared_on_type"),
+                ("h.php", 13, 102): ("Widget::size", None, "not_declared_on_type"),
+                ("h.php", 13, 118): ("Gadget::size", None, "not_declared_on_type"),
+                ("h.php", 13, 134): ("Gizmo::size", None, "not_declared_on_type"),
+                ("h.php", 13, 149): ("Dup::m", None, "multiple_declarations"),
                 ("h.php", 16, 51): ("$this->helper", None, "base_not_resolved"),
                 ("h.php", 16, 68): ("Outside", ("h.php", "App.Outside"), PHP_CALL_NEW),
                 ("h.php", 17, 45): ("$this->x", None, "base_not_resolved"),
@@ -760,6 +828,7 @@ trait Echoes { function shout() {} }
                     ("h.php", "App.Loud.shout"),
                     PHP_CALL_INHERITED_METHOD,
                 ),
+                ("h.php", 24, 39): ("$this->q", None, "base_not_resolved"),
             },
         )
         self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
