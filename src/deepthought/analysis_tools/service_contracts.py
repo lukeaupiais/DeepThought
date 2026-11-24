@@ -218,6 +218,34 @@ MESSAGE_RULES = {
         "this destination: the default exchange keyed with the queue name, or "
         "a queue_bind of that queue in the same file." + _SAME_NAME,
     ),
+    ("amqplib", "publish"): _message_rule(
+        "service-contracts.amqplib-publish",
+        "publish(exchange, routingKey, ...) or sendToQueue(queue, ...) (the "
+        "default exchange keyed with the queue name), in a file importing "
+        "amqplib, on a name bound to an amqplib channel: assigned "
+        "createChannel() or createConfirmChannel() everywhere in the file, or "
+        "the channel parameter of its callback or .then, names this exchange "
+        "and routing key." + _SAME_NAME,
+    ),
+    ("amqplib", "consume"): _message_rule(
+        "service-contracts.amqplib-consume",
+        "consume(queue, ...) on an amqplib channel, in a file importing "
+        "amqplib, consumes a queue that receives this destination: the default "
+        "exchange keyed with the queue name, or a bindQueue of that queue in "
+        "the same file." + _SAME_NAME,
+    ),
+    ("kafkajs", "publish"): _message_rule(
+        "service-contracts.kafkajs-send",
+        "send({topic}) or sendBatch({topicMessages: [{topic}]}) on a name that "
+        "every assignment in the file binds to producer() of a kafkajs Kafka "
+        "names this topic." + _SAME_NAME,
+    ),
+    ("kafkajs", "consume"): _message_rule(
+        "service-contracts.kafkajs-subscribe",
+        "subscribe({topic}) or subscribe({topics: [...]}) on a name that every "
+        "assignment in the file binds to consumer() of a kafkajs Kafka names "
+        "this topic." + _SAME_NAME,
+    ),
     ("go-amqp", "publish"): _message_rule(
         "service-contracts.go-amqp-publish",
         "Publish in a file importing an amqp client package names this exchange "
