@@ -158,7 +158,9 @@ class Reference:
 # module, by name or by a #[path] attribute. "crate_library" and
 # "crate_target": a Cargo.toml target, which names a crate root file.
 # "use", "use_glob" and "extern_crate": a Rust use declaration's leaf, glob
-# or an extern crate.
+# or an extern crate. "script_config", "path_alias" and "package_entry": a
+# tsconfig.json or jsconfig.json and its ``paths`` entries, and the entry
+# files a package.json names; module resolution reads them.
 IMPORT_KINDS = frozenset(
     {
         "import",
@@ -173,6 +175,9 @@ IMPORT_KINDS = frozenset(
         "extern_crate",
         "use_function",
         "use_const",
+        "script_config",
+        "path_alias",
+        "package_entry",
     }
 )
 
