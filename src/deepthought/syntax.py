@@ -318,6 +318,15 @@ def extract(
                 fields = _js_fields(node, content, types)
                 if fields:
                     arity = {**arity, "fields": fields}
+            if node.type == "function_definition" and file.endswith(".py"):
+                returned = node.child_by_field_name("return_type")
+                written = (
+                    _python_annotation(returned, content)
+                    if returned is not None
+                    else None
+                )
+                if written is not None:
+                    arity = {**arity, "result_type": written}
             if file.endswith(".go"):
                 if node.type in {
                     "function_declaration",
@@ -2999,7 +3008,26 @@ def _python_body_imports(scope):
     return False
 
 
-def _python_receiver_type(node, content, callee, cache):
+def _python_receiver(node, content, callee, cache):
+    """``receiver_type`` of a Python call, and ``receiver_call``: the span
+    of the call a local's one assignment makes (``x = f(...)``)."""
+    calls = []
+    written = _python_receiver_type(node, content, callee, cache, calls)
+    if not calls:
+        return {"receiver_type": written}
+    (right,) = calls
+    return {
+        "receiver_type": written,
+        "receiver_call": (
+            right.start_point.row + 1,
+            right.start_point.column,
+            right.end_point.row + 1,
+            right.end_point.column,
+        ),
+    }
+
+
+def _python_receiver_type(node, content, callee, cache, calls=None):
     """For a Python call ``x.m()``, the class that the annotation of the
     parameter ``x`` names (``x: T``, ``x: m.T``, ``x: "T"``,
     ``x: Optional[T]``, ``x: T | None``), when that parameter is the
@@ -3065,24 +3093,37 @@ def _python_receiver_type(node, content, callee, cache):
         return None  # an unannotated parameter, whatever it is rebound to
     bound = cache[(scope.start_byte, scope.end_byte, scope.type)][0]
     binders = _python_binders(scope, head, content)
-    if len(binders) != 1 or binders[0].type != "assignment":
+    if not binders or any(b.type != "assignment" for b in binders):
         return None
-    (assignment,) = binders
-    left, right = (
-        assignment.child_by_field_name("left"),
-        assignment.child_by_field_name("right"),
-    )
-    if left is None or left.type != "identifier":
+    # Each assignment names the class: `x: T = ...` or `x = T(...)`; an
+    # assignment of None (`x: T | None = None`, `x = None`) adds none. With
+    # several, they must all name the same one.
+    names = set()
+    for assignment in binders:
+        left, right = (
+            assignment.child_by_field_name("left"),
+            assignment.child_by_field_name("right"),
+        )
+        if left is None or left.type != "identifier":
+            return None
+        written = assignment.child_by_field_name("type")
+        if written is not None:
+            names.add(_python_annotation(written, content))
+        elif right is not None and right.type == "call":
+            # `x = T(...)`: a class called is an instance of it; `x =
+            # f(...)`: what the function returns, when its return
+            # annotation names it.
+            function = right.child_by_field_name("function")
+            names.add(
+                _python_dotted(function, content) if function is not None else None
+            )
+            if calls is not None and len(binders) == 1:
+                calls.append(right)
+        elif right is None or right.type != "none":
+            return None
+    if len(names) != 1:
         return None
-    written = assignment.child_by_field_name("type")
-    if written is not None:
-        name = _python_annotation(written, content)
-    elif right is not None and right.type == "call":
-        # `x = T(...)`: a class called is an instance of it.
-        function = right.child_by_field_name("function")
-        name = _python_dotted(function, content) if function is not None else None
-    else:
-        return None
+    (name,) = names
     # The type is named in the function: it must not be a local there.
     if name is None or name.split(".")[0] in bound:
         return None
@@ -4552,11 +4593,7 @@ def extract_call_sites(
                                 ),
                             }
                             if java
-                            else {
-                                "receiver_type": _python_receiver_type(
-                                    node, content, callee, bindings
-                                )
-                            }
+                            else _python_receiver(node, content, callee, bindings)
                             if python
                             else _go_chain_receiver(node, content, receivers)
                             if chained
