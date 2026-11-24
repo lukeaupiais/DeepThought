@@ -2010,7 +2010,17 @@ with a reason:
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
 | `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
-| `not_in_index` | The indexer ran but has no document for the file, e.g. a file outside every tsconfig |
+| `not_in_index` | The indexer ran but has no document for the file |
+
+TypeScript and JavaScript files outside every tsconfig.json of the workspace
+(Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
+pass, written to `scip-typescript-uncovered.scip`: one project of exactly
+those files that extends the root tsconfig.json when there is one, with
+`allowJs`, `allowImportingTsExtensions` and `noEmit`. Its receipt records that
+project with workspace-relative paths, its coverage entries say
+`pass: outside_tsconfig`, and it keeps only those files' documents, so the two
+indexes never cover the same file. On hono it covers the 75 files the first
+pass leaves out.
 
 It exits 3 when any file is uncovered (`--allow-uncovered` exits 0), so a
 missing or failing indexer is never read as a file without references. On the
