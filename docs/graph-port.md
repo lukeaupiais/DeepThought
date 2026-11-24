@@ -2013,7 +2013,15 @@ their file (`service_contracts.deployed`), when those share one:
 
 - A Compose service whose `build` context is the file's directory or an
   ancestor of it (the nearest one any deployment builds) is named after
-  itself and answers to that name.
+  itself and answers to that name. When its Dockerfile publishes one .NET
+  project, it runs that project's directory instead of the whole context,
+  as Visual Studio's Dockerfiles build from the solution root. The
+  Dockerfile is followed stage by stage: `WORKDIR` (a stage `FROM` an
+  earlier stage keeps its directory and files), `COPY S D`/`ADD S D` of one
+  context directory S (`.` for the whole context; not `--from`), and each
+  `RUN dotnet publish [path/X.csproj]` (the project in the working directory
+  when none is named), mapped back to the repository through those copies.
+  Every publish must name the same directory, and it must hold a `.csproj`.
 - A Kubernetes container whose image (without tag or digest) a Skaffold
   `build.artifacts` entry builds from exactly one context is named after
   its workload (`Deployment/frontend` gives `frontend`) and answers to the
