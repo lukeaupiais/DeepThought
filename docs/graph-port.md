@@ -169,7 +169,10 @@ and reason. The `calls` capability is not advertised, so an empty callers or
 callees result still says the relation was unsupported or unobserved.
 
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
-at the callee name.
+at the callee name, matched as a whole identifier after the call's column. On
+Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
+8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
+`tree-sitter.python-call-typed-receiver` links 85, all confirmed.
 
 ## Declaration nesting
 
