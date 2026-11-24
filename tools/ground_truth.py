@@ -409,8 +409,24 @@ def _at(definition):
     return (definition.file, definition.line) if definition else None
 
 
-def score(result, truth, examples=10):
-    """Judge every engine call resolution against expected calls."""
+# Columns of ``score --disagreements``: covered call sites whose SCIP and
+# parser targets differ ("-" and 0 where a side has none).
+DISAGREEMENT_COLUMNS = (
+    "file",
+    "line",
+    "callee",
+    "scip_target_file",
+    "scip_target_line",
+    "ts_target_file",
+    "ts_target_line",
+    "reason",
+    "rule",
+)
+
+
+def score(result, truth, examples=10, resolutions=None):
+    """Judge every engine call resolution (``resolutions``, by default the
+    parser's) against expected calls."""
     from deepthought.calls import resolve_calls
 
     positions, indexed = truth
@@ -441,7 +457,7 @@ def score(result, truth, examples=10):
     samples = {}
     # Why each expected call has no confirmed link, by engine outcome.
     near = {}
-    for resolution in resolve_calls(result):
+    for resolution in resolve_calls(result) if resolutions is None else resolutions:
         site = sites[resolution.call_id]
         # TypeScript private names: the index names `#m` as `m`. PHP callees
         # are written `$this->m`, `C::m` and `A\f`.
@@ -1688,6 +1704,18 @@ def main(argv=None):
     s.add_argument("truth", type=Path)
     s.add_argument("--language", action="append", required=True)
     s.add_argument("--exclude", action="append", default=[])
+    s.add_argument(
+        "--scip",
+        action="append",
+        type=Path,
+        default=[],
+        help="Bind calls from this SCIP index of the workspace (repeatable)",
+    )
+    s.add_argument(
+        "--disagreements",
+        type=Path,
+        help="With --scip: write call sites where SCIP and parser targets differ",
+    )
     c = sub.add_parser("check")
     c.add_argument("--corpus", action="append", default=[])
     c.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
@@ -1716,10 +1744,36 @@ def main(argv=None):
         )
         return 0
     if args.command == "score":
+        result = analyze(args.workspace, args.language, args.exclude)
+        resolutions = None
+        if args.scip:
+            # Calls bound from SCIP indexes of the workspace. Truth derived
+            # from the same indexer checks the binding, not the indexer.
+            import deepthought
+            from deepthought.scip_calls import bind_calls
+
+            binding = bind_calls(
+                result,
+                [
+                    (deepthought.ingest_scip(path, repository_id="truth"), "-")
+                    for path in args.scip
+                ],
+                args.workspace,
+            )
+            resolutions = binding.resolutions
+            if args.disagreements is not None:
+                args.disagreements.write_text(
+                    "".join(
+                        row + "\n"
+                        for row in (
+                            "# " + "\t".join(DISAGREEMENT_COLUMNS),
+                            *(d.row() for d in binding.disagreements),
+                        )
+                    ),
+                    "utf-8",
+                )
         report, samples = score(
-            analyze(args.workspace, args.language, args.exclude),
-            read_truth(args.truth),
-            args.examples,
+            result, read_truth(args.truth), args.examples, resolutions
         )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0

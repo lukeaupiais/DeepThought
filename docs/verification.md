@@ -106,8 +106,14 @@ python tools/ground_truth.py check --corpus click    # one corpus
 # A name that is in no manifest list fails instead of checking nothing.
 python tools/ground_truth.py check --update-baseline # accept a new score
 python tools/ground_truth.py score WORKSPACE TRUTH --language python
+# Calls bound from SCIP indexes, and where they differ from the parser's:
+python tools/ground_truth.py score WORKSPACE TRUTH --language python \
+    --scip INDEX --disagreements OUT.tsv
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
 ```
+
+Truth derived from the same SCIP index that binds the calls checks the
+binding, not the indexer; independent oracles judge the indexer.
 
 `check` exits 1 when a corpus has more contradictions or fewer confirmed links
 than its baseline, or when its truth file no longer matches the baseline's
