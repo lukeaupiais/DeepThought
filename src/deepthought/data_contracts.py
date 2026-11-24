@@ -1216,3 +1216,184 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     )
                 )
     return mappings, tables, accesses
+
+
+# Modules whose import marks a Python module as one that runs SQL.
+PYTHON_SQL_MODULES = (
+    "sqlite3",
+    "psycopg2",
+    "psycopg",
+    "pymysql",
+    "MySQLdb",
+    "mysql.connector",
+    "cx_Oracle",
+    "oracledb",
+    "pyodbc",
+    "pg8000",
+    "asyncpg",
+    "aiosqlite",
+    "aiomysql",
+    "aiopg",
+    "duckdb",
+    "databases",
+    "sqlalchemy",
+    "flask_sqlalchemy",
+    "sqlmodel",
+    "django.db",
+)
+# DB-API, asyncpg, SQLAlchemy and Django methods whose first argument is SQL.
+PYTHON_SQL_METHODS = {
+    "execute",
+    "executemany",
+    "executescript",
+    "exec_driver_sql",
+    "fetch",
+    "fetchrow",
+    "fetchval",
+    "raw",
+}
+SQL_VERBS = {
+    "select",
+    "with",
+    "insert",
+    "update",
+    "delete",
+    "merge",
+    "replace",
+    "truncate",
+}
+
+
+def _python_sql_text(node, content, imports, aliases):
+    """The SQL text of an expression: string literals, implicit
+    concatenation, f-strings and ``%``/``format`` templates (what they
+    interpolate becomes PLACEHOLDER), and SQLAlchemy ``text(...)``; else None."""
+    if node is None:
+        return None
+    if node.type == "string":
+        prefix = _text(node, content).split("'")[0].split('"')[0].lower()
+        if "b" in prefix:
+            return None
+        parts = []
+        for child in node.named_children:
+            if child.type == "string_content":
+                parts.append(_text(child, content))
+            elif child.type == "interpolation":
+                if "f" not in prefix:
+                    return None
+                parts.append(PLACEHOLDER)
+        return "".join(parts)
+    if node.type == "concatenated_string":
+        parts = [
+            _python_sql_text(c, content, imports, aliases) for c in node.named_children
+        ]
+        return None if None in parts else "".join(parts)
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _python_sql_text(node.named_children[0], content, imports, aliases)
+    if node.type == "binary_operator":
+        operator = node.child_by_field_name("operator")
+        left = _python_sql_text(
+            node.child_by_field_name("left"), content, imports, aliases
+        )
+        if left is None or operator is None:
+            return None
+        if _text(operator, content) == "%":
+            return re.sub(
+                r"%(?:\([^)]*\))?[-#0 +]*\d*(?:\.\d+)?[sdirf]", PLACEHOLDER, left
+            )
+        if _text(operator, content) == "+":
+            right = _python_sql_text(
+                node.child_by_field_name("right"), content, imports, aliases
+            )
+            return left + (PLACEHOLDER if right is None else right)
+        return None
+    if node.type == "call":
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        first = (
+            next((c for c in arguments.named_children if c.type != "comment"), None)
+            if arguments is not None
+            else None
+        )
+        if function is not None and function.type == "attribute":
+            name = _text(function.child_by_field_name("attribute"), content)
+            owner = function.child_by_field_name("object")
+            if name == "format":
+                template = _python_sql_text(owner, content, imports, aliases)
+                return (
+                    None
+                    if template is None
+                    else re.sub(r"\{[^{}]*\}", PLACEHOLDER, template)
+                )
+            if name == "text" and owner.type == "identifier":
+                module = aliases.get(_text(owner, content)) or imports.get(
+                    _text(owner, content)
+                )
+                if _from_sqlalchemy(module):
+                    return _python_sql_text(first, content, imports, aliases)
+            return None
+        if function is not None and function.type == "identifier":
+            if _text(function, content) == "text" and _from_sqlalchemy(
+                imports.get("text")
+            ):
+                return _python_sql_text(first, content, imports, aliases)
+    return None
+
+
+def _imports_any(imports, aliases, modules):
+    origins = list(imports.values()) + list(aliases.values())
+    return any(o == m or o.startswith(m + ".") for o in origins for m in modules)
+
+
+def extract_python_sql(tree, content, file, definitions):
+    """SQL that one Python module passes to an execute-style call, in a
+    module that imports a database driver, SQLAlchemy or ``django.db``."""
+    root = tree.root_node
+    imports = _python_imports(root, content)
+    aliases = _module_aliases(root, content)
+    if not _imports_any(imports, aliases, PYTHON_SQL_MODULES):
+        return []
+    found = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type != "call":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "attribute":
+            continue
+        if _text(function.child_by_field_name("attribute"), content) not in (
+            PYTHON_SQL_METHODS
+        ):
+            continue
+        arguments = node.child_by_field_name("arguments")
+        first = (
+            next((c for c in arguments.named_children if c.type != "comment"), None)
+            if arguments is not None
+            else None
+        )
+        if first is None or first.type == "keyword_argument":
+            continue
+        text = _python_sql_text(first, content, imports, aliases)
+        if text is None:
+            continue
+        words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+        if not words or words[0].lower() not in SQL_VERBS:
+            continue  # Not a statement that reads or writes tables.
+        # Driver parameter markers (%s, %(name)s) never name a table.
+        statement = statement_tables(re.sub(r"%(?:\([^)]*\))?s", "?", text))
+        if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+            statement = None
+        found.append(
+            SqlUse(
+                file,
+                _innermost(definitions, file, node),
+                "python-sql",
+                False,
+                statement,
+                node.start_point.row + 1,
+                node.start_point.column,
+            )
+        )
+    return found
