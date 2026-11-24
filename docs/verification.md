@@ -69,10 +69,12 @@ scored against a yardstick its own rules cannot move.
     the module lists the name in `__all__` and defines it. Aliases written
     with `import ... as` keep their symbol. Any other mismatch, such as a
     re-export through two star imports, is left unjudged.
-  - **Attributes named like builtins.** `self.set(...)` or `self.type(...)` in
-    a class that defines that attribute is recorded as the builtin `set` or
-    `type`. An attribute of `self` or `cls` is never a top-level builtin, so
-    these calls are left unjudged.
+  - **Attributes named like builtins.** `self.set(...)` in a class that
+    defines `set`, or `cookies.set(...)` on an `httpx.Cookies`, is recorded as
+    the builtin `set` (and `typing.TypeVar` as a builtin `TypeVar`). An
+    attribute is never a top-level builtin, except on the `builtins` module,
+    so these calls are left unjudged. mypy confirms the `Cookies.set` case
+    (`tools/py_check_truth.py`).
 - `baseline.json` is the current score of each corpus.
 
 When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
