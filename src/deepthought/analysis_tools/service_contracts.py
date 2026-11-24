@@ -221,6 +221,26 @@ MESSAGE_RULES = {
         "destination by spring.cloud.stream.bindings.<name>.destination, or by "
         "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
     ),
+    ("spring-cloud-function", "publish"): _message_rule(
+        "service-contracts.spring-cloud-function-output",
+        "A Supplier or Function @Bean (java.util.function) in a service that runs "
+        "it is bound by Spring Cloud Stream: the service's "
+        "spring.cloud.function.definition lists it, or it is the service's only "
+        "functional bean. Its <bean>-out-0 binding (or the name "
+        "spring.cloud.stream.function.bindings gives it) is bound to this "
+        "destination by spring.cloud.stream.bindings.<name>.destination, or by "
+        "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
+    ),
+    ("spring-cloud-function", "consume"): _message_rule(
+        "service-contracts.spring-cloud-function-input",
+        "A Consumer or Function @Bean (java.util.function) in a service that runs "
+        "it is bound by Spring Cloud Stream: the service's "
+        "spring.cloud.function.definition lists it, or it is the service's only "
+        "functional bean. Its <bean>-in-0 binding (or the name "
+        "spring.cloud.stream.function.bindings gives it) is bound to this "
+        "destination by spring.cloud.stream.bindings.<name>.destination, or by "
+        "the binding's name, through its Kafka or RabbitMQ binder." + _SAME_NAME,
+    ),
 }
 
 REQUEST_RULES = {
@@ -342,6 +362,55 @@ GRPC_CALL_RULE = register_rule(
 )
 
 
+_BINDER_TYPES = {"rabbit": "amqp", "kafka": "kafka", "kstream": "kafka"}
+
+
+def _build_unread(maven, module):
+    """True when a module's build, or one it depends on, is not fully read:
+    neither a pom.xml nor a Gradle file, or a Gradle project() not found."""
+    if module not in maven.dependencies:
+        return True
+    pending, seen = [module], set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if current in maven.unresolved:
+            return True
+        pending += [
+            m
+            for artifact in maven.dependencies.get(current, [])
+            for m in maven.artifacts.get(artifact, [])
+        ]
+    return False
+
+
+def _binder(config, marker, binding, binders):
+    """The broker (kafka or amqp) a binding uses in a service with
+    ``binders``: the only one, or with several, the binder its
+    ``spring.cloud.stream.bindings.<binding>.binder`` or the service's
+    ``spring.cloud.stream.default-binder`` names in the default profile, by
+    ``spring.cloud.stream.binders.<name>.type`` or the standard names."""
+    if len(binders) == 1:
+        return next(iter(binders))
+
+    def single(*keys):
+        found = {
+            v for k in keys for v in config.values(marker, k, default_profile=True)
+        }
+        return next(iter(found)) if len(found) == 1 else None
+
+    name = single(f"spring.cloud.stream.bindings.{binding}.binder") or single(
+        "spring.cloud.stream.default-binder", "spring.cloud.stream.defaultBinder"
+    )
+    if name is None or "${" in name:
+        return None
+    kind = single(f"spring.cloud.stream.binders.{name}.type") or name
+    broker = _BINDER_TYPES.get(kind)
+    return broker if broker in binders else None
+
+
 def _stream_endpoints(root, config, sites, repo_url):
     """Message endpoints of Spring Cloud Stream binding sites, one per
     service that runs the code (see ``service_contracts.cloud_stream``)."""
@@ -349,10 +418,14 @@ def _stream_endpoints(root, config, sites, repo_url):
         return [], []
     maven = MavenModules(root)
     endpoints, unread = [], []
+    placed = []
     for site in sites:
         module = _module_root(root, site.file)
         if module is None:
-            unread.append(MessageUnread(site.file, site.line, site.role, "no_module"))
+            if site.function is None:
+                unread.append(
+                    MessageUnread(site.file, site.line, site.role, "no_module")
+                )
             continue
         module = module.as_posix()
         if config.service(site.file)[0] is not None:
@@ -363,22 +436,82 @@ def _stream_endpoints(root, config, sites, repo_url):
                 for m in maven.dependents(module)
                 if config.service(f"{m}/pom.xml")[0] is not None
             ]
-        if not deploying:
+        if not deploying and (
+            site.function is None
+            or maven.binders(module)
+            or _build_unread(maven, module)
+        ):
+            # A functional bean is only a binding in a stream application.
             unread.append(MessageUnread(site.file, site.line, site.role, "no_service"))
+        placed.append((site, module, deploying))
+    # The functional beans each service runs, for its function definition.
+    functions = {}
+    for site, _, deploying in placed:
+        if site.function is not None:
+            for current in deploying:
+                functions.setdefault(current, set()).add(site.function)
+    for site, module, deploying in placed:
         for current in deploying:
             marker = f"{current}/pom.xml"
             service = config.service(marker)[0]
-            binder = maven.binder(current)
+            binders = maven.binders(current)
+            if not binders:
+                # A functional bean outside a stream application is no binding,
+                # unless the build that would say so is not read.
+                if site.function is None:
+                    reason = "binder_unknown"
+                elif _build_unread(maven, current):
+                    reason = "build_not_read"
+                else:
+                    continue
+                unread.append(MessageUnread(site.file, site.line, site.role, reason))
+                continue
+            binding = site.binding
+            if site.function is not None:
+                # spring.cloud.stream.function.definition is its older name.
+                definition = sorted(
+                    set(config.values(marker, "spring.cloud.function.definition"))
+                    | set(
+                        config.values(marker, "spring.cloud.stream.function.definition")
+                    )
+                )
+                reason = None
+                if len(definition) > 1 or any("${" in d for d in definition):
+                    reason = "function_definition_not_literal"
+                elif definition:
+                    names = [n.strip() for n in re.split(r"[;,]", definition[0])]
+                    if any("|" in n and site.function in n.split("|") for n in names):
+                        reason = "function_composed"
+                    elif site.function not in names:
+                        reason = "function_not_bound"
+                elif functions.get(current) != {site.function}:
+                    # Without a definition, only a service's single
+                    # functional bean is bound.
+                    reason = "function_not_bound"
+                renamed = config.values(
+                    marker, f"spring.cloud.stream.function.bindings.{binding}"
+                )
+                if reason is None and renamed:
+                    if len(renamed) == 1 and "${" not in renamed[0]:
+                        binding = renamed[0]
+                    else:
+                        reason = "binding_not_literal"
+                if reason is not None:
+                    unread.append(
+                        MessageUnread(site.file, site.line, site.role, reason)
+                    )
+                    continue
+            binder = _binder(config, marker, binding, binders)
             if binder is None:
                 unread.append(
                     MessageUnread(site.file, site.line, site.role, "binder_unknown")
                 )
                 continue
             configured = config.values(
-                marker, f"spring.cloud.stream.bindings.{site.binding}.destination"
+                marker, f"spring.cloud.stream.bindings.{binding}.destination"
             )
             if not configured:
-                destination = site.binding
+                destination = binding
             elif len(configured) == 1 and "${" not in configured[0]:
                 destination = configured[0]
             else:
@@ -406,7 +539,11 @@ def _stream_endpoints(root, config, sites, repo_url):
                     role=site.role,
                     broker=binder,
                     destination=destination,
-                    client="spring-cloud-stream",
+                    client=(
+                        "spring-cloud-stream"
+                        if site.function is None
+                        else "spring-cloud-function"
+                    ),
                     module=None if current == module else current,
                     service=None if current == module else service,
                 )
@@ -823,7 +960,10 @@ class ServiceContractTool(AnalysisTool):
                     )
                     graphql_requests.extend(found[0])
                     unread.extend(found[1])
-            if coverage.language == "java" and b"cloud.stream" in content:
+            if coverage.language == "java" and (
+                b"cloud.stream" in content
+                or (b"java.util.function" in content and b"@Bean" in content)
+            ):
                 found = extract_stream(
                     tree, content, coverage.file, result.definitions, constants
                 )

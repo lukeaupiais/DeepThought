@@ -297,5 +297,265 @@ class CloudStreamTests(unittest.TestCase):
         )
 
 
+FUNCTIONS = """
+package billing;
+
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class Functions {
+    @Bean
+    public Function<Order, Receipt> charge() { return o -> null; }
+
+    @Bean
+    public Consumer<Order> audit() { return o -> {}; }
+
+    @Bean
+    public Consumer<Order> log() { return o -> {}; }
+
+    @Bean
+    public Supplier<Order> heartbeat() { return () -> null; }
+
+    // Not a functional bean.
+    @Bean
+    public Clock clock() { return null; }
+
+    // Not a bean.
+    @Deprecated
+    public Consumer<Order> helper() { return o -> {}; }
+}
+"""
+
+STREAMS = """
+package joins;
+
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import org.springframework.context.annotation.Bean;
+
+public class Joins {
+    @Bean
+    public BiFunction<KStream<String, Long>, KTable<String, String>, KStream<String, Long>> join() { return null; }
+
+    @Bean
+    public Function<KStream<Object, String>, KStream<?, WordCount>[]> branch() { return null; }
+
+    @Bean
+    public Function<byte[], byte[]> raw() { return null; }
+
+    @Bean
+    public Function<KStream<String, Long>, Function<KTable<String, String>, KStream<String, Long>>> curried() { return null; }
+}
+"""
+
+TICKER = """
+package ticker;
+
+import java.util.function.Supplier;
+import org.springframework.context.annotation.Bean;
+
+public class Ticker {
+    @Bean(name = "ticks")
+    public Supplier<Long> source() { return () -> 1L; }
+
+    // Not java.util.function: not a functional bean.
+    @Bean
+    public com.acme.Function<Long, Long> mapper() { return null; }
+}
+"""
+
+MULTI = """
+package multi;
+
+import java.util.function.Consumer;
+import org.springframework.context.annotation.Bean;
+
+public class Handlers {
+    @Bean
+    public Consumer<String> first() { return s -> {}; }
+
+    @Bean
+    public Consumer<String> second() { return s -> {}; }
+}
+"""
+
+FUNCTION_FILES = {
+    "billing/pom.xml": _pom("billing", "spring-cloud-stream-binder-kafka"),
+    f"billing/{RESOURCES}/application.properties": (
+        "spring.application.name=billing\n"
+        "spring.cloud.function.definition=charge;audit|log\n"
+        "spring.cloud.stream.bindings.charge-in-0.destination=orders\n"
+        "spring.cloud.stream.function.bindings.charge-out-0=receipts\n"
+        "spring.cloud.stream.bindings.receipts.destination=billing-receipts\n"
+    ),
+    f"billing/{JAVA}/billing/Functions.java": FUNCTIONS,
+    # No definition: the only functional bean is bound, under its bean name.
+    "ticker/pom.xml": _pom("ticker", "spring-cloud-stream-binder-rabbit"),
+    f"ticker/{RESOURCES}/application.properties": "spring.application.name=ticker\n",
+    f"ticker/{JAVA}/ticker/Ticker.java": TICKER,
+    # No definition and two functional beans: neither is bound.
+    "multi/pom.xml": _pom("multi", "spring-cloud-stream-binder-kafka"),
+    f"multi/{RESOURCES}/application.properties": "spring.application.name=multi\n",
+    f"multi/{JAVA}/multi/Handlers.java": MULTI,
+    # Kafka Streams shapes; the older definition key.
+    "joins/pom.xml": _pom("joins", "spring-cloud-stream-binder-kafka-streams"),
+    f"joins/{RESOURCES}/application.properties": (
+        "spring.application.name=joins\n"
+        "spring.cloud.stream.function.definition=join;branch;raw;curried\n"
+        "spring.cloud.stream.bindings.join-in-0.destination=clicks\n"
+        "spring.cloud.stream.bindings.join-in-1.destination=regions\n"
+    ),
+    f"joins/{JAVA}/joins/Joins.java": STREAMS,
+    # Two binders and no rule to pick one: unread.
+    "both/pom.xml": _pom(
+        "both", "spring-cloud-stream-binder-kafka", "spring-cloud-stream-binder-rabbit"
+    ),
+    f"both/{RESOURCES}/application.properties": "spring.application.name=both\n",
+    f"both/{JAVA}/both/Ticker.java": TICKER.replace("package ticker", "package both"),
+    # Not a stream application: its functional bean binds nothing.
+    "web/pom.xml": _pom("web"),
+    f"web/{RESOURCES}/application.properties": "spring.application.name=web\n",
+    f"web/{JAVA}/web/Handlers.java": MULTI.replace("package multi", "package web"),
+}
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class FunctionalBindingTests(unittest.TestCase):
+    def test_functions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, FUNCTION_FILES)
+            tool = ServiceContractTool(root)
+            asyncio.run(tool.analyze("r"))
+            endpoints, unread = tool.last_messages
+        self.assertEqual(
+            sorted(
+                (e.file.rpartition("/")[2], e.line, e.role, e.broker, e.destination)
+                for e in endpoints
+            ),
+            [
+                ("Functions.java", 12, "consume", "kafka", "orders"),
+                ("Functions.java", 12, "publish", "kafka", "billing-receipts"),
+                ("Joins.java", 9, "consume", "kafka", "clicks"),
+                ("Joins.java", 9, "consume", "kafka", "regions"),
+                ("Joins.java", 9, "publish", "kafka", "join-out-0"),
+                ("Joins.java", 12, "consume", "kafka", "branch-in-0"),
+                ("Joins.java", 15, "consume", "kafka", "raw-in-0"),
+                ("Joins.java", 15, "publish", "kafka", "raw-out-0"),
+                ("Ticker.java", 8, "publish", "amqp", "ticks-out-0/#"),
+            ],
+        )
+        self.assertEqual({e.client for e in endpoints}, {"spring-cloud-function"})
+        self.assertEqual(
+            sorted(
+                (u.file.rpartition("/")[2], u.line, u.role, u.reason) for u in unread
+            ),
+            [
+                ("Functions.java", 15, "consume", "function_composed"),
+                ("Functions.java", 18, "consume", "function_composed"),
+                ("Functions.java", 21, "publish", "function_not_bound"),
+                ("Handlers.java", 8, "consume", "function_not_bound"),
+                ("Handlers.java", 11, "consume", "function_not_bound"),
+                ("Joins.java", 12, "publish", "function_outputs"),
+                ("Joins.java", 18, "consume", "function_curried"),
+                ("Ticker.java", 8, "publish", "binder_unknown"),
+            ],
+        )
+
+
+CONSUMER = """
+package {package};
+
+import java.util.function.Consumer;
+import org.springframework.context.annotation.Bean;
+
+public class Processor {{
+    @Bean
+    public Consumer<String> messageProcessor() {{ return s -> {{}}; }}
+}}
+"""
+
+GRADLE_FILES = {
+    "settings.gradle": "include ':util', ':microservices:product', ':microservices:review'\n",
+    "util/build.gradle": "dependencies {\n  implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit'\n}\n",
+    # Two binders from Gradle, one of them through a project dependency;
+    # the default profile picks rabbit, a profile switches to kafka.
+    "microservices/product/build.gradle": (
+        "dependencies {\n"
+        "  implementation project(':util')\n"
+        '  implementation "org.springframework.cloud:spring-cloud-starter-stream-kafka"\n'
+        "  // implementation 'org.springframework.cloud:spring-cloud-stream-binder-kafka-streams'\n"
+        "}\n"
+    ),
+    f"microservices/product/{RESOURCES}/application.yml": (
+        "spring.application.name: product\n"
+        "spring.cloud.stream:\n"
+        "  defaultBinder: rabbit\n"
+        "  bindings.messageProcessor-in-0:\n"
+        "    destination: products\n"
+        "---\n"
+        "spring.config.activate.on-profile: kafka\n"
+        "spring.cloud.stream.defaultBinder: kafka\n"
+    ),
+    f"microservices/product/{JAVA}/product/Processor.java": CONSUMER.format(
+        package="product"
+    ),
+    # No spring.application.name: a stream application that is no service.
+    "microservices/review/build.gradle": (
+        "dependencies { implementation 'org.springframework.cloud:spring-cloud-starter-stream-kafka' }\n"
+    ),
+    f"microservices/review/{JAVA}/review/Processor.java": CONSUMER.format(
+        package="review"
+    ),
+    # A project dependency the settings do not lead to: the build is not read.
+    "custom/build.gradle": "dependencies { implementation project(':moved') }\n",
+    f"custom/{RESOURCES}/application.properties": "spring.application.name=custom\n",
+    f"custom/{JAVA}/custom/Processor.java": CONSUMER.format(package="custom"),
+    # A Gradle app without a binder: not a stream application.
+    "plain/build.gradle": (
+        "dependencies {\n"
+        "  implementation 'org.springframework.boot:spring-boot-starter-web'\n"
+        "  // implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit'\n"
+        "  /* implementation 'org.springframework.cloud:spring-cloud-starter-stream-kafka' */\n"
+        "}\n"
+    ),
+    # Neither a service nor a build fully read: unread, not dropped.
+    "loose/build.gradle": "dependencies { implementation project(':gone') }\n",
+    f"loose/{JAVA}/loose/Processor.java": CONSUMER.format(package="loose"),
+    f"plain/{RESOURCES}/application.properties": "spring.application.name=plain\n",
+    f"plain/{JAVA}/plain/Processor.java": CONSUMER.format(package="plain"),
+}
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class GradleBinderTests(unittest.TestCase):
+    def test_gradle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, GRADLE_FILES)
+            tool = ServiceContractTool(root)
+            asyncio.run(tool.analyze("r"))
+            endpoints, unread = tool.last_messages
+        self.assertEqual(
+            [
+                (e.file.split("/")[1], e.role, e.broker, e.destination)
+                for e in endpoints
+            ],
+            [("product", "consume", "amqp", "products/#")],
+        )
+        self.assertEqual(
+            sorted((u.file.split("/")[0], u.role, u.reason) for u in unread),
+            [
+                ("custom", "consume", "build_not_read"),
+                ("loose", "consume", "no_service"),
+                ("microservices", "consume", "no_service"),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

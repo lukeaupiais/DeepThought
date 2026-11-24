@@ -177,6 +177,33 @@ class JavaTruthTest(unittest.TestCase):
         report, _ = ground_truth.score_inherits(result, truth)
         self.assertEqual((report["confirmed"], report["recall"]), (1, 1.0))
 
+    def test_javac_binds_constructor_chains(self):
+        sources = {
+            "src/a/Base.java": "package a;\npublic class Base {\n"
+            "  public Base(int x) {}\n}\n",
+            "src/b/Square.java": "package b;\nimport a.Base;\n"
+            "public class Square extends Base {\n"
+            "  Square() { this(1); }\n"
+            "  Square(int x) { super(x); }\n"
+            "  static Square make() { return new Square(); }\n}\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in sources.items():
+                path = Path(directory, name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            chains, _ = ground_truth.derive_java(directory, chains=True)
+        # Only this(...) and super(...), never the `new Square()` call site.
+        self.assertEqual(
+            chains,
+            {
+                ("src/b/Square.java", 4, "this"): {
+                    ("src/b/Square.java", 5, "callable")
+                },
+                ("src/b/Square.java", 5, "super"): {("src/a/Base.java", 3, "callable")},
+            },
+        )
+
 
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter_typescript")
@@ -429,6 +456,68 @@ class UnknownCorpusTests(unittest.TestCase):
         with redirect_stderr(io.StringIO()) as stderr:
             self.assertEqual(ground_truth.main(["check", "--corpus", "clik"]), 2)
         self.assertIn("no such corpus: clik", stderr.getvalue())
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter_typescript"), "the TypeScript grammar"
+)
+class RouteTruthTests(unittest.TestCase):
+    FILES = {
+        "package.json": '{"name": "app"}',
+        "src/main.ts": (
+            "import { NestFactory } from '@nestjs/core';\n"
+            "async function boot() {\n"
+            "  const app = await NestFactory.create(AppModule);\n"
+            "  app.setGlobalPrefix('api');\n"
+            "}\n"
+        ),
+        "src/cats.controller.ts": (
+            "import { Controller, Get, Post } from '@nestjs/common';\n"
+            "@Controller('cats')\n"
+            "export class CatsController {\n"
+            "  @Get(':id')\n  one() {}\n"
+            "  @Post()\n  add() {}\n"
+            "  @Get('extra')\n  extra() {}\n"
+            "}\n"
+        ),
+        "src/schema.graphql": "type Query {\n  cat: String\n  dog: String\n}\n",
+        "src/cats.resolver.ts": (
+            "import { Query, Resolver } from '@nestjs/graphql';\n"
+            "@Resolver()\n"
+            "export class CatsResolver {\n"
+            "  @Query(() => String)\n  cat() {}\n"
+            "}\n"
+        ),
+    }
+
+    def test_routes_and_handled_fields_against_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            for name, text in self.FILES.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels = Path(tmp) / "labels.json"
+            labels.write_text(
+                json.dumps(
+                    {
+                        "http": [["GET", "/api/cats/{var}"], ["DELETE", "/api/cats"]],
+                        "neutral_http": [["GET", "/api/cats/extra"]],
+                        "graphql": ["Query.cat", "Query.dog"],
+                    }
+                ),
+                "utf-8",
+            )
+            report, samples = ground_truth.score_routes({"labels": labels}, root)
+        # POST /api/cats is read but not labelled; DELETE is labelled, not read.
+        self.assertEqual(report["http"], {"expected": 2, "found": 1, "extra": 1})
+        self.assertEqual(samples["http"]["extra"], [("POST", "/api/cats")])
+        # Query.dog is declared but has no resolver, so it is not found.
+        self.assertEqual(report["graphql"], {"expected": 2, "found": 1, "extra": 0})
+        baseline = {"http": {"expected": 2, "found": 2, "extra": 0}}
+        self.assertEqual(
+            ground_truth.route_regressions(report, baseline),
+            ["http found 2 -> 1", "http extra 0 -> 1"],
+        )
 
 
 class SummaryTests(unittest.TestCase):
