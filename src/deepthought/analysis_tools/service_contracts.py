@@ -1282,10 +1282,24 @@ _MANIFESTS = (
 )
 
 
-def _projects(root):
+def _projects(root, sources=()):
     """file -> the nearest directory above it with a build manifest (or a
-    .csproj), "." when there is none."""
+    .csproj); None when there is none, or when it is a Go module holding
+    more than one ``package main`` directory (several programs, so which
+    one a file belongs to is not known)."""
     cache = {}
+    programs = {
+        PurePosixPath(c.file).parent
+        for c, content, _ in sources
+        if c.language == "go" and re.search(rb"^package main\b", content, re.M)
+    }
+
+    def several_programs(key, directory):
+        if not (directory / "go.mod").is_file():
+            return False
+        base = PurePosixPath(key)
+        inside = [p for p in programs if key == "." or p == base or base in p.parents]
+        return len(inside) > 1
 
     def project(file):
         path = PurePosixPath(file).parent
@@ -1300,10 +1314,10 @@ def _projects(root):
             if any((directory / m).is_file() for m in _MANIFESTS) or any(
                 directory.glob("*.csproj")
             ):
-                found = key
+                found = None if several_programs(key, directory) else key
                 break
             if path == path.parent:
-                found = "."
+                found = None
                 break
             path = path.parent
         for key in seen:
@@ -2159,7 +2173,7 @@ class ServiceContractTool(AnalysisTool):
         deployments = Deployments(deployed_units(root))
         routes, requests = _deployed(root, deployments, routes, requests)
         resolutions = contract_rules.resolve_requests(
-            routes, requests, gateways, deployments.hosts(), _projects(root)
+            routes, requests, gateways, deployments.hosts(), _projects(root, sources)
         )
         self.last_facts = (result, routes, requests, unread, resolutions)
         grpc = grpc_contracts.collect(
