@@ -1009,7 +1009,8 @@ compiled under `./...`, so its tests are compiled one package at a time.
 SCIP call row whose target was sampled is one of the compiler's references.
 On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
 fall in blocked packages, and 2 references are not calls (a middleware
-passed to `r.Use`). gson's call truth comes from javac, not an
+passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66
+references without a call row uses the function as a value. gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
