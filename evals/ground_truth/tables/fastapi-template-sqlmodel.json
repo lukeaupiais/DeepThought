@@ -1,7 +1,7 @@
 {
   "repo": "https://github.com/fastapi/full-stack-fastapi-template",
   "commit": "77e550a73bb49dd2967622c5ed11bf7a49603c93",
-  "labelled_by": "read by hand: every line under backend/ that names a table=True SQLModel class in select(), select_from(), delete() or Session.get(), or passes an instance of one to Session.add(), delete() or refresh(); plus the SQL strings the Alembic migrations pass to op.execute (CREATE statements left out); SQLModel names the tables user and item after the classes. A statement is labelled on the line that names the model, not the line that executes it.",
+  "labelled_by": "read by hand: every line under backend/ that names a table=True SQLModel class in select(), select_from(), delete() or Session.get(), or passes an instance of one to Session.add(), delete() or refresh(); plus the SQL strings the Alembic migrations pass to op.execute (CREATE statements left out); SQLModel names the tables user and item after the classes. A statement is labelled on the line that names the model, not the line that executes it. The model class lines (models.py:51 and :87) map a class to its table and access nothing, so they are not counted.",
   "accesses": [
     {
       "file": "backend/app/alembic/versions/d98dd8ec85a3_edit_replace_id_integers_in_all_models_.py",
@@ -671,5 +671,15 @@
         ]
       ]
     }
+  ],
+  "not_counted": [
+    [
+      "backend/app/models.py",
+      51
+    ],
+    [
+      "backend/app/models.py",
+      87
+    ]
   ]
 }
