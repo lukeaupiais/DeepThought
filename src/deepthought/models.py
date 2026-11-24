@@ -131,6 +131,8 @@ IMPORT_KINDS = frozenset(
         "use",
         "use_glob",
         "extern_crate",
+        "use_function",
+        "use_const",
     }
 )
 
