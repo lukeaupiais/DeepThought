@@ -2022,6 +2022,16 @@ to a repository that writes a table reaches the repositories that read it.
 The component roll-up treats WRITES as providing a table and READS as using
 it.
 
+Shared-database coupling has no API contract to show it, so
+`get_shared_tables` (`shared-tables`, getSharedTables) lists it directly:
+every table that code in two or more packages declares, maps, reads or
+writes, with each package's roles and edge counts, tables written from
+several packages first. A package is the nearest one enclosing the code, as
+for `USES_CONTRACT_OF`, so the snapshot needs the components tool too. Two
+packages share a table only within one namespace (a common persistent
+datasource URL), so services pointed at one database through unresolved
+configuration are not joined.
+
 On spring-petclinic-microservices the tool finds 7 tables, declared by 14
 `CREATE TABLE` statements in the hsqldb and mysql schema files of three
 services. All 6 entities map to a table that their own service's DDL
@@ -2249,7 +2259,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 ## Cypher scope and access
