@@ -150,8 +150,9 @@ Tree-sitter extraction records each call whose callee is a plain or dotted name
 enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
-inheritance and dynamic dispatch are not checked. Resolved call edges come from
-SCIP. The original builder's `confidence` floats and its `resolved_method` label
+inheritance and dynamic dispatch are not checked. No CALLS edge comes from SCIP
+yet: the `scip` tool records references, file dependencies and implementations,
+and the original's SCIP tool did not write CALLS either. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 
@@ -319,8 +320,24 @@ the chat model. The port answers from stored edges only:
   later.
 - `get_file_impact(path)` (`deepthought-graph file-impact --file`, MCP
   getFileImpact): dependent files backwards over IMPORTS and DEPENDS_ON.
+- `get_contract_impact(qualified_name)` (`deepthought-graph contract-impact
+  --contract`, MCP getContractImpact) starts from a contract instead: an HTTP
+  route, gRPC method, GraphQL field, message destination or database table.
+  The change set is the contract and its providers, the declarations or files
+  that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
+  lists under `providers` (at most 10, `providers_truncated` when more).
+  Dependents are then found as for `get_impact`: the code that REQUESTS,
+  CONSUMES or READS the contract (direct), and the callers of that code, also
+  through other contracts it handles (transitive). Providers and dependents
+  share the byte budget, which must be at least 2048 here. Contract nodes are
+  not declarations, so `search_contracts(query)` (`deepthought-graph
+  contracts --query [--kind]`, MCP searchContracts) finds them: contracts
+  whose name (`GET /api/x`), display name, path or qualified name contains
+  the query, case-insensitively, optionally of one kind (`HttpRoute`,
+  `GrpcMethod`, `GraphqlField`, `MessageDestination`, `DbTable`), each with
+  its provider and client counts.
 
-Both take `--max-depth` (1 to 5, default 3) and an optional evidence filter
+All three take `--max-depth` (1 to 5, default 3) and an optional evidence filter
 that limits which edges may be crossed. Each dependent is listed once, with
 the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
@@ -2057,7 +2074,9 @@ tool scored string literals that looked like API paths (0.95 for `/api/v1/x`,
 0.75 for `/x/{id}`) and inferred the method from nearby words; it never matched
 clients to servers. None of it is carried over.
 
-Facts are read from Java sources outside test source sets (`src/test/`):
+Facts are read from Java sources outside test source sets (`src/test/`).
+From test sources only client requests are read (see "Test sources"
+below):
 
 - **Routes.** A method carrying `@GetMapping`, `@PostMapping`, `@PutMapping`,
   `@DeleteMapping`, `@PatchMapping` or `@RequestMapping` imported from
@@ -2112,7 +2131,19 @@ Facts are read from Java sources outside test source sets (`src/test/`):
 
 Python, JavaScript/TypeScript and Go sources are read too
 (`deepthought.service_contracts.web`), outside test files (`test_*.py`,
-`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like):
+`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like), from
+which only client requests are read:
+
+- **Test sources.** A request or gRPC stub call in a test source file is
+  read like any other and its `REQUESTS` edge carries `test_source: true`,
+  so impact analysis reaches the tests that call a contract. Nothing else
+  is read from those files: their routes, servers, messaging, GraphQL and
+  repository-wide facts (constants, mounts, prefixes) are left out, so a
+  test's stub server never becomes a route. A test's request whose base is
+  unknown is not kept from its own project's routes, since tests usually
+  call their own service. The contract ground-truth scorer leaves
+  `test_source` links out unless asked, because the labels cover
+  application code.
 
 - **Routes.** Flask and FastAPI route decorators (`route`, `api_route`, `get`,
   `post`, ...) on a `Flask`, `Blueprint`, `FastAPI` or `APIRouter` object
@@ -2139,7 +2170,18 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  route unread. chi routes (rule `chi-route`) are `Get`/`Post`/`Put`/
+  `Patch`/`Delete`/`Head`/`Options`/`Connect`/`Trace(path, handler)`,
+  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc(path,
+  handler)` (any method) calls on a router made by `chi.NewRouter()`/
+  `chi.NewMux()`, typed `*chi.Mux`, returned by `With(...)` or
+  `Route(prefix, ...)`, or the `chi.Router` parameter of a function literal
+  passed to `Route(prefix, fn)` (the prefix is joined) or `Group(fn)` (no
+  prefix); any other `chi.Router` parameter is a router passed in, as for
+  Gin. chi's `{id}` and `{id:regex}` are route variables and a trailing `*`
+  matches the rest of the path. A handler passed as a method value
+  (`r.Route("/api", api.Routes)`) is not followed.
+  Next.js API routes (rule `nextjs-route`) are files of a
   package whose `package.json` depends on `next`: `pages/api/**` (or
   `src/pages/api/**`) is one route for any method, handled by the default
   export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
@@ -2182,8 +2224,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   `locust`. A literal `base_url` prefixes the path: httpx appends it to the
   base path and aiohttp joins it as a relative reference; an absolute URL, or
   a base that is not a literal, leaves the URL as written. JavaScript `fetch` (with `options.method`), `axios`, `request` and
-  `superagent` (`.get(url)`, or `request({uri, method})`); Angular
-  `HttpClient` and `httpResource` (below); Go `http.Get`,
+  `superagent` (`.get(url)`, or `request({uri, method})`), and the same
+  verb calls, `request({url, method})` or a call of the instance itself on an
+  axios instance: a name bound once to `axios.create(config)`, `this.NAME`
+  given that call as its one value in the class (a field initializer or a
+  `this.NAME =` assignment), or a name imported from a repository module
+  that exports one (`export default NAME`, `export const NAME =`, `export {
+  NAME }` or `export default axios.create(...)`). The config's literal
+  `baseURL` is joined to the request URL with one slash, unless the URL is
+  absolute or protocol-relative, and a protocol-relative URL is read as
+  http; a config that is not an object literal, or spreads one, gives an
+  unknown base. Angular `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
 - **URL values.** String literals, `+`, template strings and f-strings,
   `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names
@@ -2585,10 +2636,24 @@ a TypeScript file of the same Node package (nearest `package.json`), and
 applies to every route of that package. The rule is
 `service-contracts.nestjs-route` (pattern_matched).
 
+Versions are read when the package calls `enableVersioning` with a literal
+options object: `type: VersioningType.URI`, `HEADER`, `MEDIA_TYPE` or
+`CUSTOM`, an optional string `prefix` (`v` by default, none for `false`)
+and an optional `defaultVersion` (a string, an array of strings or
+`VERSION_NEUTRAL`). A route's versions are its method's `@Version(...)`,
+else its controller's `version` option, else the default version. With URI
+versioning each version adds a `{prefix}{version}` segment after the global
+prefix, one route per version, and `VERSION_NEUTRAL` (or no version at all)
+adds none. The other types select a version from the request's headers, so
+they leave the path alone.
+
 Counted as unread instead of guessed, by reason:
-- `version`: a controller or method with a version, since URI versioning
-  depends on the versioning type;
-- `versioning`: every route of a package that calls `enableVersioning`;
+- `version`: a controller or method whose version is not a literal (string,
+  array of strings or `VERSION_NEUTRAL`), or that has a version in a
+  package that does not enable versioning with literal options;
+- `versioning`: every route of a package whose `enableVersioning` options
+  are not a literal object of the form above, and `versioning_ambiguous`
+  when the package enables versioning in two different ways;
 - `router_module`: every route of a package that uses `RouterModule`;
 - `global_prefix_options`, `global_prefix_not_literal` and
   `global_prefix_ambiguous`: every route of a package whose global prefix
@@ -3089,9 +3154,10 @@ otherwise there is no edge, and File nodes list the call in
 `no_proto_service`, `several_proto_packages`, `no_proto_method`). A server
 that cannot be tied to a declaration is counted in `unread` as
 `grpc_server:implementation_not_read`, `handler_not_declared` and so on.
-Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like), Go
-`_test.go` files, Python `test_*.py` files and `src/test/` are neither servers
-nor clients. The channel's target address is never read, so a stub links to
+Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like) is
+neither server nor client; test source files (Go `_test.go`, Python
+`test_*.py`, `src/test/` and the like) are clients only, their calls marked
+`test_source`. The channel's target address is never read, so a stub links to
 the method wherever it is served; interceptors, reflection and dynamically
 loaded service definitions are not followed. Every edge is `pattern_matched`.
 

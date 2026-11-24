@@ -347,11 +347,21 @@ class SpringContractTests(unittest.TestCase):
                     "no_literal_path",
                     None,
                 ),
+                # A test's call is read too, and marked as a test's.
+                ("rest-template", "GET", "http://statistics-service/stats/x"): (
+                    "linked",
+                    HTTP_SERVICE_PATH,
+                    (("GET",), "/stats/{accountName}"),
+                ),
             },
         )
+        self.assertEqual(
+            [r.file for r in requests if r.test_source],
+            ["statistics/src/test/java/s/StatisticsTest.java"],
+        )
         metrics = output.metadata.custom_metrics
-        self.assertEqual(metrics["test_source_files_skipped"], 1)
-        self.assertEqual(metrics["http_requests"], 8)
+        self.assertEqual(metrics["test_source_files"], 1)
+        self.assertEqual(metrics["http_requests"], 9)
 
     def test_unknown_service_falls_back_to_path(self):
         _write(
@@ -398,7 +408,10 @@ class SpringContractTests(unittest.TestCase):
             },
         )
         requests = [r for r in output.relationships if r.type == "REQUESTS"]
-        self.assertEqual(len(requests), 5)
+        self.assertEqual(len(requests), 6)
+        self.assertEqual(
+            [r.properties.get("test_source") for r in requests].count(True), 1
+        )
         feign = next(r for r in requests if r.properties["client"] == "feign")
         self.assertIn("StatisticsClient.get", feign.source_match["qualified_name"])
         self.assertEqual(feign.properties["target_service"], "statistics-service")

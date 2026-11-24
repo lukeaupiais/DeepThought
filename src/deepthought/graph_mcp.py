@@ -145,6 +145,12 @@ def create_server():
 
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
     Roles = list[Literal["test", "example"]] | None
+    ContractKind = (
+        Literal[
+            "DbTable", "GraphqlField", "GrpcMethod", "HttpRoute", "MessageDestination"
+        ]
+        | None
+    )
 
     @server.tool()
     async def getFunctionCallers(
@@ -209,6 +215,60 @@ def create_server():
         examples, and ``exclude_roles`` leaves those roles out before paging.
         """
         return await ctx.request_context.lifespan_context.get_impact(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            max_depth=max_depth,
+            evidence_types=evidence_types,
+            limit=max_elements,
+            offset=offset,
+            exclude_roles=exclude_roles,
+        )
+
+    @server.tool()
+    async def searchContracts(
+        query: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        kind: ContractKind = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Find contracts by name, path or qualified name (empty lists all).
+
+        Contracts are HTTP routes (``GET /api/x``), gRPC methods, GraphQL
+        fields, message destinations and database tables; each comes with
+        its provider and client counts. Pass one's ``qualified_name`` to
+        getContractImpact.
+        """
+        return await ctx.request_context.lifespan_context.search_contracts(
+            query,
+            repository_id,
+            snapshot_id=snapshot_id,
+            kind=kind,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getContractImpact(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+        offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
+        exclude_roles: Roles = None,
+    ) -> dict:
+        """Get what a contract change affects: its providers and, transitively, its clients and their callers.
+
+        ``providers`` lists the handlers, publishers, writers and mappings of
+        the contract (searchContracts finds it). Dependents are the code that
+        requests, consumes or reads it, then their callers, also across
+        services, as for getImpact.
+        """
+        return await ctx.request_context.lifespan_context.get_contract_impact(
             qualified_name,
             repository_id,
             snapshot_id=snapshot_id,

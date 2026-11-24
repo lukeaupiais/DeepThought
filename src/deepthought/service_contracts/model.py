@@ -65,6 +65,8 @@ class HttpRequest:
     # The command line and deployments ("file" or "file:unit") that give a
     # host to a request written without one (Locust's --host).
     host_from: tuple = ()
+    # Sent from a test source file.
+    test_source: bool = False
 
 
 @dataclass(frozen=True)

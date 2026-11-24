@@ -170,9 +170,10 @@ def _score_pairs(sites, labelled):
     }
 
 
-def _grpc_predictions(tool, roots):
+def _grpc_predictions(tool, roots, tests=False):
     """One item per linked stub call; ``to_service`` is the service of the
-    method's servers when they all lie in one service, else None."""
+    method's servers when they all lie in one service, else None. Calls
+    from test sources count only with ``tests``."""
     facts = tool.last_grpc
     calls = {c.id: c for c in facts.calls}
     servers = {}
@@ -183,6 +184,8 @@ def _grpc_predictions(tool, roots):
         if resolution.status != "linked":
             continue
         call = calls[resolution.call_id]
+        if call.test_source and not tests:
+            continue
         handlers = servers.get((resolution.service, resolution.method), [])
         targets = {_service_of(h.file, roots) for h in handlers}
         contract = f"{resolution.service}/{resolution.method}"
@@ -339,7 +342,10 @@ def _graphql_predictions(output, roots):
     return predicted
 
 
-def score(corpus, workspace, line_tolerance=3, kind="http"):
+def score(corpus, workspace, line_tolerance=3, kind="http", tests=False):
+    """Scores of one link kind. Requests and calls from test source files
+    (``test_source``) are left out unless ``tests``: the labels cover
+    application code."""
     from deepthought.analysis_tools import ServiceContractTool
 
     tool = ServiceContractTool(Path(workspace))
@@ -359,7 +365,7 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
     _, routes, requests, unread, resolutions = tool.last_facts
     roots = [(s["name"], s["root"]) for s in corpus["services"]]
     if kind == "grpc":
-        return _score_grpc(tool, output, corpus, roots, line_tolerance)
+        return _score_grpc(tool, output, corpus, roots, line_tolerance, tests)
     route_by_id = {r.id: r for r in routes}
     request_by_id = {r.id: r for r in requests}
     predicted = []
@@ -367,6 +373,8 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
         if resolution.status != "linked":
             continue
         request = request_by_id[resolution.request_id]
+        if request.test_source and not tests:
+            continue
         route = route_by_id[resolution.route_id]
         predicted.append(
             {
@@ -398,7 +406,7 @@ def score(corpus, workspace, line_tolerance=3, kind="http"):
     return report
 
 
-def _score_grpc(tool, output, corpus, roots, line_tolerance):
+def _score_grpc(tool, output, corpus, roots, line_tolerance, tests=False):
     metrics = output.metadata.custom_metrics
     labelled = [link for link in corpus["links"] if link["kind"] == "grpc"]
     report = {
@@ -411,7 +419,7 @@ def _score_grpc(tool, output, corpus, roots, line_tolerance):
         "servers": _grpc_servers(tool, labelled, line_tolerance),
         "streaming": _grpc_streaming(tool, labelled),
     }
-    predicted = _grpc_predictions(tool, roots)
+    predicted = _grpc_predictions(tool, roots, tests)
     _score_levels(report, predicted, labelled, corpus, line_tolerance)
     return report
 
