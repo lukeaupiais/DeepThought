@@ -57,6 +57,15 @@
     "confirmed": 927,
     "contradicted": 0,
     "expected": 3313,
+    "imports": {
+      "confirmed": 331,
+      "contradicted": 0,
+      "expected": 331,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 320,
+      "unresolved_unjudged": 34
+    },
     "inherits": {
       "confirmed": 43,
       "contradicted": 0,
@@ -98,6 +107,15 @@
     "confirmed": 1044,
     "contradicted": 0,
     "expected": 2197,
+    "imports": {
+      "confirmed": 12,
+      "contradicted": 0,
+      "expected": 12,
+      "not_indexed": 4,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 174
+    },
     "missed": 1153,
     "missed_by_engine_outcome": {
       "no_call_site": 32,
@@ -374,6 +392,15 @@
     "confirmed": 225,
     "contradicted": 0,
     "expected": 143,
+    "imports": {
+      "confirmed": 98,
+      "contradicted": 0,
+      "expected": 98,
+      "not_indexed": 208,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 1
+    },
     "inherits": {
       "confirmed": 5,
       "contradicted": 0,
