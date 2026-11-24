@@ -5,6 +5,7 @@
  "task": "Plan moving hipstershop.CurrencyService/Convert into a new pricing service. List (a) every client call site that must be repointed and the service it belongs to and (b) the handler that must move.",
  "languages": [
   "go",
+  "csharp",
   "javascript",
   "python",
   "java"

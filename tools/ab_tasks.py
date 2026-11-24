@@ -37,7 +37,7 @@ CORPORA = {
     "ky": ("ky", ["typescript"]),
     "contracts-online-boutique": (
         "contracts-online-boutique",
-        ["go", "javascript", "python", "java"],
+        ["go", "csharp", "javascript", "python", "java"],
     ),
     "contracts-robot-shop": (
         "contracts-robot-shop",

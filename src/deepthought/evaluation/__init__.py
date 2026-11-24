@@ -275,8 +275,10 @@ def prepare(scenario, workspace, *, registry=None, tool_access=None):
     tool = registry.get_tool(scenario["tool"], Path(before["workspace"]))
     if tool is None:
         raise ValueError("Unknown analysis tool: " + scenario["tool"])
-    if any(not tool.supports_language(x) for x in scenario["languages"]):
-        raise ValueError("Scenario requests an unsupported tool language")
+    # A multi-language scenario gives each tool the languages it reads.
+    languages = {x for x in scenario["languages"] if tool.supports_language(x)}
+    if not languages:
+        raise ValueError("Scenario requests no language the tool supports")
     started = time.monotonic()
 
     async def run_tool():
@@ -285,7 +287,7 @@ def prepare(scenario, workspace, *, registry=None, tool_access=None):
                 raise ValueError("Requested analysis tool is unavailable")
             return await tool.analyze(
                 scenario["source"].get("repository", "synthetic://" + scenario["id"]),
-                languages=set(scenario["languages"]),
+                languages=languages,
                 file_patterns=list(scenario["source"]["files"]),
             )
         finally:

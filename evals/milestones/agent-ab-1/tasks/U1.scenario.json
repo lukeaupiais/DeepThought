@@ -5,6 +5,7 @@
  "task": "The response message of hipstershop.CartService/GetCart will change shape. List every service and every source location (file and line of the call or handler) that must be reviewed, on both client and server side.",
  "languages": [
   "go",
+  "csharp",
   "javascript",
   "python",
   "java"
