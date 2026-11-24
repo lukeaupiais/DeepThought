@@ -751,6 +751,9 @@ class TreeSitterTool(AnalysisTool):
         )
         self.last_analysis = result
         self.last_scip_report = None
+        if scip_indexes is None and result.status == "failed":
+            # Nothing was parsed (no grammars installed): no call to bind.
+            scip_indexes = ()
         if scip_indexes is None:
             scip_indexes = self._index(
                 repo_url, languages, file_patterns, skip_patterns
