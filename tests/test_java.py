@@ -15,6 +15,7 @@ from deepthought.calls import (
     JAVA_ENCLOSING_METHOD,
     JAVA_INHERITED_METHOD,
     JAVA_STATIC_IMPORT,
+    JAVA_PLATFORM_ARGUMENT,
     JAVA_TYPE_MEMBER,
     JAVA_TYPED_RECEIVER,
     JAVA_TYPE_NAME,
@@ -1110,6 +1111,71 @@ class JavaTests(unittest.TestCase):
         self.assertIsNone(types[(26, "a.add")])
         receiver = next(s for s in sites.values() if s.line == 32)
         self.assertIsNone(receiver.receiver_type)
+
+    def test_jdk_types_are_no_repository_subtypes(self):
+        lines = [
+            "package p;",
+            "import java.util.Map;",
+            "import java.lang.reflect.Type;",
+            "import p.sub.Missing;",
+            "import q.Elsewhere;",
+            "import p.sub.Holder.Inner;",
+            "abstract class Elem {}",  # 7
+            "interface Shape {}",  # 8
+            "class Api {",
+            "  void j(Object x) {}",  # 10
+            "  void j(Elem x) {}",  # 11
+            "  void s(Object x) {}",  # 12
+            "  void s(Shape x) {}",  # 13
+            "  void t(Type x) {}",  # 14
+            "  void t(Map<?, ?> x) {}",  # 15
+            "}",
+            "class Main {",
+            "  void m(Api a, Map<String, String> map, Missing missing,",
+            "      Elsewhere other, Unknown unknown, Inner inner) {",
+            "    a.j(map);",  # 20: Map is no Elem
+            "    a.s(map);",  # 21: nor a Shape
+            "    a.j(missing);",  # 22: p.sub may be in the repository
+            "    a.j(other);",  # 23: q may be built with it
+            "    a.j(unknown);",  # 24: not imported
+            "    a.t(map);",  # 25: two types outside: not known
+            "    a.j(inner);",  # 26: a member type in p.sub
+            "  }",
+            "}",
+        ]
+        result = analyze(
+            {
+                "src/p/Api.java": "\n".join(lines) + "\n",
+                "src/p/sub/Other.java": "package p.sub;\nclass Other {}\n",
+            }
+        )
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].line
+                if r.target_id
+                else sorted(definitions[c].line for c in r.candidates)
+            )
+            for r in resolve_calls(result)
+        }
+        for line, callee, target in (
+            (20, "a.j", 10),
+            (21, "a.s", 12),
+            (22, "a.j", [10, 11]),
+            (23, "a.j", [10, 11]),
+            (24, "a.j", [10, 11]),
+            (25, "a.t", [14, 15]),
+            (26, "a.j", [10, 11]),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], target)
+        rules = {
+            sites[r.call_id].line: r.rule_id
+            for r in resolve_calls(result)
+            if r.status == "linked" and sites[r.call_id].line in {20, 21}
+        }
+        self.assertEqual(rules, dict.fromkeys((20, 21), JAVA_PLATFORM_ARGUMENT))
 
     def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
         lines = [

@@ -366,6 +366,11 @@ _CALL_RULE_TEXT = {
     "its declared bases, followed through the repository; a nearer method "
     "with the same parameter count overrides it, and argument types are not "
     "checked.",
+    call_rules.JAVA_PLATFORM_ARGUMENT: "Java overloads that the argument types "
+    "written leave open are told apart because an argument's type is a "
+    "single-type import from a 'java.' package, which only the JDK defines, "
+    "and so is no subtype of a repository type; the method is found by the "
+    "lookup the call would otherwise use.",
 }
 CALL_RULES = {
     rule_id: register_rule(EvidenceRule(rule_id, "name_matched", text))

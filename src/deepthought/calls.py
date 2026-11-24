@@ -36,6 +36,7 @@ JAVA_TYPE_MEMBER = "tree-sitter.java-type-member"
 JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
 JAVA_TYPED_RECEIVER = "tree-sitter.java-call-typed-receiver"
+JAVA_PLATFORM_ARGUMENT = "tree-sitter.java-overload-platform-argument"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
 RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
@@ -330,6 +331,9 @@ class _JavaScope:
             if item.file in self.roots and owner is not None:
                 self.bases[(owner.file, owner.symbol)].append(item.name)
         self._members = {}  # (file, type symbol, name) -> [_Member]
+        # Whether subtype checks may use that JDK types are no repository
+        # subtypes (see ``methods``).
+        self._platform = False
         self._supertypes = {}
         self.single = defaultdict(list)  # (file, simple name) -> type FQNs
         self.on_demand = defaultdict(list)  # file -> package or type names
@@ -453,12 +457,23 @@ class _JavaScope:
         if not candidates:
             return CallResolution(site.id, "unresolved", reason=none_reason)
         declared = {m.id for m in candidates if not m.inherited}
+        fitting = self.arity(site, candidates)
+        chosen = self.overloads(site, scope, fitting)
+        if len(chosen) > 1:
+            # Only the rule that JDK types are no repository subtypes may
+            # tell the overloads apart; a link it decides carries its rule.
+            self._platform = True
+            try:
+                narrowed = self.overloads(site, scope, fitting)
+            finally:
+                self._platform = False
+            if len(narrowed) == 1:
+                return CallResolution(
+                    site.id, "linked", narrowed[0].definition.id, JAVA_PLATFORM_ARGUMENT
+                )
         resolution = _pick(
             site.id,
-            [
-                m.definition
-                for m in self.overloads(site, scope, self.arity(site, candidates))
-            ],
+            [m.definition for m in chosen],
             rule_id,
             "no_matching_arity",
         )
@@ -561,7 +576,23 @@ class _JavaScope:
         names, complete = known
         if far_base.split(".")[-1] in names:
             return True
+        if (
+            self._platform
+            and not complete
+            and self.external(*near_at, near_base)
+            and self.type(*far_at, far_base)
+        ):
+            # A JDK type cannot extend or implement a repository type.
+            return False
         return False if complete else None
+
+    def external(self, file, scope, written):
+        """Whether a type name that no repository declaration in scope
+        denotes is a Java platform type: a single-type import from a
+        ``java.`` package, which only the JDK may define (the JVM refuses a
+        class in a ``java.`` package from any other class loader)."""
+        specs = self.single.get((file, written.split(".")[0]))
+        return bool(specs) and all(spec.startswith("java.") for spec in specs)
 
     def overloads(self, site, scope, methods):
         """The methods among ``methods`` that the call's written argument
