@@ -150,6 +150,8 @@ class _Folder:
 
     def __init__(self, content):
         self.content = content
+        # (function start byte, "$parameter") -> the value a call passes.
+        self.bindings = {}
 
     def evaluate(self, node, depth=0):
         if node is None or depth > 8:
@@ -163,15 +165,9 @@ class _Folder:
             raw = _text(node, self.content)
             if raw.startswith("'"):
                 return raw[1:-1].replace("\\'", "'").replace("\\\\", "\\")
-            return "".join(
-                _text(c, self.content) if c.type == "string_content" else PLACEHOLDER
-                for c in node.named_children
-            )
+            return self._interpolated(node, depth)
         if kind == "encapsed_string":
-            return "".join(
-                _text(c, self.content) if c.type == "string_content" else PLACEHOLDER
-                for c in node.named_children
-            )
+            return self._interpolated(node, depth)
         if kind == "binary_expression":
             operator = node.child_by_field_name("operator")
             if operator is not None and _text(operator, self.content) == ".":
@@ -195,6 +191,18 @@ class _Folder:
             return self._variable(node, depth)
         return PLACEHOLDER
 
+    def _interpolated(self, node, depth):
+        """A double-quoted string: its text, with each ``$x`` or ``{$x}``
+        folded as a variable; any other interpolation is unknown."""
+        return "".join(
+            _text(c, self.content)
+            if c.type == "string_content"
+            else self._variable(c, depth + 1)
+            if c.type == "variable_name"
+            else PLACEHOLDER
+            for c in node.named_children
+        )
+
     def _variable(self, node, depth):
         """A local variable assigned exactly once in its function."""
         name = _text(node, self.content)
@@ -210,6 +218,7 @@ class _Folder:
         if scope is None or scope.type == "program":
             return PLACEHOLDER
         assignments = []
+        parameter = False
         for candidate in _walk(scope):
             if candidate.type in (
                 "assignment_expression",
@@ -218,10 +227,14 @@ class _Folder:
                 left = candidate.child_by_field_name("left")
                 if left is not None and _text(left, self.content) == name:
                     assignments.append(candidate)
-            elif candidate.type == "simple_parameter":
+            elif candidate.type in ("simple_parameter", "variadic_parameter"):
                 written = candidate.child_by_field_name("name")
                 if written is not None and _text(written, self.content) == name:
-                    return PLACEHOLDER
+                    parameter = True
+        if parameter:
+            if assignments:
+                return PLACEHOLDER
+            return self.bindings.get((scope.start_byte, name), PLACEHOLDER)
         if len(assignments) != 1 or assignments[0].type != "assignment_expression":
             return PLACEHOLDER
         if assignments[0].start_byte > node.start_byte:
@@ -325,10 +338,11 @@ def _enclosing(node, kinds):
     return node
 
 
-def _client_requests(root, content, folder, laravel, scoped):
+def _client_requests(root, content, folder, laravel, scoped, within=None):
     """(call node, client, method or None, URL) of each Guzzle, Symfony or
-    Laravel HTTP client request in the file. ``scoped`` maps the argument
-    name of each Symfony scoped client to its base URL."""
+    Laravel HTTP client request in the file (in ``within`` when given).
+    ``scoped`` maps the argument name of each Symfony scoped client to its
+    base URL."""
     uses, _ = _uses(root, content)
 
     def qualified(written):
@@ -493,13 +507,21 @@ def _client_requests(root, content, folder, laravel, scoped):
     if laravel and "Http" not in uses:
         facades.add("Http")
     found = []
-    for node in _walk(root):
+    for node in _walk(within if within is not None else root):
         if node.type not in ("member_call_expression", "scoped_call_expression"):
             continue
         name_node = node.child_by_field_name("name")
-        if name_node is None or name_node.type != "name":
+        if name_node is None:
             continue
-        verb = _text(name_node, content)
+        if name_node.type == "variable_name":
+            # ->$method(...): read when the name folds to a verb.
+            verb = folder.evaluate(name_node).lower()
+            if verb not in _CLIENT_VERBS:
+                continue
+        elif name_node.type == "name":
+            verb = _text(name_node, content)
+        else:
+            continue
         stem = verb[: -len("Async")] if verb.endswith("Async") else verb
         if stem not in _CLIENT_VERBS and stem not in ("request", "send"):
             continue
@@ -546,12 +568,213 @@ def _client_requests(root, content, folder, laravel, scoped):
     return found
 
 
+def _parameters(function):
+    """The (``$name``, default value node or None) of a function's
+    parameters, up to a variadic one."""
+    holder = function.child_by_field_name("parameters")
+    found = []
+    for parameter in holder.named_children if holder is not None else ():
+        if parameter.type not in ("simple_parameter", "property_promotion_parameter"):
+            break
+        name = parameter.child_by_field_name("name")
+        if name is None:
+            break
+        found.append((name, parameter.child_by_field_name("default_value")))
+    return found
+
+
+def _through_wrappers(sites, root, content, folder, laravel, scoped, calls):
+    """``sites`` as (node, client, method, URL, calls passing it): a site
+    inside a function that ``calls`` lists, whose method or URL changes with
+    the values the calls pass to its parameters, becomes one site per
+    distinct value instead."""
+    plain = {
+        (node.start_byte, node.end_byte): (node, client, method, url)
+        for node, client, method, url in sites
+    }
+    derived = {}
+    for function in _walk(root):
+        if function.type not in ("method_declaration", "function_definition"):
+            continue
+        passed = calls.get(function.start_byte)
+        if not passed:
+            continue
+        parameters = _parameters(function)
+        for reference, positional, named in passed:
+            bindings = {}
+            for index, (name, default) in enumerate(parameters):
+                written = _text(name, content)
+                if index < len(positional):
+                    value = positional[index]
+                elif written[1:] in named:
+                    value = named[written[1:]]
+                elif default is not None:
+                    value = folder.evaluate(default)
+                else:
+                    value = PLACEHOLDER
+                bindings[(function.start_byte, written)] = value
+            folder.bindings = bindings
+            for node, client, method, url in _client_requests(
+                root, content, folder, laravel, scoped, within=function
+            ):
+                derived.setdefault((node.start_byte, node.end_byte), {}).setdefault(
+                    (node, client, method, url), []
+                ).append(reference)
+            folder.bindings = {}
+    found = []
+    for key in sorted(set(plain) | set(derived)):
+        values = derived.get(key)
+        site = plain.get(key)
+        if not values or (site is not None and set(values) == {site}):
+            found.append((*site, ()))
+            continue
+        for value, references in sorted(
+            values.items(), key=lambda item: (str(item[0][2]), item[0][3])
+        ):
+            found.append((*value, tuple(sorted(set(references)))))
+    return found
+
+
+def php_wrapper_facts(tree, content, file):
+    """What following values into PHP wrapper methods needs from one file:
+    (classes, calls). Each class (or trait) is (qualified name, traits it
+    uses, {method: start byte}, {property: qualified type}); each call of
+    ``$this->m(...)`` or ``$this->property->m(...)`` is (calling class,
+    property or None, method, "file:line", positional values, named
+    values), the values folded in this file."""
+    root = tree.root_node
+    uses, namespace = _uses(root, content)
+    folder = _Folder(content)
+
+    def qualified(written):
+        written = written.lstrip("\\")
+        head, _, rest = written.partition("\\")
+        if head in uses:
+            return uses[head] + ("\\" + rest if rest else "")
+        return f"{namespace}\\{written}" if namespace else written
+
+    classes, calls = [], []
+    for declaration in _walk(root):
+        if declaration.type not in ("class_declaration", "trait_declaration"):
+            continue
+        name = declaration.child_by_field_name("name")
+        body = declaration.child_by_field_name("body")
+        if name is None or body is None:
+            continue
+        cls = qualified(_text(name, content))
+        traits, methods, properties = [], {}, {}
+        assigned = {}
+        for member in body.named_children:
+            if member.type == "use_declaration":
+                traits.extend(
+                    qualified(_text(c, content))
+                    for c in member.named_children
+                    if c.type in ("name", "qualified_name")
+                )
+            elif member.type == "method_declaration":
+                method = member.child_by_field_name("name")
+                if method is not None:
+                    methods[_text(method, content)] = member.start_byte
+            elif member.type == "property_declaration":
+                kind = member.child_by_field_name("type")
+                for element in member.named_children:
+                    if element.type == "property_element" and kind is not None:
+                        properties[_text(element.named_children[0], content)[1:]] = (
+                            qualified(_text(kind, content).lstrip("?"))
+                        )
+        for node in _walk(body):
+            if node.type == "property_promotion_parameter":
+                kind = node.child_by_field_name("type")
+                variable = node.child_by_field_name("name")
+                if kind is not None and variable is not None:
+                    properties[_text(variable, content)[1:]] = qualified(
+                        _text(kind, content).lstrip("?")
+                    )
+            elif node.type == "assignment_expression":
+                left = _text(node.child_by_field_name("left"), content)
+                if left.startswith("$this->"):
+                    assigned.setdefault(left[7:], []).append(
+                        node.child_by_field_name("right")
+                    )
+        # An untyped property assigned once from a typed parameter.
+        for prop, rights in assigned.items():
+            if prop in properties or len(rights) != 1:
+                continue
+            right = rights[0]
+            if right is None or right.type != "variable_name":
+                continue
+            scope = _enclosing(right, ("method_declaration",))
+            holder = scope.child_by_field_name("parameters") if scope else None
+            for parameter in holder.named_children if holder is not None else ():
+                kind = parameter.child_by_field_name("type")
+                variable = parameter.child_by_field_name("name")
+                if (
+                    kind is not None
+                    and variable is not None
+                    and _text(variable, content) == _text(right, content)
+                ):
+                    properties[prop] = qualified(_text(kind, content).lstrip("?"))
+        classes.append((cls, tuple(traits), methods, properties))
+        for node in _walk(body):
+            if node.type != "member_call_expression":
+                continue
+            method = node.child_by_field_name("name")
+            target = node.child_by_field_name("object")
+            if method is None or method.type != "name" or target is None:
+                continue
+            written = _text(target, content)
+            if written == "$this":
+                prop = None
+            elif (
+                target.type == "member_access_expression"
+                and written.startswith("$this->")
+                and written[7:].isidentifier()
+            ):
+                prop = written[7:]
+            else:
+                continue
+            arguments = node.child_by_field_name("arguments")
+            positional, named = [], {}
+            for argument in arguments.named_children if arguments else ():
+                if argument.type != "argument" or not argument.named_children:
+                    continue
+                label = argument.child_by_field_name("name")
+                if any(c.type == "..." for c in argument.children):
+                    break  # a spread: the rest is unknown
+                value = folder.evaluate(argument.named_children[-1])
+                if label is not None:
+                    named[_text(label, content)] = value
+                elif not named:
+                    positional.append(value)
+            calls.append(
+                (
+                    cls,
+                    prop,
+                    _text(method, content),
+                    f"{file}:{node.start_point.row + 1}",
+                    tuple(positional),
+                    named,
+                )
+            )
+    return classes, calls
+
+
 def extract_php(
-    tree, content, repository_id, file, definitions, *, laravel=False, scoped=None
+    tree,
+    content,
+    repository_id,
+    file,
+    definitions,
+    *,
+    laravel=False,
+    scoped=None,
+    wrapper_calls=None,
 ):
     """Routes, requests and unread sites of one PHP file; ``laravel`` when
     the file belongs to a Laravel project (``Http`` may be unqualified);
-    ``scoped`` maps Symfony scoped client argument names to base URLs."""
+    ``scoped`` maps Symfony scoped client argument names to base URLs;
+    ``wrapper_calls`` maps the start byte of a function in this file to the
+    calls of it, as ("file:line", positional values, named values)."""
     root = tree.root_node
     folder = _Folder(content)
     file_definitions = [d for d in definitions if d.file == file]
@@ -684,9 +907,14 @@ def extract_php(
             )
         )
     if b"Client" in content or b"Http" in content:
-        for node, client, method, url in _client_requests(
-            root, content, folder, laravel, scoped or {}
-        ):
+        sites = _client_requests(root, content, folder, laravel, scoped or {})
+        if wrapper_calls:
+            sites = _through_wrappers(
+                sites, root, content, folder, laravel, scoped or {}, wrapper_calls
+            )
+        else:
+            sites = [(*site, ()) for site in sites]
+        for node, client, method, url, argument_from in sites:
             line = node.start_point.row + 1
             requests.append(
                 HttpRequest(
@@ -698,6 +926,7 @@ def extract_php(
                     method=method,
                     url=url,
                     client=client,
+                    argument_from=argument_from,
                 )
             )
     return routes, requests, unread

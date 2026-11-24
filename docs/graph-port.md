@@ -2209,9 +2209,10 @@ PHP files are read for routes and requests (`service_contracts.php`):
   views and redirects hang off the route file. `{id?}` is `{id}`. A path
   that is not literal is unread.
 - **Requests.** `curl_init($url)` is a request placed on that call. The URL
-  is folded in its function: literals, `"...$x..."` (variables are unknown
-  text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once
-  before the use; properties are unknown. The method is GET, or what
+  is folded in its function: literals, `"...$x..."` and `"...{$x}..."`
+  (each variable folded as below; other interpolations are unknown text),
+  `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once before
+  the use; properties are unknown. The method is GET, or what
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
@@ -2230,8 +2231,8 @@ PHP files are read for routes and requests (`service_contracts.php`):
   a chain (`Http::withToken(...)->get(...)`), on the facade imported from
   `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
   a literal `baseUrl(...)` in the chain is prepended. A method that is not
-  a literal is unknown; a dynamic method name (`->$method(...)`) is not
-  read.
+  a literal is unknown; a dynamic method name (`->$method(...)`) is read
+  when it folds to one of the verbs, else the call is not read.
 - **Symfony HttpClient requests** (client `symfony-http`).
   `request($method, $url)`, its only request method, on a client that is a
   parameter, property or promoted constructor parameter typed
@@ -2250,6 +2251,24 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `services.yaml` bindings are not read. For Guzzle and Symfony clients
   alike, a `$this->x` property assigned once from a typed parameter is that
   parameter's client.
+- **Values passed to a wrapper method.** Gateways often send every request
+  through one method that takes the method and URL as parameters
+  (`performRequest($method, $requestUrl)`, often in a trait), so they are
+  fixed only where it is called. When a Guzzle, Symfony or Laravel client
+  site's method or URL changes with the parameters of the method or
+  function around it, which nothing there assigns again, the site takes,
+  instead, each value a call of it passes, folded in the calling file. Calls
+  are `$this->m(...)` in a class that declares `m` or uses a trait that
+  does, and `$this->p->m(...)` where `p` is a property typed with a class
+  (a typed property, a promoted constructor parameter, or a property
+  assigned once from a typed parameter) that declares `m` or uses a trait
+  that does. A class or trait name declared more than once in the
+  repository is not followed. Arguments bind by position, named arguments
+  by name, a left-out argument takes the parameter's default, and
+  arguments from a spread on are unknown. One request is added per
+  distinct method and URL, with `argument_from` listing the calls
+  (`file:line`) that pass it. Parent classes, static calls and a value
+  passed through two wrappers are not followed.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
