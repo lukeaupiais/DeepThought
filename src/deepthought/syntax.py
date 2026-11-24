@@ -2871,19 +2871,30 @@ def _js_properties(node, content):
 
 
 def _js_written_class(written, content, types):
-    """The class name a type annotation (``T``, ``T<U>``) or a ``new``
-    expression's constructor writes, or None. A name the file declares as
-    an interface or type alias may not be the class."""
+    """The class or interface name a type annotation (``T``, ``T<U>``,
+    ``T | undefined``, ``T | null``) or a ``new`` expression's constructor
+    writes, or None. A name the file declares as a type alias or type
+    parameter may not be the class."""
     if written is not None and written.type == "type_annotation":
         written = written.named_children[0] if written.named_children else None
+    if written is not None and written.type == "union_type":
+        # `T | undefined` holds a `T` wherever it is called on.
+        members = [
+            m
+            for m in written.named_children
+            if not (
+                m.named_children and m.named_children[0].type in {"undefined", "null"}
+            )
+        ]
+        written = members[0] if len(members) == 1 else None
     if written is not None and written.type == "generic_type":
         written = written.child_by_field_name("name")
     if written is None or written.type not in {"identifier", "type_identifier"}:
         return None
     name = _text(written, content)
     if written.type == "type_identifier" and name in types:
-        # Interfaces and type aliases share the type namespace with classes
-        # but are not scopes' bindings.
+        # Type aliases and type parameters share the type namespace with
+        # classes but are not scopes' bindings.
         return None
     return written, name
 
@@ -3088,16 +3099,23 @@ def _js_fields(node, content, types):
 
 
 def _js_type_names(root, content):
-    """The names of the interfaces, type aliases and type parameters a
-    TypeScript file declares."""
+    """The names of the type aliases and type parameters a TypeScript file
+    declares, and of the interfaces it declares anywhere but at the top
+    level (a namespace's or a function's, which may shadow another type of
+    that name)."""
     found, stack = set(), [root]
     while stack:
         node = stack.pop()
-        if node.type in {
-            "interface_declaration",
-            "type_alias_declaration",
-            "type_parameter",
-        }:
+        if node.type in {"type_alias_declaration", "type_parameter"} or (
+            node.type == "interface_declaration"
+            and not (
+                node.parent.type == "program"
+                or (
+                    node.parent.type == "export_statement"
+                    and node.parent.parent.type == "program"
+                )
+            )
+        ):
             declared = node.child_by_field_name("name")
             if declared is not None:
                 found.add(_text(declared, content))
