@@ -6,8 +6,8 @@ webflux.routes``) with ``Path=`` predicates ending in ``/**``, ``uri`` of
 ``lb://service`` or ``http(s)://host``, and ``StripPrefix``/``PrefixPath``
 filters or a ``RewritePath`` that replaces a literal path prefix; and nginx
 ``location /prefix/ { proxy_pass ...; }`` blocks in ``*.conf`` and
-``*.conf.template`` files; and YARP ``ReverseProxy`` routes in .NET JSON
-configuration (``yarp_routes``). A route with any other filter that changes
+``*.conf.template`` files; YARP ``ReverseProxy`` routes in .NET JSON
+configuration (``yarp_routes``); and Ocelot routes (``ocelot_routes``). A route with any other filter that changes
 the path (another ``RewritePath``, ``SetPath``, a regex location) is
 recorded as unread rather than guessed.
 """
@@ -20,14 +20,19 @@ import re
 class GatewayRoute:
     """``prefix`` (literal segments) is replaced by ``replacement`` segments
     when a request is forwarded to ``target`` (a service name or host, None
-    when not literal)."""
+    when not literal). The route takes a path with between ``min_rest`` and
+    ``max_rest`` (None: any number of) segments after the prefix, sent with
+    one of ``methods`` (empty: any method)."""
 
     file: str
     line: int
-    kind: str  # spring-cloud-gateway | nginx | yarp
+    kind: str  # spring-cloud-gateway | nginx | yarp | ocelot
     prefix: tuple[str, ...]
     replacement: tuple[str, ...]
     target: str | None
+    methods: tuple[str, ...] = ()
+    min_rest: int = 0
+    max_rest: int | None = None
 
 
 @dataclass(frozen=True)
@@ -236,12 +241,20 @@ def nginx_routes(text, file):
     return routes, unread
 
 
-def forward(gateways, segments):
-    """The gateway routes with the longest prefix of ``segments``."""
+def forward(gateways, segments, method=None):
+    """The gateway routes with the longest prefix of ``segments`` that take
+    the rest of the path and ``method`` (None: unknown, taken by any)."""
     best, length = [], -1
     for route in gateways:
         size = len(route.prefix)
         if size == 0 or segments[:size] != route.prefix:
+            continue
+        rest = len(segments) - size
+        if rest < route.min_rest or (
+            route.max_rest is not None and rest > route.max_rest
+        ):
+            continue
+        if method and route.methods and method not in route.methods:
             continue
         if size > length:
             best, length = [route], size
@@ -365,4 +378,85 @@ def yarp_routes(text, file):
             unread.append(GatewayUnread(file, line, "destination_not_literal"))
             continue
         routes.append(GatewayRoute(file, line, "yarp", prefix, base + path, target))
+    return routes, unread
+
+
+_OCELOT_PART = re.compile(r"\{([^{}/]+)\}")
+
+
+def _ocelot_template(template):
+    """(literal prefix segments, trailing placeholder names) of an Ocelot
+    path template, or None when a placeholder is followed by literal text
+    or shares a segment with it."""
+    path = str(template).split("?")[0]
+    literal, names = [], []
+    for segment in _segments(path):
+        match = _OCELOT_PART.fullmatch(segment)
+        if match:
+            names.append(match.group(1))
+        elif names or "{" in segment or "}" in segment:
+            return None
+        else:
+            literal.append(segment)
+    return tuple(literal), tuple(names)
+
+
+def ocelot_routes(text, file):
+    """Routes and unread routes of an Ocelot configuration file (``Routes``,
+    or ``ReRoutes`` before Ocelot 16).
+
+    The upstream and downstream templates must be literal segments followed
+    by the same placeholders in the same order (``/merchant/api/{everything}``
+    to ``/api/{everything}``): the upstream prefix is replaced by the
+    downstream one. A template without placeholders takes only its own path;
+    with placeholders, the last one takes the rest of the path (Ocelot
+    matches it with ``.+``) and each other one a segment. The target is the
+    ``ServiceName`` (service discovery), else the host every
+    ``DownstreamHostAndPorts`` entry shares. ``UpstreamHttpMethod`` limits
+    the methods. Other templates, and routes that aggregate or rewrite
+    further, are unread."""
+    data = _json_with_comments(text)
+    if not isinstance(data, dict):
+        return [], [GatewayUnread(file, 1, "json_not_parsed")]
+    found = data.get("Routes", data.get("ReRoutes"))
+    routes, unread = [], []
+    for route in found if isinstance(found, list) else []:
+        if not isinstance(route, dict) or "UpstreamPathTemplate" not in route:
+            continue
+        upstream = str(route["UpstreamPathTemplate"])
+        line = _line_of(text, f'"{upstream}"')
+        up = _ocelot_template(upstream)
+        down = _ocelot_template(route.get("DownstreamPathTemplate", ""))
+        if up is None or down is None or up[1] != down[1] or not up[0]:
+            unread.append(GatewayUnread(file, line, "path_pattern"))
+            continue
+        hosts = {
+            str(h.get("Host", "")).lower()
+            for h in route.get("DownstreamHostAndPorts") or []
+            if isinstance(h, dict)
+        }
+        target = route.get("ServiceName")
+        if target:
+            target = str(target).lower()
+        elif len(hosts) == 1 and re.fullmatch(r"[\w.-]+", next(iter(hosts))):
+            target = next(iter(hosts))
+        else:
+            target = None
+        methods = tuple(
+            sorted({str(m).upper() for m in route.get("UpstreamHttpMethod") or []})
+        )
+        variables = len(up[1])
+        routes.append(
+            GatewayRoute(
+                file,
+                line,
+                "ocelot",
+                up[0],
+                down[0],
+                target,
+                methods,
+                variables,
+                variables if variables == 0 else None,
+            )
+        )
     return routes, unread
