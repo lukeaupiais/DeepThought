@@ -1820,14 +1820,76 @@ Python, JavaScript/TypeScript and Go sources are read too
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
   `request(method, url)`) and Locust `self.client` calls in files importing
   `locust`; JavaScript `fetch` (with `options.method`), `axios`, `request` and
-  `superagent` (`.get(url)`, or `request({uri, method})`); Go `http.Get`,
+  `superagent` (`.get(url)`, or `request({uri, method})`); Angular
+  `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
 - **URL values.** String literals, `+`, template strings and f-strings,
   `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names
   bound once in their function, else at module level, before the use (Python
   assignments, `const`/`let`/`var`, Go `var`/`const`/`:=`). A name bound more
   than once, assigned in another function, or declared `global` and assigned
-  there is unknown text.
+  there is unknown text. JavaScript and TypeScript also read `this.NAME` and
+  constants shared between modules (below).
+
+#### Angular HttpClient
+
+Angular services call `HttpClient` through a field, and keep the API root in
+a constant another module exports (`deepthought.service_contracts.web`,
+`script_constants`, `folding`):
+
+- **Clients.** `get`, `post`, `put`, `delete`, `patch`, `head`, `options`
+  and `request(method, url)` on an `HttpClient`: `this.NAME` where NAME is a
+  field set to `inject(HttpClient)` or typed `HttpClient` without a value, or
+  a constructor parameter property typed `HttpClient`, or a name bound once
+  to `inject(HttpClient)`. `HttpClient` and `httpResource` must be imported
+  from `@angular/common/http` and `inject` from `@angular/core`.
+  `httpResource(fn)` (and `.text`, `.blob`, `.arrayBuffer`) is a request for
+  each value `fn` returns: a URL, or a request object's `url` and `method`
+  (GET by default); `undefined` is skipped. Relative URLs are read against
+  the site root, as for AngularJS. `request(HttpRequest)` is not read.
+- **`this.NAME`.** The initializer of the instance field NAME of the
+  enclosing class, or of a base class declared in the same file. It is
+  unknown text when any code of the file assigns `this.NAME`, when a
+  constructor parameter property is named NAME, when a class of the file
+  that extends the enclosing class declares NAME again, or inside a
+  `function` or a static member (where `this` is something else). A
+  subclass in another file is not seen.
+- **Constants across modules.** A module exports `export const NAME = value`
+  (folded in its own module), `export { a as b }` of a name bound once there,
+  and what it re-exports with `export { a } from` and `export * from` (a name
+  two `export *` give differently is not exported, as in ECMAScript). An
+  import by name takes the exported value when the module specifier resolves
+  to an analysed file: a relative path, or a `compilerOptions.paths` alias of
+  the nearest `tsconfig.json` (as for data contracts). `let`/`var` exports,
+  default exports and namespace imports are not read.
+- **Build-time globals.** A name no scope binds or imports
+  (`SERVER_API_URL`) takes the value the Angular CLI `define` option gives it
+  in `angular.json` (the project's `build` target, options and every
+  configuration), for files under the project's `sourceRoot` (else `root`).
+  Only a string literal is read; a name defined differently in two
+  configurations is unknown text. `declare const` gives no value.
+
+On jhipster/jhipster-sample-app (commit `6b000b5`) and
+jhipster-sample-app-websocket (`410a632`), whose URLs are
+`` `${serverApiUrl}api/...` `` with `serverApiUrl = SERVER_API_URL` exported
+through a barrel and `SERVER_API_URL` defined as `''`, all 52 and 35
+HttpClient and httpResource call sites are read. 42 and 23 link, every one
+to the controller method with the same method and path. The rest stay
+unresolved, correctly: Spring Boot Actuator `/management/*` endpoints and
+Spring Security's login and logout filters have no controller, and two
+clients have no server route (`PATCH /api/admin/users/{login}`, where the
+server has only PUT, and `GET /api/users/{id}`, where it has only
+`GET /api/users`). On darbyluv2code/fullstack-angular-and-springboot
+(`e8832ee`, the auth0 order-history step), which injects `HttpClient` in the
+constructor and keeps absolute URLs in fields, all 9 call sites are read;
+the one `@RestController` route links, 7 Spring Data REST requests stay
+unresolved because repository endpoints are not read, and one URL is a
+method parameter. An `httpResource` request is placed on the
+`httpResource` call. On the labelled contracts-jhipster-sample-app-websocket
+corpus this scores http call sites 23 of 24 with no false positives (0
+before); the miss is the SockJS handshake, whose URL goes through
+`Location.prepareExternalUrl`. No edges changed
+on the gated corpora.
 
 These services have no `spring.application.name`, so their requests resolve
 by path alone (`service-contracts.http-path`). A request path with no literal
@@ -1910,10 +1972,17 @@ linked by the usual HTTP resolution:
   `service-contracts.jakarta-websocket-endpoint`). Only a Spring module's
   context path is joined.
 - **Clients.** In JavaScript and TypeScript, `new WebSocket(url)` and
-  `new SockJS(url)` are GET requests (client `websocket` or `sockjs`). The
+  `new SockJS(url)` (or `SockJS(url)`, which SockJS accepts) are GET
+  requests (client `websocket` or `sockjs`). The
   constructor is the browser's global when the file does not import it.
   Under any local name, it may also come from `ws`, `isomorphic-ws` or
   `sockjs-client`; a constructor imported from another module is not read.
+  STOMP clients name their handshake in their options: `brokerURL` given
+  to a `@stomp/stompjs` `Client` or `@stomp/rx-stomp` `RxStomp`
+  constructor or `configure` call is a `websocket` request, and `host`
+  given to an ng2-stomp-service `configure` call is a `sockjs` request (the
+  library opens `new SockJS(host)`). The client is recognised as for STOMP
+  destinations below.
   `ws://` and `wss://` URLs are read like `http://` ones. A relative URL is
   read against the site root.
 
@@ -2493,12 +2562,28 @@ meet at the `MessageDestination` of the same name:
   `@SendToUser` and `convertAndSendToUser` are `publish:user_destination`. A
   `@MessageMapping` method's default reply destination, used without
   `@SendTo`, is not read.
-- **Clients (JavaScript/TypeScript).** These calls name a destination: `send`
-  and `subscribe` with a destination first, and `publish({destination})`.
-  The call must be on a name that every assignment in the file binds to
-  `Stomp.over`, `Stomp.client`, `webstomp.over`/`webstomp.client` or a
-  `@stomp/stompjs` `Client`, or on AngularJS ngStomp's `$stomp` (rules
-  `service-contracts.stompjs-send` and `stompjs-subscribe`).
+- **Clients (JavaScript/TypeScript)** (`deepthought.service_contracts.stomp_clients`).
+  The call must be on a name (`x`, or `this.x` for a class member) that
+  every declaration and assignment in the file gives the same client kind.
+  A value gives a kind when it is a factory call or `new` of the client
+  class. In TypeScript a declaration typed with the class also gives the
+  kind: a variable or field without a value, a parameter (and `this.x` for
+  a constructor parameter property), or a getter's return type.
+  - `stompjs`: `Stomp.over`, `Stomp.client`, `webstomp.over`/
+    `webstomp.client`, a `@stomp/stompjs` `Client`, the browser bundle's
+    global `StompJs.Client` (when the file does not bind `StompJs`), or
+    AngularJS ngStomp's `$stomp`. `send` and `subscribe` with a destination
+    first, and `publish({destination})` (rules
+    `service-contracts.stompjs-send` and `stompjs-subscribe`).
+  - `rx-stomp`: a `@stomp/rx-stomp` `RxStomp` (or the global
+    `RxStomp.RxStomp`). `publish({destination})` and `watch(destination)`
+    or `watch({destination})` (rules `service-contracts.rx-stomp-publish`
+    and `rx-stomp-watch`).
+  - `ng2-stomp-service`: an ng2-stomp-service `StompService`, usually an
+    injected constructor parameter. `send(destination, body)` and
+    `subscribe(destination, callback)` (rules
+    `service-contracts.ng2-stomp-service-send` and
+    `ng2-stomp-service-subscribe`).
 
 Destination patterns with `{variables}` are kept as written. A client
 destination with unknown text is not read, so it never meets them.
@@ -2507,6 +2592,9 @@ destination with unknown text is not read, so it never meets them.
 |---|---|---|
 | mark-dev/chessfactory `b54acdb` | 14 server mappings (2 prefixes), 10 client sends and subscribes | 9 of the 10 client sites meet their handler or publisher. The 10th subscribes to `/user/queue/chesslobby`, whose publisher is a `convertAndSendToUser` (unread). The 7 client sites built from variables are unread |
 | ben-rampel/Poker `025a147` | 1 mapping, 1 ngStomp send | Linked. The topic is built from a variable on both sides, so it is unread |
+| spring-guides/gs-messaging-stomp-websocket `45228a1` (labelled corpus) | 1 mapping, 1 `@SendTo`, `StompJs.Client` bundle global | Handshake, send and subscribe all link: 3 of 3 labelled links, none wrong (none before) |
+| chriswhite199/spring-boot-angular2-stomp `78ade07` (labelled corpus) | 1 mapping, 1 `@SendTo`, injected ng2-stomp-service | 3 of 3 labelled links, none wrong (none before) |
+| jhipster/jhipster-sample-app-websocket `410a632` | 1 mapping, 2 publishers, RxStomp behind a typed getter | `watch('/topic/tracker')` meets both server publishers and `publish('/topic/activity')` meets the mapping. The SockJS handshake URL goes through `Location.prepareExternalUrl`, so it is unknown |
 | leansd/cotrip, ygunayer/realtime-messaging | 1 mapping + 1 `@SendTo` each | Found; the clients are in HTML |
 | ocinpp/springboot-sockjs-stomp-vue-sample | 2 `convertAndSend` | Found; the client is in HTML |
 | apssouza22/java-microservice (corpus) | 1 mapping, 1 `@SendTo`, 1 `convertAndSend` | Found; its messaging ground-truth score is unchanged |
@@ -2841,7 +2929,9 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-child-entity` | pattern_matched | a class decorated with `@ChildEntity` (single-table inheritance): the table of the entity it extends by name, through any number of child levels |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name. A repository called with a read method (`find`, `findOne`, `count` and the like) only READS, one called with a write method (`save`, `update`, `delete`, `remove` and the like) only WRITES, and any other use does both |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository-wrapper` | pattern_matched | a project's own `getRepository`, called with more arguments than TypeORM's or in a file that does not import `typeorm`, where exactly one argument is an imported or declared class that is an entity (vendure's `connection.getRepository(ctx, Product)`); reads and writes as above |
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
@@ -2955,6 +3045,20 @@ hits it does not take are not Prisma Client calls (`db.orm.public.User`,
 or a property that names no model). On nestjs/nest's `sample/` apps it maps
 both TypeORM entities (`user`, `photo`) and links both
 `@InjectRepository` services and the 5 Prisma calls of the GraphQL sample.
+
+On vendure-ecommerce/vendure `a67242a`, most repository calls go through
+vendure's own `TransactionalConnection.getRepository(ctx, Entity)`, whose
+first argument is the request context. Reading those wrappers, the
+`@ChildEntity` classes and the abstract `@Entity` roots (`Session`,
+`AuthenticationMethod`, `OrderLineReference`) takes the linked calls from
+66 to 979 and maps 100 entities and 16 child entities, each child to its
+root's table (`Country` to `region`, `Sale` to `stock_movement`). Of the
+701 lines outside test files that a `grep` for `getRepository(` finds, 636
+are linked. The other 65 are comments, a variable or expression argument
+(`entityType`, `metadata.target`), the CLI's code templates, and one
+string entity name (`'Order'`). 20 sampled wrapper links named the right
+table and the right read or write. Seven other TypeScript corpora give the
+same edges as before.
 
 On three Rails applications, every table that the tool names for a model is
 one that the application's schema file declares, except models of tables

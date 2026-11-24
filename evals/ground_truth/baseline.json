@@ -306,25 +306,25 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 24,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 23,
+          "true_positive": 23
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       },
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 3,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 3,
+          "true_positive": 3
         },
         "service_pairs": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         }
       }
     },
@@ -420,6 +420,20 @@
         }
       }
     },
+    "contracts-node-microservices-base-kafka": {
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 6,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 6,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
     "contracts-online-boutique": {
       "grpc": {
         "call_sites": {
@@ -504,25 +518,25 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       },
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         },
         "service_pairs": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         }
       }
     },
@@ -530,25 +544,25 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       },
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         },
         "service_pairs": {
           "labelled_in_scope": 2,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 2,
+          "true_positive": 2
         }
       }
     }
@@ -703,7 +717,7 @@
   },
   "gson": {
     "ambiguous_excludes": 2,
-    "ambiguous_includes": 527,
+    "ambiguous_includes": 521,
     "ambiguous_unjudged": 51,
     "by_rule": {
       "tree-sitter.call-self-method": {
@@ -723,6 +737,9 @@
       "tree-sitter.java-overload-platform-argument": {
         "confirmed": 94
       },
+      "tree-sitter.java-overload-static-field-argument": {
+        "confirmed": 6
+      },
       "tree-sitter.java-static-import": {
         "confirmed": 8
       },
@@ -734,33 +751,33 @@
         "unjudged": 380
       }
     },
-    "confirmed": 9328,
+    "confirmed": 9334,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 690,
+          "confirmed": 691,
           "expected": 788
         },
         "2": {
-          "confirmed": 1187,
+          "confirmed": 1496,
           "expected": 2094
         },
         "3": {
-          "confirmed": 1036,
+          "confirmed": 1326,
           "expected": 2170
         }
       },
-      "confirmed": 2913,
+      "confirmed": 3513,
       "expected": 5052,
-      "extra": 6,
-      "missed": 2139,
-      "precision": 0.9979,
-      "recall": 0.5766,
+      "extra": 2,
+      "missed": 1539,
+      "precision": 0.9994,
+      "recall": 0.6954,
       "seeds": 164,
       "seeds_undeclared": 0,
-      "unjudged": 0
+      "unjudged": 4
     },
     "inherits": {
       "confirmed": 210,
@@ -771,15 +788,15 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 1823,
+    "missed": 1817,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 529,
+      "ambiguous:multiple_declarations": 523,
       "no_call_site": 1165,
       "unresolved:attribute_call": 122,
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.835,
+    "recall": 0.8356,
     "unjudged": 419,
     "unresolved_expected": 129,
     "unresolved_unjudged": 8034
