@@ -389,5 +389,31 @@ class WebContractTests(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class ImportCommentTests(unittest.TestCase):
+    def test_comment_inside_import_braces(self):
+        # JHipster frontends keep a "needle" comment between the braces.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(
+                root,
+                {
+                    "web/package.json": '{"name": "web"}',
+                    "web/src/server.ts": (
+                        "import express from 'express';\n"
+                        "import {\n  faA,\n  // jhipster-needle-add-icon-import\n"
+                        "  faB,\n} from 'icons';\n"
+                        "const app = express();\n"
+                        "app.get('/api/orders', function list(req, res) {});\n"
+                    ),
+                },
+            )
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        routes = {
+            n.properties.get("name") for n in output.nodes if "HttpRoute" in n.labels
+        }
+        self.assertIn("GET /api/orders", routes)
+
+
 if __name__ == "__main__":
     unittest.main()
