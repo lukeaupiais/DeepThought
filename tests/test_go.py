@@ -343,7 +343,7 @@ class GoTests(unittest.TestCase):
                 "\tp := lib.Plain()\n"
                 "\tp.Use()\n"  # 24: a result of a type with no methods
                 "\ts := lib.Std.Root()\n"
-                "\ts.Use()\n"  # 26: a method of a package variable
+                "\ts.Use()\n"  # 26: Root is a function, not a method of Std
                 "}\n"
             ),
         }
@@ -371,7 +371,7 @@ class GoTests(unittest.TestCase):
                 (18, "g.Open"): "attribute_call",
                 (22, "t.Use"): "receiver_type_unknown",
                 (24, "p.Use"): "not_declared_on_type",
-                (26, "s.Use"): "attribute_call",
+                (26, "s.Use"): "receiver_type_unknown",
             },
         )
         fields = {
@@ -605,6 +605,7 @@ class GoTests(unittest.TestCase):
                 "type T struct{}\n"
                 "func (t *T) Go() {}\n"
                 "func New() *T { return nil }\n"
+                "var Default = New()\n"
             ),
             "cmd.go": (
                 "package app\n"
@@ -635,8 +636,16 @@ class GoTests(unittest.TestCase):
                 "func Shadow(root int) {\n"
                 "\troot.Name()\n"  # 19: a parameter shadows the variable
                 "}\n"
+                "func More() {\n"
+                "\tplat.Name()\n"  # 22: declared in two files
+                "\tmade.Name()\n"  # 23: another file's variable bound to F()
+                "\tlib.Default.Go()\n"  # 24: an imported package's variable
+                "\tother.Parent().Name()\n"  # 25: a chain on another file's
+                "}\n"
             ),
-            "other.go": "package app\nvar other = &Command{}\n",
+            "other.go": "package app\nvar other = &Command{}\nvar made = Make()\n",
+            "plat_a.go": "package app\nvar plat = &Command{}\n",
+            "plat_b.go": "package app\nvar plat = &Command{}\n",
         }
         result = analyze(files)
         sites = {s.id: s for s in result.call_sites}
@@ -664,10 +673,26 @@ class GoTests(unittest.TestCase):
                 (14, "typed.Root"): ("linked", "Command.Root"),
                 (14, "typed.Root().Name"): ("linked", "Command.Name"),
                 (15, "dup.Name"): ("unresolved", "attribute_call"),
-                (16, "other.Name"): ("unresolved", "attribute_call"),
+                (16, "other.Name"): ("linked", "Command.Name"),
                 (19, "root.Name"): ("unresolved", "not_declared_on_type"),
+                (22, "plat.Name"): ("unresolved", "attribute_call"),
+                (23, "made.Name"): ("linked", "Command.Name"),
+                (24, "lib.Default.Go"): ("linked", "T.Go"),
+                (25, "other.Parent"): ("linked", "Command.Parent"),
+                (25, "other.Parent().Name"): ("linked", "Command.Name"),
             },
         )
+        clauses = {c.file: c.variables for c in result.packages}
+        self.assertEqual(
+            clauses["other.go"], (("made", "Make()"), ("other", "Command"))
+        )
+        self.assertEqual(clauses["lib/lib.go"], (("Default", "New()"),))
+        self.assertEqual(
+            clauses["use.go"],
+            (("dup", None), ("root", "Command"), ("typed", "Command")),
+        )
+        self.assertIsNone(clauses["cmd.go"])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
 
     def test_reindex_reuses_package_clauses_and_rejects_earlier_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:

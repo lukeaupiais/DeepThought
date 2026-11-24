@@ -3114,6 +3114,7 @@ def _java_receiver_type(node, content, callee, cache, primitives=False):
 
 
 _GO_FUNCTIONS = {"function_declaration", "method_declaration", "func_literal"}
+_GO_PREDECLARED = {"nil", "true", "false", "iota"}
 # Nodes that bound the scope of what is declared directly in them.
 _GO_SCOPES = _GO_FUNCTIONS | {
     "block",
@@ -3328,7 +3329,12 @@ def _go_variable_type(name, node, outer, content, cache, depth):
     there is none or it gives no type."""
     best = _go_visible(name, node, outer, content, cache)
     if best is None:
-        return None
+        # Not declared in the function or as a top-level name of this file:
+        # a package variable of another file, or an imported package, for
+        # the resolver to tell apart (``$name``).
+        if name in _GO_PREDECLARED or _go_file_declares(name, node, content, cache):
+            return None
+        return f"${name}", ()
     kind, value = best
     if kind is not None:
         return kind, ()
@@ -3365,43 +3371,152 @@ def _go_visible(name, node, outer, content, cache):
     return best
 
 
+def _go_file_variables(root, content):
+    """{name: (type, value)} for each package-level ``var`` of a Go file;
+    None for a name the file declares twice (a compile error)."""
+    found = {}
+    for declaration in root.named_children:
+        if declaration.type != "var_declaration":
+            continue
+        specs = [
+            spec
+            for child in declaration.named_children
+            for spec in (
+                child.named_children if child.type == "var_spec_list" else [child]
+            )
+            if spec.type == "var_spec"
+        ]
+        for spec in specs:
+            names = spec.children_by_field_name("name")
+            written = spec.child_by_field_name("type")
+            value = spec.child_by_field_name("value")
+            values = value.named_children if value is not None else []
+            kind = _go_type(written, content) if written is not None else None
+            for index, declared in enumerate(names):
+                entry = (
+                    kind,
+                    values[index] if len(values) == len(names) else None,
+                )
+                text = _text(declared, content)
+                if text != "_":
+                    found[text] = None if text in found else entry
+    return found
+
+
+def _go_file_root(node):
+    while node.parent is not None:
+        node = node.parent
+    return node
+
+
 def _go_package_variable(name, node, content, cache):
     """(type, value) of a package-level ``var`` of this file named
-    ``name``, or None. Other files of the package are not read."""
-    root = node
-    while root.parent is not None:
-        root = root.parent
+    ``name``, or None. Other files of the package are not read here: a
+    name this file does not declare is left to the resolver
+    (``_go_variable_type``)."""
+    root = _go_file_root(node)
     key = ("package", root.id)
     if key not in cache:
-        found = {}
-        for declaration in root.named_children:
-            if declaration.type != "var_declaration":
-                continue
-            specs = [
-                spec
-                for child in declaration.named_children
-                for spec in (
-                    child.named_children if child.type == "var_spec_list" else [child]
-                )
-                if spec.type == "var_spec"
-            ]
-            for spec in specs:
-                names = spec.children_by_field_name("name")
-                written = spec.child_by_field_name("type")
-                value = spec.child_by_field_name("value")
-                values = value.named_children if value is not None else []
-                kind = _go_type(written, content) if written is not None else None
-                for index, declared in enumerate(names):
-                    entry = (
-                        kind,
-                        values[index] if len(values) == len(names) else None,
-                    )
-                    # A name declared twice is a compile error: read neither.
-                    text = _text(declared, content)
-                    found[text] = None if text in found else entry
-        cache[key] = found
+        cache[key] = _go_file_variables(root, content)
     entry = cache[key].get(name)
     return None if entry is None or entry == (None, None) else entry
+
+
+def _go_file_declares(name, node, content, cache):
+    """Whether the Go file of ``node`` declares ``name`` at top level: a
+    ``var``, ``const``, function or type."""
+    root = _go_file_root(node)
+    key = ("toplevel", root.id)
+    if key not in cache:
+        names = set(
+            cache.get(("package", root.id)) or _go_file_variables(root, content)
+        )
+        for declaration in root.named_children:
+            if declaration.type == "function_declaration":
+                found = declaration.child_by_field_name("name")
+                if found is not None:
+                    names.add(_text(found, content))
+            elif declaration.type in {"const_declaration", "type_declaration"}:
+                stack = list(declaration.named_children)
+                while stack:
+                    spec = stack.pop()
+                    if spec.type in {"type_spec_list", "const_spec_list"}:
+                        stack.extend(spec.named_children)
+                    elif spec.type in {"const_spec", "type_spec", "type_alias"}:
+                        names.update(
+                            _text(n, content)
+                            for n in spec.children_by_field_name("name")
+                        )
+        cache[key] = names
+    return name in cache[key]
+
+
+def _go_import_names(node, content, cache):
+    """The names a Go file's imports may bind: each alias, and for an
+    import without one the last element of its path (before a ``/vN``
+    major version, without a ``.vN`` suffix). An unaliased import's real
+    name is declared by the imported package, so this set is used only to
+    leave out a hint, never to resolve."""
+    root = _go_file_root(node)
+    key = ("imports", root.id)
+    if key not in cache:
+        names = set()
+        stack = [c for c in root.named_children if c.type == "import_declaration"]
+        while stack:
+            spec = stack.pop()
+            if spec.type in {"import_declaration", "import_spec_list"}:
+                stack.extend(spec.named_children)
+                continue
+            for path, _, _, local in _go_imports(spec, content):
+                names.update(local)
+                parts = path.split("/")
+                if len(parts) > 1 and re.fullmatch(r"v[0-9]+", parts[-1]):
+                    parts = parts[:-1]
+                names.add(re.sub(r"\.v[0-9]+$", "", parts[-1]))
+        cache[key] = names
+    return cache[key]
+
+
+def _go_package_value_type(kind, value, content):
+    """The type a package-level Go ``var`` declaration gives its variable
+    from what is written there alone: its type, or a value ``T{...}``,
+    ``&T{...}``, ``new(T)``, ``F()`` or ``pkg.F()`` (as ``F()``, the first
+    result of that function). None otherwise."""
+    if kind is not None:
+        return kind
+    while value is not None and value.type in {
+        "parenthesized_expression",
+        "unary_expression",
+    }:
+        value = (
+            value.child_by_field_name("operand")
+            if value.type == "unary_expression"
+            else (value.named_children or [None])[0]
+        )
+    if value is None:
+        return None
+    if value.type == "composite_literal":
+        return _go_type(value.child_by_field_name("type"), content)
+    if value.type != "call_expression":
+        return None
+    function = value.child_by_field_name("function")
+    arguments = value.child_by_field_name("arguments")
+    if function is None or arguments is None:
+        return None
+    if _text(function, content) == "new" and arguments.named_children:
+        return _go_type(arguments.named_children[0], content)
+    if function.type == "identifier":
+        return f"{_text(function, content)}()"
+    operand = function.child_by_field_name("operand")
+    field = function.child_by_field_name("field")
+    if (
+        function.type == "selector_expression"
+        and operand is not None
+        and operand.type == "identifier"
+        and field is not None
+    ):
+        return f"{_text(operand, content)}.{_text(field, content)}()"
+    return None
 
 
 def _go_expression_type(node, outer, content, cache, depth=0):
@@ -3571,6 +3686,11 @@ def _go_receiver_result(found, node, outer, content, cache):
     if found is None:
         return None
     typed, steps = found
+    if typed.startswith("$"):
+        if not steps and typed[1:] in _go_import_names(node, content, cache):
+            # `pkg.F()`: an imported function, not a variable's method.
+            return None
+        return {"receiver_variable": typed[1:], "receiver_steps": steps or None}
     if typed.endswith("()"):
         return {"receiver_function": typed[:-2], "receiver_steps": steps or None}
     if not steps and typed.startswith("[]"):
@@ -3986,8 +4106,22 @@ def extract_packages(
             None,
         )
         text = _java_name(name, content) if name is not None else None
+        variables = None
         if name is not None and name.type == "package_identifier":
             text = _text(name, content)
+            declared = _go_file_variables(tree.root_node, content)
+            variables = (
+                tuple(
+                    (
+                        variable,
+                        None
+                        if entry is None
+                        else _go_package_value_type(*entry, content),
+                    )
+                    for variable, entry in sorted(declared.items())
+                )
+                or None
+            )
         if text is None:
             return []
         return [
@@ -3999,6 +4133,7 @@ def extract_packages(
                 column=name.start_point.column,
                 end_line=name.end_point.row + 1,
                 end_column=name.end_point.column,
+                variables=variables,
             )
         ]
     return []
