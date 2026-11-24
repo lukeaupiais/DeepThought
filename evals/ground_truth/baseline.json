@@ -281,32 +281,32 @@
     "fmt": {
       "by_kind": {
         "alias": {
-          "found": 71,
-          "missed": 36
+          "found": 99,
+          "missed": 8
         },
         "function": {
-          "found": 237,
-          "missed": 117
+          "found": 395,
+          "missed": 17
         },
         "method": {
-          "found": 330,
-          "missed": 186
+          "found": 496,
+          "missed": 58
         },
         "namespace": {
-          "found": 15,
-          "missed": 25
+          "found": 23,
+          "missed": 17
         },
         "type": {
-          "found": 132,
-          "missed": 98
+          "found": 194,
+          "missed": 36
         }
       },
       "expected": 1346,
-      "extra": 101,
-      "found": 785,
-      "kind_mismatch": 99,
-      "missed": 462,
-      "recall": 0.5832
+      "extra": 95,
+      "found": 1207,
+      "kind_mismatch": 3,
+      "missed": 136,
+      "recall": 0.8967
     }
   },
   "gson": {
