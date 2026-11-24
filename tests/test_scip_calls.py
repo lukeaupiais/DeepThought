@@ -366,6 +366,19 @@ class ScipCallTests(unittest.TestCase):
             rows[("here", "linked")][3:],
             (("here", 12), scip_calls.SCIP_CALL_OCCURRENCE, tool),
         )
+        sites = {s.id: s for s in result.call_sites}
+        self.assertEqual(
+            sorted(
+                (sites[r.call_id].callee, binding.resolver(r.call_id))
+                for r in binding.resolutions
+                if sites[r.call_id].callee in {"thing", "here", "len"}
+            ),
+            [
+                ("here", "scip"),
+                ("len", "scip"),
+                ("thing", "scip_suspect_parser"),
+            ],
+        )
         # Inherited, and from a function nested in a method, too.
         self.assertEqual(
             [row[3] for row in self.targets(result, binding) if row[1] == "self.x"],
@@ -611,6 +624,18 @@ class ScipCallTests(unittest.TestCase):
                     "sha256:ts",
                 ),
             ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["call_resolution_by_resolver"],
+            {
+                "scip": {
+                    "linked": 5,
+                    "unresolved:scip_external": 1,
+                    "unresolved:scip_no_occurrence": 1,
+                    "unresolved:scip_target_not_declaration": 1,
+                },
+                "tree-sitter": {"linked": 1},
+            },
         )
         unresolved = sorted(
             (

@@ -901,7 +901,7 @@ class TreeSitterTool(AnalysisTool):
         }
         kinds = {d.id: d.kind for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
-        call_counts = {}
+        call_counts, resolver_counts = {}, {}
         binding = bind_calls(result, scip_indexes, self.repo_path)
         for resolution in binding.resolutions:
             producer = binding.producers.get(resolution.call_id)
@@ -909,6 +909,13 @@ class TreeSitterTool(AnalysisTool):
                 ":" + resolution.reason if resolution.reason else ""
             )
             call_counts[key] = call_counts.get(key, 0) + 1
+            # Separately by who decided: the index (its "nothing here"
+            # included), the parser kept over a suspect index target, or the
+            # parser in a file no index covers.
+            by_resolver = resolver_counts.setdefault(
+                binding.resolver(resolution.call_id), {}
+            )
+            by_resolver[key] = by_resolver.get(key, 0) + 1
             site = sites[resolution.call_id]
             if site.caller_id is None:
                 source = (["File"], files[site.file])
@@ -1120,6 +1127,10 @@ class TreeSitterTool(AnalysisTool):
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
+                "call_resolution_by_resolver": {
+                    resolver: dict(sorted(counts.items()))
+                    for resolver, counts in sorted(resolver_counts.items())
+                },
                 "supertype_resolution": dict(sorted(base_counts.items())),
                 "go_implementations": len(implementations),
                 "source_context": {

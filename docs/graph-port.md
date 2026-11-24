@@ -204,7 +204,11 @@ stands if it has one, otherwise the call stays unlinked. Files no index covers
 keep the parser's rules, which also run in shadow over covered files;
 `tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
 the covered call sites where the two targets differ (file, line, callee, SCIP
-target file and line, parser target file and line, reason, rule).
+target file and line, parser target file and line, reason, rule). The
+tool's `call_resolution_by_resolver` metric counts call outcomes separately for
+`scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
+(the parser's link kept over a suspect index target) and `tree-sitter` (files
+no index covers).
 
 | Rule | Links |
 |---|---|

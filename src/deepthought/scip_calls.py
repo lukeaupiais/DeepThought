@@ -78,6 +78,19 @@ class CallBinding:
     resolutions: tuple[CallResolution, ...]
     producers: dict
     disagreements: tuple[Disagreement, ...]
+    # Calls in covered files whose index target was suspect, so the
+    # parser's link was kept.
+    parser_kept: frozenset = frozenset()
+
+    def resolver(self, call_id) -> str:
+        """Who decided a call: ``scip``, ``scip_suspect_parser`` (a covered
+        call whose parser link was kept) or ``tree-sitter`` (a file no index
+        covers)."""
+        if call_id in self.producers:
+            return "scip"
+        if call_id in self.parser_kept:
+            return "scip_suspect_parser"
+        return "tree-sitter"
 
 
 def bind_calls(
@@ -113,7 +126,7 @@ def bind_calls(
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
     bases = _Bases(result, definitions)
-    resolutions, producers, disagreements = [], {}, []
+    resolutions, producers, disagreements, kept = [], {}, [], set()
     for resolution in parsed:
         site = sites[resolution.call_id]
         view = covering.get(site.file)
@@ -135,13 +148,16 @@ def bind_calls(
         if bound.reason == SUSPECT and by_call[site.id].status == "linked":
             # A target the index may have wrong: the parser's stands.
             chosen = by_call[site.id]
+            kept.add(site.id)
         else:
             producers[site.id] = (view.tool, view.receipt)
         resolutions.append(chosen)
         disagreement = _compare(site, bound, by_call[site.id], definitions)
         if disagreement is not None:
             disagreements.append(disagreement)
-    return CallBinding(tuple(resolutions), producers, tuple(disagreements))
+    return CallBinding(
+        tuple(resolutions), producers, tuple(disagreements), frozenset(kept)
+    )
 
 
 class _Lines:
