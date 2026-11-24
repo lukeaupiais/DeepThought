@@ -7,7 +7,8 @@ time; its controllers implement them, so no mapping annotation is in the
 repository. A client module has the same plugin generate a Java API class
 per tag, whose methods send the operations. Read here, for an execution of
 that plugin in a ``pom.xml`` (with the version and configuration its parent
-poms in the repository give the plugin):
+poms in the repository give the plugin), or of the Gradle plugin
+``org.openapi.generator`` (``openapi_gradle``):
 
 - generator ``spring`` (library ``spring-boot`` or none), plugin version 7
   or later, ``interfaceOnly`` true, and no ``delegatePattern``: the
@@ -35,6 +36,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
 import xml.etree.ElementTree as ElementTree
+
+from .openapi_gradle import gradle_executions
 
 HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 _JAVA_KEYWORDS = frozenset(
@@ -331,13 +334,110 @@ def _first_segment(route, operation):
     return [route.lstrip("/").split("/", 1)[0] or "default"]
 
 
+def _generate(
+    root,
+    yaml,
+    pom_file,
+    line,
+    module,
+    version,
+    config,
+    properties,
+    servers,
+    clients,
+    unread,
+):
+    """Read one plugin execution (Maven or Gradle) of ``pom_file``."""
+    written = _substitute(config.get("configurationFile", ""), properties)
+    if written:
+        # Its settings apply under the pom's own.
+        found = _settings_file(root / module / written.lstrip("/"), yaml)
+        if found is None:
+            unread.append(OpenApiUnread(pom_file, line, "config_not_read"))
+            return
+        config = {**found, **config}
+    options = config["configOptions"]
+
+    def flag(name, options=options, config=config):
+        value = options.get(name, config.get(name, ""))
+        return _substitute(value, properties).lower() == "true"
+
+    generator = _substitute(config.get("generatorName", ""), properties)
+    library = _substitute(options.get("library", config.get("library", "")), properties)
+    major = _major(_substitute(version or "", properties)) or 0
+    mode = options.get("requestMappingMode", "controller")
+    client = generator == "java"
+    if client:
+        if library not in _JAVA_LIBRARIES:
+            reason = "client_library"
+        elif major < 4:
+            reason = "generator_version"
+        else:
+            reason = None
+    elif generator != "spring" or library not in ("", "spring-boot"):
+        reason = "not_spring_server"
+    elif major < 7:
+        reason = "generator_version"
+    elif not flag("interfaceOnly") or flag("delegatePattern"):
+        reason = "generated_controller"
+    elif mode not in ("controller", "none") or flag("useRequestMappingOnInterface"):
+        reason = "base_path_on_interface"
+    else:
+        reason = None
+    if reason is not None:
+        unread.append(OpenApiUnread(pom_file, line, reason))
+        return
+    spec = _substitute(config.get("inputSpec", ""), properties).lstrip("/")
+    package = _substitute(
+        config.get("apiPackage", _DEFAULT_PACKAGES[generator]), properties
+    )
+    path = root / module / spec
+    if not spec or "${" in spec or not path.is_file() or not package:
+        unread.append(OpenApiUnread(pom_file, line, "spec_not_found"))
+        return
+    spec_file = path.resolve().relative_to(root.resolve()).as_posix()
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError:
+        document = None
+    if not isinstance(document, dict) or not isinstance(document.get("paths"), dict):
+        unread.append(OpenApiUnread(spec_file, 1, "spec_not_parsed"))
+        return
+    prefix = _substitute(config.get("apiNamePrefix", ""), properties)
+    suffix = _substitute(config.get("apiNameSuffix", "Api"), properties)
+    if client:
+        group_names, base, target = _tags, _server_url(document), clients
+    else:
+        group_names = _tags if flag("useTags") else _first_segment
+        base, target = "", servers
+    for group, name, http_method, route, op_line in _spec_operations(
+        document, text, spec_file, group_names, unread
+    ):
+        # toApiName: camelize(prefix + "_" + tag + "_" + suffix).
+        api = _camelize(f"{prefix}_{_camelize(group)}_{suffix}")
+        interface = f"{package}.{api}"
+        target.setdefault(interface, []).append(
+            SpecOperation(
+                interface,
+                name,
+                http_method,
+                route,
+                spec_file,
+                op_line,
+                base,
+            )
+        )
+
+
 def generated_apis(root):
     """What openapi-generator executions in the repository's poms generate:
     Spring server interfaces and Java client classes, each by qualified
     name with its operations, and the unread executions and operations.
 
     A module inherits the plugin's version and configuration from its
-    parent poms in the repository (``<parent><relativePath>``)."""
+    parent poms in the repository (``<parent><relativePath>``). Gradle
+    builds are read by ``openapi_gradle``."""
     try:
         import yaml
     except ImportError:  # pyyaml comes with the languages extra
@@ -386,90 +486,34 @@ def generated_apis(root):
         line = _line_of(pom_text, _PLUGIN)
         module = PurePosixPath(pom_file).parent
         for version, config in _executions(project, inherited):
-            written = _substitute(config.get("configurationFile", ""), properties)
-            if written:
-                # Its settings apply under the pom's own.
-                found = _settings_file(root / module / written.lstrip("/"), yaml)
-                if found is None:
-                    unread.append(OpenApiUnread(pom_file, line, "config_not_read"))
-                    continue
-                config = {**found, **config}
-            options = config["configOptions"]
-
-            def flag(name, options=options, config=config):
-                value = options.get(name, config.get(name, ""))
-                return _substitute(value, properties).lower() == "true"
-
-            generator = _substitute(config.get("generatorName", ""), properties)
-            library = _substitute(
-                options.get("library", config.get("library", "")), properties
+            _generate(
+                root,
+                yaml,
+                pom_file,
+                line,
+                module,
+                version,
+                config,
+                properties,
+                servers,
+                clients,
+                unread,
             )
-            major = _major(_substitute(version or "", properties)) or 0
-            mode = options.get("requestMappingMode", "controller")
-            client = generator == "java"
-            if client:
-                if library not in _JAVA_LIBRARIES:
-                    reason = "client_library"
-                elif major < 4:
-                    reason = "generator_version"
-                else:
-                    reason = None
-            elif generator != "spring" or library not in ("", "spring-boot"):
-                reason = "not_spring_server"
-            elif major < 7:
-                reason = "generator_version"
-            elif not flag("interfaceOnly") or flag("delegatePattern"):
-                reason = "generated_controller"
-            elif mode not in ("controller", "none") or flag(
-                "useRequestMappingOnInterface"
-            ):
-                reason = "base_path_on_interface"
-            else:
-                reason = None
-            if reason is not None:
-                unread.append(OpenApiUnread(pom_file, line, reason))
-                continue
-            spec = _substitute(config.get("inputSpec", ""), properties).lstrip("/")
-            package = _substitute(
-                config.get("apiPackage", _DEFAULT_PACKAGES[generator]), properties
-            )
-            path = root / module / spec
-            if not spec or "${" in spec or not path.is_file() or not package:
-                unread.append(OpenApiUnread(pom_file, line, "spec_not_found"))
-                continue
-            spec_file = path.resolve().relative_to(root.resolve()).as_posix()
-            text = path.read_text(encoding="utf-8", errors="replace")
-            try:
-                document = yaml.safe_load(text)
-            except yaml.YAMLError:
-                document = None
-            if not isinstance(document, dict) or not isinstance(
-                document.get("paths"), dict
-            ):
-                unread.append(OpenApiUnread(spec_file, 1, "spec_not_parsed"))
-                continue
-            prefix = _substitute(config.get("apiNamePrefix", ""), properties)
-            suffix = _substitute(config.get("apiNameSuffix", "Api"), properties)
-            if client:
-                group_names, base, target = _tags, _server_url(document), clients
-            else:
-                group_names = _tags if flag("useTags") else _first_segment
-                base, target = "", servers
-            for group, name, http_method, route, op_line in _spec_operations(
-                document, text, spec_file, group_names, unread
-            ):
-                # toApiName: camelize(prefix + "_" + tag + "_" + suffix).
-                api = _camelize(f"{prefix}_{_camelize(group)}_{suffix}")
-                interface = f"{package}.{api}"
-                target.setdefault(interface, []).append(
-                    SpecOperation(
-                        interface,
-                        name,
-                        http_method,
-                        route,
-                        spec_file,
-                        op_line,
-                        base,
-                    )
-                )
+    for build_file, line, version, config in gradle_executions(root):
+        if isinstance(config, str):
+            unread.append(OpenApiUnread(build_file, line, config))
+            continue
+        _generate(
+            root,
+            yaml,
+            build_file,
+            line,
+            PurePosixPath("."),
+            version,
+            config,
+            {},
+            servers,
+            clients,
+            unread,
+        )
     return servers, clients, unread

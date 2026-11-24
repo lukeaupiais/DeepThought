@@ -132,9 +132,10 @@ ROUTE_RULES = {
             "service-contracts.openapi-spring-route",
             "pattern_matched",
             "An OpenAPI operation is generated into a Spring interface by an "
-            "openapi-generator-maven-plugin execution (generator spring, version "
-            "7 or later, interfaceOnly, no base path on the interface) in a "
-            "pom.xml of the repository, and a controller implementing that "
+            "openapi-generator execution (generator spring, version 7 or later, "
+            "interfaceOnly, no base path on the interface) of the Maven plugin "
+            "in a pom.xml or the Gradle plugin in a build.gradle(.kts) of the "
+            "repository, and a controller implementing that "
             "interface overrides the operation's method; the path is the "
             "operation's, joined with the controller's @RequestMapping path and "
             "the servlet context path.",
@@ -280,8 +281,9 @@ REQUEST_RULES = {
 }
 _OPENAPI_CLIENT = (
     "A call of a method of a Java API class that an "
-    "openapi-generator-maven-plugin execution (generator java, version 4 or "
-    "later) in a pom.xml of the repository makes from a spec sends that "
+    "openapi-generator execution (generator java, version 4 or later) of the "
+    "Maven plugin in a pom.xml or the Gradle plugin in a build.gradle(.kts) "
+    "of the repository makes from a spec sends that "
     "operation: on a name declared once in the file with that class as its "
     "type, or on a new instance. The method and path are the operation's, "
     "under the spec's first server URL, or under an unknown base when the "
