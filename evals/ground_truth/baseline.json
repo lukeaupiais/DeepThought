@@ -302,6 +302,32 @@
         }
       }
     },
+    "contracts-jhipster-sample-app-websocket": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 24,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
     "contracts-msecend-apssouza22-java-microservice": {
       "http": {
         "call_sites": {
