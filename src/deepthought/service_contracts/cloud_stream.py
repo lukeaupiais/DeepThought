@@ -102,6 +102,79 @@ def _function_type(node, content, imports):
     return name, [c for c in arguments.named_children if c.type != "block_comment"]
 
 
+def _parameter_bindings(root, content, values, node, depth=0):
+    """The literal values a parameter takes, when ``node`` names a parameter
+    of a private method that never assigns it and that the file only calls
+    directly (``m(...)`` or ``this.m(...)``, with as many arguments as it
+    declares): the argument of each call, followed the same way through
+    the caller's own parameters, at most three methods deep. None when any
+    value is not literal or the method is used otherwise."""
+    if node is None or node.type != "identifier" or depth > 2:
+        return None
+    name = text(node, content)
+    method = node.parent
+    while method is not None and method.type not in (
+        "method_declaration",
+        "constructor_declaration",
+        "lambda_expression",
+        "class_body",
+    ):
+        method = method.parent
+    if method is None or method.type != "method_declaration":
+        return None
+    modifiers = next((c for c in method.children if c.type == "modifiers"), None)
+    if modifiers is None or "private" not in text(modifiers, content).split():
+        return None
+    parameters = method.child_by_field_name("parameters")
+    declared = [c for c in parameters.named_children if c.type == "formal_parameter"]
+    if len(declared) != len(parameters.named_children):
+        return None  # varargs or receiver parameters
+    names = [text(p.child_by_field_name("name"), content) for p in declared]
+    if names.count(name) != 1:
+        return None
+    index = names.index(name)
+    body = method.child_by_field_name("body")
+    for inner in _walk(body) if body is not None else []:
+        if inner.type in ("assignment_expression", "update_expression"):
+            target = inner.child_by_field_name("left") or inner.named_children[0]
+            if text(target, content).removeprefix("this.") == name:
+                return None
+        if inner.type == "local_variable_declaration" and any(
+            text(d.child_by_field_name("name"), content) == name
+            for d in inner.children_by_field_name("declarator")
+        ):
+            return None
+    method_name = text(method.child_by_field_name("name"), content)
+    found = []
+    for call in _walk(root):
+        if call.type == "method_reference" and text(call, content).endswith(
+            "::" + method_name
+        ):
+            return None
+        if call.type != "method_invocation":
+            continue
+        if text(call.child_by_field_name("name"), content) != method_name:
+            continue
+        receiver = call.child_by_field_name("object")
+        if receiver is not None and text(receiver, content) != "this":
+            return None
+        arguments = [
+            c
+            for c in call.child_by_field_name("arguments").named_children
+            if c.type not in ("line_comment", "block_comment")
+        ]
+        if len(arguments) != len(names):
+            return None  # an overload: which method is called is not read
+        argument = arguments[index]
+        written = values.alternatives(argument)
+        if any(PLACEHOLDER in w for w in written):
+            written = _parameter_bindings(root, content, values, argument, depth + 1)
+            if written is None:
+                return None
+        found.extend(w for w in written if w not in found)
+    return found or None
+
+
 def extract_stream(tree, content, file, definitions, constants=None):
     """Binding sites and unread ones of one Java file."""
     root = tree.root_node
@@ -268,7 +341,14 @@ def extract_stream(tree, content, file, definitions, constants=None):
             ):
                 add(node, "publish", "output", around(node))
             elif owner in bridges and len(arguments) >= 2:
-                add(node, "publish", values.evaluate(arguments[0]), around(node))
+                binding = values.evaluate(arguments[0])
+                through = (
+                    _parameter_bindings(root, content, values, arguments[0])
+                    if PLACEHOLDER in binding
+                    else None
+                )
+                for written in through or [binding]:
+                    add(node, "publish", written, around(node))
     return sites, unread
 
 

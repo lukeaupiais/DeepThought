@@ -4309,7 +4309,7 @@ def extract_php_eloquent(tree, content, file, definitions):
     resolved superclass and ``$table``, static Eloquent calls
     (``Model::where(...)``) and ``DB::table('t')`` chains, and the tables
     ``Schema::create`` (or ``Schema::rename``'s target) makes."""
-    classes, accesses, tables = [], [], []
+    classes, accesses, tables, sql_uses = [], [], [], []
     namespace, uses = "", {}
 
     def resolve(written):
@@ -4441,6 +4441,32 @@ def extract_php_eloquent(tree, content, file, definitions):
                         name.start_point.column,
                     )
                 )
+            sql = _php_sql_argument(child, content, resolve)
+            if sql is not None:
+                text = _php_sql_text(sql, content)
+                words = (
+                    re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+                    if text is not None
+                    else ()
+                )
+                if words and words[0].lower() in SQL_VERBS:
+                    statement = statement_tables(text)
+                    if (
+                        not (statement.reads or statement.writes)
+                        and PLACEHOLDER in text
+                    ):
+                        statement = None
+                    sql_uses.append(
+                        SqlUse(
+                            file,
+                            _innermost(definitions, file, child),
+                            "php-sql",
+                            False,
+                            statement,
+                            child.start_point.row + 1,
+                            child.start_point.column,
+                        )
+                    )
             if child.type == "scoped_call_expression":
                 scope = resolve(_text(child.child_by_field_name("scope"), content))
                 method = _text(child.child_by_field_name("name"), content)
@@ -4470,7 +4496,230 @@ def extract_php_eloquent(tree, content, file, definitions):
             walk(child)
 
     walk(tree.root_node)
-    return classes, accesses, tables
+    return classes, accesses, tables, sql_uses
+
+
+# PHP: SQL text passed to PDO, mysqli, pg_*, Doctrine DBAL and DB:: ---------
+
+LARAVEL_SQL_METHODS = {
+    "select", "selectOne", "selectResultSets", "scalar", "cursor", "insert",
+    "update", "delete", "statement", "affectingStatement", "unprepared",
+}  # fmt: skip
+PHP_SQL_METHODS = {
+    # PDO and mysqli
+    "query", "prepare", "exec", "real_query", "multi_query",
+    # Doctrine DBAL
+    "executeQuery", "executeStatement", "executeUpdate", "executeCacheQuery",
+    "fetchAllAssociative", "fetchAssociative", "fetchAllNumeric",
+    "fetchNumeric", "fetchOne", "fetchFirstColumn", "fetchAllKeyValue",
+    "fetchAllAssociativeIndexed", "iterateAssociative", "iterateNumeric",
+    "iterateColumn", "iterateKeyValue",
+}  # fmt: skip
+# Functions taking SQL: {name: (argument index with 2 arguments or fewer, else)}.
+PHP_SQL_FUNCTIONS = {
+    "mysqli_query": (1, 1),
+    "mysqli_real_query": (1, 1),
+    "mysqli_multi_query": (1, 1),
+    "mysqli_prepare": (1, 1),
+    "mysqli_execute_query": (1, 1),
+    "pg_query": (-1, 1),
+    "pg_send_query": (1, 1),
+    "pg_query_params": (0, 1),
+    "pg_send_query_params": (1, 1),
+    "pg_prepare": (-1, 2),
+    "pg_send_prepare": (2, 2),
+}
+_PHP_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "v": "\v", "f": "\f", "0": " "}
+_PHP_BLOCKS = ("compound_statement", "program")
+_PHP_FUNCTIONS = (
+    "function_definition",
+    "method_declaration",
+    "anonymous_function",
+    "arrow_function",
+)
+
+
+def _php_sql_argument(node, content, resolve):
+    """The argument node that holds SQL in a PHP call, or None."""
+    if node.type in ("member_call_expression", "nullsafe_member_call_expression"):
+        method = _text(node.child_by_field_name("name"), content)
+        target = node.child_by_field_name("object")
+        on_connection = (
+            target is not None
+            and target.type == "scoped_call_expression"
+            and resolve(_text(target.child_by_field_name("scope"), content))
+            in LARAVEL_DB
+            and _text(target.child_by_field_name("name"), content) == "connection"
+        )
+        if method not in PHP_SQL_METHODS and not (
+            on_connection and method in LARAVEL_SQL_METHODS
+        ):
+            return None
+        index = 0
+    elif node.type == "scoped_call_expression":
+        scope = resolve(_text(node.child_by_field_name("scope"), content))
+        if scope not in LARAVEL_DB or (
+            _text(node.child_by_field_name("name"), content) not in LARAVEL_SQL_METHODS
+        ):
+            return None
+        index = 0
+    elif node.type == "function_call_expression":
+        name = _text(node.child_by_field_name("function"), content).lstrip("\\")
+        if name.lower() not in PHP_SQL_FUNCTIONS:
+            return None
+        arguments = _php_arguments(node)
+        short, long = PHP_SQL_FUNCTIONS[name.lower()]
+        index = short if len(arguments) <= 2 else long
+        if not arguments or index >= len(arguments) or -index > len(arguments):
+            return None
+        return arguments[index]
+    else:
+        return None
+    arguments = _php_arguments(node)
+    return arguments[index] if len(arguments) > index else None
+
+
+def _php_assignments(variable, content):
+    """The texts ``variable`` may hold where it is used, from ``$x = ...``
+    and ``$x .= ...`` assignments before it in the same function: a list of
+    alternatives, each a list of the right sides joined in order; None when
+    it is assigned some other way."""
+    name = _text(variable, content)
+    scope = next((a for a in _ancestors(variable) if a.type in _PHP_FUNCTIONS), None)
+    if scope is None:
+        scope = variable
+        while scope.parent is not None:
+            scope = scope.parent
+    found = []
+    stack = [scope]
+    while stack:
+        node = stack.pop()
+        if node is not scope and node.type in _PHP_FUNCTIONS:
+            continue
+        stack.extend(reversed(node.named_children))
+        if node.type not in (
+            "assignment_expression",
+            "augmented_assignment_expression",
+        ):
+            continue
+        if node.end_byte > variable.start_byte:
+            continue
+        left = node.child_by_field_name("left")
+        if left is None or _text(left, content) != name:
+            continue
+        operator = node.child_by_field_name("operator")
+        written = (
+            "="
+            if node.type == "assignment_expression"
+            else (_text(operator, content) if operator is not None else "")
+        )
+        found.append(
+            (node.start_byte, written, node.child_by_field_name("right"), node)
+        )
+    found.sort(key=lambda f: f[0])
+    if any(f[1] not in ("=", ".=") for f in found):
+        return None
+    # The last assignment in a block enclosing the use always runs before
+    # it and replaces what came earlier; later assignments inside nested
+    # branches may run instead, so each is an alternative text.
+    around = {a.id for a in _ancestors(variable)}
+
+    def dominates(assignment):
+        block = next((a for a in _ancestors(assignment) if a.type in _PHP_BLOCKS), None)
+        return block is not None and block.id in around
+
+    def branches(statement):
+        body = statement.child_by_field_name("body")
+        clauses = [c for c in statement.named_children if c.type.startswith("else")]
+        if body is None or not any(c.type == "else_clause" for c in clauses):
+            return None  # Without an else no branch need run.
+        return [body, *clauses]
+
+    starts = [i for i, f in enumerate(found) if f[1] == "="]
+    kill = max((found[i][0] for i in starts if dominates(found[i][3])), default=-1)
+    # An if/else whose every branch assigns, in a block enclosing the use,
+    # replaces what came before it too.
+    for i in starts:
+        for statement in _ancestors(found[i][3]):
+            if statement.type != "if_statement" or not dominates(statement):
+                continue
+            parts = branches(statement)
+            if parts and all(
+                any(
+                    found[j][1] == "="
+                    and part.start_byte <= found[j][0] < part.end_byte
+                    for j in starts
+                )
+                for part in parts
+            ):
+                kill = max(kill, statement.start_byte)
+    starts = [i for i in starts if found[i][0] >= kill]
+    if not starts:
+        return None
+    # Each start, with the appends that follow it (all of them, as any
+    # branch may run them), is one text the statement may run.
+    return [
+        [found[i][2]] + [f[2] for f in found[i + 1 :] if f[1] == ".="] for i in starts
+    ]
+
+
+def _php_sql_text(node, content, depth=0):
+    """The text of a PHP string expression: literals, heredocs and nowdocs,
+    ``.`` joins, ``sprintf`` templates and local variables built from them;
+    what the code does not fix becomes PLACEHOLDER. None when the
+    expression is not text."""
+    if node is None or depth > 4:
+        return None
+    if node.type in ("string", "encapsed_string", "heredoc", "nowdoc"):
+        parts = []
+        body = node
+        for child in node.named_children:
+            if child.type in ("heredoc_body", "nowdoc_body"):
+                body = child
+        for child in body.named_children:
+            if child.type in ("string_content", "nowdoc_string"):
+                parts.append(_text(child, content))
+            elif child.type == "escape_sequence":
+                escaped = _text(child, content)[1:]
+                parts.append(_PHP_ESCAPES.get(escaped, escaped[:1]))
+            elif child.type in ("heredoc_start", "heredoc_end"):
+                continue
+            else:
+                parts.append(PLACEHOLDER)
+        return "".join(parts)
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _php_sql_text(node.named_children[0], content, depth)
+    if node.type == "binary_expression":
+        operator = node.child_by_field_name("operator")
+        if operator is None or _text(operator, content) != ".":
+            return None
+        sides = [
+            _php_sql_text(node.child_by_field_name(side), content, depth)
+            for side in ("left", "right")
+        ]
+        return "".join(PLACEHOLDER if p is None else p for p in sides)
+    if node.type == "function_call_expression":
+        name = _text(node.child_by_field_name("function"), content).lstrip("\\")
+        arguments = _php_arguments(node)
+        if name.lower() == "sprintf" and arguments:
+            template = _php_sql_text(arguments[0], content, depth)
+            if template is not None:
+                return re.sub(
+                    r"%(?:\d+\$)?[-+ 0]*(?:'.)?\d*(?:\.\d+)?[bcdeEfFgGosuxX]",
+                    PLACEHOLDER,
+                    template.replace("%%", "\x01"),
+                ).replace("\x01", "%")
+        return None
+    if node.type == "variable_name":
+        texts = []
+        for values in _php_assignments(node, content) or ():
+            parts = [_php_sql_text(v, content, depth + 1) for v in values]
+            if parts[0] is None:
+                return None
+            texts.append("".join(PLACEHOLDER if p is None else p for p in parts))
+        # Alternatives as one text: the tables of any branch.
+        return " ;\n".join(texts) if texts else None
+    return None
 
 
 def resolve_eloquent(classes):
@@ -5280,3 +5529,1483 @@ def resolve_sequelize(models, inits, defines, scope=None, resolve=None):
             names,
         )
     return tables, unresolved
+
+
+# Mongoose: rules and uncountables of mongoose 8.9.5's lib/helpers/pluralize.js
+# (the same as mongoose-legacy-pluralize, which mongoose 5 used). Each rule
+# carries the first mongoose major that has it: 6 added "goose", 7 "human".
+_MONGOOSE_PLURALS = (
+    (r"human$", "humans", 7),
+    (r"(m)an$", "$1en", 5),
+    (r"(pe)rson$", "$1ople", 5),
+    (r"(child)$", "$1ren", 5),
+    (r"^(ox)$", "$1en", 5),
+    (r"(ax|test)is$", "$1es", 5),
+    (r"(octop|vir)us$", "$1i", 5),
+    (r"(alias|status)$", "$1es", 5),
+    (r"(bu)s$", "$1ses", 5),
+    (r"(buffal|tomat|potat)o$", "$1oes", 5),
+    (r"([ti])um$", "$1a", 5),
+    (r"sis$", "ses", 5),
+    (r"(?:([^f])fe|([lr])f)$", "$1$2ves", 5),
+    (r"(hive)$", "$1s", 5),
+    (r"([^aeiouy]|qu)y$", "$1ies", 5),
+    (r"(x|ch|ss|sh)$", "$1es", 5),
+    (r"(matr|vert|ind)ix|ex$", "$1ices", 5),
+    (r"([m|l])ouse$", "$1ice", 5),
+    (r"(kn|w|l)ife$", "$1ives", 5),
+    (r"(quiz)$", "$1zes", 5),
+    (r"^goose$", "geese", 6),
+    (r"s$", "s", 5),
+    (r"([^a-z])$", "$1", 5),
+    (r"$", "s", 5),
+)
+_MONGOOSE_PLURAL_RULES = tuple(
+    (re.compile(pattern), _js_replacement(r), since)
+    for pattern, r, since in _MONGOOSE_PLURALS
+)
+_MONGOOSE_UNCOUNTABLE = frozenset(
+    (
+        "advice energy excretion digestion cooperation health justice labour "
+        "machinery equipment information pollution sewage paper money species "
+        "series rain rice fish sheep moose deer news expertise status media"
+    ).split()
+)
+MONGOOSE_MAJORS = (5, 6, 7)  # the majors whose pluralize rules differ
+
+
+def mongoose_pluralize(name, major=7):
+    """The collection name mongoose ``major`` (5, 6, 7 or later) gives a
+    model name: ``utils.toCollectionName`` with the default pluralize."""
+    if name in ("system.profile", "system.indexes"):
+        return name
+    word = name.lower()
+    if word in _MONGOOSE_UNCOUNTABLE:
+        return word
+    for pattern, replacement, since in _MONGOOSE_PLURAL_RULES:
+        if since <= major and pattern.search(word):
+            return pattern.sub(replacement, word)
+    return word
+
+
+MONGOOSE_READS = {
+    "find", "findOne", "findById", "countDocuments", "estimatedDocumentCount",
+    "count", "distinct", "exists", "aggregate", "where",
+}  # fmt: skip
+MONGOOSE_WRITES = {
+    "create", "insertMany", "updateOne", "updateMany", "update", "deleteOne",
+    "deleteMany", "remove", "replaceOne", "bulkWrite", "bulkSave",
+}  # fmt: skip
+MONGOOSE_READ_WRITES = {
+    "findOneAndUpdate", "findByIdAndUpdate", "findOneAndDelete",
+    "findByIdAndDelete", "findOneAndRemove", "findByIdAndRemove",
+    "findOneAndReplace",
+}  # fmt: skip
+
+
+@dataclass(frozen=True)
+class MongooseModel:
+    """A ``model(name, schema, collection)`` call, or a discriminator
+    (``Base.discriminator(name, schema)``), which shares its base's
+    collection. ``collection`` is the literal third argument (UNKNOWN when
+    not fixed); ``schema`` is ("local", binding), ("import", module, name),
+    ("inline", collection option) or UNKNOWN. ``base`` is a discriminator's
+    base reference, the way a call receiver is given in MongooseUse."""
+
+    file: str
+    name: str
+    model_id: str | None
+    collection: object
+    schema: object
+    base: tuple | None
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class MongooseUse:
+    """A static model call. ``target`` is ("model", index of the file's
+    model), ("import", module, exported name) or ("name", model name)."""
+
+    file: str
+    caller_id: str | None
+    target: tuple
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class MongooseFile:
+    models: tuple
+    uses: tuple
+    # {name: collection option} of the file's schemas (None: no option).
+    schemas: dict
+    # {exported name: ("model", index) | ("schema", name) | ("import",
+    # module, name)}; "default" is module.exports or export default.
+    exports: dict
+    pluralize: object  # None, "off" (pluralize(null)) or UNKNOWN
+
+
+def _unwrap(node):
+    while node is not None and node.type in (
+        "await_expression",
+        "parenthesized_expression",
+        "as_expression",
+        "satisfies_expression",
+        "non_null_expression",
+    ):
+        node = node.named_children[0] if node.named_children else None
+    return node
+
+
+def extract_mongoose(tree, content, file, definitions):
+    """The MongooseFile of one TypeScript or JavaScript file, or None when
+    it neither imports mongoose nor exports anything a model call could
+    reach."""
+    root = tree.root_node
+    bindings = script_bindings(root, content)
+    mongoose = {
+        local: name
+        for local, (source, name) in bindings.items()
+        if source == "mongoose"
+    }
+    connections = set()  # bindings of mongoose.createConnection() / useDb()
+    if mongoose:
+        namespaces = {k for k, v in mongoose.items() if v in ("default", "*")}
+        for declarator in _descendants(root, "variable_declarator"):
+            value = _unwrap(declarator.child_by_field_name("value"))
+            target = declarator.child_by_field_name("name")
+            if value is None or target is None:
+                continue
+            # const { Schema, model } = mongoose; const Schema = mongoose.Schema
+            if value.type == "identifier" and _text(value, content) in namespaces:
+                if target.type == "object_pattern":
+                    for part in target.named_children:
+                        if part.type == "shorthand_property_identifier_pattern":
+                            mongoose[_text(part, content)] = _text(part, content)
+                        elif part.type == "pair_pattern":
+                            local = part.child_by_field_name("value")
+                            if local is not None and local.type == "identifier":
+                                mongoose[_text(local, content)] = _script_key(
+                                    part.child_by_field_name("key"), content
+                                )
+                continue
+            if (
+                value.type == "member_expression"
+                and target.type == "identifier"
+                and _text(value.child_by_field_name("object"), content) in namespaces
+            ):
+                mongoose[_text(target, content)] = _text(
+                    value.child_by_field_name("property"), content
+                )
+                continue
+            if value.type != "call_expression":
+                continue
+            method, receiver, _ = _call_parts(value, content)
+            if method in ("createConnection", "useDb") and target.type == "identifier":
+                connections.add(_text(target, content))
+
+    def mongoose_root(node):
+        """Whether ``node`` is mongoose itself, a connection, or a member
+        of one (``mongoose.connection``)."""
+        while node is not None and node.type == "member_expression":
+            node = node.child_by_field_name("object")
+        if node is None or node.type != "identifier":
+            return False
+        text = _text(node, content)
+        return mongoose.get(text) in ("default", "*") or text in connections
+
+    def is_schema(node):
+        node = _unwrap(node)
+        if node is None or node.type != "new_expression":
+            return False
+        constructor = node.child_by_field_name("constructor")
+        if constructor is None:
+            return False
+        if constructor.type == "identifier":
+            return mongoose.get(_text(constructor, content)) == "Schema"
+        return (
+            constructor.type == "member_expression"
+            and _text(constructor.child_by_field_name("property"), content) == "Schema"
+            and mongoose_root(constructor.child_by_field_name("object"))
+        )
+
+    constants = {}
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        if target is not None and target.type == "identifier":
+            constants.setdefault(_text(target, content), []).append(
+                declarator.child_by_field_name("value")
+            )
+
+    def collection_in(node, depth=0):
+        """The ``collection`` key an options expression sets: None when
+        unset, UNKNOWN when the code does not fix it. Object literals,
+        spreads, constants of the file and ``Object.assign``, lodash
+        ``defaults``/``assign``/``merge``/``extend``/``clone`` are read."""
+        node = _unwrap(node)
+        if node is None or depth > 8:
+            return UNKNOWN
+        if node.type == "object":
+            found = set()
+            for pair in node.named_children:
+                if pair.type == "spread_element":
+                    inner = pair.named_children[0] if pair.named_children else None
+                    found.add(collection_in(inner, depth + 1))
+                elif pair.type == "shorthand_property_identifier":
+                    if _text(pair, content) == "collection":
+                        return UNKNOWN
+                elif pair.type == "pair":
+                    key = pair.child_by_field_name("key")
+                    if key is not None and key.type == "computed_property_name":
+                        return UNKNOWN
+                    if _script_key(key, content) == "collection":
+                        text = _script_string(
+                            pair.child_by_field_name("value"), content
+                        )
+                        found.add(text or UNKNOWN)
+            found.discard(None)
+            return found.pop() if len(found) == 1 else (UNKNOWN if found else None)
+        if node.type == "identifier":
+            values = constants.get(_text(node, content), [])
+            if len(values) != 1:
+                return UNKNOWN
+            return collection_in(values[0], depth + 1)
+        if node.type == "call_expression":
+            method, receiver, args = _call_parts(node, content)
+            merging = method in (
+                "defaults",
+                "assign",
+                "merge",
+                "extend",
+                "defaultsDeep",
+            )
+            cloning = method in ("clone", "cloneDeep")
+            if receiver is not None and _text(receiver, content) not in (
+                "_",
+                "Object",
+                "lodash",
+            ):
+                return UNKNOWN
+            if not (merging or cloning) or (cloning and len(args) != 1):
+                return UNKNOWN
+            found = {collection_in(a, depth + 1) for a in args}
+            found.discard(None)
+            return found.pop() if len(found) == 1 else (UNKNOWN if found else None)
+        return UNKNOWN
+
+    def collection_option(node):
+        """The ``collection`` option of a ``new Schema(fields, options)``."""
+        arguments = node.child_by_field_name("arguments")
+        args = [
+            a
+            for a in (arguments.named_children if arguments else ())
+            if a.type != "comment"
+        ]
+        return collection_in(args[1]) if len(args) >= 2 else None
+
+    def model_name(node):
+        """The model a receiver names directly: ``mongoose.model('User')``,
+        ``this.model('User')``, ``mongoose.models.User``."""
+        node = _unwrap(node)
+        if node is None:
+            return None
+        if node.type == "call_expression":
+            method, receiver, args = _call_parts(node, content)
+            if method == "model" and len(args) == 1 and receiver is not None:
+                if receiver.type == "this" or mongoose_root(receiver):
+                    return _script_string(args[0], content)
+            return None
+        if node.type == "member_expression":
+            target = node.child_by_field_name("object")
+            if (
+                target is not None
+                and target.type == "member_expression"
+                and _text(target.child_by_field_name("property"), content) == "models"
+                and mongoose_root(target.child_by_field_name("object"))
+            ):
+                return _text(node.child_by_field_name("property"), content)
+        return None
+
+    schemas, schema_nodes = {}, {}
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        value = declarator.child_by_field_name("value")
+        if target is not None and target.type == "identifier" and is_schema(value):
+            name = _text(target, content)
+            schema_nodes[name] = _unwrap(value)
+            schemas[name] = collection_option(_unwrap(value))
+
+    models, local_models, model_nodes = [], {}, {}
+    pluralize = None
+
+    def schema_ref(node):
+        node = _unwrap(node)
+        if node is None:
+            return UNKNOWN
+        if is_schema(node):
+            return ("inline", collection_option(node))
+        if node.type == "identifier":
+            text = _text(node, content)
+            if text in schemas:
+                return ("local", text)
+            if text in bindings:
+                return ("import", *bindings[text])
+        return UNKNOWN
+
+    def as_model(node):
+        """The index of the model a ``model(...)`` or ``discriminator``
+        call defines, recording it once."""
+        node = _unwrap(node)
+        if node is None:
+            return None
+        if node.type == "binary_expression":  # mongoose.models.X || model(...)
+            for part in (
+                node.child_by_field_name("right"),
+                node.child_by_field_name("left"),
+            ):
+                found = as_model(part)
+                if found is not None:
+                    return found
+            return None
+        if node.type != "call_expression":
+            return None
+        if node.id in model_nodes:
+            return model_nodes[node.id]
+        method, receiver, args = _call_parts(node, content)
+        base = None
+        if method == "model" and len(args) >= 2:
+            if receiver is None:
+                if (
+                    mongoose.get(_text(node.child_by_field_name("function"), content))
+                    != "model"
+                ):
+                    return None
+            elif not mongoose_root(receiver):
+                return None
+        elif method == "discriminator" and len(args) >= 2 and receiver is not None:
+            base = receiver_ref(receiver)
+            if base is None:
+                return None
+        else:
+            return None
+        name = _script_string(args[0], content)
+        if not name:
+            return None
+        collection = None
+        if method == "model" and len(args) >= 3:
+            collection = _script_string(args[2], content) or UNKNOWN
+        where = node.child_by_field_name("function")
+        where = where.child_by_field_name("property") or where
+        models.append(
+            MongooseModel(
+                file,
+                name,
+                _innermost(definitions, file, node),
+                collection,
+                schema_ref(args[1]),
+                base,
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+        model_nodes[node.id] = len(models) - 1
+        return len(models) - 1
+
+    def receiver_ref(node):
+        node = _unwrap(node)
+        if node is None:
+            return None
+        direct = model_name(node)
+        if direct:
+            return ("name", direct)
+        if node.type == "identifier":
+            text = _text(node, content)
+            if text in local_models:
+                return ("model", local_models[text])
+            if text in bindings and bindings[text][0] != "mongoose":
+                return ("import", *bindings[text])
+        elif node.type == "member_expression":
+            # A member of a namespace import or a required module object.
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "identifier":
+                source, name = bindings.get(_text(target, content), (None, None))
+                if source not in (None, "mongoose") and name in ("default", "*"):
+                    prop = _text(node.child_by_field_name("property"), content)
+                    return ("import", source, prop)
+        return None
+
+    if mongoose:
+        for declarator in _descendants(root, "variable_declarator"):
+            target = declarator.child_by_field_name("name")
+            if target is None or target.type != "identifier":
+                continue
+            found = as_model(declarator.child_by_field_name("value"))
+            if found is not None:
+                local_models[_text(target, content)] = found
+        # Discriminators of discriminators need their base bound first.
+        for declarator in _descendants(root, "variable_declarator"):
+            target = declarator.child_by_field_name("name")
+            if target is None or target.type != "identifier":
+                continue
+            found = as_model(declarator.child_by_field_name("value"))
+            if found is not None:
+                local_models.setdefault(_text(target, content), found)
+
+    exports = {}
+
+    def export_value(name, node):
+        node = _unwrap(node)
+        if node is None:
+            return
+        found = as_model(node) if mongoose else None
+        if found is not None:
+            exports[name] = ("model", found)
+        elif node.type in ("identifier", "shorthand_property_identifier"):
+            text = _text(node, content)
+            if text in local_models:
+                exports[name] = ("model", local_models[text])
+            elif text in schemas:
+                exports[name] = ("schema", text)
+            elif text in bindings:
+                exports[name] = ("import", *bindings[text])
+        elif is_schema(node):
+            exports[name] = ("schema-inline", collection_option(node))
+        elif node.type == "call_expression":
+            method, receiver, args = _call_parts(node, content)
+            if method == "require" and receiver is None and len(args) == 1:
+                source = _script_string(args[0], content)
+                if source:
+                    exports[name] = ("import", source, "default")
+        elif node.type == "member_expression":
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "call_expression":
+                method, receiver, args = _call_parts(target, content)
+                source = _script_string(args[0], content) if len(args) == 1 else None
+                if method == "require" and receiver is None and source:
+                    exports[name] = (
+                        "import",
+                        source,
+                        _text(node.child_by_field_name("property"), content),
+                    )
+
+    for node in root.named_children:
+        if node.type == "export_statement":
+            value = node.child_by_field_name("value")
+            source = _script_string(node.child_by_field_name("source"), content)
+            if value is not None:
+                export_value("default", value)
+                continue
+            for child in node.named_children:
+                if child.type in ("lexical_declaration", "variable_declaration"):
+                    for declarator in child.named_children:
+                        target = declarator.child_by_field_name("name")
+                        if (
+                            declarator.type == "variable_declarator"
+                            and target is not None
+                            and target.type == "identifier"
+                        ):
+                            export_value(
+                                _text(target, content),
+                                declarator.child_by_field_name("value"),
+                            )
+                elif child.type == "export_clause":
+                    for spec in child.named_children:
+                        if spec.type != "export_specifier":
+                            continue
+                        local = _text(spec.child_by_field_name("name"), content)
+                        alias = spec.child_by_field_name("alias")
+                        exported = _text(alias, content) if alias is not None else local
+                        if source is not None:
+                            exports[exported] = ("import", source, local)
+                        elif local in local_models:
+                            exports[exported] = ("model", local_models[local])
+                        elif local in schemas:
+                            exports[exported] = ("schema", local)
+                        elif local in bindings:
+                            exports[exported] = ("import", *bindings[local])
+        elif node.type == "expression_statement":
+            expression = node.named_children[0] if node.named_children else None
+            if expression is None or expression.type != "assignment_expression":
+                continue
+            left = expression.child_by_field_name("left")
+            right = expression.child_by_field_name("right")
+            written = _text(left, content) if left is not None else ""
+            if written == "module.exports":
+                right = _unwrap(right)
+                if right is not None and right.type == "object":
+                    for pair in right.named_children:
+                        if pair.type == "shorthand_property_identifier":
+                            export_value(_text(pair, content), pair)
+                        elif pair.type == "pair":
+                            key = _script_key(pair.child_by_field_name("key"), content)
+                            if key:
+                                export_value(key, pair.child_by_field_name("value"))
+                else:
+                    export_value("default", right)
+            elif left is not None and left.type == "member_expression":
+                target = _text(left.child_by_field_name("object"), content)
+                if target in ("module.exports", "exports"):
+                    export_value(
+                        _text(left.child_by_field_name("property"), content), right
+                    )
+
+    # Functions whose ``this`` is a schema's model: statics assigned to
+    # ``schema.statics``, given to ``schema.static()``, and the static
+    # methods of a class given to ``schema.loadClass()``.
+    statics = {}
+    classes = {
+        _text(n.child_by_field_name("name"), content): n
+        for n in _descendants(root, "class_declaration")
+        if n.child_by_field_name("name") is not None
+    }
+
+    def static_functions(node, schema):
+        node = _unwrap(node)
+        if node is None:
+            return
+        if node.type in ("function_expression", "function", "generator_function"):
+            statics[node.id] = schema
+        elif node.type == "object":
+            for part in node.named_children:
+                if part.type == "method_definition":
+                    statics[part.id] = schema
+                elif part.type == "pair":
+                    static_functions(part.child_by_field_name("value"), schema)
+
+    for node in _descendants(root, "assignment_expression"):
+        left = node.child_by_field_name("left")
+        if left is None or left.type != "member_expression":
+            continue
+        target = left.child_by_field_name("object")
+        prop = _text(left.child_by_field_name("property"), content)
+        if (
+            target is not None
+            and target.type == "member_expression"
+            and _text(target.child_by_field_name("property"), content) == "statics"
+            and _text(target.child_by_field_name("object"), content) in schemas
+        ):
+            static_functions(
+                node.child_by_field_name("right"),
+                _text(target.child_by_field_name("object"), content),
+            )
+        elif prop == "statics" and _text(target, content) in schemas:
+            static_functions(node.child_by_field_name("right"), _text(target, content))
+    for call in _descendants(root, "call_expression"):
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None or receiver.type != "identifier":
+            continue
+        schema = _text(receiver, content)
+        if schema not in schemas or not args:
+            continue
+        if method == "static":
+            static_functions(args[-1], schema)
+        elif method == "loadClass" and args[0].type == "identifier":
+            body = classes.get(_text(args[0], content))
+            body = None if body is None else body.child_by_field_name("body")
+            for member in body.named_children if body is not None else ():
+                if member.type == "method_definition" and any(
+                    c.type == "static" for c in member.children
+                ):
+                    statics[member.id] = schema
+    schema_models = {}
+    for index, model in enumerate(models):
+        if model.schema is not UNKNOWN and model.schema[0] == "local":
+            schema_models.setdefault(model.schema[1], set()).add(index)
+
+    def this_model(node):
+        """The model ``this`` is at ``node``, inside a static."""
+        while node is not None:
+            if node.type in (
+                "function_expression",
+                "function",
+                "generator_function",
+                "function_declaration",
+                "generator_function_declaration",
+                "method_definition",
+            ):
+                schema = statics.get(node.id)
+                found = schema_models.get(schema, set())
+                return ("model", next(iter(found))) if len(found) == 1 else None
+            if node.type in ("class_body", "program"):
+                return None
+            node = node.parent
+        return None
+
+    uses = []
+    for call in _descendants(root, "call_expression"):
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None:
+            continue
+        if method == "pluralize" and mongoose_root(receiver) and args:
+            pluralize = "off" if args[0].type in ("null", "undefined") else UNKNOWN
+            continue
+        if (
+            mongoose
+            and method == "set"
+            and receiver.type == "identifier"
+            and len(args) == 2
+        ):
+            if (
+                _script_string(args[0], content) == "collection"
+                and _text(receiver, content) in schemas
+            ):
+                text = _script_string(args[1], content)
+                schemas[_text(receiver, content)] = text or UNKNOWN
+            continue
+        if method not in MONGOOSE_READS | MONGOOSE_WRITES | MONGOOSE_READ_WRITES:
+            continue
+        target = this_model(call) if receiver.type == "this" else receiver_ref(receiver)
+        if target is None:
+            continue
+        where = call.child_by_field_name("function").child_by_field_name("property")
+        uses.append(
+            MongooseUse(
+                file,
+                _innermost(definitions, file, call),
+                target,
+                method in MONGOOSE_READS | MONGOOSE_READ_WRITES,
+                method in MONGOOSE_WRITES | MONGOOSE_READ_WRITES,
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+    if not (models or uses or exports or pluralize):
+        return None
+    return MongooseFile(tuple(models), tuple(uses), schemas, exports, pluralize)
+
+
+def mongoose_majors(specs):
+    """The pluralize variants (MONGOOSE_MAJORS) the ``mongoose`` version
+    specifiers of the package manifests allow: every major a specifier
+    names, all of them when none does."""
+    found = set()
+    for spec in specs:
+        numbers = re.findall(r"(?:^|[\s|^~>=<v]|\|\|)(\d+)(?:\.|\s|$|\b)", spec)
+        if not numbers:
+            return set(MONGOOSE_MAJORS)
+        found.update(min(max(int(n), 5), 7) for n in numbers)
+    return found or set(MONGOOSE_MAJORS)
+
+
+def resolve_mongoose(files, majors=None, resolve=None, scope=None):
+    """({(file, index): (collection, how, base key or None)}, {(file,
+    index): reason}, resolve_use) over the MongooseFile of each file.
+    ``how`` is "explicit" (the collection argument), "schema" (the schema's
+    collection option) or "default" (the model name pluralized as every
+    allowed mongoose major does). A discriminator takes its base's
+    collection. ``resolve_use(use)`` gives a use's model key, or the reason
+    it has none: "package", "not_a_model" or "ambiguous"."""
+    majors = majors or set(MONGOOSE_MAJORS)
+    resolve = resolve or (lambda file, module: None)
+    scope = scope or (lambda file: "")
+    by_name = {}
+    for file, found in sorted(files.items()):
+        for index, model in enumerate(found.models):
+            by_name.setdefault(model.name, []).append((file, index))
+    pluralize = {f.pluralize for f in files.values() if f.pluralize is not None}
+
+    def export(file, name, depth=0):
+        """What ``file`` exports as ``name``, following re-exports."""
+        found = files.get(file)
+        if found is None or depth > 8:
+            return None
+        value = found.exports.get(name)
+        if value is not None and value[0] == "import":
+            target = resolve(file, value[1])
+            return None if target is None else export(target, value[2], depth + 1)
+        return None if value is None else (file, value)
+
+    def model_key(file, ref):
+        kind = ref[0]
+        if kind == "model":
+            return (file, ref[1])
+        if kind == "name":
+            keys = by_name.get(ref[1], [])
+            own = [k for k in keys if scope(k[0]) == scope(file)]
+            keys = own or keys
+            return (
+                keys[0] if len(keys) == 1 else ("ambiguous" if keys else "not_a_model")
+            )
+        target = resolve(file, ref[1])
+        if target is None:
+            return "package"
+        value = export(target, ref[2])
+        if value is None or value[1][0] != "model":
+            return "not_a_model"
+        return (value[0], value[1][1])
+
+    def schema_collection(file, ref, depth=0):
+        if ref is UNKNOWN or depth > 8:
+            return UNKNOWN
+        if ref[0] == "inline":
+            return ref[1]
+        if ref[0] == "local":
+            return files[file].schemas.get(ref[1], UNKNOWN)
+        target = resolve(file, ref[1])
+        value = None if target is None else export(target, ref[2])
+        if value is None:
+            return UNKNOWN
+        where, (kind, *rest) = value
+        if kind == "schema":
+            return files[where].schemas.get(rest[0], UNKNOWN)
+        if kind == "schema-inline":
+            return rest[0]
+        return UNKNOWN
+
+    tables, unresolved = {}, {}
+
+    def collection(key, seen=()):
+        if key in tables or key in unresolved:
+            return tables.get(key)
+        file, index = key
+        model = files[file].models[index]
+        if model.base is not None:
+            base = model_key(file, model.base)
+            if not isinstance(base, tuple) or base in seen:
+                unresolved[key] = "base"
+                return None
+            found = collection(base, (*seen, key))
+            if found is None:
+                unresolved[key] = "base"
+                return None
+            tables[key] = (found[0], found[1], base)
+            return tables[key]
+        if model.collection is UNKNOWN:
+            unresolved[key] = "collection"
+        elif model.collection is not None:
+            tables[key] = (model.collection, "explicit", None)
+        else:
+            option = schema_collection(file, model.schema)
+            if option is UNKNOWN:
+                unresolved[key] = "schema"
+            elif option is not None:
+                tables[key] = (option, "schema", None)
+            elif UNKNOWN in pluralize:
+                unresolved[key] = "pluralize"
+            elif "off" in pluralize:
+                tables[key] = (model.name, "default", None)
+            else:
+                names = {mongoose_pluralize(model.name, m) for m in majors}
+                if len(names) == 1:
+                    tables[key] = (names.pop(), "default", None)
+                else:
+                    unresolved[key] = "version"
+        return tables.get(key)
+
+    for file, found in sorted(files.items()):
+        for index in range(len(found.models)):
+            collection((file, index))
+    return tables, unresolved, lambda use: model_key(use.file, use.target)
+
+
+# Doctrine ORM: entity mappings (attributes, docblock annotations, XML),
+# repositories and EntityManager calls -------------------------------------
+
+DOCTRINE_MAPPING = "Doctrine\\ORM\\Mapping\\"
+DOCTRINE_FINDERS = {"find", "findBy", "findOneBy", "findAll", "count", "matching"}
+DOCTRINE_REPOSITORY_BASES = {
+    "Doctrine\\ORM\\EntityRepository",
+    "Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository",
+    "Doctrine\\Persistence\\ObjectRepository",
+}
+# Methods a repository calls on itself that read its entity's table.
+DOCTRINE_SELF_READS = DOCTRINE_FINDERS | {
+    "createQueryBuilder",
+    "createResultSetMappingBuilder",
+}
+
+
+def _doctrine_finder(method):
+    """A built-in or Doctrine 2 magic finder (``findOneByEmail``)."""
+    return method in DOCTRINE_FINDERS or bool(
+        re.match(r"(?:findBy|findOneBy|countBy)[A-Z]", method or "")
+    )
+
+
+@dataclass(frozen=True)
+class DoctrineClass:
+    """A PHP class, or an XML ``<entity>`` (``file`` is the XML file and
+    ``class_id`` None). ``kind`` is "entity", "mapped" (mapped superclass),
+    "embeddable" or None; ``table`` is the literal table name, None when
+    unset, PLACEHOLDER when not fixed; ``inheritance`` is the literal
+    InheritanceType or PLACEHOLDER."""
+
+    file: str
+    class_id: str | None
+    path: str
+    superclass: str | None
+    kind: str | None
+    table: str | None
+    inheritance: str | None
+    repository: str | None  # the entity's repositoryClass
+    repository_of: str | None  # parent::__construct($registry, X::class)
+    join_tables: tuple  # ((name, line), ...)
+    line: int
+    column: int
+    methods: tuple = ()  # the methods the class declares
+
+
+@dataclass(frozen=True)
+class DoctrineUse:
+    """A read or write of an entity (``entity``) or of a repository's entity
+    (``repository``), both fully qualified. ``finder`` is the method of a
+    finder call on a typed repository, which a repository that declares a
+    method of that name answers itself."""
+
+    file: str
+    caller_id: str | None
+    entity: str | None
+    repository: str | None
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+    finder: str | None = None
+
+
+def _doc_annotations(text):
+    """[(name, positional args, {key: raw value})] of a docblock's top-level
+    ``@Name(...)`` annotations; values keep their quotes."""
+    found, i = [], 0
+    while True:
+        match = re.compile(r"@([A-Za-z_\\][\w\\]*)").search(text, i)
+        if match is None:
+            return found
+        i = match.end()
+        j = i
+        while j < len(text) and text[j] in " \t":
+            j += 1
+        args, named = [], {}
+        if j < len(text) and text[j] == "(":
+            depth, k, quote, start, parts = 0, j, None, j + 1, []
+            while k < len(text):
+                c = text[k]
+                if quote:
+                    if c == quote:
+                        quote = None
+                elif c in "\"'":
+                    quote = c
+                elif c in "({[":
+                    depth += 1
+                elif c in ")}]":
+                    depth -= 1
+                    if depth == 0:
+                        parts.append(text[start:k])
+                        break
+                elif c == "," and depth == 1:
+                    parts.append(text[start:k])
+                    start = k + 1
+                k += 1
+            i = k + 1
+            for part in parts:
+                part = re.sub(r"\s*\*\s*", " ", part).strip()
+                key = re.match(r"(\w+)\s*[=:]\s*(.*)$", part, re.S)
+                if key:
+                    named[key.group(1)] = key.group(2).strip()
+                elif part:
+                    args.append(part)
+        found.append((match.group(1), args, named))
+
+
+def _quoted(raw):
+    """The text of a "..." or '...' annotation value, else None."""
+    match = re.fullmatch(r"\"([^\"]*)\"|'([^']*)'", (raw or "").strip())
+    return None if match is None else (match.group(1) or match.group(2) or "")
+
+
+def extract_php_doctrine(tree, content, file, definitions):
+    """(classes, uses, renames) of one PHP file: Doctrine mappings of its
+    classes, reads and writes of entities and repositories, and whether a
+    metadata listener renames tables (``setPrimaryTable``/``setTableName``)."""
+    classes, uses = [], []
+    renames = False
+    namespace, imports = "", {}
+
+    def resolve(written):
+        if not written:
+            return None
+        written = written.strip()
+        if written.startswith("\\"):
+            return written[1:]
+        if written in ("self", "static", "parent"):
+            return None
+        head, _, rest = written.partition("\\")
+        if head in imports:
+            return imports[head] + ("\\" + rest if rest else "")
+        return f"{namespace}\\{written}" if namespace else written
+
+    def use_clauses(declaration):
+        prefix = ""
+        for child in declaration.named_children:
+            if child.type == "namespace_name":
+                prefix = _text(child, content) + "\\"
+            elif child.type == "namespace_use_clause":
+                add_clause(child, "")
+            elif child.type == "namespace_use_group":
+                for clause in child.named_children:
+                    if clause.type == "namespace_use_clause":
+                        add_clause(clause, prefix)
+
+    def add_clause(clause, prefix):
+        if any(c.type in ("function", "const") for c in clause.children):
+            return
+        alias = clause.child_by_field_name("alias")
+        target = next(
+            (c for c in clause.named_children if c.type in ("qualified_name", "name")),
+            None,
+        )
+        if target is None:
+            return
+        path = (prefix + _text(target, content)).lstrip("\\")
+        local = _text(alias, content) if alias is not None else path.rpartition("\\")[2]
+        imports[local] = path
+
+    def mapping(written):
+        """The Doctrine mapping class an attribute or annotation names."""
+        path = resolve(written)
+        if path and path.startswith(DOCTRINE_MAPPING):
+            return path[len(DOCTRINE_MAPPING) :]
+        # Doctrine 2's simple annotation reader takes unimported names.
+        if written in ("Entity", "Table", "MappedSuperclass", "Embeddable",
+                       "InheritanceType", "JoinTable") and written not in imports:  # fmt: skip
+            return written
+        return None
+
+    def class_of(node):
+        """The class an ``X::class`` expression names."""
+        if node is not None and node.type == "class_constant_access_expression":
+            parts = node.named_children
+            if len(parts) == 2 and _text(parts[1], content) == "class":
+                return resolve(_text(parts[0], content))
+        literal = _php_literal(node, content)
+        return literal.lstrip("\\") if literal else None
+
+    def type_of(node):
+        """The class a parameter or property type names, if one."""
+        for child in node.named_children if node is not None else ():
+            if child.type == "named_type":
+                return resolve(_text(child, content))
+            if child.type == "optional_type":
+                return type_of(child)
+        return None
+
+    def read_class(node):
+        nonlocal renames
+        name = node.child_by_field_name("name")
+        if name is None:
+            return
+        path = (
+            f"{namespace}\\{_text(name, content)}"
+            if namespace
+            else _text(name, content)
+        )
+        base = next((c for c in node.named_children if c.type == "base_clause"), None)
+        superclass = (
+            resolve(_text(base.named_children[0], content))
+            if base is not None and base.named_children
+            else None
+        )
+        kind = table = inheritance = repository = repository_of = None
+        join_tables = []
+        found = []  # (mapping, positional, named) with values as raw text
+        for group in _descendants(node, "attribute_list"):
+            if group.parent != node:
+                continue
+            for attribute in _descendants(group, "attribute"):
+                written = next(
+                    (
+                        c
+                        for c in attribute.named_children
+                        if c.type in ("name", "qualified_name")
+                    ),
+                    None,
+                )
+                args, named = [], {}
+                arguments = attribute.child_by_field_name("parameters") or next(
+                    (c for c in attribute.named_children if c.type == "arguments"), None
+                )
+                for argument in (
+                    arguments.named_children if arguments is not None else ()
+                ):
+                    if argument.type != "argument":
+                        continue
+                    key = next(
+                        (c for c in argument.named_children if c.type == "name"), None
+                    )
+                    value = (
+                        argument.named_children[-1] if argument.named_children else None
+                    )
+                    if key is not None and key != value:
+                        named[_text(key, content)] = value
+                    else:
+                        args.append(value)
+                found.append(
+                    (mapping(_text(written, content) if written else None), args, named)
+                )
+        previous = node.prev_named_sibling
+        docblock = (
+            _text(previous, content)
+            if previous is not None
+            and previous.type == "comment"
+            and _text(previous, content).startswith("/**")
+            else ""
+        )
+        for written, args, named in _doc_annotations(docblock):
+            found.append((mapping(written), args, named))
+
+        def literal(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                text = _quoted(value)
+                return PLACEHOLDER if text is None else text
+            text = _php_literal(value, content)
+            return PLACEHOLDER if text is None else text
+
+        def class_value(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                text = _quoted(value)
+                if text is not None:
+                    return text.lstrip("\\")
+                match = re.fullmatch(r"([\w\\]+)::class", value.strip())
+                return resolve(match.group(1)) if match else None
+            return class_of(value)
+
+        for which, args, named in found:
+            if which == "Entity":
+                kind = "entity"
+                repository = class_value(named.get("repositoryClass"))
+            elif which == "MappedSuperclass":
+                kind = kind or "mapped"
+                repository = repository or class_value(named.get("repositoryClass"))
+            elif which == "Embeddable":
+                kind = kind or "embeddable"
+            elif which == "Table":
+                table = literal(named.get("name", args[0] if args else None))
+            elif which == "InheritanceType":
+                inheritance = literal(named.get("value", args[0] if args else None))
+        body = node.child_by_field_name("body")
+        # Join tables on the properties: #[ORM\JoinTable(name: '...')].
+        for member in body.named_children if body is not None else ():
+            if member.type != "property_declaration":
+                continue
+            entries = []
+            for group in member.named_children:
+                if group.type == "attribute_list":
+                    for attribute in _descendants(group, "attribute"):
+                        written = next(
+                            (
+                                c
+                                for c in attribute.named_children
+                                if c.type in ("name", "qualified_name")
+                            ),
+                            None,
+                        )
+                        if (
+                            written is not None
+                            and mapping(_text(written, content)) == "JoinTable"
+                        ):
+                            arguments = next(
+                                (
+                                    c
+                                    for c in attribute.named_children
+                                    if c.type == "arguments"
+                                ),
+                                None,
+                            )
+                            for argument in (
+                                arguments.named_children if arguments else ()
+                            ):
+                                key = next(
+                                    (
+                                        c
+                                        for c in argument.named_children
+                                        if c.type == "name"
+                                    ),
+                                    None,
+                                )
+                                if key is None or _text(key, content) == "name":
+                                    entries.append(literal(argument.named_children[-1]))
+                                    break
+            doc = member.prev_named_sibling
+            if doc is not None and doc.type == "comment":
+                for written, args, named in _doc_annotations(_text(doc, content)):
+                    if mapping(written) == "JoinTable":
+                        entries.append(
+                            literal(named.get("name", args[0] if args else None))
+                        )
+            for entry in entries:
+                if entry and entry is not PLACEHOLDER:
+                    join_tables.append((entry, member.start_point.row + 1))
+        for call in _descendants(node, "scoped_call_expression"):
+            if (
+                _text(call.child_by_field_name("scope"), content) == "parent"
+                and _text(call.child_by_field_name("name"), content) == "__construct"
+            ):
+                for argument in _php_arguments(call)[1:2]:
+                    repository_of = class_of(argument)
+        classes.append(
+            DoctrineClass(
+                file,
+                _innermost(definitions, file, name),
+                path,
+                superclass,
+                kind,
+                table,
+                inheritance,
+                repository,
+                repository_of,
+                tuple(join_tables),
+                name.start_point.row + 1,
+                name.start_point.column,
+                tuple(
+                    _text(m.child_by_field_name("name"), content)
+                    for m in (body.named_children if body is not None else ())
+                    if m.type == "method_declaration"
+                ),
+            )
+        )
+        # Uses in the class's methods.
+        properties = {}
+        for member in body.named_children if body is not None else ():
+            if member.type == "property_declaration":
+                kind_of = type_of(member)
+                for element in member.named_children:
+                    if element.type == "property_element":
+                        variable = (
+                            element.child_by_field_name("name")
+                            or element.named_children[0]
+                        )
+                        properties[_text(variable, content).lstrip("$")] = kind_of
+            elif member.type == "method_declaration":
+                parameters = member.child_by_field_name("parameters")
+                for parameter in parameters.named_children if parameters else ():
+                    if parameter.type == "property_promotion_parameter":
+                        variable = parameter.child_by_field_name("name") or next(
+                            (
+                                c
+                                for c in parameter.named_children
+                                if c.type == "variable_name"
+                            ),
+                            None,
+                        )
+                        if variable is not None:
+                            properties[_text(variable, content).lstrip("$")] = type_of(
+                                parameter
+                            )
+        is_repository = (
+            repository_of is not None or superclass in DOCTRINE_REPOSITORY_BASES
+        )
+        for method in body.named_children if body is not None else ():
+            if method.type != "method_declaration":
+                continue
+            variables = {}
+            parameters = method.child_by_field_name("parameters")
+            for parameter in parameters.named_children if parameters else ():
+                variable = next(
+                    (c for c in parameter.named_children if c.type == "variable_name"),
+                    None,
+                )
+                if variable is not None:
+                    variables[_text(variable, content)] = type_of(parameter)
+            for assignment in _descendants(method, "assignment_expression"):
+                left = assignment.child_by_field_name("left")
+                right = assignment.child_by_field_name("right")
+                if (
+                    left is not None
+                    and left.type == "variable_name"
+                    and right is not None
+                ):
+                    created = (
+                        resolve(
+                            _text(
+                                right.child_by_field_name("class")
+                                or right.named_children[0],
+                                content,
+                            )
+                        )
+                        if right.type == "object_creation_expression"
+                        and right.named_children
+                        else None
+                    )
+                    name_ = _text(left, content)
+                    if name_ in variables and variables[name_] != created:
+                        variables[name_] = None
+                    else:
+                        variables[name_] = created
+            walk_method(method, path, is_repository, properties, variables)
+
+    def receiver_type(node, properties, variables):
+        if node is None:
+            return None
+        if node.type == "variable_name":
+            return variables.get(_text(node, content))
+        if node.type == "member_access_expression":
+            target = node.child_by_field_name("object")
+            if target is not None and _text(target, content) == "$this":
+                return properties.get(_text(node.child_by_field_name("name"), content))
+        return None
+
+    def use(call, entity, repository, reads, writes, finder=None):
+        where = call.child_by_field_name("name") or call
+        uses.append(
+            DoctrineUse(
+                file,
+                _innermost(definitions, file, call),
+                entity,
+                repository,
+                reads,
+                writes,
+                where.start_point.row + 1,
+                where.start_point.column,
+                finder,
+            )
+        )
+
+    def chain(call):
+        names, node = [], call
+        while node.parent is not None and node.parent.type == "member_call_expression":
+            if node.parent.child_by_field_name("object") != node:
+                break
+            node = node.parent
+            names.append(_text(node.child_by_field_name("name"), content))
+        return names
+
+    def walk_method(method, path, is_repository, properties, variables):
+        nonlocal renames
+        for call in _descendants(method, "member_call_expression"):
+            name = _text(call.child_by_field_name("name"), content)
+            target = call.child_by_field_name("object")
+            arguments = _php_arguments(call)
+            if name in ("setPrimaryTable", "setTableName"):
+                renames = True
+            elif name == "getRepository" and arguments:
+                entity = class_of(arguments[0])
+                following = chain(call)
+                if entity and following and _doctrine_finder(following[0]):
+                    use(call, entity, None, True, False)
+            elif name in ("from", "update", "delete") and arguments:
+                entity = class_of(arguments[0])
+                if entity and arguments[0].type == "class_constant_access_expression":
+                    use(call, entity, None, name == "from", name != "from")
+            elif (
+                name in ("find", "getReference", "getPartialReference")
+                and len(arguments) >= 2
+            ):
+                entity = class_of(arguments[0])
+                if entity and arguments[0].type == "class_constant_access_expression":
+                    use(call, entity, None, True, False)
+            elif name in ("persist", "remove") and len(arguments) == 1:
+                entity = receiver_type(arguments[0], properties, variables)
+                if entity:
+                    use(call, entity, None, False, True)
+            elif target is not None and _text(target, content) == "$this":
+                if is_repository and name in DOCTRINE_SELF_READS:
+                    following = chain(call)
+                    writes = name == "createQueryBuilder" and any(
+                        m in ("update", "delete") for m in following
+                    )
+                    use(call, None, path, not writes or "select" in following, writes)
+            elif _doctrine_finder(name):
+                kind = receiver_type(target, properties, variables)
+                if kind:
+                    use(call, None, kind, True, False, name)
+
+    def walk(node):
+        nonlocal namespace
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                namespace = _text(name, content) if name is not None else ""
+                imports.clear()
+                body = child.child_by_field_name("body")
+                if body is not None:
+                    walk(body)
+                continue
+            if child.type == "namespace_use_declaration":
+                use_clauses(child)
+                continue
+            if child.type == "class_declaration":
+                read_class(child)
+                continue
+            walk(child)
+
+    walk(tree.root_node)
+    return classes, uses, renames
+
+
+def doctrine_xml(path, content):
+    """The DoctrineClass entries of a ``*.orm.xml`` mapping file."""
+    import xml.etree.ElementTree as ElementTree
+
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return []
+    found = []
+    for element in root.iter():
+        tag = element.tag.rpartition("}")[2]
+        kind = {
+            "entity": "entity",
+            "mapped-superclass": "mapped",
+            "embeddable": "embeddable",
+        }.get(tag)
+        if kind is None or not element.get("name"):
+            continue
+        joins = tuple(
+            (j.get("name"), 0)
+            for j in element.iter()
+            if j.tag.rpartition("}")[2] == "join-table" and j.get("name")
+        )
+        found.append(
+            DoctrineClass(
+                path,
+                None,
+                element.get("name").lstrip("\\"),
+                None,
+                kind,
+                element.get("table"),
+                element.get("inheritance-type"),
+                (element.get("repository-class") or "").lstrip("\\") or None,
+                None,
+                joins,
+                0,
+                0,
+            )
+        )
+    return found
+
+
+def doctrine_table_name(class_path, strategy, number_aware=True):
+    """A Doctrine naming strategy's ``classToTableName``: "default" keeps the
+    short class name; "underscore" lowercases it with ``_`` before each
+    capital that follows a lowercase letter (or a digit, number aware)."""
+    short = class_path.rpartition("\\")[2]
+    if strategy == "default":
+        return short
+    pattern = r"(?<=[a-z0-9])([A-Z])" if number_aware else r"(?<=[a-z])([A-Z])"
+    return re.sub(pattern, r"_\1", short).lower()
+
+
+def doctrine_strategies(configured, php_sources, majors):
+    """The (strategy, number_aware) choices a repository's Doctrine naming
+    can be, or UNKNOWN. ``configured`` holds the ``naming_strategy`` service
+    ids of the Symfony configuration; without one, a PHP bootstrap's ``new
+    UnderscoreNamingStrategy(...)`` passed to ``setNamingStrategy`` counts,
+    else DoctrineBundle's and the ORM's default. ``majors`` are the
+    doctrine/orm majors in use: plain ``underscore`` is number aware only
+    from ORM 3."""
+    kinds = set()
+    for service in configured:
+        kinds.add(
+            {
+                "doctrine.orm.naming_strategy.default": "default",
+                "doctrine.orm.naming_strategy.underscore": "underscore",
+                "doctrine.orm.naming_strategy.underscore_number_aware": "number_aware",
+            }.get(service, UNKNOWN)
+        )
+    if not kinds:
+        text = "\n".join(php_sources)
+        if "setNamingStrategy(" in text:
+            created = re.findall(
+                r"new\s+\\?(?:[\w\\]+\\)?UnderscoreNamingStrategy\s*\(([^)]*)\)", text
+            )
+            if len(set(created)) != 1 or "CASE_UPPER" in created[0]:
+                return UNKNOWN
+            kinds.add(
+                "number_aware"
+                if re.search(r"\btrue\b", created[0], re.I)
+                else "underscore"
+            )
+        else:
+            kinds.add("default")
+    if len(kinds) != 1 or UNKNOWN in kinds:
+        return UNKNOWN
+    kind = kinds.pop()
+    if kind == "default":
+        return {("default", True)}
+    if kind == "number_aware":
+        return {("underscore", True)}
+    return {("underscore", major >= 3) for major in majors or (2, 3)}
+
+
+def resolve_doctrine(classes, strategies, renames=False):
+    """({path: (DoctrineClass, table, how)}, {path: reason}, {repository
+    path: entity path}) of the mapped entities. ``how`` is "explicit" (a
+    Table name) or "default" (the naming strategy). Single-table subclasses
+    take their root's table; XML mappings take precedence over the class."""
+    php, xml, duplicates = {}, {}, set()
+    for c in classes:
+        target = xml if c.class_id is None and c.file.endswith(".xml") else php
+        if c.path in target and target[c.path] != c:
+            duplicates.add(c.path)
+        target.setdefault(c.path, c)
+    merged = {}
+    for path in sorted(set(php) | set(xml)):
+        own, mapped = php.get(path), xml.get(path)
+        if mapped is not None and own is not None:
+            mapped = replace(
+                mapped,
+                file=own.file,
+                class_id=own.class_id,
+                superclass=own.superclass,
+                repository_of=own.repository_of,
+                line=own.line,
+                column=own.column,
+            )
+        merged[path] = mapped or own
+    repositories = {}
+    for c in merged.values():
+        for repository, entity in ((c.path, c.repository_of), (c.repository, c.path)):
+            if repository and entity:
+                repositories.setdefault(repository, set()).add(entity)
+    repositories = {r: e.pop() for r, e in repositories.items() if len(e) == 1}
+    tables, unresolved = {}, {}
+
+    def own_table(c):
+        if c.table is PLACEHOLDER:
+            return None, "table"
+        if c.table:
+            return (c.table, "explicit"), None
+        if strategies is UNKNOWN:
+            return None, "naming"
+        names = {doctrine_table_name(c.path, s, n) for s, n in strategies}
+        return ((names.pop(), "default"), None) if len(names) == 1 else (None, "naming")
+
+    for path, c in merged.items():
+        if c.kind != "entity":
+            continue
+        if renames:
+            unresolved[path] = "metadata_listener"
+            continue
+        if path in duplicates:
+            unresolved[path] = "duplicate"
+            continue
+        # The topmost entity ancestor with an inheritance type is the root.
+        chain, seen, node = [], {path}, c
+        while node.superclass in merged and node.superclass not in seen:
+            seen.add(node.superclass)
+            node = merged[node.superclass]
+            if node.kind == "entity":
+                chain.append(node)
+        roots = [n for n in chain if n.inheritance]
+        root = roots[-1] if roots else (c if c.inheritance else None)
+        if root is not None and root.inheritance is PLACEHOLDER:
+            unresolved[path] = "inheritance"
+            continue
+        source = (
+            root
+            if root is not None and root.inheritance.upper() == "SINGLE_TABLE"
+            else c
+        )
+        found, reason = own_table(source)
+        if found is None:
+            unresolved[path] = reason
+        else:
+            tables[path] = (c, table_key(found[0]), found[1])
+    return tables, unresolved, repositories

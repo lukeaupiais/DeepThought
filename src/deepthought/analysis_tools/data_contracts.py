@@ -10,6 +10,7 @@ tree-sitter output joins them.
 """
 
 from hashlib import sha256
+from collections import Counter
 import importlib.util
 import json
 import os
@@ -46,6 +47,13 @@ from ..data_contracts import (
     extract_sqlalchemy,
     extract_typeorm,
     extract_sequelize,
+    extract_mongoose,
+    extract_php_doctrine,
+    doctrine_xml,
+    doctrine_strategies,
+    resolve_doctrine,
+    mongoose_majors,
+    resolve_mongoose,
     resolve_sequelize,
     merge_sequelize_defines,
     sequelize_define_options,
@@ -407,6 +415,15 @@ SQL_RULES = {
             "file.",
         ),
         (
+            "php-sql",
+            "The code passes SQL naming this table (literals, heredocs, . "
+            "joins, sprintf templates and local variables built from them, "
+            "what they interpolate unfixed) to a PDO or mysqli query, prepare "
+            "or exec method, a Doctrine DBAL execute or fetch method, a "
+            "mysqli_* or pg_* query function, or Laravel's DB::select, "
+            "DB::statement and the like; the receiver's type is not checked.",
+        ),
+        (
             "jdbc-insert-table",
             "The code calls withTableName with this table (SimpleJdbcInsert), "
             "in a file importing org.springframework.jdbc.",
@@ -541,6 +558,74 @@ SEQUELIZE_CALL_RULE = register_rule(
     )
 )
 
+DOCTRINE_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-table",
+        "pattern_matched",
+        "A Doctrine entity (#[ORM\\Entity], an @ORM\\Entity docblock "
+        "annotation or an <entity> of a .orm.xml mapping) names this table "
+        "with a literal Table name; a single-table subclass takes its root "
+        "entity's table. Also a literal JoinTable name.",
+    )
+)
+DOCTRINE_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-default-table",
+        "name_matched",
+        "A Doctrine entity without a Table name: its short class name under "
+        "the configured naming strategy (DefaultNamingStrategy keeps it, "
+        "UnderscoreNamingStrategy snake-cases it, number aware from ORM 3 or "
+        "with underscore_number_aware). Left out when the strategy is custom "
+        "or a metadata listener renames tables.",
+    )
+)
+DOCTRINE_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.doctrine-call",
+        "pattern_matched",
+        "The code reads an entity's table through its repository (the "
+        "repository's own createQueryBuilder and finders, finders on a "
+        "property or parameter typed with the repository class, "
+        "getRepository(X::class) finders, EntityManager find(X::class)) or a "
+        "query builder from(X::class), or writes it with update/delete"
+        "(X::class) or persist/remove of a variable typed with the entity "
+        "class (a parameter, property or new X()). Receivers other than "
+        "these types are not type-checked.",
+    )
+)
+MONGOOSE_COLLECTION_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-collection",
+        "pattern_matched",
+        "A Mongoose model (model(name, schema) on mongoose, a connection or "
+        "the model import of mongoose) names this collection with a literal "
+        "collection argument or its schema's literal collection option. A "
+        "discriminator maps to its base model's collection.",
+    )
+)
+MONGOOSE_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-default-collection",
+        "name_matched",
+        "A Mongoose model without a collection: the model name pluralized "
+        "by mongoose's default pluralize, the same under every mongoose "
+        "major the package manifests allow (5, 6 and 7 or later differ). "
+        "Left out when the code sets its own pluralize function.",
+    )
+)
+MONGOOSE_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-call",
+        "pattern_matched",
+        "The code calls a static query (find, findOne, countDocuments, "
+        "aggregate, ...) or write (create, updateOne, deleteMany, ...) "
+        "method on a Mongoose model: a binding of the model in the file, an "
+        "import that resolves to a file exporting it, mongoose.model(name) "
+        "or mongoose.models.name. Instance methods (doc.save()) and query "
+        "chains held in variables are not read.",
+    )
+)
+
 
 def _nearest(candidates, scope):
     """The tables of (scope, table) candidates in the user's own namespace
@@ -563,6 +648,15 @@ def _is_ruby_test(path):
     gems and Composer installs packages)."""
     return any(
         part in ("test", "tests", "spec", "vendor") for part in path.split("/")[:-1]
+    )
+
+
+def _is_script_test(path):
+    """JavaScript and TypeScript test sources: test trees (test/, tests/,
+    __tests__/, spec/) and ``*.test.*`` / ``*.spec.*`` files."""
+    parts = path.split("/")
+    return any(p in ("test", "tests", "__tests__", "spec") for p in parts[:-1]) or bool(
+        re.search(r"\.(?:test|spec)\.[cm]?[jt]sx?$", parts[-1])
     )
 
 
@@ -591,11 +685,16 @@ def _sql_files(root, include, exclude, suffix=".sql"):
     return found
 
 
+# Engine diagnostics that stop the walk over source files.
+SOURCE_LIMITS = {"file_count_limit", "total_byte_limit"}
+
+
 @register_tool
 class DataContractTool(AnalysisTool):
-    def __init__(self, repo_path):
+    def __init__(self, repo_path, max_files=10_000):
         super().__init__(repo_path)
         self.last_facts = None
+        self.max_files = max_files
 
     def _get_metadata(self):
         return ToolMetadata(
@@ -638,6 +737,7 @@ class DataContractTool(AnalysisTool):
             languages=selected,
             include=include,
             exclude=exclude,
+            max_files=self.max_files,
         )
         root = Path(self.repo_path).resolve()
         scan = scan_components(root, include=include, exclude=exclude)
@@ -677,6 +777,13 @@ class DataContractTool(AnalysisTool):
             if found is not None:
                 digests[path] = sha256(content).hexdigest()
                 mapper_statements.extend(found)
+        doctrine_mapped = []  # entities of .orm.xml mapping files
+        for path in _sql_files(root, include, exclude, ".orm.xml"):
+            content = (root / path).read_bytes()
+            found = doctrine_xml(path, content)
+            if found:
+                digests[path] = sha256(content).hexdigest()
+                doctrine_mapped.extend(found)
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -824,6 +931,7 @@ class DataContractTool(AnalysisTool):
             {d.file for d in ddl}
             | {m.file for m in prisma}
             | {m.file for m in mapper_statements}
+            | {c.file for c in doctrine_mapped}
         ):
             file_name = f"{repo_url}::{path}::file"
             files.append(
@@ -1032,8 +1140,13 @@ class DataContractTool(AnalysisTool):
             found = extract_go_sql(tree, content, file, result.definitions)
             go_names.extend(found[0])
             go_uses.extend(found[1])
+        php_found = [
+            (file, extract_php_eloquent(tree, content, file, result.definitions))
+            for file, content, tree in php_trees
+        ]
         uses = (
             go_uses
+            + [item for _, found in php_found for item in found[3]]
             + [
                 item
                 for file, content, tree in trees
@@ -1406,10 +1519,202 @@ class DataContractTool(AnalysisTool):
                         SEQUELIZE_CALL_RULE,
                         {"model": use.model, "line": use.line, "column": use.column},
                     )
+        # Mongoose: models, their collections and static calls.
+        mongoose_files, mongoose_specs = {}, []
+        for path in _sql_files(root, include, exclude, "package.json"):
+            if not path.endswith("package.json"):
+                continue
+            content = (root / path).read_bytes()
+            try:
+                manifest = json.loads(content)
+            except ValueError:
+                continue
+            if not isinstance(manifest, dict):
+                continue
+            for section in ("dependencies", "devDependencies", "peerDependencies"):
+                spec = (manifest.get(section) or {}).get("mongoose")
+                if isinstance(spec, str):
+                    digests[path] = sha256(content).hexdigest()
+                    mongoose_specs.append(spec)
+        for file, content, tree in script_trees:
+            if _is_script_test(file):
+                continue
+            found = extract_mongoose(tree, content, file, result.definitions)
+            if found is not None:
+                mongoose_files[file] = found
+        mongoose_tables, mongoose_unresolved, mongoose_model = resolve_mongoose(
+            mongoose_files,
+            mongoose_majors(mongoose_specs),
+            lambda file, module: (
+                resolve_script_module(file, module, script_files)
+                or resolve_script_alias(file, module, script_files, ts_paths)
+            ),
+            scope,
+        )
+        mongoose_targets = {}
+        for (file, index), (name, how, base) in sorted(mongoose_tables.items()):
+            model = mongoose_files[file].models[index]
+            target = table(file, table_key(name))
+            mongoose_targets[file, index] = target
+            extra = {"model": model.name, "line": model.line, "column": model.column}
+            if base is not None:
+                extra["discriminator_of"] = mongoose_files[base[0]].models[base[1]].name
+            link(
+                "MAPS_TO",
+                code(file, model.model_id),
+                target,
+                MONGOOSE_DEFAULT_RULE if how == "default" else MONGOOSE_COLLECTION_RULE,
+                extra,
+            )
+        mongoose_counts = {"linked": 0, "unresolved_model": 0}
+        has_models = any(found.models for found in mongoose_files.values())
+        for file, found in sorted(mongoose_files.items()):
+            for use in found.uses if has_models else ():
+                key = mongoose_model(use)
+                if not isinstance(key, tuple):
+                    if key != "package":
+                        mongoose_counts[key] = mongoose_counts.get(key, 0) + 1
+                    continue
+                target = mongoose_targets.get(key)
+                if target is None:
+                    mongoose_counts["unresolved_model"] += 1
+                    continue
+                mongoose_counts["linked"] += 1
+                model = mongoose_files[key[0]].models[key[1]]
+                source = code(use.file, use.caller_id)
+                for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                    if used:
+                        link(
+                            kind,
+                            source,
+                            target,
+                            MONGOOSE_CALL_RULE,
+                            {
+                                "model": model.name,
+                                "line": use.line,
+                                "column": use.column,
+                            },
+                        )
+        # Doctrine ORM: entities, repositories and EntityManager calls.
+        doctrine_classes, doctrine_uses, doctrine_renames = [], [], False
+        php_texts = []
+        for file, content, tree in php_trees:
+            found = extract_php_doctrine(tree, content, file, result.definitions)
+            doctrine_classes.extend(found[0])
+            doctrine_uses.extend(found[1])
+            doctrine_renames = doctrine_renames or found[2]
+            if b"NamingStrategy" in content:
+                php_texts.append(content.decode("utf-8", "replace"))
+        doctrine_classes.extend(doctrine_mapped)
+
+        def doctrine_source(c):
+            if c.class_id is None and c.file.endswith(".xml"):
+                return ["File"], f"{repo_url}::{c.file}::file"
+            return code(c.file, c.class_id)
+
+        configured, doctrine_majors = set(), set()
+        if doctrine_classes:
+            for suffix in (".yaml", ".yml"):
+                for path in _sql_files(root, include, exclude, suffix):
+                    if "doctrine" not in path.rpartition("/")[2]:
+                        continue
+                    content = (root / path).read_bytes()
+                    services = re.findall(
+                        rb"naming_strategy\s*:\s*['\"]?([\w.\\]+)", content
+                    )
+                    if services:
+                        digests[path] = sha256(content).hexdigest()
+                        configured.update(s.decode() for s in services)
+            for path in _sql_files(root, include, exclude, "composer.lock"):
+                content = (root / path).read_bytes()
+                try:
+                    locked = json.loads(content).get("packages") or []
+                except (ValueError, AttributeError):
+                    continue
+                for package in locked:
+                    if (
+                        isinstance(package, dict)
+                        and package.get("name") == "doctrine/orm"
+                    ):
+                        major = re.match(r"v?(\d+)", str(package.get("version", "")))
+                        if major:
+                            digests[path] = sha256(content).hexdigest()
+                            doctrine_majors.add(int(major.group(1)))
+            if not doctrine_majors:
+                for path in _sql_files(root, include, exclude, "composer.json"):
+                    content = (root / path).read_bytes()
+                    try:
+                        manifest = json.loads(content)
+                    except ValueError:
+                        continue
+                    spec = (
+                        (manifest.get("require") or {}).get("doctrine/orm")
+                        if isinstance(manifest, dict)
+                        else None
+                    )
+                    if isinstance(spec, str):
+                        digests[path] = sha256(content).hexdigest()
+                        numbers = re.findall(r"(?:^|[\s|^~>=<v])(\d+)", spec)
+                        doctrine_majors.update(int(n) for n in numbers)
+        doctrine_tables, doctrine_unresolved, doctrine_repositories = resolve_doctrine(
+            doctrine_classes,
+            doctrine_strategies(configured, php_texts, doctrine_majors),
+            doctrine_renames,
+        )
+        for path, (mapped, name, how) in sorted(doctrine_tables.items()):
+            link(
+                "MAPS_TO",
+                doctrine_source(mapped),
+                table(mapped.file, name),
+                DOCTRINE_TABLE_RULE if how == "explicit" else DOCTRINE_DEFAULT_RULE,
+                {"entity": path, "line": mapped.line, "column": mapped.column},
+            )
+        if not doctrine_renames:
+            for c in doctrine_classes:
+                for name, line in c.join_tables:
+                    link(
+                        "MAPS_TO",
+                        doctrine_source(c),
+                        table(c.file, table_key(name)),
+                        DOCTRINE_TABLE_RULE,
+                        {"entity": c.path, "join_table": True, "line": line},
+                    )
+        declared_methods = {c.path: set(c.methods) for c in doctrine_classes}
+        doctrine_counts = {"linked": 0, "not_an_entity": 0, "unresolved_entity": 0}
+        for use in doctrine_uses:
+            if (
+                use.repository is not None
+                and use.repository not in doctrine_repositories
+                and not use.repository.endswith("Repository")
+            ):
+                continue  # a finder-named method of another class
+            if use.finder in declared_methods.get(use.repository, ()):
+                continue  # the repository's own method, read where it is defined
+            entity = use.entity or doctrine_repositories.get(use.repository)
+            mapped = doctrine_tables.get(entity)
+            if mapped is None:
+                reason = (
+                    "unresolved_entity"
+                    if entity in doctrine_unresolved
+                    else "not_an_entity"
+                )
+                doctrine_counts[reason] += 1
+                continue
+            doctrine_counts["linked"] += 1
+            source = code(use.file, use.caller_id)
+            target = table(mapped[0].file, mapped[1])
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        target,
+                        DOCTRINE_CALL_RULE,
+                        {"entity": entity, "line": use.line, "column": use.column},
+                    )
         # Laravel: migrations, Eloquent models and their calls.
         php_classes, php_accesses = [], []
-        for file, content, tree in php_trees:
-            found = extract_php_eloquent(tree, content, file, result.definitions)
+        for file, found in php_found:
             php_classes.extend(found[0])
             php_accesses.extend(found[1])
             for name, line in found[2]:
@@ -1637,6 +1942,15 @@ class DataContractTool(AnalysisTool):
             "partial" if unreadable or result.status != "succeeded" else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        # A limit stops the source walk: the files after it are unread, so
+        # the tables and edges reported are a lower bound.
+        limits = sorted({d.code for d in result.diagnostics if d.code in SOURCE_LIMITS})
+        warnings += [
+            f"{code}: analysis stopped before reading every source file, "
+            "so tables, models and calls in the unread files are missing"
+            + (f" (max_files={self.max_files})" if code == "file_count_limit" else "")
+            for code in limits
+        ]
         identity = {
             "analyzer": "data-contracts",
             "analyzer_version": __version__,
@@ -1659,6 +1973,7 @@ class DataContractTool(AnalysisTool):
                 custom_metrics={
                     "snapshot_id": snapshot_id,
                     "analysis_status": status,
+                    "source_limits": limits,
                     "model_tokens": 0,
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
@@ -1684,6 +1999,16 @@ class DataContractTool(AnalysisTool):
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
+                    "doctrine_entities": len(doctrine_tables),
+                    "doctrine_unresolved": dict(
+                        sorted(Counter(doctrine_unresolved.values()).items())
+                    ),
+                    "doctrine_access_resolution": doctrine_counts,
+                    "mongoose_models": len(mongoose_tables),
+                    "mongoose_unresolved": dict(
+                        sorted(Counter(mongoose_unresolved.values()).items())
+                    ),
+                    "mongoose_access_resolution": dict(sorted(mongoose_counts.items())),
                     "eloquent_models": len(eloquent_tables),
                     "eloquent_unresolved": len(eloquent_unresolved),
                     "eloquent_access_resolution": eloquent_counts,
@@ -1695,7 +2020,8 @@ class DataContractTool(AnalysisTool):
                     "scope": "tables from CREATE TABLE, Prisma schemas, "
                     "Rails schema files, Laravel and Sequelize migrations and "
                     "JPA, Django, SQLAlchemy, GORM, TypeORM, Sequelize, "
-                    "Eloquent and ActiveRecord mappings, read and written by "
+                    "Eloquent, Doctrine, ActiveRecord and Mongoose mappings, read and "
+                    "written by "
                     "repositories, ORM calls and the SQL text code runs; per "
                     "datasource URL or nearest package",
                 },

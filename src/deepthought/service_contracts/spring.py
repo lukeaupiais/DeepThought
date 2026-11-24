@@ -13,6 +13,7 @@ import re
 
 from ..syntax import identifier
 from .http import ANY_METHOD, HTTP_METHODS, PLACEHOLDER, join_paths
+from .compose import compose_units
 from .model import HttpRequest, HttpRoute, Unread
 from .openapi import CLIENT_METHOD_SUFFIXES
 
@@ -768,6 +769,54 @@ def _read_values(path, key, raw=False, default_profile=False):
     ]
 
 
+_PROFILE_EXPRESSION = re.compile(r"[!&|()]")
+
+
+def _profile_documents(text, properties):
+    """(profiles, document) per document of a config file: the names it
+    activates on, None for every profile, or "expression" for a profile
+    expression."""
+    reader = _properties_values if properties else _yaml_values
+    for document in _documents(text, "#---" if properties else "---"):
+        written = [v for k in _PROFILE_KEYS for v in reader(document, k)]
+        if not written:
+            yield None, document
+        elif any(_PROFILE_EXPRESSION.search(w) for w in written):
+            yield "expression", document
+        else:
+            yield (
+                {p.strip() for w in written for p in w.split(",") if p.strip()},
+                document,
+            )
+
+
+_UNKNOWN = object()
+
+
+def _effective_value(path, key, active):
+    """The value of ``key`` in one config file with profiles ``active``: the
+    last document that applies sets it. None when no document sets it,
+    ``_UNKNOWN`` when a profile expression or a non-literal value decides."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    properties = path.suffix == ".properties"
+    reader = _properties_values if properties else _yaml_values
+    found = None
+    for profiles, document in _profile_documents(text, properties):
+        values = reader(document, key)
+        if not values:
+            continue
+        if profiles == "expression":
+            return _UNKNOWN
+        if profiles is None or profiles & active:
+            found = values[-1]
+    if found is not None and "${" in found:
+        return _UNKNOWN
+    return found
+
+
 class SpringConfig:
     """Service names and context paths declared in Spring configuration.
 
@@ -776,15 +825,104 @@ class SpringConfig:
     ``src/main/resources/{bootstrap,application}.{yml,yaml,properties}``
     there, plus, for a service name ``n``, ``n.*`` and ``application.*`` in
     the ``classpath:/`` native search locations of any Spring Cloud Config
-    server module in the repository. Profile files, environment variables
-    and remote config repositories are not read. A key with several
-    different values, or one written with ``${``, gives no value.
+    server module in the repository. A Compose service that builds the
+    module (``service_contracts.compose``) adds what it runs it with: the
+    files of its SPRING_CONFIG_LOCATION (which, when every such service sets
+    it, replace the module's own), its SPRING_APPLICATION_NAME and its
+    SPRING_PROFILES_ACTIVE. Profile files, other environment variables and
+    remote config repositories are not read. A key with several different
+    values, or one written with ``${``, gives no value.
     """
 
     def __init__(self, root_path):
         self.root = root_path
         self._modules = {}
         self._shared = None
+        self._units = None
+        self._identities = {}
+
+    def units(self, file):
+        """The Compose services that build the file's module."""
+        module = _module_root(self.root, file)
+        if module is None:
+            return []
+        if self._units is None:
+            self._units = {}
+            for unit in compose_units(self.root):
+                self._units.setdefault(unit.context, []).append(unit)
+        key = "" if module == PurePosixPath(".") else module.as_posix()
+        return self._units.get(key, [])
+
+    def unit_files(self, file, unit):
+        """The config files a Compose service of the file's module reads: its
+        SPRING_CONFIG_LOCATION entries (``file:`` through its bind mounts,
+        ``classpath:`` in the module's resources; ``optional:`` ones that do
+        not exist are skipped), or the module's own files without it. None
+        when a location is not literal or cannot be followed."""
+        location = unit.env("SPRING_CONFIG_LOCATION")
+        if location is None or unit.env("SPRING_CONFIG_ADDITIONAL_LOCATION") != "":
+            return None
+        if not location:
+            return [f for f in self._files(file) if f.is_file()]
+        module = _module_root(self.root, file)
+        found = []
+        for entry in location.split(","):
+            entry = entry.strip()
+            optional = entry.startswith("optional:")
+            entry = entry.removeprefix("optional:")
+            if entry.startswith("file:"):
+                relative = unit.host_path(entry[len("file:") :])
+            elif entry.startswith("classpath:"):
+                relative = (
+                    module / "src" / "main" / "resources" / entry[10:].lstrip("/")
+                ).as_posix()
+            else:
+                relative = None
+            if relative is None or entry.endswith("/"):
+                return None
+            path = self.root / relative
+            if path.is_file() and path.suffix.lstrip(".") in _CONFIG_SUFFIXES:
+                found.append(path)
+            elif not optional:
+                return None
+        return found
+
+    def _replaced(self, file):
+        """Whether every Compose service that builds the module sets
+        SPRING_CONFIG_LOCATION, which replaces the module's own files."""
+        units = self.units(file)
+        return bool(units) and all(u.env("SPRING_CONFIG_LOCATION") != "" for u in units)
+
+    def deployment_values(self, file, key):
+        """{unit label: value} of ``key`` in each Compose service that builds
+        the file's module, with its SPRING_PROFILES_ACTIVE; a value is None
+        when the key is not set, ``"${"`` when it cannot be read. {} when no
+        Compose service builds the module."""
+        found = {}
+        for unit in self.units(file):
+            files = self.unit_files(file, unit)
+            profiles = unit.env("SPRING_PROFILES_ACTIVE")
+            if files is None or profiles is None:
+                found[unit.label] = "${"
+                continue
+            active = {p.strip() for p in profiles.split(",") if p.strip()}
+            values = {_effective_value(path, key, active) for path in files} - {None}
+            if _UNKNOWN in values or len(values) > 1:
+                found[unit.label] = "${"
+            else:
+                found[unit.label] = next(iter(values), None)
+        return found
+
+    def identity(self, file):
+        """How the file's module is named as a service: (rule, units), where
+        rule is ``spring-application-name`` (its configuration, or that of
+        the Compose services that build it, names it), ``compose-service``
+        (the Compose services that build it share one name) or
+        ``module-name`` (they have several), and units the Compose
+        services' labels; (None, ()) for a module no one names or builds."""
+        self.service(file)
+        module = _module_root(self.root, file)
+        return self._identities.get(module, (None, ()))
 
     def _module_files(self, module):
         resources = self.root / module / "src" / "main" / "resources"
@@ -817,39 +955,18 @@ class SpringConfig:
         values = set(values)
         return next(iter(values)) if len(values) == 1 else None
 
-    def service(self, file):
-        """(service name, context path) of the file's module; each may be None."""
-        module = _module_root(self.root, file)
-        if module is None:
-            return None, None
-        if module not in self._modules:
-            files = self._module_files(module)
-            name = self._single(
-                v for f in files for v in _read_values(f, "spring.application.name")
-            )
-            if name is not None:
-                files += [
-                    directory / f"{stem}.{suffix}"
-                    for directory in self._shared_directories()
-                    for stem in (name, "application")
-                    for suffix in _CONFIG_SUFFIXES
-                ]
-            context = self._single(
-                v
-                for f in files
-                for key in _CONTEXT_PATH_KEYS
-                for v in _read_values(f, key)
-            )
-            self._modules[module] = (name, context)
-        return self._modules[module]
+    def _own_name(self, module):
+        return self._single(
+            v
+            for f in self._module_files(module)
+            for v in _read_values(f, "spring.application.name")
+        )
 
-    def files(self, file):
-        """The configuration files of the file's module (the shared
-        config-server files included) that exist; [] outside a module."""
+    def _files(self, file):
+        """The module's own config files and, for its name, those of the
+        config-server search locations (existing or not)."""
         module = _module_root(self.root, file)
-        if module is None:
-            return []
-        name, _ = self.service(file)
+        name = self._own_name(module)
         files = self._module_files(module)
         if name is not None:
             files += [
@@ -858,7 +975,72 @@ class SpringConfig:
                 for stem in (name, "application")
                 for suffix in _CONFIG_SUFFIXES
             ]
-        return [f for f in files if f.is_file()]
+        return files
+
+    def service(self, file):
+        """(service name, context path) of the file's module; each may be None.
+
+        The name is the module's spring.application.name; without one, the
+        one the Compose services that build the module give it
+        (SPRING_APPLICATION_NAME, or the name in the files of their
+        SPRING_CONFIG_LOCATION), else their shared Compose service name, else,
+        when they have several, the module's directory name."""
+        module = _module_root(self.root, file)
+        if module is None:
+            return None, None
+        if module not in self._modules:
+            units = self.units(file)
+            name = None if self._replaced(file) else self._own_name(module)
+            labels = tuple(u.label for u in units)
+            rule = "spring-application-name" if name is not None else None
+            if name is None and units:
+                given = set()
+                for unit in units:
+                    written = unit.env("SPRING_APPLICATION_NAME")
+                    if not written:
+                        files = self.unit_files(file, unit) or []
+                        profiles = unit.env("SPRING_PROFILES_ACTIVE") or ""
+                        active = {p.strip() for p in profiles.split(",")}
+                        values = {
+                            _effective_value(f, "spring.application.name", active)
+                            for f in files
+                        } - {None, _UNKNOWN}
+                        written = next(iter(values)) if len(values) == 1 else None
+                    given.add(written)
+                if len(given) == 1 and None not in given:
+                    name, rule = next(iter(given)), "spring-application-name"
+                elif len({u.name for u in units}) == 1:
+                    name, rule = units[0].name, "compose-service"
+                else:
+                    name, rule = module.name or None, "module-name"
+            files = self.files(file) if units else self._files(file)
+            context = self._single(
+                v
+                for f in files
+                for key in _CONTEXT_PATH_KEYS
+                for v in _read_values(f, key)
+            )
+            self._modules[module] = (name, context)
+            self._identities[module] = (rule, labels) if rule else (None, ())
+        return self._modules[module]
+
+    def files(self, file):
+        """The configuration files of the file's module (the shared
+        config-server files included) that exist, and those the Compose
+        services that build it read; [] outside a module."""
+        module = _module_root(self.root, file)
+        if module is None:
+            return []
+        files = (
+            []
+            if self._replaced(file)
+            else [f for f in self._files(file) if f.is_file()]
+        )
+        for unit in self.units(file):
+            for path in self.unit_files(file, unit) or []:
+                if path not in files:
+                    files.append(path)
+        return files
 
     def values(self, file, key, default_profile=False):
         """The distinct values of ``key`` in the file's module configuration,
@@ -1045,7 +1227,10 @@ def _client_requests(
         api: {
             operation.method_name + suffix: operation
             for operation in operations
-            for suffix in CLIENT_METHOD_SUFFIXES
+            # A Feign client has only the interface's methods.
+            for suffix in (
+                CLIENT_METHOD_SUFFIXES if operation.client == "openapi-java" else ("",)
+            )
         }
         for api, operations in clients.items()
     }
@@ -1084,7 +1269,7 @@ def _client_requests(
                 caller_id=caller,
                 method=operation.http_method,
                 url=url,
-                client="openapi-java",
+                client=operation.client,
                 declared_in=f"{operation.spec_file}:{operation.spec_line}",
             )
         )
