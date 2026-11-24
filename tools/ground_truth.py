@@ -512,6 +512,9 @@ def score_contracts(corpus, workspace):
     import check_contracts_ground_truth
 
     labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    # A corpus can be one project of a repository holding several (a book's
+    # chapters): it is analyzed on its own and its paths are relative to it.
+    workspace = Path(workspace) / corpus.get("root", ".")
     report, samples = {}, {}
     for kind in corpus["kinds"]:
         scored = check_contracts_ground_truth.score(labels, workspace, kind=kind)

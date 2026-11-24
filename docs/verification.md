@@ -299,6 +299,8 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
 | apollo fullstack-tutorial | graphql | 7 / 7 / 7 | 1 / 1 / 1 |
 | apollo spotify-showcase | graphql | 46 / 46 / 46 | 2 / 2 / 2 |
+| packt Chapter07 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
+| packt Chapter23 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
 
 Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
@@ -310,6 +312,16 @@ REQUESTS edge to a GraphqlField, placed at the request line and at the
 field's declaration. The fullstack tutorial's `start/` client, whose own
 server declares nothing, must not link to `final/server`; since #121 a
 client only matches the server scopes nearest to it.
+
+The two Packt corpora (`Microservices-with-Spring-Boot-and-Spring-Cloud`,
+4th edition, at db9e0fa) are Spring Cloud Stream apps labelled by hand. Each is
+one chapter of the book's repository, analyzed on its own (`root` in the
+manifest), so paths are relative to `Chapter07` and `Chapter23`. Chapter23
+keeps its configuration in `config-repo/`, which the Compose units mount as
+`SPRING_CONFIG_LOCATION`. The composite publishes all three topics from one
+`streamBridge.send(bindingName, message)` in a private helper, called with
+literal binding names, so the three labelled links share that send site.
+Main reads 0 of the 3 in each: the binding is a parameter.
 
 ### Routes and GraphQL fields
 

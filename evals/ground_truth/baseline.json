@@ -352,6 +352,34 @@
         }
       }
     },
+    "contracts-packt-chapter07": {
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
+    "contracts-packt-chapter23": {
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
     "contracts-robot-shop": {
       "http": {
         "call_sites": {
