@@ -416,5 +416,142 @@
         }
       }
     }
+  },
+  {
+    "label": "Python corpus httpx, 2026-11-24",
+    "engine_commit": "d585c895573f8a42864a49ae31633552d3e45398",
+    "commits_per_corpus": 30,
+    "corpora": {
+      "click": {
+        "cases": 76,
+        "impact": {
+          "recall": 0.076,
+          "precision": 0.1258,
+          "mean_predicted_files": 1.99
+        },
+        "search": {
+          "recall": 0.052,
+          "precision": 0.1171,
+          "mean_predicted_files": 1.46
+        }
+      },
+      "httpx": {
+        "cases": 82,
+        "impact": {
+          "recall": 0.028,
+          "precision": 0.3333,
+          "mean_predicted_files": 0.29
+        },
+        "search": {
+          "recall": 0.0839,
+          "precision": 0.1333,
+          "mean_predicted_files": 2.2
+        }
+      },
+      "ky": {
+        "cases": 90,
+        "impact": {
+          "recall": 0.0426,
+          "precision": 0.3333,
+          "mean_predicted_files": 0.77
+        },
+        "search": {
+          "recall": 0.1778,
+          "precision": 0.3,
+          "mean_predicted_files": 3.56
+        }
+      },
+      "hono": {
+        "cases": 41,
+        "impact": {
+          "recall": 0.1414,
+          "precision": 0.2154,
+          "mean_predicted_files": 1.59
+        },
+        "search": {
+          "recall": 0.5152,
+          "precision": 0.0912,
+          "mean_predicted_files": 13.63
+        }
+      },
+      "preact": {
+        "cases": 58,
+        "impact": {
+          "recall": 0.1459,
+          "precision": 0.0672,
+          "mean_predicted_files": 8.72
+        },
+        "search": {
+          "recall": 0.1502,
+          "precision": 0.0549,
+          "mean_predicted_files": 10.98
+        }
+      },
+      "cobra": {
+        "cases": 71,
+        "impact": {
+          "recall": 0.2143,
+          "precision": 0.1667,
+          "mean_predicted_files": 3.04
+        },
+        "search": {
+          "recall": 0.0833,
+          "precision": 0.0725,
+          "mean_predicted_files": 2.72
+        }
+      },
+      "chi": {
+        "cases": 57,
+        "impact": {
+          "recall": 0.1719,
+          "precision": 0.2316,
+          "mean_predicted_files": 1.67
+        },
+        "search": {
+          "recall": 0.1406,
+          "precision": 0.3462,
+          "mean_predicted_files": 0.91
+        }
+      },
+      "anyhow": {
+        "cases": 41,
+        "impact": {
+          "recall": 0.1781,
+          "precision": 0.4194,
+          "mean_predicted_files": 0.76
+        },
+        "search": {
+          "recall": 0.3699,
+          "precision": 0.2015,
+          "mean_predicted_files": 3.27
+        }
+      },
+      "ripgrep": {
+        "cases": 78,
+        "impact": {
+          "recall": 0.0836,
+          "precision": 0.266,
+          "mean_predicted_files": 1.21
+        },
+        "search": {
+          "recall": 0.2943,
+          "precision": 0.0826,
+          "mean_predicted_files": 13.67
+        }
+      },
+      "gson": {
+        "cases": 102,
+        "impact": {
+          "recall": 0.0881,
+          "precision": 0.0399,
+          "mean_predicted_files": 9.09
+        },
+        "search": {
+          "recall": 0.0429,
+          "precision": 0.0623,
+          "mean_predicted_files": 2.83
+        }
+      }
+    }
   }
 ]

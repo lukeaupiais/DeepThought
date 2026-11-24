@@ -1,0 +1,424 @@
+# file	line	name	target_file	target_line	kind
+# indexed	httpx/__init__.py
+# indexed	httpx/__version__.py
+# indexed	httpx/_api.py
+# indexed	httpx/_auth.py
+# indexed	httpx/_client.py
+# indexed	httpx/_config.py
+# indexed	httpx/_content.py
+# indexed	httpx/_decoders.py
+# indexed	httpx/_exceptions.py
+# indexed	httpx/_main.py
+# indexed	httpx/_models.py
+# indexed	httpx/_multipart.py
+# indexed	httpx/_status_codes.py
+# indexed	httpx/_transports/__init__.py
+# indexed	httpx/_transports/asgi.py
+# indexed	httpx/_transports/base.py
+# indexed	httpx/_transports/default.py
+# indexed	httpx/_transports/mock.py
+# indexed	httpx/_transports/wsgi.py
+# indexed	httpx/_types.py
+# indexed	httpx/_urlparse.py
+# indexed	httpx/_urls.py
+# indexed	httpx/_utils.py
+# indexed	tests/__init__.py
+# indexed	tests/client/__init__.py
+# indexed	tests/client/test_async_client.py
+# indexed	tests/client/test_auth.py
+# indexed	tests/client/test_client.py
+# indexed	tests/client/test_cookies.py
+# indexed	tests/client/test_event_hooks.py
+# indexed	tests/client/test_headers.py
+# indexed	tests/client/test_properties.py
+# indexed	tests/client/test_proxies.py
+# indexed	tests/client/test_queryparams.py
+# indexed	tests/client/test_redirects.py
+# indexed	tests/common.py
+# indexed	tests/concurrency.py
+# indexed	tests/conftest.py
+# indexed	tests/models/__init__.py
+# indexed	tests/models/test_cookies.py
+# indexed	tests/models/test_headers.py
+# indexed	tests/models/test_queryparams.py
+# indexed	tests/models/test_requests.py
+# indexed	tests/models/test_responses.py
+# indexed	tests/models/test_url.py
+# indexed	tests/models/test_whatwg.py
+# indexed	tests/test_api.py
+# indexed	tests/test_asgi.py
+# indexed	tests/test_auth.py
+# indexed	tests/test_config.py
+# indexed	tests/test_content.py
+# indexed	tests/test_decoders.py
+# indexed	tests/test_exceptions.py
+# indexed	tests/test_exported_members.py
+# indexed	tests/test_main.py
+# indexed	tests/test_multipart.py
+# indexed	tests/test_status_codes.py
+# indexed	tests/test_timeouts.py
+# indexed	tests/test_utils.py
+# indexed	tests/test_wsgi.py
+httpx/__init__.py	1	import	httpx/__version__.py	0	module
+httpx/__init__.py	2	import	httpx/_api.py	0	module
+httpx/__init__.py	3	import	httpx/_auth.py	0	module
+httpx/__init__.py	4	import	httpx/_client.py	0	module
+httpx/__init__.py	5	import	httpx/_config.py	0	module
+httpx/__init__.py	6	import	httpx/_content.py	0	module
+httpx/__init__.py	7	import	httpx/_exceptions.py	0	module
+httpx/__init__.py	8	import	httpx/_models.py	0	module
+httpx/__init__.py	9	import	httpx/_status_codes.py	0	module
+httpx/__init__.py	10	import	httpx/_transports/__init__.py	0	module
+httpx/__init__.py	11	import	httpx/_types.py	0	module
+httpx/__init__.py	12	import	httpx/_urls.py	0	module
+httpx/__init__.py	15	import	httpx/_main.py	0	module
+httpx/__init__.py	19	import	-	0	external
+httpx/_api.py	1	import	-	0	external
+httpx/_api.py	3	import	-	0	external
+httpx/_api.py	4	import	-	0	external
+httpx/_api.py	6	import	httpx/_client.py	0	module
+httpx/_api.py	7	import	httpx/_config.py	0	module
+httpx/_api.py	8	import	httpx/_models.py	0	module
+httpx/_api.py	9	import	httpx/_types.py	0	module
+httpx/_api.py	20	import	httpx/_urls.py	0	module
+httpx/_api.py	23	import	-	0	external
+httpx/_auth.py	1	import	-	0	external
+httpx/_auth.py	3	import	-	0	external
+httpx/_auth.py	4	import	-	0	external
+httpx/_auth.py	5	import	-	0	external
+httpx/_auth.py	6	import	-	0	external
+httpx/_auth.py	7	import	-	0	external
+httpx/_auth.py	8	import	-	0	external
+httpx/_auth.py	9	import	-	0	external
+httpx/_auth.py	11	import	httpx/_exceptions.py	0	module
+httpx/_auth.py	12	import	httpx/_models.py	0	module
+httpx/_auth.py	13	import	httpx/_utils.py	0	module
+httpx/_auth.py	16	import	-	0	external
+httpx/_auth.py	153	import	-	0	external
+httpx/_client.py	1	import	-	0	external
+httpx/_client.py	3	import	-	0	external
+httpx/_client.py	4	import	-	0	external
+httpx/_client.py	5	import	-	0	external
+httpx/_client.py	6	import	-	0	external
+httpx/_client.py	7	import	-	0	external
+httpx/_client.py	8	import	-	0	external
+httpx/_client.py	9	import	-	0	external
+httpx/_client.py	10	import	-	0	external
+httpx/_client.py	12	import	httpx/__version__.py	0	module
+httpx/_client.py	13	import	httpx/_auth.py	0	module
+httpx/_client.py	14	import	httpx/_config.py	0	module
+httpx/_client.py	22	import	httpx/_decoders.py	0	module
+httpx/_client.py	23	import	httpx/_exceptions.py	0	module
+httpx/_client.py	29	import	httpx/_models.py	0	module
+httpx/_client.py	30	import	httpx/_status_codes.py	0	module
+httpx/_client.py	31	import	httpx/_transports/base.py	0	module
+httpx/_client.py	32	import	httpx/_transports/default.py	0	module
+httpx/_client.py	33	import	httpx/_types.py	0	module
+httpx/_client.py	48	import	httpx/_urls.py	0	module
+httpx/_client.py	49	import	httpx/_utils.py	0	module
+httpx/_client.py	52	import	-	0	external
+httpx/_client.py	678	import	-	0	external
+httpx/_client.py	1392	import	-	0	external
+httpx/_config.py	1	import	-	0	external
+httpx/_config.py	3	import	-	0	external
+httpx/_config.py	4	import	-	0	external
+httpx/_config.py	6	import	httpx/_models.py	0	module
+httpx/_config.py	7	import	httpx/_types.py	0	module
+httpx/_config.py	8	import	httpx/_urls.py	0	module
+httpx/_config.py	11	import	-	0	external
+httpx/_config.py	28	import	-	0	external
+httpx/_config.py	29	import	-	0	external
+httpx/_config.py	31	import	-	0	external
+httpx/_content.py	1	import	-	0	external
+httpx/_content.py	3	import	-	0	external
+httpx/_content.py	4	import	-	0	external
+httpx/_content.py	5	import	-	0	external
+httpx/_content.py	6	import	-	0	external
+httpx/_content.py	14	import	-	0	external
+httpx/_content.py	16	import	httpx/_exceptions.py	0	module
+httpx/_content.py	17	import	httpx/_multipart.py	0	module
+httpx/_content.py	18	import	httpx/_types.py	0	module
+httpx/_content.py	26	import	httpx/_utils.py	0	module
+httpx/_decoders.py	7	import	-	0	external
+httpx/_decoders.py	9	import	-	0	external
+httpx/_decoders.py	10	import	-	0	external
+httpx/_decoders.py	11	import	-	0	external
+httpx/_decoders.py	12	import	-	0	external
+httpx/_decoders.py	14	import	httpx/_exceptions.py	0	module
+httpx/_decoders.py	19	import	-	0	external
+httpx/_decoders.py	31	import	-	0	external
+httpx/_exceptions.py	34	import	-	0	external
+httpx/_exceptions.py	36	import	-	0	external
+httpx/_exceptions.py	37	import	-	0	external
+httpx/_exceptions.py	40	import	httpx/_models.py	0	module
+httpx/_main.py	1	import	-	0	external
+httpx/_main.py	3	import	-	0	external
+httpx/_main.py	4	import	-	0	external
+httpx/_main.py	5	import	-	0	external
+httpx/_main.py	6	import	-	0	external
+httpx/_main.py	8	import	-	0	external
+httpx/_main.py	9	import	-	0	external
+httpx/_main.py	10	import	-	0	external
+httpx/_main.py	11	import	-	0	external
+httpx/_main.py	12	import	-	0	external
+httpx/_main.py	13	import	-	0	external
+httpx/_main.py	14	import	-	0	external
+httpx/_main.py	15	import	-	0	external
+httpx/_main.py	17	import	httpx/_client.py	0	module
+httpx/_main.py	18	import	httpx/_exceptions.py	0	module
+httpx/_main.py	19	import	httpx/_models.py	0	module
+httpx/_main.py	20	import	httpx/_status_codes.py	0	module
+httpx/_main.py	23	import	-	0	external
+httpx/_models.py	1	import	-	0	external
+httpx/_models.py	3	import	-	0	external
+httpx/_models.py	4	import	-	0	external
+httpx/_models.py	5	import	-	0	external
+httpx/_models.py	6	import	-	0	external
+httpx/_models.py	7	import	-	0	external
+httpx/_models.py	8	import	-	0	external
+httpx/_models.py	9	import	-	0	external
+httpx/_models.py	10	import	-	0	external
+httpx/_models.py	11	import	-	0	external
+httpx/_models.py	13	import	httpx/_content.py	0	module
+httpx/_models.py	14	import	httpx/_decoders.py	0	module
+httpx/_models.py	24	import	httpx/_exceptions.py	0	module
+httpx/_models.py	33	import	httpx/_multipart.py	0	module
+httpx/_models.py	34	import	httpx/_status_codes.py	0	module
+httpx/_models.py	35	import	httpx/_types.py	0	module
+httpx/_models.py	48	import	httpx/_urls.py	0	module
+httpx/_models.py	49	import	httpx/_utils.py	0	module
+httpx/_multipart.py	1	import	-	0	external
+httpx/_multipart.py	3	import	-	0	external
+httpx/_multipart.py	4	import	-	0	external
+httpx/_multipart.py	5	import	-	0	external
+httpx/_multipart.py	6	import	-	0	external
+httpx/_multipart.py	7	import	-	0	external
+httpx/_multipart.py	8	import	-	0	external
+httpx/_multipart.py	10	import	httpx/_types.py	0	module
+httpx/_multipart.py	18	import	httpx/_utils.py	0	module
+httpx/_status_codes.py	1	import	-	0	external
+httpx/_status_codes.py	3	import	-	0	external
+httpx/_transports/__init__.py	1	import	httpx/_transports/asgi.py	0	module
+httpx/_transports/__init__.py	2	import	httpx/_transports/base.py	0	module
+httpx/_transports/__init__.py	3	import	httpx/_transports/default.py	0	module
+httpx/_transports/__init__.py	4	import	httpx/_transports/mock.py	0	module
+httpx/_transports/__init__.py	5	import	httpx/_transports/wsgi.py	0	module
+httpx/_transports/asgi.py	1	import	-	0	external
+httpx/_transports/asgi.py	3	import	-	0	external
+httpx/_transports/asgi.py	5	import	httpx/_models.py	0	module
+httpx/_transports/asgi.py	6	import	httpx/_types.py	0	module
+httpx/_transports/asgi.py	7	import	httpx/_transports/base.py	0	module
+httpx/_transports/asgi.py	10	import	-	0	external
+httpx/_transports/asgi.py	12	import	-	0	external
+httpx/_transports/asgi.py	34	import	-	0	external
+httpx/_transports/asgi.py	46	import	-	0	external
+httpx/_transports/asgi.py	50	import	-	0	external
+httpx/_transports/base.py	1	import	-	0	external
+httpx/_transports/base.py	3	import	-	0	external
+httpx/_transports/base.py	4	import	-	0	external
+httpx/_transports/base.py	6	import	httpx/_models.py	0	module
+httpx/_transports/default.py	27	import	-	0	external
+httpx/_transports/default.py	29	import	-	0	external
+httpx/_transports/default.py	30	import	-	0	external
+httpx/_transports/default.py	31	import	-	0	external
+httpx/_transports/default.py	34	import	-	0	external
+httpx/_transports/default.py	36	import	httpx/__init__.py	0	module
+httpx/_transports/default.py	38	import	httpx/_config.py	0	module
+httpx/_transports/default.py	39	import	httpx/_exceptions.py	0	module
+httpx/_transports/default.py	55	import	httpx/_models.py	0	module
+httpx/_transports/default.py	56	import	httpx/_types.py	0	module
+httpx/_transports/default.py	57	import	httpx/_urls.py	0	module
+httpx/_transports/default.py	58	import	httpx/_transports/base.py	0	module
+httpx/_transports/default.py	75	import	-	0	external
+httpx/_transports/default.py	150	import	-	0	external
+httpx/_transports/default.py	189	import	-	0	external
+httpx/_transports/default.py	235	import	-	0	external
+httpx/_transports/default.py	294	import	-	0	external
+httpx/_transports/default.py	333	import	-	0	external
+httpx/_transports/default.py	379	import	-	0	external
+httpx/_transports/mock.py	1	import	-	0	external
+httpx/_transports/mock.py	3	import	-	0	external
+httpx/_transports/mock.py	5	import	httpx/_models.py	0	module
+httpx/_transports/mock.py	6	import	httpx/_transports/base.py	0	module
+httpx/_transports/wsgi.py	1	import	-	0	external
+httpx/_transports/wsgi.py	3	import	-	0	external
+httpx/_transports/wsgi.py	4	import	-	0	external
+httpx/_transports/wsgi.py	5	import	-	0	external
+httpx/_transports/wsgi.py	6	import	-	0	external
+httpx/_transports/wsgi.py	8	import	httpx/_models.py	0	module
+httpx/_transports/wsgi.py	9	import	httpx/_types.py	0	module
+httpx/_transports/wsgi.py	10	import	httpx/_transports/base.py	0	module
+httpx/_transports/wsgi.py	13	import	-	0	external
+httpx/_transports/wsgi.py	14	import	-	0	external
+httpx/_types.py	5	import	-	0	external
+httpx/_types.py	6	import	-	0	external
+httpx/_types.py	25	import	httpx/_auth.py	0	module
+httpx/_types.py	26	import	httpx/_config.py	0	module
+httpx/_types.py	27	import	httpx/_models.py	0	module
+httpx/_types.py	28	import	httpx/_urls.py	0	module
+httpx/_urlparse.py	19	import	-	0	external
+httpx/_urlparse.py	21	import	-	0	external
+httpx/_urlparse.py	22	import	-	0	external
+httpx/_urlparse.py	23	import	-	0	external
+httpx/_urlparse.py	25	import	-	0	external
+httpx/_urlparse.py	27	import	httpx/_exceptions.py	0	module
+httpx/_urls.py	1	import	-	0	external
+httpx/_urls.py	3	import	-	0	external
+httpx/_urls.py	4	import	-	0	external
+httpx/_urls.py	6	import	-	0	external
+httpx/_urls.py	8	import	httpx/_types.py	0	module
+httpx/_urls.py	9	import	httpx/_urlparse.py	0	module
+httpx/_urls.py	10	import	httpx/_utils.py	0	module
+httpx/_urls.py	364	import	-	0	external
+httpx/_urls.py	405	import	-	0	external
+httpx/_urls.py	406	import	-	0	external
+httpx/_utils.py	1	import	-	0	external
+httpx/_utils.py	3	import	-	0	external
+httpx/_utils.py	4	import	-	0	external
+httpx/_utils.py	5	import	-	0	external
+httpx/_utils.py	6	import	-	0	external
+httpx/_utils.py	7	import	-	0	external
+httpx/_utils.py	9	import	httpx/_types.py	0	module
+httpx/_utils.py	12	import	httpx/_urls.py	0	module
+httpx/_utils.py	163	import	httpx/_urls.py	0	module
+tests/client/test_async_client.py	1	import	-	0	external
+tests/client/test_async_client.py	3	import	-	0	external
+tests/client/test_async_client.py	4	import	-	0	external
+tests/client/test_async_client.py	6	import	-	0	external
+tests/client/test_async_client.py	8	import	httpx/__init__.py	0	module
+tests/client/test_auth.py	7	import	-	0	external
+tests/client/test_auth.py	8	import	-	0	external
+tests/client/test_auth.py	9	import	-	0	external
+tests/client/test_auth.py	10	import	-	0	external
+tests/client/test_auth.py	11	import	-	0	external
+tests/client/test_auth.py	12	import	-	0	external
+tests/client/test_auth.py	13	import	-	0	external
+tests/client/test_auth.py	15	import	-	0	external
+tests/client/test_auth.py	16	import	-	0	external
+tests/client/test_auth.py	18	import	httpx/__init__.py	0	module
+tests/client/test_auth.py	20	import	tests/common.py	0	module
+tests/client/test_client.py	1	import	-	0	external
+tests/client/test_client.py	3	import	-	0	external
+tests/client/test_client.py	4	import	-	0	external
+tests/client/test_client.py	6	import	-	0	external
+tests/client/test_client.py	7	import	-	0	external
+tests/client/test_client.py	9	import	httpx/__init__.py	0	module
+tests/client/test_cookies.py	1	import	-	0	external
+tests/client/test_cookies.py	3	import	-	0	external
+tests/client/test_cookies.py	5	import	httpx/__init__.py	0	module
+tests/client/test_event_hooks.py	1	import	-	0	external
+tests/client/test_event_hooks.py	3	import	httpx/__init__.py	0	module
+tests/client/test_headers.py	3	import	-	0	external
+tests/client/test_headers.py	5	import	httpx/__init__.py	0	module
+tests/client/test_properties.py	1	import	httpx/__init__.py	0	module
+tests/client/test_proxies.py	1	import	-	0	external
+tests/client/test_proxies.py	2	import	-	0	external
+tests/client/test_proxies.py	4	import	httpx/__init__.py	0	module
+tests/client/test_queryparams.py	1	import	httpx/__init__.py	0	module
+tests/client/test_redirects.py	1	import	-	0	external
+tests/client/test_redirects.py	3	import	-	0	external
+tests/client/test_redirects.py	5	import	httpx/__init__.py	0	module
+tests/common.py	1	import	-	0	external
+tests/concurrency.py	5	import	-	0	external
+tests/concurrency.py	7	import	-	0	external
+tests/concurrency.py	8	import	-	0	external
+tests/conftest.py	1	import	-	0	external
+tests/conftest.py	2	import	-	0	external
+tests/conftest.py	3	import	-	0	external
+tests/conftest.py	4	import	-	0	external
+tests/conftest.py	5	import	-	0	external
+tests/conftest.py	6	import	-	0	external
+tests/conftest.py	8	import	-	0	external
+tests/conftest.py	10	import	-	0	external
+tests/conftest.py	11	import	-	0	external
+tests/conftest.py	17	import	-	0	external
+tests/conftest.py	18	import	-	0	external
+tests/conftest.py	20	import	httpx/__init__.py	0	module
+tests/conftest.py	21	import	tests/concurrency.py	0	module
+tests/models/test_cookies.py	1	import	-	0	external
+tests/models/test_cookies.py	3	import	-	0	external
+tests/models/test_cookies.py	5	import	httpx/__init__.py	0	module
+tests/models/test_headers.py	1	import	-	0	external
+tests/models/test_headers.py	3	import	httpx/__init__.py	0	module
+tests/models/test_queryparams.py	1	import	-	0	external
+tests/models/test_queryparams.py	3	import	httpx/__init__.py	0	module
+tests/models/test_requests.py	1	import	-	0	external
+tests/models/test_requests.py	2	import	-	0	external
+tests/models/test_requests.py	4	import	-	0	external
+tests/models/test_requests.py	6	import	httpx/__init__.py	0	module
+tests/models/test_responses.py	1	import	-	0	external
+tests/models/test_responses.py	2	import	-	0	external
+tests/models/test_responses.py	3	import	-	0	external
+tests/models/test_responses.py	5	import	-	0	external
+tests/models/test_responses.py	6	import	-	0	external
+tests/models/test_responses.py	8	import	httpx/__init__.py	0	module
+tests/models/test_url.py	1	import	-	0	external
+tests/models/test_url.py	3	import	httpx/__init__.py	0	module
+tests/models/test_whatwg.py	5	import	-	0	external
+tests/models/test_whatwg.py	7	import	-	0	external
+tests/models/test_whatwg.py	9	import	httpx/_urlparse.py	0	module
+tests/test_api.py	1	import	-	0	external
+tests/test_api.py	3	import	-	0	external
+tests/test_api.py	5	import	httpx/__init__.py	0	module
+tests/test_api.py	92	import	-	0	external
+tests/test_api.py	98	import	httpx/__init__.py	0	module
+tests/test_asgi.py	1	import	-	0	external
+tests/test_asgi.py	3	import	-	0	external
+tests/test_asgi.py	5	import	httpx/__init__.py	0	module
+tests/test_auth.py	7	import	-	0	external
+tests/test_auth.py	9	import	-	0	external
+tests/test_auth.py	11	import	httpx/__init__.py	0	module
+tests/test_config.py	1	import	-	0	external
+tests/test_config.py	2	import	-	0	external
+tests/test_config.py	3	import	-	0	external
+tests/test_config.py	5	import	-	0	external
+tests/test_config.py	6	import	-	0	external
+tests/test_config.py	8	import	httpx/__init__.py	0	module
+tests/test_content.py	1	import	-	0	external
+tests/test_content.py	2	import	-	0	external
+tests/test_content.py	4	import	-	0	external
+tests/test_content.py	6	import	httpx/__init__.py	0	module
+tests/test_decoders.py	1	import	-	0	external
+tests/test_decoders.py	3	import	-	0	external
+tests/test_decoders.py	4	import	-	0	external
+tests/test_decoders.py	5	import	-	0	external
+tests/test_decoders.py	7	import	-	0	external
+tests/test_decoders.py	8	import	-	0	external
+tests/test_decoders.py	9	import	-	0	external
+tests/test_decoders.py	11	import	httpx/__init__.py	0	module
+tests/test_exceptions.py	1	import	-	0	external
+tests/test_exceptions.py	3	import	-	0	external
+tests/test_exceptions.py	5	import	-	0	external
+tests/test_exceptions.py	6	import	-	0	external
+tests/test_exceptions.py	8	import	httpx/__init__.py	0	module
+tests/test_exceptions.py	11	import	-	0	external
+tests/test_exported_members.py	1	import	httpx/__init__.py	0	module
+tests/test_main.py	1	import	-	0	external
+tests/test_main.py	2	import	-	0	external
+tests/test_main.py	4	import	-	0	external
+tests/test_main.py	6	import	httpx/__init__.py	0	module
+tests/test_multipart.py	1	import	-	0	external
+tests/test_multipart.py	3	import	-	0	external
+tests/test_multipart.py	4	import	-	0	external
+tests/test_multipart.py	5	import	-	0	external
+tests/test_multipart.py	7	import	-	0	external
+tests/test_multipart.py	9	import	httpx/__init__.py	0	module
+tests/test_status_codes.py	1	import	httpx/__init__.py	0	module
+tests/test_timeouts.py	1	import	-	0	external
+tests/test_timeouts.py	3	import	httpx/__init__.py	0	module
+tests/test_utils.py	1	import	-	0	external
+tests/test_utils.py	2	import	-	0	external
+tests/test_utils.py	3	import	-	0	external
+tests/test_utils.py	4	import	-	0	external
+tests/test_utils.py	6	import	-	0	external
+tests/test_utils.py	8	import	httpx/__init__.py	0	module
+tests/test_utils.py	9	import	httpx/_utils.py	0	module
+tests/test_wsgi.py	1	import	-	0	external
+tests/test_wsgi.py	3	import	-	0	external
+tests/test_wsgi.py	4	import	-	0	external
+tests/test_wsgi.py	5	import	-	0	external
+tests/test_wsgi.py	6	import	-	0	external
+tests/test_wsgi.py	7	import	-	0	external
+tests/test_wsgi.py	9	import	-	0	external
+tests/test_wsgi.py	11	import	httpx/__init__.py	0	module
+tests/test_wsgi.py	14	import	-	0	external

@@ -60,7 +60,19 @@ scored against a yardstick its own rules cannot move.
   `@overload` group (the implementation too), and a redefinition of a name
   in one scope, the first declaration's symbol, so a call to that symbol
   lists each of those `def` lines as a target: a link to the implementation
-  confirms.
+  confirms. scip-python 0.6.8 also mis-binds two Python patterns, and these
+  are corrected when truth is derived:
+  - **Star re-exports.** Every name a package re-exports through
+    `from .m import *` gets a single symbol of `m`: `httpx.Response(...)` is
+    recorded as `_models/Request#`. A call that spells a different
+    top-level name than its symbol is linked to that name's own symbol when
+    the module lists the name in `__all__` and defines it. Aliases written
+    with `import ... as` keep their symbol. Any other mismatch, such as a
+    re-export through two star imports, is left unjudged.
+  - **Attributes named like builtins.** `self.set(...)` or `self.type(...)` in
+    a class that defines that attribute is recorded as the builtin `set` or
+    `type`. An attribute of `self` or `cls` is never a top-level builtin, so
+    these calls are left unjudged.
 - `baseline.json` is the current score of each corpus.
 
 When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
@@ -106,8 +118,14 @@ python tools/ground_truth.py check --corpus click    # one corpus
 # A name that is in no manifest list fails instead of checking nothing.
 python tools/ground_truth.py check --update-baseline # accept a new score
 python tools/ground_truth.py score WORKSPACE TRUTH --language python
+# Calls bound from SCIP indexes, and where they differ from the parser's:
+python tools/ground_truth.py score WORKSPACE TRUTH --language python \
+    --scip INDEX --disagreements OUT.tsv
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
 ```
+
+Truth derived from the same SCIP index that binds the calls checks the
+binding, not the indexer; independent oracles judge the indexer.
 
 `check` exits 1 when a corpus has more contradictions or fewer confirmed links
 than its baseline, or when its truth file no longer matches the baseline's
@@ -992,7 +1010,37 @@ with every method declared in the corpus that implements it; with
 `--dispatch`, such a call is a possible call of each of them, and a
 dependent only that reaches is an `# unjudged` row. chi gains 21 of them,
 for 8 seeds such as `Mux.Mount` and the logger middleware; cobra
-none. gson's call truth comes from javac, not an
+none.
+
+Go call truth comes from scip-go, so a separate oracle checks it with the
+compiler. `tools/go_compile_truth.py WORKSPACE SPANS --sample N` copies the
+module, renames a seeded sample of declarations one at a time, and runs
+`go build` and `go test -c` (with `-gcflags=all=-e`, binaries written to a
+scratch directory and never run). Every place that referred to the old
+name fails to compile, and the tool renames each reported use in turn so
+that importing packages compile and report theirs. A conversion that needed
+the method to satisfy an interface is an `implements` row; a package left
+failing for that reason cannot be compiled by its importers, whose files
+are `blocked`. A package whose own build fails never has its test variant
+compiled under `./...`, so its tests are compiled one package at a time.
+`go_compile_truth.py compare compile.tsv calls.tsv` then checks that every
+SCIP call row whose target was sampled is one of the compiler's references.
+On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
+fall in blocked packages, and 2 references are not calls (a middleware
+passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66
+references without a call row uses the function as a value.
+
+`tools/ts_compile_truth.py WORKSPACE CALLS --tsc PATH [--project P]` does the
+same for TypeScript with `tsc --noEmit`, sampling declarations the call truth
+links to. Only errors the rename adds count, so a project with existing type
+errors can still be used. An import of the missing name is the only error in
+the importing file, so the tool renames it there and follows aliases,
+re-exports and default imports (a default export is made a named one, so each
+default import fails and its local name is followed). Overload signatures are
+renamed with their implementation. TypeScript outside the project is
+`blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
+with a project over `src` and its type packages installed without scripts,
+38 give 431, all confirmed, and 6 fall outside the project. gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name

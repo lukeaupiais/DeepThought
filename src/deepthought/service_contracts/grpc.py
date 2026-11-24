@@ -8,7 +8,8 @@ service by its simple name (``NewCartServiceClient``, ``CartServiceStub``,
 ambiguous and links nothing.
 """
 
-from dataclasses import dataclass
+import dataclasses
+from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from hashlib import sha256
 import os
@@ -71,6 +72,7 @@ class GrpcCall:
     caller_id: str | None
     service: str  # simple service name of the stub
     method: str  # method name as written
+    test_source: bool = False  # made from a test source file
 
 
 _SIGNATURE = re.compile(
@@ -88,7 +90,9 @@ _STRINGS = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 
 
 def read_proto(text, file):
-    """(package, [ProtoMethod]) of a .proto file's text.
+    """(package, [ProtoMethod]) of a .proto file's text, for a file protoc
+    does not compile (``protoc.read_protos``) or when grpcio-tools is not
+    installed. Kept as it is: new proto features go to the protoc reader.
 
     Comments are removed (keeping line numbers); ``service`` blocks are read
     at the top level only; ``rpc Name (...) returns (...)`` statements inside
@@ -1009,6 +1013,8 @@ class GrpcFacts:
     calls: list
     resolutions: list
     unread: list  # (file, line, kind, reason)
+    # path -> "protoc" (compiled) | "fallback" (read by read_proto)
+    proto_readers: dict = dataclasses.field(default_factory=dict)
 
 
 _SKIPPED_DIRECTORIES = {".git", ".venv", "node_modules", "__pycache__", "vendor"}
@@ -1065,22 +1071,35 @@ def resolve_call(call, index):
     return CallResolution(call.id, "linked", None, service, method)
 
 
-def collect(root, sources, definitions, repository_id, protos):
+def collect(root, sources, definitions, repository_id, protos, tests=frozenset()):
     """gRPC facts of a repository.
 
     ``sources`` are (path, language, content) of analyzed files whose digest
-    matched; ``protos`` are the .proto paths to read.
+    matched; ``protos`` are the .proto paths to read. Of the ``tests`` (test
+    source files among ``sources``) only stub calls are read, marked
+    ``test_source``; they serve nothing and declare no constructors.
     """
-    methods, digests = [], {}
+    from .protoc import read_protos
+
+    methods, digests, texts = [], {}, {}
     for path in protos:
         data = (root / path).read_bytes()
         digests[path] = sha256(data).hexdigest()
-        methods.extend(read_proto(data.decode("utf-8", "replace"), path)[1])
+        texts[path] = data.decode("utf-8", "replace")
+    compiled = read_protos(root, list(protos), texts)
+    for path in protos:
+        read = compiled.get(path) or read_proto(texts[path], path)
+        methods.extend(read[1])
+    readers = {path: "protoc" if path in compiled else "fallback" for path in protos}
     index = ProtoIndex(methods)
     handlers, calls, unread, parsers = set(), [], [], {}
     parsed = []
     for path, language, content in sources:
-        if language not in _SUFFIXES or is_generated(path) or is_test(path):
+        if (
+            language not in _SUFFIXES
+            or is_generated(path)
+            or (is_test(path) and path not in tests)
+        ):
             continue
         suffix = ".tsx" if path.endswith(".tsx") else _SUFFIXES[language]
         if suffix not in parsers:
@@ -1090,7 +1109,7 @@ def collect(root, sources, definitions, repository_id, protos):
     # declare (as build-tagged variants do) names no type.
     constructors, structs = {}, {}
     for path, language, content, tree in parsed:
-        if language != "go":
+        if language != "go" or path in tests:
             continue
         directory = path.rpartition("/")[0]
         structs.setdefault(directory, set()).update(go_struct_types(tree, content))
@@ -1103,20 +1122,19 @@ def collect(root, sources, definitions, repository_id, protos):
             if type_name not in structs[directory]:
                 package[name] = None
     for path, language, content, tree in parsed:
-        found, skipped = server_handlers(
-            tree, content, path, language, definitions, index, constructors
-        )
-        handlers.update(found)
-        unread.extend((path, line, "server", reason) for line, reason in skipped)
-        if language == "csharp":
-            calls.extend(
-                extract_csharp_calls(tree, content, repository_id, path, definitions)
+        test = path in tests
+        if not test:
+            found, skipped = server_handlers(
+                tree, content, path, language, definitions, index, constructors
             )
-            continue
-        if language not in _CALL:
-            continue
-        calls.extend(
-            extract_calls(
+            handlers.update(found)
+            unread.extend((path, line, "server", reason) for line, reason in skipped)
+        if language == "csharp":
+            found = extract_csharp_calls(
+                tree, content, repository_id, path, definitions
+            )
+        elif language in _CALL:
+            found = extract_calls(
                 tree,
                 content,
                 repository_id,
@@ -1125,10 +1143,13 @@ def collect(root, sources, definitions, repository_id, protos):
                 definitions,
                 services=set(index.by_simple),
             )
-        )
+        else:
+            continue
+        calls.extend(replace(c, test_source=True) if test else c for c in found)
     calls.sort(key=lambda c: (c.file, c.line, c.column, c.id))
     return GrpcFacts(
         proto_files=digests,
+        proto_readers=readers,
         index=index,
         handlers=sorted(
             handlers, key=lambda h: (h.service, h.method, h.file, h.line, h.handler_id)
