@@ -1750,6 +1750,45 @@ of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
 
+### GraphQL root fields
+
+Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL
+server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
+`protocol` `graphql`), scoped to the Node package (the nearest
+`package.json`) of the files that declare or resolve it
+(`deepthought.service_contracts.graphql`):
+
+- Schema files (`*.graphql`, `*.gql`) declare the fields of `type Query`,
+  `type Mutation` and `type Subscription`, including `extend type` blocks.
+  Descriptions, comments, arguments and directives are skipped. The node
+  records them as `declared_in`.
+- NestJS resolvers: a method of a class decorated `@Resolver` that carries
+  `@Query`, `@Mutation` or `@Subscription`, all imported from
+  `@nestjs/graphql`, resolves the field named by the decorator's literal
+  name (`@Query('cats')`), the `name` of its options, or else the method
+  name. It links to the field by `HANDLES` (rule
+  `service-contracts.nestjs-graphql-resolver`, pattern_matched).
+
+Counted as unread:
+- `graphql:schema_root_renamed`: a schema that renames its root types;
+- `graphql:field_not_literal`: a resolver name that is not literal;
+- `graphql:declared_not_resolved`: a declared field that no read resolver
+  handles;
+- `graphql:resolved_not_declared`: a resolved field missing from a package
+  that has schema files.
+
+Clients, resolver maps (Apollo `resolvers` objects) and field resolvers of
+object types are not read yet.
+
+On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
+GraphQL servers, 23 of them also declared in schema files. The two
+code-first samples commit the `schema.gql` that Nest itself generates from
+the decorators, and its fields are exactly the ones read from the
+resolvers. In the schema-first samples, every declared field has a
+resolver and every resolver has a declaration. The four root fields that
+the samples' end-to-end tests query (other than introspection) are all
+among them.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
