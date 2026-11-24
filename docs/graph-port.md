@@ -2002,7 +2002,9 @@ tool scored string literals that looked like API paths (0.95 for `/api/v1/x`,
 0.75 for `/x/{id}`) and inferred the method from nearby words; it never matched
 clients to servers. None of it is carried over.
 
-Facts are read from Java sources outside test source sets (`src/test/`):
+Facts are read from Java sources outside test source sets (`src/test/`).
+From test sources only client requests are read (see "Test sources"
+below):
 
 - **Routes.** A method carrying `@GetMapping`, `@PostMapping`, `@PutMapping`,
   `@DeleteMapping`, `@PatchMapping` or `@RequestMapping` imported from
@@ -2057,7 +2059,19 @@ Facts are read from Java sources outside test source sets (`src/test/`):
 
 Python, JavaScript/TypeScript and Go sources are read too
 (`deepthought.service_contracts.web`), outside test files (`test_*.py`,
-`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like):
+`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like), from
+which only client requests are read:
+
+- **Test sources.** A request or gRPC stub call in a test source file is
+  read like any other and its `REQUESTS` edge carries `test_source: true`,
+  so impact analysis reaches the tests that call a contract. Nothing else
+  is read from those files: their routes, servers, messaging, GraphQL and
+  repository-wide facts (constants, mounts, prefixes) are left out, so a
+  test's stub server never becomes a route. A test's request whose base is
+  unknown is not kept from its own project's routes, since tests usually
+  call their own service. The contract ground-truth scorer leaves
+  `test_source` links out unless asked, because the labels cover
+  application code.
 
 - **Routes.** Flask and FastAPI route decorators (`route`, `api_route`, `get`,
   `post`, ...) on a `Flask`, `Blueprint`, `FastAPI` or `APIRouter` object
@@ -3024,9 +3038,10 @@ otherwise there is no edge, and File nodes list the call in
 `no_proto_service`, `several_proto_packages`, `no_proto_method`). A server
 that cannot be tied to a declaration is counted in `unread` as
 `grpc_server:implementation_not_read`, `handler_not_declared` and so on.
-Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like), Go
-`_test.go` files, Python `test_*.py` files and `src/test/` are neither servers
-nor clients. The channel's target address is never read, so a stub links to
+Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like) is
+neither server nor client; test source files (Go `_test.go`, Python
+`test_*.py`, `src/test/` and the like) are clients only, their calls marked
+`test_source`. The channel's target address is never read, so a stub links to
 the method wherever it is served; interceptors, reflection and dynamically
 loaded service definitions are not followed. Every edge is `pattern_matched`.
 

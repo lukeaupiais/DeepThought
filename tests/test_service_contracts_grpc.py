@@ -325,13 +325,29 @@ class GrpcContractTests(unittest.TestCase):
                 ("Ads.call", "shop.CartService/GetCart", STUB_CALL),
                 ("convert", "shop.CurrencyService/Convert", STUB_CALL),
                 ("currency/server.js", "shop.CurrencyService/Convert", STUB_CALL),
+                # Once from frontend/rpc.go and once from cart/server_test.go,
+                # whose stub calls are read and marked test_source.
+                ("frontend.currencies", "shop.CurrencyService/Convert", STUB_CALL),
                 ("frontend.currencies", "shop.CurrencyService/Convert", STUB_CALL),
                 (
                     "frontend.currencies",
                     "shop.CurrencyService/GetSupportedCurrencies",
                     STUB_CALL,
                 ),
+                (
+                    "frontend.currencies",
+                    "shop.CurrencyService/GetSupportedCurrencies",
+                    STUB_CALL,
+                ),
             ],
+        )
+        self.assertEqual(
+            sorted(
+                r.properties["line"]
+                for r in output.relationships
+                if r.properties.get("test_source")
+            ),
+            [9, 12],
         )
         chained = [
             r
@@ -342,7 +358,7 @@ class GrpcContractTests(unittest.TestCase):
         metrics = output.metadata.custom_metrics
         self.assertEqual(
             metrics["grpc_call_resolution"],
-            {"linked": 5, "unresolved:no_proto_method": 1},
+            {"linked": 7, "unresolved:no_proto_method": 2},
         )
         # RegisterHealthServer(srv, health.NewServer()) names no declared type;
         # an inline arrow function handler has no declaration to link.
@@ -365,15 +381,17 @@ class GrpcContractTests(unittest.TestCase):
             files["frontend/rpc.go"]["unresolved_grpc_calls"],
             ["CurrencyService.Refund"],
         )
-        # Generated code and Go tests are neither servers nor clients.
-        called = {c.file for c in tool.last_grpc.calls}
+        # Generated code is neither server nor client; a Go test is only a
+        # client, marked test_source.
+        called = {(c.file, c.test_source) for c in tool.last_grpc.calls}
         self.assertEqual(
             called,
             {
-                "ads/src/main/java/shop/Ads.java",
-                "currency/server.js",
-                "email/server.py",
-                "frontend/rpc.go",
+                ("ads/src/main/java/shop/Ads.java", False),
+                ("cart/server_test.go", True),
+                ("currency/server.js", False),
+                ("email/server.py", False),
+                ("frontend/rpc.go", False),
             },
         )
 
