@@ -1896,8 +1896,15 @@ Python, JavaScript/TypeScript and Go sources are read too
   segments, as for requests, and its route records `base_unknown`. A handler
   that is a named function (or, in Go, a method name unique in the package
   directory) is linked by `HANDLES`; a closure's route hangs off its file.
-  Prefixes given when a router is mounted (`register_blueprint`,
-  `include_router`, `app.use`) are not read.
+  Python mounts compose across files: `parent.include_router(child,
+  prefix=...)` joins the parent's prefix, the mount prefix and the router's
+  own; `parent.register_blueprint(child, url_prefix=...)` joins the parent's
+  prefix and the mount prefix, which replaces the blueprint's own. The child
+  is a name bound once in its file, found through the file's imports
+  (relative to its package, else under the nearest enclosing directory that
+  holds the module, following re-exports). A router mounted twice gets a
+  route per mount; one never mounted keeps its own prefix. Express `app.use`
+  prefixes are not read.
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
   `request(method, url)`) and Locust `self.client` calls in files importing
   `locust`; JavaScript `fetch` (with `options.method`), `axios`, `request` and
