@@ -45,9 +45,14 @@ def visit(node, scope, in_type, file, out)
     location = node.name_loc
     out << {
       file: file, line: location.start_line, column: location.start_column,
-      name: node.name.to_s, kind: in_type ? "Method" : "Function",
+      name: node.name.to_s, kind: in_type || node.receiver ? "Method" : "Function",
       symbol: (scope + [node.name.to_s]).join(".")
     }
+    # A def in a method body defines its method when that method runs.
+    node.compact_child_nodes.each { |c| visit(c, scope, in_type, file, out) }
+  when Prism::SingletonClassNode
+    # `class << obj` opens the object's singleton class: its defs are methods.
+    node.compact_child_nodes.each { |c| visit(c, scope, true, file, out) }
   else
     node.compact_child_nodes.each { |c| visit(c, scope, in_type, file, out) }
   end

@@ -1201,6 +1201,7 @@ class SaMapping:
     table: str
     line: int
     column: int
+    explicit: bool = True  # False: a default naming strategy's name
 
 
 @dataclass(frozen=True)
@@ -1534,3 +1535,494 @@ def extract_python_sql(tree, content, file, definitions):
             )
         )
     return found
+
+
+# TypeScript and JavaScript: Prisma and TypeORM -----------------------------
+
+_PRISMA_MODEL = re.compile(r"^[ \t]*model[ \t]+([A-Za-z_]\w*)[ \t]*\{", re.MULTILINE)
+_PRISMA_MAP = re.compile(r'@@map\(\s*(?:name\s*:\s*)?"([^"]+)"\s*\)')
+PRISMA_READS = {
+    "findUnique",
+    "findUniqueOrThrow",
+    "findFirst",
+    "findFirstOrThrow",
+    "findMany",
+    "count",
+    "aggregate",
+    "groupBy",
+}
+PRISMA_WRITES = {
+    "create",
+    "createMany",
+    "createManyAndReturn",
+    "update",
+    "updateMany",
+    "updateManyAndReturn",
+    "upsert",
+    "delete",
+    "deleteMany",
+}
+_TYPEORM = ("typeorm", "@nestjs/typeorm")
+
+
+@dataclass(frozen=True)
+class PrismaModel:
+    file: str
+    model: str
+    table: str
+    explicit: bool  # named by @@map
+    line: int
+
+
+@dataclass(frozen=True)
+class ModelUse:
+    """A Prisma client call or TypeORM repository on a model by name."""
+
+    file: str
+    caller_id: str | None
+    model: str  # Prisma client accessor, or TypeORM entity class name
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+def extract_prisma_schema(file, content: bytes):
+    """The models a Prisma schema declares, each with its table: the
+    ``@@map`` name, else the model name. None if the file is not UTF-8."""
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    # Comments (// and ///) blanked; Prisma has no block comments.
+    text = re.sub(
+        r'"(?:[^"\\\n]|\\.)*"|//[^\n]*',
+        lambda m: m.group(0) if m.group(0)[0] == '"' else _blank(m),
+        text,
+    )
+    found = []
+    for match in _PRISMA_MODEL.finditer(text):
+        end = re.search(r"^[ \t]*\}", text[match.end() :], re.MULTILINE)
+        body = text[match.end() : match.end() + end.start()] if end else ""
+        mapped = _PRISMA_MAP.search(body)
+        found.append(
+            PrismaModel(
+                file,
+                match.group(1),
+                mapped.group(1) if mapped else match.group(1),
+                mapped is not None,
+                text.count("\n", 0, match.start()) + 1,
+            )
+        )
+    return found
+
+
+def prisma_accessor(model):
+    """The Prisma Client property of a model: its name, first letter lower."""
+    return model[:1].lower() + model[1:]
+
+
+def typeorm_table_name(entity):
+    """TypeORM's DefaultNamingStrategy table name: snakeCase of the class
+    name (``UserProfile`` is ``user_profile``, ``HTTPLog`` is ``http_log``)."""
+    name = re.sub(r"([A-Z])([A-Z])([a-z])", r"\1_\2\3", entity)
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
+
+
+def _script_string(node, content):
+    """A plain (not template) string literal's text, or None."""
+    if node is None or node.type != "string":
+        return None
+    return "".join(
+        _text(c, content)
+        for c in node.named_children
+        if c.type in ("string_fragment", "escape_sequence")
+    )
+
+
+def _script_imports(root, content):
+    """{local name: (module, imported name)} of top-level named imports."""
+    found = {}
+    for node in root.named_children:
+        if node.type != "import_statement":
+            continue
+        module = _script_string(node.child_by_field_name("source"), content)
+        if module is None:
+            continue
+        for clause in node.named_children:
+            if clause.type != "import_clause":
+                continue
+            for named in clause.named_children:
+                if named.type != "named_imports":
+                    continue
+                for spec in named.named_children:
+                    if spec.type != "import_specifier":
+                        continue
+                    name = _text(spec.child_by_field_name("name"), content)
+                    alias = spec.child_by_field_name("alias")
+                    local = _text(alias, content) if alias is not None else name
+                    found[local] = (module, name)
+    return found
+
+
+def _call_parts(call, content):
+    """(callee name, receiver node or None, arguments) of a call."""
+    function = call.child_by_field_name("function")
+    arguments = call.child_by_field_name("arguments")
+    args = [
+        a
+        for a in (arguments.named_children if arguments else ())
+        if a.type != "comment"
+    ]
+    if function is None:
+        return None, None, args
+    if function.type == "identifier":
+        return _text(function, content), None, args
+    if function.type == "member_expression":
+        prop = function.child_by_field_name("property")
+        return _text(prop, content), function.child_by_field_name("object"), args
+    return None, None, args
+
+
+def extract_typeorm(tree, content, file, definitions):
+    """(mappings, uses) of one TypeScript or JavaScript file: classes
+    decorated with TypeORM's ``@Entity`` and the entity classes passed to
+    ``getRepository`` or ``@InjectRepository``."""
+    root = tree.root_node
+    imports = _script_imports(root, content)
+    typeorm = {
+        local: name for local, (module, name) in imports.items() if module in _TYPEORM
+    }
+    if not typeorm:
+        return [], []
+    mappings, uses = [], []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type == "class_declaration":
+            decorators = [c for c in node.named_children if c.type == "decorator"]
+            if node.parent is not None and node.parent.type == "export_statement":
+                decorators += [
+                    c for c in node.parent.named_children if c.type == "decorator"
+                ]
+            for decorator in decorators:
+                call = decorator.named_children[0] if decorator.named_children else None
+                if call is None:
+                    continue
+                if call.type == "identifier":
+                    callee, args = _text(call, content), []
+                elif call.type == "call_expression":
+                    callee, receiver, args = _call_parts(call, content)
+                    if receiver is not None:
+                        continue
+                else:
+                    continue
+                if typeorm.get(callee) != "Entity":
+                    continue
+                name = None
+                if args:
+                    name = _script_string(args[0], content)
+                    if args[0].type == "object":
+                        for pair in args[0].named_children:
+                            if pair.type == "pair" and _text(
+                                pair.child_by_field_name("key"), content
+                            ) in ("name", '"name"', "'name'"):
+                                name = _script_string(
+                                    pair.child_by_field_name("value"), content
+                                )
+                                if name is None:
+                                    name = PLACEHOLDER
+                    elif name is None:
+                        name = PLACEHOLDER
+                if name == PLACEHOLDER or name == "":
+                    break  # A table name the file does not fix.
+                entity = _text(node.child_by_field_name("name"), content)
+                model_id = _innermost(
+                    definitions, file, node.child_by_field_name("name")
+                )
+                if model_id is None:
+                    break
+                mappings.append(
+                    SaMapping(
+                        file,
+                        model_id,
+                        entity,
+                        table_key(name) if name else typeorm_table_name(entity),
+                        node.start_point.row + 1,
+                        node.start_point.column,
+                        explicit=bool(name),
+                    )
+                )
+                break
+        elif node.type == "call_expression":
+            callee, receiver, args = _call_parts(node, content)
+            injected = callee == "InjectRepository" and typeorm.get(callee) == callee
+            if not (injected or callee == "getRepository") or not args:
+                continue
+            if args[0].type != "identifier":
+                continue
+            uses.append(
+                ModelUse(
+                    file,
+                    _innermost(definitions, file, node),
+                    _text(args[0], content),
+                    True,
+                    True,
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+    return mappings, uses
+
+
+def extract_prisma_client(tree, content, file, definitions, accessors):
+    """Prisma Client calls ``<client>.<model>.<method>(...)`` whose model
+    property is one of ``accessors`` and whose method reads or writes."""
+    found = []
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type != "call_expression":
+            continue
+        method, receiver, _ = _call_parts(node, content)
+        if (
+            receiver is None
+            or receiver.type != "member_expression"
+            or method not in PRISMA_READS | PRISMA_WRITES
+        ):
+            continue
+        accessor = _text(receiver.child_by_field_name("property"), content)
+        if accessor not in accessors:
+            continue
+        found.append(
+            ModelUse(
+                file,
+                _innermost(definitions, file, node),
+                accessor,
+                method in PRISMA_READS,
+                method in PRISMA_WRITES,
+                node.start_point.row + 1,
+                node.start_point.column,
+            )
+        )
+    return found
+
+
+# Go: database/sql, sqlx, pgx and GORM ---------------------------------------
+
+GO_SQL_PACKAGES = (
+    "database/sql",
+    "github.com/jmoiron/sqlx",
+    "github.com/jackc/pgx",
+    "github.com/lib/pq",
+    "github.com/go-sql-driver/mysql",
+    "github.com/mattn/go-sqlite3",
+    "modernc.org/sqlite",
+    "gorm.io/gorm",
+    "github.com/jinzhu/gorm",
+    "github.com/uptrace/bun",
+)
+# Methods whose arguments hold SQL text (database/sql, sqlx, pgx, GORM Raw
+# and Exec, bun's NewRaw).
+GO_SQL_METHODS = {
+    "Query",
+    "QueryRow",
+    "QueryContext",
+    "QueryRowContext",
+    "Exec",
+    "ExecContext",
+    "Prepare",
+    "PrepareContext",
+    "Queryx",
+    "QueryRowx",
+    "QueryxContext",
+    "QueryRowxContext",
+    "Select",
+    "SelectContext",
+    "Get",
+    "GetContext",
+    "MustExec",
+    "MustExecContext",
+    "NamedExec",
+    "NamedExecContext",
+    "NamedQuery",
+    "NamedQueryContext",
+    "Preparex",
+    "PreparexContext",
+    "Raw",
+    "NewRaw",
+}
+
+
+def _go_string(node, content):
+    """The text of Go string literals joined with ``+`` (other operands are
+    PLACEHOLDER), or None when the expression holds no literal."""
+    if node is None:
+        return None
+    if node.type == "raw_string_literal":
+        return "".join(
+            _text(c, content)
+            for c in node.named_children
+            if c.type == "raw_string_literal_content"
+        )
+    if node.type == "interpreted_string_literal":
+        return "".join(
+            _text(c, content)
+            for c in node.named_children
+            if c.type in ("interpreted_string_literal_content", "escape_sequence")
+        )
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _go_string(node.named_children[0], content)
+    if node.type == "call_expression":
+        # sqlx's Rebind(query) only rewrites bind markers.
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if (
+            function is not None
+            and function.type == "selector_expression"
+            and _text(function.child_by_field_name("field"), content) == "Rebind"
+            and arguments is not None
+            and len(arguments.named_children) == 1
+        ):
+            return _go_string(arguments.named_children[0], content)
+        return None
+    if (
+        node.type == "binary_expression"
+        and _text(node.child_by_field_name("operator"), content) == "+"
+    ):
+        left = _go_string(node.child_by_field_name("left"), content)
+        right = _go_string(node.child_by_field_name("right"), content)
+        if left is None and right is None:
+            return None
+        return (PLACEHOLDER if left is None else left) + (
+            PLACEHOLDER if right is None else right
+        )
+    return None
+
+
+def _go_imports(root, content):
+    paths = []
+    for node in root.named_children:
+        if node.type != "import_declaration":
+            continue
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if current.type == "import_spec":
+                path = _go_string(current.child_by_field_name("path"), content)
+                if path:
+                    paths.append(path)
+            stack.extend(current.named_children)
+    return paths
+
+
+@dataclass(frozen=True)
+class GoTableName:
+    """A ``TableName() string`` method returning a literal (GORM)."""
+
+    file: str
+    type_name: str
+    table: str
+    line: int
+    column: int
+
+
+def extract_go_sql(tree, content, file, definitions):
+    """(table names, SQL uses) of one Go file importing a SQL package:
+    GORM ``TableName`` methods returning a literal, and SQL text passed to
+    database/sql, sqlx, pgx, GORM or bun query methods."""
+    root = tree.root_node
+    if not any(
+        p == g or p.startswith(g + "/")
+        for p in _go_imports(root, content)
+        for g in GO_SQL_PACKAGES
+    ):
+        return [], []
+    names, uses = [], []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type == "method_declaration":
+            if _text(node.child_by_field_name("name"), content) != "TableName":
+                continue
+            receiver = node.child_by_field_name("receiver")
+            types = [
+                c
+                for c in (receiver.named_children if receiver else ())
+                if c.type == "parameter_declaration"
+            ]
+            written = types[0].child_by_field_name("type") if types else None
+            if written is not None and written.type == "pointer_type":
+                written = written.named_children[0] if written.named_children else None
+            body = node.child_by_field_name("body")
+            statements = [
+                s
+                for s in (body.named_children if body is not None else ())
+                for s in (s.named_children if s.type == "statement_list" else [s])
+                if s.type != "comment"
+            ]
+            if (
+                written is None
+                or written.type != "type_identifier"
+                or len(statements) != 1
+                or statements[0].type != "return_statement"
+            ):
+                continue
+            values = [
+                v
+                for e in statements[0].named_children
+                for v in (e.named_children if e.type == "expression_list" else [e])
+            ]
+            table = _go_string(values[0], content) if len(values) == 1 else None
+            if not table or PLACEHOLDER in table:
+                continue
+            names.append(
+                GoTableName(
+                    file,
+                    _text(written, content),
+                    table_key(table.rpartition(".")[2]),
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+        elif node.type == "call_expression":
+            function = node.child_by_field_name("function")
+            if function is None or function.type != "selector_expression":
+                continue
+            if _text(function.child_by_field_name("field"), content) not in (
+                GO_SQL_METHODS
+            ):
+                continue
+            arguments = node.child_by_field_name("arguments")
+            text = next(
+                (
+                    t
+                    for a in (arguments.named_children if arguments else ())[:3]
+                    for t in [_go_string(a, content)]
+                    if t is not None
+                ),
+                None,
+            )
+            if text is None:
+                continue
+            words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+            if not words or words[0].lower() not in SQL_VERBS:
+                continue
+            statement = statement_tables(text)
+            if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+                statement = None
+            uses.append(
+                SqlUse(
+                    file,
+                    _innermost(definitions, file, node),
+                    "go-sql",
+                    False,
+                    statement,
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+    return names, uses
