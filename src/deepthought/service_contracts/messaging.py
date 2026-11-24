@@ -1102,6 +1102,233 @@ def extract_javascript_brokers(sites, language):
                 sites.consume_queue(node, queue, bindings, "amqplib")
 
 
+_NEST_MICROSERVICES = "@nestjs/microservices"
+_NEST_CLIENTS = {
+    "ClientProxy",
+    "ClientKafka",
+    "ClientRMQ",
+    "ClientNats",
+    "ClientRedis",
+    "ClientMqtt",
+    "ClientTCP",
+}
+
+
+def _const_objects(root, content):
+    """{name: object literal} of the names declared once in the file, by
+    ``const``, with an object literal."""
+    found = {}
+    for node in _walk(root):
+        if node.type != "variable_declarator":
+            continue
+        name = node.child_by_field_name("name")
+        if name is None or name.type != "identifier":
+            continue
+        parent = node.parent
+        constant = (
+            parent is not None
+            and parent.type == "lexical_declaration"
+            and parent.children
+            and text(parent.children[0], content) == "const"
+        )
+        # Any other declaration of the name (a let, a var) is ambiguous.
+        value = node.child_by_field_name("value") if constant else None
+        found.setdefault(text(name, content), []).append(value)
+    return {
+        name: values[0]
+        for name, values in found.items()
+        if len(values) == 1 and values[0] is not None and values[0].type == "object"
+    }
+
+
+def _nest_escape(value):
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _nest_keys_ordered(keys):
+    """Whether sorting ``keys`` by code point gives the order Nest gives them
+    (``localeCompare``). That holds for keys of ASCII letters and digits whose
+    order does not depend on case; other keys are not read."""
+    if not all(re.fullmatch(r"[A-Za-z0-9]+", k) for k in keys):
+        return False
+    return sorted(keys) == sorted(keys, key=lambda k: (k.lower(), k.swapcase()))
+
+
+def _nest_route(node, folder, content, objects=None):
+    """A NestJS pattern as the route Nest matches it by
+    (``transformPatternToRoute``): a string or number as written, an object
+    as ``{"key":value,...}`` with sorted keys and quoted string values.
+    ``objects`` are the file's ``_const_objects``."""
+    if node is None:
+        return PLACEHOLDER
+    if node.type == "identifier" and objects and text(node, content) in objects:
+        node = objects[text(node, content)]
+    if node.type == "number":
+        written = text(node, content)
+        return written if re.fullmatch(r"-?\d+", written) else PLACEHOLDER
+    if node.type in ("true", "false", "null"):
+        return node.type
+    if node.type == "object":
+        parts = []
+        for pair in node.named_children:
+            if pair.type == "comment":
+                continue
+            if pair.type != "pair":
+                return PLACEHOLDER
+            key = folder.evaluate(pair.child_by_field_name("key"))
+            if pair.child_by_field_name("key").type == "property_identifier":
+                key = text(pair.child_by_field_name("key"), content)
+            value = pair.child_by_field_name("value")
+            if value.type in ("string", "template_string"):
+                route = f'"{_nest_escape(folder.evaluate(value))}"'
+            else:
+                route = _nest_route(value, folder, content, objects)
+            parts.append((key, route))
+        keys = [k for k, _ in parts]
+        if len(set(keys)) != len(keys) or not _nest_keys_ordered(keys):
+            return PLACEHOLDER
+        order = sorted(keys)
+        routes = dict(parts)
+        return "{" + ",".join(f'"{_nest_escape(k)}":{routes[k]}' for k in order) + "}"
+    return folder.evaluate(node)
+
+
+def _imported_from(name, modules, module):
+    return modules.get(name, "") == f"{module}.{name}" or modules.get(
+        name, ""
+    ).startswith(f"{module}.")
+
+
+def _nest_clients(root, content, modules):
+    """Names (``this.x`` or ``x``) declared in the file only with a NestJS
+    client type (``ClientProxy`` and its transport subclasses)."""
+    found = {}
+    for node in _walk(root):
+        if node.type in ("public_field_definition", "field_definition"):
+            name = node.child_by_field_name("name")
+            written = "this." + text(name, content) if name is not None else None
+        elif node.type in ("required_parameter", "optional_parameter"):
+            pattern = node.child_by_field_name("pattern")
+            if pattern is None or pattern.type != "identifier":
+                continue
+            # A parameter property (private x: T) is also this.x.
+            modifier = any(
+                c.type in ("accessibility_modifier", "readonly")
+                or text(c, content) == "readonly"
+                for c in node.children
+            )
+            written = ("this." if modifier else "") + text(pattern, content)
+        elif node.type == "variable_declarator":
+            name = node.child_by_field_name("name")
+            written = text(name, content) if name is not None else None
+        else:
+            continue
+        annotation = node.child_by_field_name("type")
+        if written is None or annotation is None:
+            continue
+        kind = annotation.named_children[0] if annotation.named_children else None
+        typed = text(kind, content) if kind is not None else ""
+        found.setdefault(written, set()).add(
+            typed in _NEST_CLIENTS
+            and _imported_from(typed, modules, _NEST_MICROSERVICES)
+        )
+    return {name for name, kinds in found.items() if kinds == {True}}
+
+
+def extract_nest_microservices(sites, language):
+    """NestJS microservice patterns: ``@MessagePattern``/``@EventPattern``
+    handlers of controllers consume, and a client's ``send``/``emit``
+    publish. A message and an event of the same pattern are different
+    destinations, as Nest matches them separately."""
+    content, root = sites.content, sites.root
+    modules = _js_modules(root, content)
+    if not any(m and m.startswith(_NEST_MICROSERVICES) for m in modules.values()):
+        return
+    folder = Folder(language, root, content)
+    objects = _const_objects(root, content)
+
+    def decorator_call(node):
+        call = node.named_children[0] if node.named_children else None
+        if call is None or call.type != "call_expression":
+            return None, []
+        function = call.child_by_field_name("function")
+        if function is None or function.type != "identifier":
+            return None, []
+        arguments = call.child_by_field_name("arguments")
+        found = [] if arguments is None else arguments.named_children
+        return text(function, content), [c for c in found if c.type != "comment"]
+
+    for node in _walk(root):
+        if node.type != "class_declaration":
+            continue
+        decorators = [c for c in node.named_children if c.type == "decorator"]
+        if node.parent is not None and node.parent.type == "export_statement":
+            decorators += [
+                c for c in node.parent.named_children if c.type == "decorator"
+            ]
+        if not any(
+            decorator_call(d)[0] == "Controller"
+            and _imported_from("Controller", modules, "@nestjs/common")
+            for d in decorators
+        ):
+            continue
+        body = node.child_by_field_name("body")
+        pending = []
+        for member in [] if body is None else body.named_children:
+            if member.type == "decorator":
+                pending.append(member)
+                continue
+            if member.type != "method_definition":
+                pending = []
+                continue
+            decorators, pending = pending, []
+            for item in decorators:
+                name, arguments = decorator_call(item)
+                if name not in ("MessagePattern", "EventPattern") or not (
+                    _imported_from(name, modules, _NEST_MICROSERVICES)
+                ):
+                    continue
+                kind = "message" if name == "MessagePattern" else "event"
+                route = _nest_route(
+                    arguments[0] if arguments else None, folder, content, objects
+                )
+                sites.add(
+                    item,
+                    "consume",
+                    "nestjs",
+                    f"{kind}:{route}",
+                    "nestjs-microservices",
+                    sites.declaration(member),
+                )
+    clients = _nest_clients(root, content, modules)
+    if not clients:
+        return
+    for node in _walk(root):
+        if node.type != "call_expression":
+            continue
+        found = _member_call(node, content)
+        if (
+            found is None
+            or found[0] not in clients
+            or found[1]
+            not in (
+                "send",
+                "emit",
+            )
+        ):
+            continue
+        arguments = [
+            c
+            for c in node.child_by_field_name("arguments").named_children
+            if c.type != "comment"
+        ]
+        if not arguments:
+            continue
+        kind = "message" if found[1] == "send" else "event"
+        route = _nest_route(arguments[0], folder, content, objects)
+        sites.add(node, "publish", "nestjs", f"{kind}:{route}", "nestjs-microservices")
+
+
 def extract_javascript(sites, language):
     content, root = sites.content, sites.root
     modules = _js_modules(root, content)
@@ -1211,4 +1438,5 @@ def extract_messaging(
     elif language in ("javascript", "typescript"):
         extract_javascript(sites, language)
         extract_javascript_brokers(sites, language)
+        extract_nest_microservices(sites, language)
     return sites.endpoints, sites.unread
