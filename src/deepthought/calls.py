@@ -29,6 +29,7 @@ GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 CALL_JS_REEXPORT = "tree-sitter.js-call-reexport"
 CALL_JS_STATIC_METHOD = "tree-sitter.js-call-static-method"
+CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -1613,16 +1614,60 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         or bound by a named import of one class. None otherwise."""
         if languages.get(site.file) not in {"javascript", "typescript"}:
             return None
-        if site.binding is not None:
-            found = starts.get((site.file, *site.binding), [])
+        return script_named(site.file, head, site.binding)
+
+    def script_named(file, head, binding):
+        """The class ``head`` names in a JavaScript or TypeScript file where
+        ``binding`` (as ``CallSite.binding``) is its declaration."""
+        if binding is not None:
+            found = starts.get((file, *binding), [])
         else:
-            bound = names.get((site.file, head), [])
+            bound = names.get((file, head), [])
             if len(bound) != 1 or bound[0][0] is None:
                 return None
             imported, targets = bound[0]
             linked = exported(targets, imported, CALL_IMPORTED_NAME, "not_declared")
             found = [by_id[linked.target_id]] if linked.target_id else []
         return found[0] if len(found) == 1 and found[0].kind == "Class" else None
+
+    script_bases = None
+
+    def script_method(cls, name):
+        """``(methods, reason)``: the instance method ``name`` a JavaScript
+        or TypeScript class declares, or inherits through ``extends``. A
+        field of that name hides an inherited method, and a base that names
+        no repository class may declare it, so either stops the lookup."""
+        nonlocal script_bases
+        if script_bases is None:
+            from .inheritance import resolve_supertypes
+
+            facts = {item.id: item for item in result.supertypes}
+            script_bases = defaultdict(list)
+            for resolution in resolve_supertypes(result):
+                item = facts[resolution.call_id]
+                if item.kind == "extends":
+                    # A class extends at most one class; `implements` names
+                    # types whose members it does not inherit.
+                    script_bases[item.owner_id].append(resolution)
+        seen, current = set(), cls
+        while current.id not in seen:
+            seen.add(current.id)
+            own = [
+                d
+                for d in by_symbol.get((current.file, f"{current.symbol}.{name}"), ())
+                if d.kind in _METHOD and not d.static
+            ]
+            if own:
+                return own, "not_declared_on_type"
+            if name in (current.properties or ()):
+                return [], "field_not_method"
+            bases = script_bases.get(current.id, [])
+            if not bases:
+                return [], "not_declared_on_type"
+            if bases[0].target_id is None:
+                return [], "base_not_resolved"
+            current = by_id[bases[0].target_id]
+        return [], "base_not_resolved"
 
     resolutions = []
     for site in sorted(result.call_sites, key=lambda value: value.id):
@@ -1721,7 +1766,25 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 )
             continue
         head, name = ".".join(parts[:-1]), parts[-1]
-        if site.receiver_type is not None or site.receiver_function is not None:
+        script = languages.get(site.file) in {"javascript", "typescript"}
+        if script and site.receiver_type is not None and not name.startswith("#"):
+            owner = script_named(site.file, site.receiver_type, site.receiver_binding)
+            if (
+                owner is not None
+                # A class merged with an interface or namespace of its name
+                # has members the class body does not declare.
+                and len(by_symbol.get((owner.file, owner.symbol), ())) == 1
+            ):
+                # `x.m()` where `x` is annotated with a class or bound to
+                # `new` of it.
+                methods, reason = script_method(owner, name)
+                resolutions.append(
+                    _pick(site.id, methods, CALL_JS_TYPED_RECEIVER, reason)
+                )
+                continue
+        if not script and (
+            site.receiver_type is not None or site.receiver_function is not None
+        ):
             # Go: `x.M()` on a variable whose declaration gives its type,
             # or binds it to the first result of a function.
             start = (

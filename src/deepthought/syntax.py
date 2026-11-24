@@ -285,6 +285,10 @@ def extract(
                 arity = {"static": True}
             elif script and _js_default_export(node, name, defaults):
                 arity = {"default_export": True}
+            if script and kind == "Class":
+                properties = _js_properties(node, content)
+                if properties:
+                    arity = {**arity, "properties": properties}
             if file.endswith(".go"):
                 if node.type in {
                     "function_declaration",
@@ -2265,6 +2269,95 @@ def _js_binding(node, content, callee, cache):
     return ()
 
 
+def _js_properties(node, content):
+    """``Definition.properties`` of a JavaScript or TypeScript class."""
+    body = node.child_by_field_name("body")
+    found = []
+    for member in body.named_children if body is not None else ():
+        if member.type in {"public_field_definition", "field_definition"}:
+            if any(c.type == "static" for c in member.children):
+                continue
+            name = member.child_by_field_name(
+                "name" if member.type == "public_field_definition" else "property"
+            )
+            if name is not None and name.type == "property_identifier":
+                found.append(_text(name, content))
+        elif (
+            member.type == "method_definition"
+            and _text(member.child_by_field_name("name"), content) == "constructor"
+        ):
+            parameters = member.child_by_field_name("parameters")
+            for parameter in parameters.named_children if parameters else ():
+                pattern = parameter.child_by_field_name("pattern")
+                if (
+                    parameter.type in {"required_parameter", "optional_parameter"}
+                    and pattern is not None
+                    and pattern.type == "identifier"
+                    and any(
+                        c.type
+                        in {"accessibility_modifier", "readonly", "override_modifier"}
+                        for c in parameter.children
+                    )
+                ):
+                    found.append(_text(pattern, content))
+    return tuple(dict.fromkeys(found))
+
+
+def _js_receiver(node, content, callee, cache, root):
+    """``receiver_type`` and ``receiver_binding`` of a JavaScript or
+    TypeScript call ``x.m()``: the class ``T`` that the declaration of ``x``
+    the call sees writes, as a type annotation (``x: T``, ``x: T<U>``) or as
+    the value ``new T(...)``, with the declaration of ``T`` seen there."""
+    if callee.count(".") != 1:
+        return {}
+    binding = _js_binding(node, content, callee, cache)
+    if not binding:
+        return {}
+    # The binding of a declared variable or parameter starts at its name.
+    point = (binding[0] - 1, binding[1])
+    declaration = root.named_descendant_for_point_range(point, point).parent
+    if declaration.type == "variable_declarator":
+        written = declaration.child_by_field_name("type")
+        if written is None:
+            value = declaration.child_by_field_name("value")
+            # Only `new T(...)` has a constructor.
+            written = value.child_by_field_name("constructor") if value else None
+    elif declaration.type in {"required_parameter", "optional_parameter"}:
+        written = declaration.child_by_field_name("type")
+    else:
+        return {}
+    if written is not None and written.type == "type_annotation":
+        written = written.named_children[0] if written.named_children else None
+    if written is not None and written.type == "generic_type":
+        written = written.child_by_field_name("name")
+    if written is None or written.type not in {"identifier", "type_identifier"}:
+        return {}
+    type_name = _text(written, content)
+    if ("types",) not in cache:
+        cache[("types",)] = _js_type_names(root, content)
+    if written.type == "type_identifier" and type_name in cache[("types",)]:
+        # Interfaces and type aliases share the type namespace with classes
+        # but are not scopes' bindings: such a name may not be the class.
+        return {}
+    return {
+        "receiver_type": type_name,
+        "receiver_binding": _js_binding(written, content, type_name, cache),
+    }
+
+
+def _js_type_names(root, content):
+    """The names of the interfaces and type aliases a TypeScript file declares."""
+    found, stack = set(), [root]
+    while stack:
+        node = stack.pop()
+        if node.type in {"interface_declaration", "type_alias_declaration"}:
+            declared = node.child_by_field_name("name")
+            if declared is not None:
+                found.add(_text(declared, content))
+        stack.extend(node.named_children)
+    return found
+
+
 def _python_shadowed(node, content, callee, cache):
     """Whether the first name of a Python call's callee is bound in a
     function, lambda or comprehension around the call, so that it does not
@@ -3486,6 +3579,11 @@ def extract_call_sites(
                         if script
                         else None,
                         **(
+                            _js_receiver(node, content, callee, scopes, tree.root_node)
+                            if script
+                            else {}
+                        ),
+                        **(
                             {
                                 "receiver_type": _java_receiver_type(
                                     node, content, callee, receivers
@@ -3501,7 +3599,9 @@ def extract_call_sites(
                             else _go_receiver_fields(node, content, callee, receivers)
                             if go
                             else {}
-                        ),
+                        )
+                        if not script
+                        else {},
                     )
                 )
         stack.extend(reversed(children(node)))

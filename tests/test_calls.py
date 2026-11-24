@@ -15,6 +15,7 @@ from deepthought.calls import (
     CALL_IMPORTED_NAME,
     CALL_JS_REEXPORT,
     CALL_JS_STATIC_METHOD,
+    CALL_JS_TYPED_RECEIVER,
     CALL_LEXICAL_NAME,
     CALL_MODULE_ATTRIBUTE,
     CALL_PYTHON_REEXPORT,
@@ -946,7 +947,7 @@ class TypeScriptCallTests(unittest.TestCase):
                     "    this.#run();\n"  # 4
                     "    o.#run();\n"  # 5: a private name, whatever `o` is
                     "    o.inner.#run();\n"  # 6
-                    "    o.run();\n"  # 7: not a private name
+                    "    o.run();\n"  # 7: not a private name, and Outer has no run
                     "    class Inner {\n"
                     "      #other() {}\n"
                     "      m(o: Outer) { o.#run(); o.#other(); }\n"  # 10
@@ -970,7 +971,7 @@ class TypeScriptCallTests(unittest.TestCase):
                 )
         self.assertEqual(
             found[("main.ts", 7, "o.run")],
-            ("unresolved", None, None, "attribute_call"),
+            ("unresolved", None, None, "not_declared_on_type"),
         )
         # Inner declares no #run: the name is Outer's, which is not followed.
         self.assertEqual(
@@ -981,6 +982,158 @@ class TypeScriptCallTests(unittest.TestCase):
             found[("main.ts", 10, "o.#other")],
             ("linked", "main.ts::Outer.go.Inner.#other", CALL_PRIVATE_NAME, None),
         )
+
+    def test_receivers_typed_by_their_declarations(self):
+        result = analyze(
+            {
+                "base.ts": (
+                    "export class Base {\n"
+                    "  route(p: string) { return this }\n"
+                    "  hidden() {}\n"
+                    "  shared() {}\n"
+                    "}\n"
+                ),
+                "app.ts": (
+                    "import { Base } from './base';\n"
+                    "import { Ext } from 'external';\n"
+                    "export class App extends Base {\n"
+                    "  hidden = () => 1;\n"
+                    "  constructor(private shared: number, n: number) { super() }\n"
+                    "  run() {}\n"
+                    "  static make() {}\n"
+                    "}\n"
+                    "export class Wrapped extends Ext {}\n"
+                    "export class Merged { a() {} }\n"
+                    "export interface Merged { b(): void }\n"
+                    "export class Lone {}\n"
+                    "export class Store<T> { get(): T {} }\n"
+                    "export class Impl implements Base {}\n"
+                    "export class P extends Q {}\n"
+                    "export class Q extends P {}\n"
+                ),
+                "main.ts": (
+                    "import { App, Wrapped, Merged, Lone, Impl, P, Store } from './app';\n"
+                    "import { Base } from './base';\n"
+                    "interface Shape { area(): number }\n"
+                    "const app = new App(1);\n"
+                    "app.route('/'); app.run();\n"  # 5
+                    "function f(a: App, b?: Base, g: Map<string, App>, s: Shape) {\n"
+                    "  a.route('x'); b.route('y'); g.get('k'); s.area();\n"  # 7
+                    "  a.hidden(); a.shared(); a.make(); a.missing();\n"  # 8
+                    "}\n"
+                    "let w: Wrapped = new Wrapped(); w.go();\n"  # 10
+                    "const m = new Merged(); m.a();\n"  # 11
+                    "const l = new Lone(); l.toString();\n"  # 12
+                    "function h() {\n"
+                    "  class App { own() {} }\n"
+                    "  const local = new App(); local.own(); local.run();\n"  # 15
+                    "  const made = make(); made.run();\n"  # 16
+                    "  const { d } = { d: app }; d.run();\n"  # 17
+                    "}\n"
+                    "const i = new Impl(); i.route();\n"  # 19
+                    "const p = new P(); p.zz();\n"  # 20
+                    "function t(st: Store<number>) { st.get() }\n"  # 21
+                    "const fn = new Lone(); fn();\n"  # 22
+                ),
+                "shadow.ts": (
+                    "import { App } from './app';\n"
+                    "function k(q: App) {\n"
+                    "  type App = { route(): void };\n"
+                    "  q.route();\n"
+                    "}\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for line, callee, target in (
+            (5, "app.route", "base.ts::Base.route"),
+            (5, "app.run", "app.ts::App.run"),
+            (7, "a.route", "base.ts::Base.route"),
+            (7, "b.route", "base.ts::Base.route"),
+            (15, "local.own", "main.ts::h.App.own"),
+            (21, "st.get", "app.ts::Store.get"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", target, CALL_JS_TYPED_RECEIVER, None),
+                )
+        for line, callee, reason in (
+            # A field hides the method App inherits.
+            (8, "a.hidden", "field_not_method"),
+            (8, "a.shared", "field_not_method"),
+            # A static method is not an instance's.
+            (8, "a.make", "not_declared_on_type"),
+            (8, "a.missing", "not_declared_on_type"),
+            # Ext may declare go.
+            (10, "w.go", "base_not_resolved"),
+            (12, "l.toString", "not_declared_on_type"),
+            (15, "local.run", "not_declared_on_type"),
+            # Map is no repository class, Shape no class, Merged has members
+            # its interface declares, and `made` and `d` write no type.
+            (7, "g.get", "attribute_call"),
+            (7, "s.area", "attribute_call"),
+            (11, "m.a", "attribute_call"),
+            (16, "made.run", "attribute_call"),
+            (17, "d.run", "attribute_call"),
+            (19, "i.route", "not_declared_on_type"),
+            (20, "p.zz", "base_not_resolved"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)], ("unresolved", None, None, reason)
+                )
+        # Only `x.m()` reads the type of `x`.
+        self.assertEqual(
+            [s.receiver_type for s in result.call_sites if s.callee == "fn"], [None]
+        )
+        # A type alias may be the App that `q` is annotated with.
+        self.assertEqual(
+            found[("shadow.ts", 4, "q.route")],
+            ("unresolved", None, None, "attribute_call"),
+        )
+        apps = {d.symbol: d.properties for d in result.definitions}
+        self.assertEqual(apps["App"], ("hidden", "shared"))
+        self.assertIsNone(apps["Base"])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        # Unset fields are left out of artifacts.
+        self.assertNotIn('"properties": null', result.to_json())
+        self.assertNotIn('"receiver_binding": null', result.to_json())
+        site = dict(id="c", file="a.ts", callee="x.m", kind="call")
+        site.update(line=1, column=0, end_line=1, end_column=5)
+        for bad in (
+            dict(receiver_binding=(1, 0)),
+            dict(receiver_type="T", receiver_binding=(0, 0)),
+            dict(receiver_type="T", receiver_binding=(1,)),
+            dict(receiver_type="T", receiver_binding=(1, -1)),
+            dict(receiver_type="T", receiver_binding=[1, 0]),
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                CallSite(**site, **bad)
+        CallSite(**site, receiver_type="T", receiver_binding=())
+        owner = next(d for d in result.definitions if d.symbol == "App")
+        for bad in ((), ("",), ["x"], (1,)):
+            with self.subTest(properties=bad), self.assertRaises(ValueError):
+                replace(owner, properties=bad)
+
+    def test_javascript_receivers_bound_to_new(self):
+        result = analyze(
+            {
+                "plain.js": (
+                    "class Js { go() {} }\n"
+                    "const j = new Js(); j.go();\n"
+                    "class F { x = 1; static y = 2; #z = 3 }\n"
+                ),
+            },
+            "javascript",
+        )
+        self.assertEqual(
+            links(result)[("plain.js", 2, "j.go")],
+            ("linked", "plain.js::Js.go", CALL_JS_TYPED_RECEIVER, None),
+        )
+        properties = {d.symbol: d.properties for d in result.definitions}
+        self.assertEqual(properties["F"], ("x",))
 
 
 class CallSchemaTests(unittest.TestCase):

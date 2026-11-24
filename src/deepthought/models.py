@@ -75,6 +75,12 @@ class Definition:
     # written as for ``result_type``. Java types: the same for each static
     # field and enum constant. None elsewhere, or when there is none.
     fields: tuple[tuple[str, str], ...] | None = None
+    # JavaScript and TypeScript classes: the names of the instance fields the
+    # body declares (``x = 1``, ``x: T``, ``declare x``) and of the
+    # constructor's parameter properties (``private x: T``), which hide a
+    # method of that name the class inherits. None elsewhere, or when there
+    # is none.
+    properties: tuple[str, ...] | None = None
 
     def __post_init__(self):
         if self.result_type is not None and (
@@ -92,6 +98,12 @@ class Definition:
             )
         ):
             raise ValueError("fields must be a tuple of (name, type) pairs")
+        if self.properties is not None and (
+            type(self.properties) is not tuple
+            or not self.properties
+            or not all(isinstance(name, str) and name for name in self.properties)
+        ):
+            raise ValueError("properties must be a tuple of nonempty strings")
         if self.parameter_types is not None and (
             type(self.parameter_types) is not tuple
             or not all(isinstance(t, str) and t for t in self.parameter_types)
@@ -293,8 +305,15 @@ class CallSite:
     # where ``x`` is declared in the function around the call: the type of
     # ``x`` its declaration gives, written as for ``Definition.result_type``.
     # Python calls ``x.m()``: the class name (``T``, ``m.T``) that the
-    # binding of ``x`` writes. None elsewhere.
+    # binding of ``x`` writes. JavaScript and TypeScript calls ``x.m()``
+    # where the declaration of ``x`` the call sees writes a type annotation
+    # ``T`` or ``T<...>``, or initializes ``x`` with ``new T(...)``: ``T``.
+    # None elsewhere.
     receiver_type: str | None = None
+    # JavaScript and TypeScript, with ``receiver_type``: the start (line,
+    # column) of the declaration of ``T`` seen where ``x`` is declared, as
+    # for ``binding``. None elsewhere.
+    receiver_binding: tuple[int, ...] | None = None
     # Go calls on a variable bound to a function's result (``x := F()``,
     # ``x := pkg.F()``): that function, ``F`` or ``pkg.F``, in place of
     # ``receiver_type``; the receiver's type is its first result. None
@@ -330,6 +349,16 @@ class CallSite:
             or (self.binding and self.binding[0] < 1)
         ):
             raise ValueError("binding must be (line, column), () or None")
+        if self.receiver_binding is not None and (
+            self.receiver_type is None
+            or type(self.receiver_binding) is not tuple
+            or len(self.receiver_binding) not in (0, 2)
+            or not all(type(v) is int and v >= 0 for v in self.receiver_binding)
+            or (self.receiver_binding and self.receiver_binding[0] < 1)
+        ):
+            raise ValueError(
+                "receiver_binding must be (line, column) or () with a receiver_type"
+            )
         if self.argument_calls is not None and (
             type(self.argument_calls) is not tuple
             or len(self.argument_calls) != self.arguments
@@ -696,6 +725,8 @@ class AnalysisResult:
                 del item["result_type"]
             if item["fields"] is None:
                 del item["fields"]
+            if item["properties"] is None:
+                del item["properties"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -713,6 +744,8 @@ class AnalysisResult:
                 del item["receiver_steps"]
             if item["binding"] is None:
                 del item["binding"]
+            if item["receiver_binding"] is None:
+                del item["receiver_binding"]
             if item["argument_calls"] is None:
                 del item["argument_calls"]
             if item["argument_fields"] is None:
@@ -817,6 +850,11 @@ class AnalysisResult:
                             else {}
                         ),
                         **(
+                            {"receiver_binding": tuple(item["receiver_binding"])}
+                            if isinstance(item.get("receiver_binding"), list)
+                            else {}
+                        ),
+                        **(
                             {
                                 "argument_calls": tuple(
                                     None if span is None else tuple(span)
@@ -864,6 +902,9 @@ class AnalysisResult:
                         "fields": tuple(tuple(field) for field in item["fields"])
                         if isinstance(item.get("fields"), list)
                         else item.get("fields"),
+                        "properties": tuple(item["properties"])
+                        if isinstance(item.get("properties"), list)
+                        else item.get("properties"),
                         "parameter_types": tuple(item["parameter_types"])
                         if isinstance(item.get("parameter_types"), list)
                         else item.get("parameter_types"),
