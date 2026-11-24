@@ -84,8 +84,9 @@ class Definition:
     # JavaScript and TypeScript classes: the names of the instance fields the
     # body declares (``x = 1``, ``x: T``, ``declare x``) and of the
     # constructor's parameter properties (``private x: T``), which hide a
-    # method of that name the class inherits. None elsewhere, or when there
-    # is none.
+    # method of that name the class inherits. Java types: the names of every
+    # field the body declares (static, private or not), enum constants and
+    # record components. None elsewhere, or when there is none.
     properties: tuple[str, ...] | None = None
     # Go named types declared as a slice or array (``type byName []*T``):
     # that type, written as for ``result_type`` (``[]T``). None elsewhere.
@@ -373,6 +374,12 @@ class CallSite:
     # field named ``X`` can be in scope, so ``X`` names a type or package.
     # None elsewhere.
     type_qualified: bool | None = None
+    # Java calls ``x.m()`` whose ``receiver_type`` comes from a declaration
+    # outside a type around the call that may inherit a field (an anonymous
+    # class, an enum constant body, a class with bases): True, and the call
+    # binds that declaration only if none of those types inherits a field
+    # ``x``. None elsewhere.
+    receiver_inherits: bool | None = None
 
     def __post_init__(self):
         if self.binding is not None and (
@@ -464,6 +471,10 @@ class CallSite:
             raise ValueError("shadowed must be True or None")
         if self.type_qualified not in (None, True):
             raise ValueError("type_qualified must be True or None")
+        if self.receiver_inherits not in (None, True) or (
+            self.receiver_inherits and self.receiver_type is None
+        ):
+            raise ValueError("receiver_inherits must be True with a receiver_type")
         if self.argument_types is not None and (
             type(self.argument_types) is not tuple
             or len(self.argument_types) != self.arguments
@@ -829,6 +840,8 @@ class AnalysisResult:
                 del item["receiver_call"]
             if item["type_qualified"] is None:
                 del item["type_qualified"]
+            if item["receiver_inherits"] is None:
+                del item["receiver_inherits"]
             if item["argument_fields"] is None:
                 del item["argument_fields"]
         for item in data["imports"]:

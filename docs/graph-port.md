@@ -988,6 +988,13 @@ Calls on a type's static field or enum constant
 `JsonElementTypeAdapter.ADAPTER.read(...)`) follow the field's written type
 (`tree-sitter.java-call-static-field-receiver`): 50 more confirmed links on
 gson (10,517 of 11,050), none contradicted.
+A variable an anonymous class, an enum constant's body or a class with bases
+captures from around it (`longAdapter.read(in)` inside `new TypeAdapter<>() {...}`)
+binds its declaration only when no base of those types may give them a field
+of that name: every base is a repository type, none declares one, and the same
+holds for its own bases (`Definition.properties` lists a Java type's fields).
+Otherwise the call is left unresolved (`receiver_may_be_inherited_field`).
+This confirmed 44 more gson links (10,561), none contradicted.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
