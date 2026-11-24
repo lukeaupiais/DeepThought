@@ -2863,8 +2863,10 @@ underscore and table-name cases of Rails' own `inflector_test_cases.rb`
 
 On openstatusHQ/openstatus `3836510`, a Drizzle monorepo with its schema in
 `packages/db` and its queries across `apps/` and `packages/`, the tool reads
-all 62 table declarations that `grep` for `= *Table(` finds and links 2,917
-query-builder calls. A single-line `grep` for those methods with a table
+all 62 table declarations that `grep` for `= *Table(` finds. It links 867
+query-builder calls outside the test sources; every one of the 2,050 edges
+that skipping JavaScript and TypeScript tests removed came from a test
+source. Before that skip it linked 2,917 calls: a single-line `grep` for those methods with a table
 variable name finds 2,888 lines; the tool takes all but 24: 16 are in
 `src/test/` directories, which are skipped as test sources, 6 are in a test
 file that tree-sitter-typescript does not parse

@@ -2208,6 +2208,11 @@ export class UserRepository extends BaseRepository<unknown> {
   findByEmail(email) { return this.MongooseModel.findOne({ email }); }
   touch() { return this.upsert({}); }
 }
+
+export {
+  // a comment in the braces is not an export
+  UserRepository as Users,
+};
 """,
     "libs/dal/src/audit.ts": """\
 import mongoose from 'mongoose';
