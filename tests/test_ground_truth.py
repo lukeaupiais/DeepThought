@@ -13,6 +13,7 @@ import io
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -610,6 +611,120 @@ class TableTruthTests(unittest.TestCase):
         self.assertEqual(
             ground_truth.table_regressions(report, baseline),
             ["found 2 -> 1", "wrong 0 -> 1"],
+        )
+
+
+DOCTRINE = {
+    "src/Entity/Team.php": (
+        "<?php\nnamespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n"
+        "#[ORM\\Entity]\n#[ORM\\Table(name: '`teams`')]\nclass Team {\n"
+        "    #[ORM\\ManyToMany(targetEntity: Team::class)]\n"
+        "    #[ORM\\JoinTable(name: 'team_links')]\n    private $links;\n}\n"
+    ),
+    "src/Entity/BlogPost2.php": (
+        "<?php\nnamespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n"
+        "#[ORM\\Entity]\nclass BlogPost2 {}\n"
+    ),
+    "src/Entity/Node.php": (
+        "<?php\nnamespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n"
+        "#[ORM\\Entity]\n#[ORM\\InheritanceType('SINGLE_TABLE')]\n"
+        "abstract class Node {}\n"
+    ),
+    "src/Entity/Leaf.php": (
+        "<?php\nnamespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n"
+        "#[ORM\\Entity]\nclass Leaf extends Node {}\n"
+    ),
+    "migrations/Version1.php": (
+        "<?php\nfinal class Version1 {\n"
+        "  public function up($schema): void {\n"
+        "    $this->addSql('CREATE TABLE teams (id INT)');\n"
+        "    $this->addSql('CREATE TABLE team_links (a INT)');\n"
+        "    $this->addSql('CREATE TABLE blog_post2 (id INT)');\n  }\n"
+        "  public function down($schema): void {\n"
+        "    $this->addSql('DROP TABLE teams');\n  }\n}\n"
+    ),
+    "migrations/Version2.php": (
+        "<?php\nfinal class Version2 {\n  public function mySQLUp($schema): void {\n"
+        "    $this->addSql('RENAME TABLE blog_post2 TO blog_post_2');\n  }\n}\n"
+    ),
+}
+
+
+class DoctrineTableTests(unittest.TestCase):
+    def oracle(self, root, naming):
+        out = subprocess.run(
+            ["php", str(ROOT / "tools/doctrine_table_oracle.php"), str(root), naming],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(out.stdout), out.stderr
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_oracle_reads_entities_and_checks_them_against_migrations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, text in DOCTRINE.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels, stderr = self.oracle(root, "underscore_number_aware")
+            # The plain underscore strategy keeps the digit joined, which the
+            # migrations do not: the label is reported as not migrated.
+            _, plain = self.oracle(root, "underscore")
+        self.assertEqual(
+            [(m["class"], m["table"], m["join_tables"]) for m in labels["models"]],
+            [
+                ("App\\Entity\\BlogPost2", "blog_post_2", []),
+                ("App\\Entity\\Team", "teams", ["team_links"]),
+            ],
+        )
+        self.assertEqual(
+            labels["not_counted"],
+            [
+                {"class": "App\\Entity\\Leaf", "reason": "inheritance"},
+                {"class": "App\\Entity\\Node", "reason": "inheritance"},
+            ],
+        )
+        self.assertEqual(
+            labels["migrated_tables"], ["blog_post_2", "team_links", "teams"]
+        )
+        self.assertEqual(stderr, "")
+        self.assertIn("not migrated\tApp\\Entity\\BlogPost2\tblog_post2", plain)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("tree_sitter_php"), "PHP grammar is required"
+    )
+    def test_join_tables_do_not_make_an_entity_wrong(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            for name, text in DOCTRINE.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels = Path(tmp) / "labels.json"
+            labels.write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {
+                                "class": "App\\Entity\\Team",
+                                "table": "teams",
+                                "join_tables": ["team_links"],
+                            }
+                        ],
+                        "not_counted": [
+                            {"class": "App\\Entity\\BlogPost2", "reason": "x"},
+                            {"class": "App\\Entity\\Leaf", "reason": "inheritance"},
+                            {"class": "App\\Entity\\Node", "reason": "inheritance"},
+                        ],
+                    }
+                ),
+                "utf-8",
+            )
+            report, samples = ground_truth.score_tables(
+                {"labels": labels, "language": "php"}, root
+            )
+        self.assertEqual(
+            report, {"expected": 1, "found": 1, "wrong": 0, "missed": 0, "extra": 0}
         )
 
 

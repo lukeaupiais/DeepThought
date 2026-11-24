@@ -2151,7 +2151,230 @@ User.deleteMany({});
 }
 
 
+MONGOOSE_REPOSITORIES = {
+    "libs/dal/package.json": '{"name": "@acme/dal", "main": "dist/index.js", '
+    '"types": "dist/index.d.ts", "dependencies": {"mongoose": "^8.0.0"}}',
+    "libs/dal/tsconfig.build.json": """\
+{
+  // the build writes src/ to dist/
+  "compilerOptions": {"outDir": "./dist", "rootDir": "./src"}
+}
+""",
+    "libs/dal/src/index.ts": """\
+export * from './base';
+export * from './user';
+export * from './audit';
+""",
+    "libs/dal/src/base.ts": """\
+import { Model } from 'mongoose';
+
+export class BaseRepository<T> {
+  public _model: Model<T>;
+  constructor(protected MongooseModel: Model<T>, protected entity?: unknown) {
+    this._model = MongooseModel;
+  }
+  find(query) { return this.MongooseModel.find(query); }
+  async findOne(query) { return await this.MongooseModel.findOne<T>(query); }
+  async create(data) {
+    const doc = new this.MongooseModel(data);
+    return doc.save();
+  }
+  update(query, body) { return this._model.updateMany(query, body); }
+  upsert(query) { return this.update(query, {}); }
+  withTransaction() { return this._model.db.startSession(); }
+}
+""",
+    "libs/dal/src/user.ts": """\
+import { model, Schema } from 'mongoose';
+import { BaseRepository } from './base';
+
+export const User = model('User', new Schema({ email: String }));
+
+export class UserRepository extends BaseRepository<unknown> {
+  constructor() {
+    super(User, Object);
+  }
+  findByEmail(email) { return this.MongooseModel.findOne({ email }); }
+  touch() { return this.upsert({}); }
+}
+""",
+    "libs/dal/src/audit.ts": """\
+import mongoose from 'mongoose';
+import { BaseRepository } from './base';
+
+const Audit = mongoose.model('Audit', new mongoose.Schema({}), 'audit_log');
+
+export class AuditRepository extends BaseRepository<unknown> {
+  constructor() {
+    super(Audit);
+  }
+}
+""",
+    "apps/api/package.json": '{"name": "api", "dependencies": {"@acme/dal": "workspace:*"}}',
+    "apps/api/src/users.service.ts": """\
+import { Logger } from '@nestjs/common';
+import { AuditRepository, UserRepository } from '@acme/dal';
+
+export class UsersService {
+  private audit = new AuditRepository();
+  constructor(private readonly users: UserRepository, private logger: Logger) {}
+  get() { return this.users.findOne({}); }
+  add() { return this.users.create({}); }
+  byEmail() { return this.users.findByEmail('a'); }
+  run() { return this.users.withTransaction(); }
+  log() { return this.audit.update({}, {}); }
+  refresh() { return this.users.upsert({}); }
+  say() { this.logger.log('x'); }
+}
+""",
+    "apps/other/package.json": '{"name": "other", "dependencies": {"@acme/dal": "^1.0.0"}}',
+    "apps/other/src/x.ts": """\
+import { UserRepository } from '@acme/dal';
+
+export class X {
+  constructor(private users: UserRepository) {}
+  get() { return this.users.findOne({}); }
+}
+""",
+}
+
+
+NEST_MONGOOSE = {
+    "package.json": '{"dependencies": {"mongoose": "^8.0.0"}}',
+    "src/schema.options.ts": "export const base = { timestamps: true, collection: 'audit' };\n",
+    "src/cats/cat.schema.ts": """\
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+@Schema({ timestamps: true })
+export class Cat {
+  @Prop() name: string;
+}
+export const CatSchema = SchemaFactory.createForClass(Cat);
+""",
+    "src/dogs/dog.schema.ts": """\
+import { Schema, SchemaFactory } from '@nestjs/mongoose';
+@Schema({ collection: 'canines' })
+export class Dog {}
+export const DogSchema = SchemaFactory.createForClass(Dog);
+""",
+    "src/audit/entry.schema.ts": """\
+import { Schema } from 'mongoose';
+import { base } from '../schema.options';
+export const entrySchema = new Schema({}, base);
+""",
+    "src/cats/cats.module.ts": """\
+import { MongooseModule } from '@nestjs/mongoose';
+import { Cat, CatSchema } from './cat.schema';
+import { Dog, DogSchema } from '../dogs/dog.schema';
+import { entrySchema } from '../audit/entry.schema';
+export const imports = [
+  MongooseModule.forFeature([
+    { name: Cat.name, schema: CatSchema },
+    { name: Dog.name, schema: DogSchema },
+    { name: 'Entry', schema: entrySchema },
+  ]),
+];
+""",
+    "src/dogs/dogs.module.ts": """\
+import { MongooseModule } from '@nestjs/mongoose';
+import { Cat, CatSchema } from '../cats/cat.schema';
+export const imports = [MongooseModule.forFeature([{ name: Cat.name, schema: CatSchema }])];
+""",
+    "src/cats/cats.service.ts": """\
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Cat } from './cat.schema';
+export class CatsService {
+  constructor(
+    @InjectModel(Cat.name) private readonly catModel: Model<Cat>,
+    @InjectModel('Dog') private dogs: Model<unknown>,
+    private readonly other: OtherService,
+  ) {}
+  async all() {
+    await this.catModel.find().exec();
+    await this.dogs.updateOne({}, {});
+    await this.other.find();
+  }
+}
+""",
+}
+
+
 class MongooseTests(unittest.TestCase):
+    def test_repository_classes_through_a_workspace_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, MONGOOSE_REPOSITORIES)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("method", ""),
+                r.source_match["qualified_name"].split("::")[1],
+                r.properties.get("line"),
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        service = "apps/api/src/users.service.ts"
+        user = "libs/dal/src/user.ts"
+        self.assertEqual(
+            rows,
+            [
+                ("READS", "users", "mongoose-repository-call", "", user, 10),
+                ("READS", "users", "mongoose-repository-call", "findOne", service, 7),
+                ("WRITES", "audit_log", "mongoose-repository-call", "update", service, 11),
+                ("WRITES", "users", "mongoose-repository-call", "create", service, 8),
+                ("WRITES", "users", "mongoose-repository-call", "upsert", service, 12),
+                ("WRITES", "users", "mongoose-repository-call", "upsert", user, 11),
+            ],
+        )  # fmt: skip
+        self.assertEqual(
+            output.metadata.custom_metrics["mongoose_repository_resolution"],
+            {
+                "declared_method": 1,
+                "linked": 6,
+                "no_model_access": 1,
+                "unresolved_model": 0,
+            },
+        )
+
+    def test_nest_models_injected_models_and_imported_options(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, NEST_MONGOOSE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("model"),
+                r.source_match["qualified_name"].split("::")[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        cats = "src/cats/cats.module.ts"
+        self.assertEqual(
+            rows,
+            [
+                ("MAPS_TO", "audit", "mongoose-collection", "Entry", cats),
+                ("MAPS_TO", "canines", "mongoose-collection", "Dog", cats),
+                ("MAPS_TO", "cats", "mongoose-default-collection", "Cat", cats),
+                ("MAPS_TO", "cats", "mongoose-default-collection", "Cat", "src/dogs/dogs.module.ts"),
+                ("READS", "cats", "mongoose-call", "Cat", "src/cats/cats.service.ts"),
+                ("WRITES", "canines", "mongoose-call", "Dog", "src/cats/cats.service.ts"),
+            ],
+        )  # fmt: skip
+        self.assertEqual(
+            output.metadata.custom_metrics["mongoose_access_resolution"],
+            {"linked": 2, "unresolved_model": 0},
+        )
+
     def test_default_names_match_mongoose(self):
         cases = {
             "User": "users", "UserHistory": "userhistories", "Person": "people",

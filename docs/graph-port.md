@@ -2394,6 +2394,50 @@ destination with unknown text is not read, so it never meets them.
 No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
 change.
 
+### GraphQL subscription pubsub
+
+GraphQL subscriptions are usually fed through a pubsub object: a mutation
+publishes to a topic, and the subscription resolver returns an iterator over
+that topic. These are read as messaging:
+
+- **In-memory `PubSub`.** The class comes from `graphql-subscriptions`, or the
+  copy that `apollo-server`, `apollo-server-express`, `graphql-yoga` or
+  `@nestjs/graphql` re-exports. `publish(topic, ...)` publishes (rule
+  `service-contracts.graphql-pubsub-publish`). `asyncIterator(topic)`,
+  `asyncIterableIterator(topic)` and `subscribe(topic, ...)` consume, and an
+  array of topics names each one (rule `graphql-pubsub-subscribe`). The
+  broker is `graphql-pubsub`. An in-memory PubSub delivers only to listeners
+  on the same instance, so the destination is `<file>#<name>/<topic>`, and two
+  PubSub objects never meet even when their topics match.
+- **`RedisPubSub`** from `graphql-redis-subscriptions` uses the same calls.
+  Its destination is the Redis channel, with broker `redis`, so publishers and
+  subscribers in different services meet (rules `graphql-redis-pubsub-publish`
+  and `graphql-redis-pubsub-subscribe`).
+
+The call must be on a name (`x` or a class field `this.x`) that every
+assignment in the file binds to a `new` of one of these imported classes. A
+topic with unknown text is `publish:destination_not_literal` or
+`consume:destination_not_literal`. These are not read:
+
+- a PubSub that is created in one file and imported or passed in elsewhere,
+  such as `export default new PubSub()` or `context.pubsub`;
+- a PubSub injected by Nest's dependency injection;
+- other pubsub APIs, such as mercurius's `publish({topic, payload})`.
+
+| Repository | Literal pubsub sites | Outcome |
+|---|---|---|
+| notiz-dev/nestjs-prisma-starter `225e5a9` (corpus) | 1 publish, 1 subscribe | Linked |
+| nestjs/nest `fed38a7` samples 12, 22 and 23 | 3 publishes, 3 subscribes | All 3 pairs linked |
+| nestjs/nest sample 33 (mercurius) | 1 publish | Not read: a different API |
+| the-road-to-graphql/fullstack-apollo-express-postgresql-boilerplate `77875c6` | 1 publish, 1 subscribe | Not read: the PubSub is a default export from another file |
+| howtographql/graphql-js (corpus) `e0a3a21` | 2 publishes, 2 subscribes | Not read: they go through `context.pubsub` |
+| davidyaha/graphql-redis-subscriptions `537c79d` | none (the library itself) | Nothing read, which is correct |
+
+No edge is wrong. Of the 15 literal sites, 8 are read and all 8 are linked
+correctly. Of the others, 6 use a PubSub passed in from another file and 1 is
+mercurius. Across all corpora, nestjs-prisma-starter's 2 edges are the only
+change.
+
 ### Spring Cloud Stream
 
 Spring Cloud Stream code names a binding and each service's configuration
@@ -2669,9 +2713,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.doctrine-default-table` | name_matched | a Doctrine entity without a `Table` name: its short class name under the configured naming strategy, read from the `naming_strategy` of the Symfony `doctrine` configuration or a bootstrap's `setNamingStrategy(new UnderscoreNamingStrategy(...))`. The default strategy keeps the name (`BlogPost`), `underscore` snake-cases it (`blog_post`), number aware (`oauth2_client`) with `underscore_number_aware` or from ORM 3, whose version comes from `composer.lock`, else `composer.json`. A custom strategy, or a `loadClassMetadata` listener that calls `setPrimaryTable`/`setTableName`, leaves the repository's Doctrine tables unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-call` | pattern_matched | READS: a repository's own `createQueryBuilder` and finders (the repository's entity from `parent::__construct($registry, X::class)` or the entity's `repositoryClass`), finders (`find`, `findBy`, `findOneBy`, `findAll`, `count`, `matching`, magic `findByX`) on a property or parameter typed with the repository class, unless the repository declares that method, `getRepository(X::class)` finders, `find(X::class, ...)` and query builder `from(X::class, ...)`. WRITES: `update(X::class, ...)`, `delete(X::class, ...)`, and `persist`/`remove` of a variable typed with the entity (a parameter, a property, or `new X()` in the method) |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-dql` | pattern_matched | DQL passed to `createQuery` or `setDQL`, read as PHP text is (literals, heredocs, `.` joins, local variables) with `X::class` parts resolved: the entities its FROM and JOIN clauses name are read, the target of UPDATE or DELETE is written. Names are fully qualified or `Bundle:Entity` aliases, which resolve through the bundle class of that name in the repository (`AppBundle:Post` is `App\Entity\Post` when `AppBundle` is in `App`); association joins (`JOIN p.tags t`) are not followed |
-| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file and `Object.assign`/lodash merges. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file or imported from a repository file, and `Object.assign`/lodash merges. NestJS models are read too: `MongooseModule.forFeature([{name, schema, collection}])` declares a model, and a schema made by `SchemaFactory.createForClass(C)` takes the `collection` of `C`'s `@Schema(options)`. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, or `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`) |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2918,8 +2963,42 @@ On sahat/hackathon-starter `926460c` it links the 28 lines `grep` finds
 outside the tests, plus one call in a static. Mongoose's own test suite
 holds almost no pluralize cases, so the rule tables are checked against
 these names. Instance methods (`doc.save()`), query chains held in
-variables, NestJS `@InjectModel`, Typegoose and the raw MongoDB driver are
-not read yet. JavaScript and TypeScript test sources (`test/`, `tests/`,
+variables, Typegoose and the raw MongoDB driver are not read yet.
+
+Repository classes are followed across files and across workspace
+packages. An import of a sibling package by name (`@novu/dal`) resolves
+when the importing file's nearest `package.json` depends on it through the
+`workspace:` protocol and exactly one `package.json` of the repository
+carries the name. The package's entry points (`exports["."]`, `types`,
+`main`, `module`) give its file, either directly or, for a built entry
+under a tsconfig's `outDir` in the package's directory, as the source under
+`rootDir` that the compiler writes it from (`dist/index.js` from
+`src/index.ts`). `export * from` is followed, and a name that two star
+exports both give is no export, as in ES modules. Only the Mongoose reader
+resolves workspace packages so far. On novuhq/novu `d688aea` the tool links
+1,409 repository calls, where it linked none before. Of the 1,335
+`this.<x>Repository.<base method>(` lines a single-line `grep` finds
+outside the tests, 1,033 are linked. The others are methods the subclass
+declares (116, whose bodies are linked), helpers that touch no collection
+(52, such as `withTransaction`), and calls on classes that are not
+Mongoose repositories here (130: wrappers that delegate to an injected
+interface, and ClickHouse repositories), plus 4 whose repository comes from a factory
+(`getEERepository<UserRepository>(...)`). All 68 `this.MongooseModel` and `this._model` calls in
+the subclasses are linked, and a sample of 15 links named the repository's
+own collection each time. TypeScript's `await x.f<T>(...)`, which
+tree-sitter reads as a call of `await x.f`, is now read as a call of
+`x.f`.
+
+On brocoders/nestjs-boilerplate `9620f15` the 4 NestJS models are declared
+by `forFeature`, without collections, so they take default names such as
+`userschemaclasses`, and the tool links 19 calls. Every line a single-line
+`grep` finds for `this.<injected model>.` is one of them; the other lines
+`grep` finds for those method names are on services or TypeORM
+repositories. On novuhq/novu `d688aea` all 44 models resolve, several
+through schema options imported from a shared file. Its calls go through a
+`BaseRepository` that holds the model in a field set by a subclass, so
+none are linked yet. When several files declare a model of the same name
+for the same collection, as NestJS feature modules do, it is one model. JavaScript and TypeScript test sources (`test/`, `tests/`,
 `__tests__/`, `spec/`, `*.test.*`, `*.spec.*`) are skipped for Mongoose.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table

@@ -957,6 +957,13 @@
       "missed": 0,
       "wrong": 0
     },
+    "tables-kimai": {
+      "expected": 29,
+      "extra": 0,
+      "found": 29,
+      "missed": 0,
+      "wrong": 0
+    },
     "tables-lobsters": {
       "expected": 42,
       "extra": 0,
@@ -970,6 +977,13 @@
       "found": 275,
       "missed": 0,
       "wrong": 1
+    },
+    "tables-partdb": {
+      "expected": 28,
+      "extra": 0,
+      "found": 28,
+      "missed": 0,
+      "wrong": 0
     },
     "tables-rubygems-org": {
       "expected": 45,
