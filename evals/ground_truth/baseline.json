@@ -889,25 +889,25 @@
     }
   },
   "gson": {
-    "ambiguous_includes": 171,
+    "ambiguous_includes": 139,
     "ambiguous_unjudged": 47,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
       },
       "tree-sitter.java-call-chained-receiver": {
-        "confirmed": 1113,
+        "confirmed": 1114,
         "unjudged": 22
       },
       "tree-sitter.java-call-static-field-receiver": {
         "confirmed": 52
       },
       "tree-sitter.java-call-typed-receiver": {
-        "confirmed": 4868,
+        "confirmed": 4897,
         "unjudged": 36
       },
       "tree-sitter.java-enclosing-type-method": {
-        "confirmed": 1561,
+        "confirmed": 1563,
         "unjudged": 3
       },
       "tree-sitter.java-inherited-method": {
@@ -939,7 +939,7 @@
         "unjudged": 380
       }
     },
-    "confirmed": 10941,
+    "confirmed": 10973,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
@@ -949,20 +949,20 @@
           "expected": 790
         },
         "2": {
-          "confirmed": 2007,
+          "confirmed": 2058,
           "expected": 2096
         },
         "3": {
-          "confirmed": 1969,
+          "confirmed": 1991,
           "expected": 2184
         }
       },
-      "confirmed": 4763,
+      "confirmed": 4836,
       "expected": 5070,
       "extra": 0,
-      "missed": 307,
+      "missed": 234,
       "precision": 1.0,
-      "recall": 0.9394,
+      "recall": 0.9538,
       "seeds": 164,
       "seeds_undeclared": 0,
       "unjudged": 21
@@ -976,9 +976,9 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 224,
+    "missed": 192,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 170,
+      "ambiguous:multiple_declarations": 138,
       "no_call_site": 15,
       "unresolved:attribute_call": 14,
       "unresolved:receiver_may_be_inherited_field": 4,
@@ -986,7 +986,7 @@
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.9797,
+    "recall": 0.9826,
     "unjudged": 448,
     "unresolved_expected": 43,
     "unresolved_unjudged": 12419

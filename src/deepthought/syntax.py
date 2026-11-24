@@ -4010,16 +4010,42 @@ _JAVA_PRIMITIVE_NAMES = frozenset(
 
 def _java_declared_type(type_node, value, content):
     """The type a Java declaration writes, a primitive (``int``) included."""
+    return _java_declared_type_of(type_node, value, content)
+
+
+def _java_declared_type_of(type_node, value, content):
     if type_node is not None and type_node.type in _JAVA_PRIMITIVES:
         return _text(type_node, content)
     return _java_written_type(type_node, value, content)
 
 
-def _java_declared_here(node, name, content, before):
+def _java_array_type(type_node, content):
+    """An array type as written, ``int[]`` or ``Foo[][]`` (element without
+    type arguments); None for any other type or element."""
+    dims = 0
+    while type_node is not None and type_node.type == "array_type":
+        dims += _text(type_node.child_by_field_name("dimensions"), content).count("[")
+        type_node = type_node.child_by_field_name("element")
+    if not dims or type_node is None:
+        return None
+    if type_node.type in _JAVA_PRIMITIVES:
+        element = _text(type_node, content)
+    else:
+        element = _java_type_name(type_node, content)
+    return None if element is None else element + "[]" * dims
+
+
+def _java_declared_here(node, name, content, before, arrays=False):
     """Declarations of ``name`` that ``node`` brings into scope for what it
     holds, as a list of written types (None for one with no usable type).
-    Statements of a block count when they end before ``before``."""
+    Statements of a block count when they end before ``before``. With
+    ``arrays``, a declaration of an array type gives it (``int[]``)."""
     found = []
+
+    def _java_declared_type(type_node, value, content):
+        if arrays and type_node is not None and type_node.type == "array_type":
+            return _java_array_type(type_node, content)
+        return _java_declared_type_of(type_node, value, content)
 
     def declarators(declaration):
         written = declaration.child_by_field_name("type")
@@ -4056,7 +4082,7 @@ def _java_declared_here(node, name, content, before):
             if child.type in {"field_declaration", "constant_declaration"}:
                 declarators(child)
             elif child.type == "enum_body_declarations":
-                found.extend(_java_declared_here(child, name, content, before))
+                found.extend(_java_declared_here(child, name, content, before, arrays))
             elif child.type == "enum_constant":
                 declared = child.child_by_field_name("name")
                 if declared is not None and _text(declared, content) == name:
@@ -4233,7 +4259,7 @@ def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=
         ):
             outer.append(ancestor)
         if found is None and (body or not fields_only):
-            here = _java_declared_here(ancestor, name, content, before)
+            here = _java_declared_here(ancestor, name, content, before, primitives)
             if here:
                 found = here
             elif body:
@@ -4258,10 +4284,12 @@ def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=
         if cache[key]:
             return None
     written = found[0]
-    if written in _JAVA_PRIMITIVE_NAMES:
-        # A primitive has no methods; as an argument it selects an overload.
-        return written if primitives else None
-    if written.split(".")[0] in _java_type_variables(node, content):
+    if written in _JAVA_PRIMITIVE_NAMES or written.endswith("[]"):
+        # A primitive or array has no methods to call here; as an argument
+        # it selects an overload.
+        if not primitives:
+            return None
+    if written.rstrip("[]").split(".")[0] in _java_type_variables(node, content):
         return None
     return written
 
