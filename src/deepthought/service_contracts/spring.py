@@ -1,4 +1,5 @@
-"""Spring MVC routes, Feign clients and RestTemplate requests in Java sources.
+"""Spring MVC routes, Feign clients, RestTemplate requests and calls of
+openapi-generator Java clients in Java sources.
 
 Only what the source fixes is read: annotation names that the file imports
 from Spring, string literals, ``+`` concatenation, ``String.format`` with
@@ -13,6 +14,7 @@ import re
 from ..syntax import identifier
 from .http import ANY_METHOD, HTTP_METHODS, PLACEHOLDER, join_paths
 from .model import HttpRequest, HttpRoute, Unread
+from .openapi import CLIENT_METHOD_SUFFIXES
 
 _WEB = "org.springframework.web.bind.annotation"
 _FEIGN = (
@@ -952,6 +954,104 @@ def _generated_routes(
             )
 
 
+def _client_requests(
+    root,
+    content,
+    values,
+    clients,
+    base_fixed,
+    enclosing,
+    make_id,
+    requests,
+    file,
+):
+    """Requests sent by calling methods of Java API classes openapi-generator
+    makes from a spec: on a name declared once in the file with that class as
+    its type, or on a ``new`` instance of it."""
+    declared = {}
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type not in (
+            "field_declaration",
+            "local_variable_declaration",
+            "formal_parameter",
+        ):
+            continue
+        type_node = node.child_by_field_name("type")
+        if type_node is None or type_node.type not in (
+            "type_identifier",
+            "scoped_type_identifier",
+        ):
+            qualified = None
+        else:
+            qualified = values._qualified_class(_text(type_node, content))
+        names = (
+            [node.child_by_field_name("name")]
+            if node.type == "formal_parameter"
+            else [
+                d.child_by_field_name("name")
+                for d in node.children_by_field_name("declarator")
+            ]
+        )
+        for name in names:
+            if name is not None:
+                declared.setdefault(_text(name, content), set()).add(qualified)
+    receivers = {
+        name: next(iter(types))
+        for name, types in declared.items()
+        if len(types) == 1 and next(iter(types)) in clients
+    }
+    sent = {
+        api: {
+            operation.method_name + suffix: operation
+            for operation in operations
+            for suffix in CLIENT_METHOD_SUFFIXES
+        }
+        for api, operations in clients.items()
+    }
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type != "method_invocation":
+            continue
+        target = node.child_by_field_name("object")
+        if target is None:
+            continue
+        if target.type == "object_creation_expression":
+            type_node = target.child_by_field_name("type")
+            api = values._qualified_class(_text(type_node, content))
+        else:
+            written = _text(target, content)
+            written = written[5:] if written.startswith("this.") else written
+            api = receivers.get(written)
+        operation = sent.get(api, {}).get(
+            _text(node.child_by_field_name("name"), content)
+        )
+        if operation is None:
+            continue
+        line = node.start_point.row + 1
+        start = (line, node.start_point.column)
+        end = (node.end_point.row + 1, node.end_point.column)
+        caller = next((i for s, e, i in enclosing if s <= start and end <= e), None)
+        url = (operation.base_url if base_fixed else PLACEHOLDER) + operation.path
+        requests.append(
+            HttpRequest(
+                id=make_id("HttpRequest", f"{operation.method_name} {line}"),
+                file=file,
+                line=line,
+                column=node.start_point.column,
+                caller_id=caller,
+                method=operation.http_method,
+                url=url,
+                client="openapi-java",
+                declared_in=f"{operation.spec_file}:{operation.spec_line}",
+            )
+        )
+
+
 def extract_spring(
     tree,
     content,
@@ -963,6 +1063,8 @@ def extract_spring(
     context_path=None,
     constants=None,
     generated=None,
+    clients=None,
+    client_base_fixed=True,
 ):
     """Routes, requests and unread mappings of one Java file.
 
@@ -971,7 +1073,10 @@ def extract_spring(
     one enclosing a call. ``generated`` maps a qualified interface name to
     the spec operations openapi-generator makes it declare
     (``service_contracts.openapi``); a controller implementing it handles
-    each operation it overrides.
+    each operation it overrides. ``clients`` maps a qualified Java API class
+    generated from a spec to its operations; a call of one of its methods
+    sends that operation to the spec's base URL, or to an unknown base when
+    ``client_base_fixed`` is false (the module sets the base at run time).
     """
     root = tree.root_node
     imports = _Imports(root, content)
@@ -1242,4 +1347,16 @@ def extract_spring(
                         alternatives=len(urls),
                     )
                 )
+    if clients:
+        _client_requests(
+            root,
+            content,
+            values,
+            clients,
+            client_base_fixed,
+            enclosing,
+            make_id,
+            requests,
+            file,
+        )
     return routes, requests, unread
