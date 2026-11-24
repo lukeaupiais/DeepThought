@@ -8029,12 +8029,13 @@ def dql_entities(text):
 
 MONGODB_READS = frozenset(
     "find findOne countDocuments estimatedDocumentCount count distinct "
-    "aggregate watch indexes indexExists listIndexes findEach".split()
+    "aggregate watch indexes indexExists listIndexes findEach stats".split()
 )
 MONGODB_WRITES = frozenset(
     "insertOne insertMany insert updateOne updateMany update deleteOne "
     "deleteMany remove replaceOne bulkWrite save createIndex createIndexes "
-    "dropIndex dropIndexes drop rename".split()
+    "dropIndex dropIndexes drop rename ensureIndex initializeOrderedBulkOp "
+    "initializeUnorderedBulkOp".split()
 )
 _MONGODB_MODULES = ("mongodb", "mongoose", "mongoskin")
 
@@ -8052,14 +8053,86 @@ class MongoCollectionUse:
     column: int
 
 
-def extract_mongodb_collections(tree, content, file, definitions):
+def _mongodb_handle(node, content, names=frozenset()):
+    """Whether the expression is a database handle: ``x.db``,
+    ``x.connection``, ``x.db(...)``, one of ``names``, or ``a || b`` /
+    ``a ?? b`` of handles."""
+    node = _unwrap(node)
+    if node is None:
+        return False
+    if node.type == "identifier":
+        return _text(node, content) in names
+    if node.type == "member_expression":
+        prop = _text(node.child_by_field_name("property"), content)
+        return prop in ("db", "connection")
+    if node.type == "call_expression":
+        function = node.child_by_field_name("function")
+        return (
+            function is not None
+            and function.type == "member_expression"
+            and _text(function.child_by_field_name("property"), content) == "db"
+        )
+    if node.type == "binary_expression":
+        operator = node.child_by_field_name("operator")
+        return (
+            operator is not None
+            and operator.type in ("||", "??")
+            and all(
+                _mongodb_handle(node.child_by_field_name(side), content, names)
+                for side in ("left", "right")
+            )
+        )
+    return False
+
+
+def _mongodb_handle_names(root, content, db_types):
+    """(names the file binds only to database handles, names it binds to
+    anything else). Declarations, plain assignments and ``Db`` type
+    annotations bind; a declaration without a value or type binds nothing."""
+    bindings = []
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        if target is None or target.type != "identifier":
+            continue
+        value = declarator.child_by_field_name("value")
+        annotation = declarator.child_by_field_name("type")
+        typed = (
+            annotation is not None
+            and _text(annotation, content).lstrip(": ") in db_types
+        )
+        if value is None and not typed:
+            continue
+        bindings.append((_text(target, content), None if typed else value))
+    for assignment in _descendants(root, "assignment_expression"):
+        target = assignment.child_by_field_name("left")
+        if target is not None and target.type == "identifier":
+            bindings.append(
+                (_text(target, content), assignment.child_by_field_name("right"))
+            )
+    # Names bound to other handle names settle over a few passes; a name
+    # with any binding that is not a handle is never one.
+    handles = set()
+    for _ in range(3):
+        other = {
+            name
+            for name, value in bindings
+            if value is not None and not _mongodb_handle(value, content, handles)
+        }
+        handles = {name for name, _ in bindings} - other
+    return handles, other
+
+
+def extract_mongodb_collections(tree, content, file, definitions, project=False):
     """``<db>.collection('name')`` calls of the MongoDB driver in a file that
     imports mongodb, mongoose or mongoskin (a ``typeof import('mongoose')``
-    type counts). The receiver must be a database
-    handle the file can see: ``x.db``, ``x.db(...)``, ``x.connection``, or a
-    name the file binds only to one of those or types as mongodb's ``Db``.
-    The method called on the collection, directly or through a ``const``
-    holding it in the same function, says whether it reads or writes."""
+    type counts), or of a package that depends on one (``project``). The
+    receiver must be a database handle the file can see: ``x.db``,
+    ``x.db(...)``, ``x.connection``, ``a || b`` of handles, or a name the
+    file binds (declarations and assignments) only to handles or types as
+    mongodb's ``Db``. A collection assigned to ``this.f`` takes the methods
+    the file calls on ``this.f``. The method called on the collection,
+    directly or through a ``const`` holding it in the same function, says
+    whether it reads or writes."""
     root = tree.root_node
     if b".collection(" not in content:
         return []
@@ -8069,8 +8142,10 @@ def extract_mongodb_collections(tree, content, file, definitions):
         for module in _MONGODB_MODULES
         for q in "'\""
     )
-    if not typed_import and not any(
-        source in _MONGODB_MODULES for source, _ in bindings.values()
+    if (
+        not project
+        and not typed_import
+        and not any(source in _MONGODB_MODULES for source, _ in bindings.values())
     ):
         return []
     db_types = {
@@ -8080,35 +8155,10 @@ def extract_mongodb_collections(tree, content, file, definitions):
     }
 
     def handle(node):
-        node = _unwrap(node)
-        if node is None:
-            return False
-        if node.type == "member_expression":
-            prop = _text(node.child_by_field_name("property"), content)
-            return prop in ("db", "connection")
-        if node.type == "call_expression":
-            function = node.child_by_field_name("function")
-            return (
-                function is not None
-                and function.type == "member_expression"
-                and _text(function.child_by_field_name("property"), content) == "db"
-            )
-        return False
+        return _mongodb_handle(node, content)
 
     # Names bound to a database handle, and every other binding of a name.
-    handles, other = set(), set()
-    for declarator in _descendants(root, "variable_declarator"):
-        target = declarator.child_by_field_name("name")
-        if target is None or target.type != "identifier":
-            continue
-        name = _text(target, content)
-        value = declarator.child_by_field_name("value")
-        annotation = declarator.child_by_field_name("type")
-        typed = (
-            annotation is not None
-            and _text(annotation, content).lstrip(": ") in db_types
-        )
-        (handles if typed or handle(value) else other).add(name)
+    handles, other = _mongodb_handle_names(root, content, db_types)
     for kind in ("required_parameter", "optional_parameter"):
         for parameter in _descendants(root, kind):
             target = parameter.child_by_field_name("pattern")
@@ -8143,14 +8193,12 @@ def extract_mongodb_collections(tree, content, file, definitions):
         if _text(function.child_by_field_name("property"), content) != "collection":
             continue
         receiver = _unwrap(function.child_by_field_name("object"))
-        if not (
-            handle(receiver)
-            or (
-                receiver is not None
-                and receiver.type == "identifier"
-                and _text(receiver, content) in handles
-            )
-        ):
+        named = (
+            receiver is not None
+            and receiver.type == "identifier"
+            and _text(receiver, content) in handles
+        )
+        if not (handle(receiver) or named):
             continue
         arguments = call.child_by_field_name("arguments")
         args = arguments.named_children if arguments is not None else []
@@ -8202,6 +8250,34 @@ def extract_mongodb_collections(tree, content, file, definitions):
                             methods.add(None)  # used some other way
                     if not methods:
                         methods.add(None)
+            elif (
+                holder is not None
+                and holder.type == "assignment_expression"
+                and holder.child_by_field_name("left") is not None
+                and holder.child_by_field_name("left").type == "member_expression"
+                and _text(
+                    holder.child_by_field_name("left").child_by_field_name("object"),
+                    content,
+                )
+                == "this"
+            ):
+                # this.f = db.collection('x'): the methods called on this.f
+                # anywhere in the file.
+                held = _text(holder.child_by_field_name("left"), content)
+                for use in _descendants(root, "member_expression"):
+                    obj = use.child_by_field_name("object")
+                    if obj is None or _text(obj, content) != held:
+                        continue
+                    if (
+                        use.parent is not None
+                        and use.parent.type == "call_expression"
+                        and use.parent.child_by_field_name("function") == use
+                    ):
+                        methods.add(_text(use.child_by_field_name("property"), content))
+                    else:
+                        methods.add(None)
+                if not methods:
+                    methods.add(None)
             else:
                 methods.add(None)
         reads = any(m not in MONGODB_WRITES for m in methods)
