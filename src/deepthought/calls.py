@@ -24,6 +24,7 @@ CALL_IMPORTED_NAME = "tree-sitter.call-imported-name"
 CALL_MODULE_ATTRIBUTE = "tree-sitter.call-module-attribute"
 CALL_SELF_METHOD = "tree-sitter.call-self-method"
 CALL_PACKAGE_NAME = "tree-sitter.call-package-name"
+GO_CALL_TYPED_RECEIVER = "tree-sitter.go-call-typed-receiver"
 CALL_PYTHON_REEXPORT = "tree-sitter.python-call-reexport"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -1042,6 +1043,28 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 )
             continue
         head, name = ".".join(parts[:-1]), parts[-1]
+        if site.receiver_type is not None:
+            # Go: `x.M()` on a variable whose declaration writes its type.
+            *package, type_name = site.receiver_type.split(".")
+            if package:
+                bound = modules.get((site.file, package[0]), [])
+                files = bound[0] if bound else ()
+            else:
+                files = peers.get(site.file, (site.file,))
+            resolutions.append(
+                _pick(
+                    site.id,
+                    [
+                        d
+                        for f in files
+                        for d in by_symbol.get((f, f"{type_name}.{name}"), ())
+                        if d.kind == "Method"
+                    ],
+                    GO_CALL_TYPED_RECEIVER,
+                    "not_declared_on_type",
+                )
+            )
+            continue
         if head in {"self", "this"}:
             owner = next(
                 (

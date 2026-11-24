@@ -231,7 +231,9 @@ class CallSite:
     shadowed: bool | None = None
     # Java calls ``x.m()`` and ``this.x.m()`` where the declaration of the
     # variable or field ``x`` in scope writes a class type: that type as
-    # written (``Foo``, ``Map.Entry``). None elsewhere.
+    # written (``Foo``, ``Map.Entry``). Go calls ``x.M()`` where ``x`` is
+    # declared in the function around the call: the type that declaration
+    # writes (``T`` or ``pkg.T``). None elsewhere.
     receiver_type: str | None = None
 
     def __post_init__(self):

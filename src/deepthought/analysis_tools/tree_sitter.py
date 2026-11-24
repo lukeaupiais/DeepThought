@@ -325,11 +325,19 @@ CALL_RULES = {
     for rule_id, text in _CALL_RULE_TEXT.items()
 }
 # Rust has no overloading: a call path read like a use path names one
-# declaration in each configuration.
+# declaration in each configuration. A Go variable's type is the one its
+# declaration writes, and a type's own methods come before promoted ones.
 CALL_RULES.update(
     {
         rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
         for rule_id, text in {
+            call_rules.GO_CALL_TYPED_RECEIVER: "A Go call 'x.M()' where x is "
+            "declared in the function around the call (a parameter, receiver, "
+            "named result, 'var x T', or 'x := T{...}', '&T{...}' or "
+            "'new(T)', the innermost declaration visible at the call) links to "
+            "the method M declared on T, in the caller's package or, for "
+            "'pkg.T', in the package the file imports as pkg; promoted methods "
+            "of embedded fields are not followed.",
             call_rules.RUST_CALL_PATH: "A Rust call's path, read from the "
             "caller's module as a use path is (through modules, uses and globs, "
             "after the uses written in the function bodies around the call), "
