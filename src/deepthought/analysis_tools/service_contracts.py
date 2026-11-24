@@ -30,6 +30,12 @@ from ..engine import analyze_repository
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
+from ..service_contracts.deployed import (
+    Deployments,
+    command_line,
+    deployed_units,
+    locust_host,
+)
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.graphql import (
     CLIENTS as GRAPHQL_CLIENTS,
@@ -494,8 +500,11 @@ REQUEST_RULES = {
             contract_rules.HTTP_SERVICE_PATH,
             "pattern_matched",
             "The request names a service (a Feign client's name, or the URL's "
-            "literal host) equal to exactly one service's spring.application.name, "
-            "and its method and path fit this route of that service more "
+            "literal host) equal to exactly one service's spring.application.name "
+            "or deployment name, or to a host name that only that service's "
+            "deployments answer to (a Compose service name, or a Kubernetes "
+            "Service selecting its workload), and its method and path fit this "
+            "route of that service more "
             "specifically than any other; the value of unknown URL parts is not "
             "traced.",
         )
@@ -522,6 +531,23 @@ REQUEST_RULES = {
             "known service name) more specifically than any other.",
         )
     ),
+}
+_LOCUST_HOST = (
+    "A Locust request written without a host takes the --host (or -H) of "
+    "the locust command line that every deployment running its file runs "
+    "(a Kubernetes container's command and args, else the ENTRYPOINT and "
+    "CMD of the Dockerfile in its build context), with ${VAR} replaced by "
+    "the literal value that deployment sets; all of them give one host. "
+)
+LOCUST_HOST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.locust-host-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _LOCUST_HOST + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
 }
 # A destination passed to the function around the site by its callers.
 ARGUMENT_RULE = _message_rule(
@@ -976,6 +1002,44 @@ def _stream_endpoints(root, config, sites, repo_url):
                     )
                 )
     return endpoints, unread
+
+
+def _deployed(root, deployments, routes, requests):
+    """Routes named after the one service the deployments running their
+    file give, when their language gives none; Locust requests written
+    without a host given the host of their deployments' ``--host``."""
+    from dataclasses import replace
+
+    routes = [
+        r if r.service is not None else replace(r, service=deployments.service(r.file))
+        for r in routes
+    ]
+    hosts = {}
+    placed = []
+    for request in requests:
+        if request.client == "locust" and request.url.startswith("/"):
+            if request.file not in hosts:
+                units = deployments.running(request.file)
+                found = {}
+                for unit in units:
+                    found.setdefault(
+                        locust_host(command_line(root, unit), unit), []
+                    ).append(unit.label)
+                hosts[request.file] = (
+                    next(iter(found.items()))
+                    if len(found) == 1 and None not in found
+                    else None
+                )
+            given = hosts[request.file]
+            if given is not None:
+                host, labels = given
+                request = replace(
+                    request,
+                    url=host.rstrip("/") + request.url,
+                    host_from=tuple(sorted(labels)),
+                )
+        placed.append(request)
+    return routes, placed
 
 
 def _gateways(root, config, sources):
@@ -1584,7 +1648,11 @@ class ServiceContractTool(AnalysisTool):
                 "Files changed during analysis: " + ", ".join(sorted(changed))
             )
         gateways, gateway_unread = _gateways(root, config, sources)
-        resolutions = contract_rules.resolve_requests(routes, requests, gateways)
+        deployments = Deployments(deployed_units(root))
+        routes, requests = _deployed(root, deployments, routes, requests)
+        resolutions = contract_rules.resolve_requests(
+            routes, requests, gateways, deployments.hosts()
+        )
         self.last_facts = (result, routes, requests, unread, resolutions)
         grpc = grpc_contracts.collect(
             root,
@@ -1786,11 +1854,20 @@ class ServiceContractTool(AnalysisTool):
                             if request.declared_in
                             else {}
                         ),
+                        **(
+                            {"host_from": list(request.host_from)}
+                            if request.host_from
+                            else {}
+                        ),
                         **_evidence(
-                            {
-                                "openapi-java": OPENAPI_REQUEST_RULES,
-                                "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
-                            }.get(request.client, REQUEST_RULES)[resolution.rule_id]
+                            (
+                                LOCUST_HOST_RULES
+                                if request.host_from
+                                else {
+                                    "openapi-java": OPENAPI_REQUEST_RULES,
+                                    "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
+                                }.get(request.client, REQUEST_RULES)
+                            )[resolution.rule_id]
                         ),
                     },
                 )
@@ -2195,7 +2272,9 @@ class ServiceContractTool(AnalysisTool):
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
                 "fetch, axios, request and Go net/http requests with folded URLs, "
-                "outside test source sets; requests linked to routes by service "
+                "outside test source sets; services named by their Compose or "
+                "Skaffold-built Kubernetes deployments, Locust --host read from "
+                "them; requests linked to routes by service "
                 "name and path template, never by traced values; gRPC "
                 "methods from .proto files, their Go, Python, Java and Node "
                 "servers and stub calls, matched by proto service and rpc name",
