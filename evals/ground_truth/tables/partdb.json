@@ -1,0 +1,514 @@
+{
+    "oracle": "PHP 8.3.6 token_get_all; Doctrine migrations up()",
+    "naming": "underscore_number_aware",
+    "models": [
+        {
+            "class": "App\\Entity\\Attachments\\AttachmentType",
+            "files": [
+                "src/Entity/Attachments/AttachmentType.php"
+            ],
+            "table": "attachment_types",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\InfoProviderSystem\\BulkInfoProviderImportJob",
+            "files": [
+                "src/Entity/InfoProviderSystem/BulkInfoProviderImportJob.php"
+            ],
+            "table": "bulk_info_provider_import_jobs",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\InfoProviderSystem\\BulkInfoProviderImportJobPart",
+            "files": [
+                "src/Entity/InfoProviderSystem/BulkInfoProviderImportJobPart.php"
+            ],
+            "table": "bulk_info_provider_import_job_parts",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\LabelSystem\\LabelProfile",
+            "files": [
+                "src/Entity/LabelSystem/LabelProfile.php"
+            ],
+            "table": "label_profiles",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\OAuthToken",
+            "files": [
+                "src/Entity/OAuthToken.php"
+            ],
+            "table": "oauth_tokens",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\Category",
+            "files": [
+                "src/Entity/Parts/Category.php"
+            ],
+            "table": "categories",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\Footprint",
+            "files": [
+                "src/Entity/Parts/Footprint.php"
+            ],
+            "table": "footprints",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\Manufacturer",
+            "files": [
+                "src/Entity/Parts/Manufacturer.php"
+            ],
+            "table": "manufacturers",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\MeasurementUnit",
+            "files": [
+                "src/Entity/Parts/MeasurementUnit.php"
+            ],
+            "table": "measurement_units",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\Part",
+            "files": [
+                "src/Entity/Parts/Part.php"
+            ],
+            "table": "parts",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\PartAssociation",
+            "files": [
+                "src/Entity/Parts/PartAssociation.php"
+            ],
+            "table": "part_association",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\PartCustomState",
+            "files": [
+                "src/Entity/Parts/PartCustomState.php"
+            ],
+            "table": "part_custom_states",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\PartLot",
+            "files": [
+                "src/Entity/Parts/PartLot.php"
+            ],
+            "table": "part_lots",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\StorageLocation",
+            "files": [
+                "src/Entity/Parts/StorageLocation.php"
+            ],
+            "table": "storelocations",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Parts\\Supplier",
+            "files": [
+                "src/Entity/Parts/Supplier.php"
+            ],
+            "table": "suppliers",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\PriceInformations\\Currency",
+            "files": [
+                "src/Entity/PriceInformations/Currency.php"
+            ],
+            "table": "currencies",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\PriceInformations\\Orderdetail",
+            "files": [
+                "src/Entity/PriceInformations/Orderdetail.php"
+            ],
+            "table": "orderdetails",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\PriceInformations\\Pricedetail",
+            "files": [
+                "src/Entity/PriceInformations/Pricedetail.php"
+            ],
+            "table": "pricedetails",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ProjectSystem\\Project",
+            "files": [
+                "src/Entity/ProjectSystem/Project.php"
+            ],
+            "table": "projects",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ProjectSystem\\ProjectBOMEntry",
+            "files": [
+                "src/Entity/ProjectSystem/ProjectBOMEntry.php"
+            ],
+            "table": "project_bom_entries",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\SettingsEntry",
+            "files": [
+                "src/Entity/SettingsEntry.php"
+            ],
+            "table": "settings_entry",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\ApiToken",
+            "files": [
+                "src/Entity/UserSystem/ApiToken.php"
+            ],
+            "table": "api_tokens",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\DynamicallyRegisteredOAuthClient",
+            "files": [
+                "src/Entity/UserSystem/DynamicallyRegisteredOAuthClient.php"
+            ],
+            "table": "oauth_dynamically_registered_clients",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\Group",
+            "files": [
+                "src/Entity/UserSystem/Group.php"
+            ],
+            "table": "groups",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\OAuthClientGrantPreference",
+            "files": [
+                "src/Entity/UserSystem/OAuthClientGrantPreference.php"
+            ],
+            "table": "oauth_client_grant_preferences",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\U2FKey",
+            "files": [
+                "src/Entity/UserSystem/U2FKey.php"
+            ],
+            "table": "u2f_keys",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\User",
+            "files": [
+                "src/Entity/UserSystem/User.php"
+            ],
+            "table": "users",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserSystem\\WebauthnKey",
+            "files": [
+                "src/Entity/UserSystem/WebauthnKey.php"
+            ],
+            "table": "webauthn_keys",
+            "join_tables": [],
+            "migrated": true
+        }
+    ],
+    "not_counted": [
+        {
+            "class": "App\\Entity\\AlternativeNames\\AbstractAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\AttachmentTypeAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\CategoryAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\CurrencyAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\FootprintAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\GroupAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\ManufacturerAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\MeasurementUnitAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\PartCustomStateAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\ProjectAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\StorageLocationAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\AlternativeNames\\SupplierAlternativeName",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\Attachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\AttachmentTypeAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\CategoryAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\CurrencyAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\FootprintAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\GroupAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\LabelAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\ManufacturerAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\MeasurementUnitAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\PartAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\PartCustomStateAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\ProjectAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\StorageLocationAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\SupplierAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Attachments\\UserAttachment",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\AbstractLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\CollectionElementDeleted",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\ConfigChangedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\DatabaseUpdatedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\ElementCreatedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\ElementDeletedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\ElementEditedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\ExceptionLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\LegacyInstockChangedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\PartStockChangedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\SecurityEventLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\UserLoginLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\UserLogoutLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\LogSystem\\UserNotAllowedLogEntry",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\AbstractParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\AttachmentTypeParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\CategoryParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\CurrencyParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\FootprintParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\GroupParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\ManufacturerParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\MeasurementUnitParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\PartCustomStateParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\PartParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\ProjectParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\StorageLocationParameter",
+            "reason": "inheritance"
+        },
+        {
+            "class": "App\\Entity\\Parameters\\SupplierParameter",
+            "reason": "inheritance"
+        }
+    ],
+    "migrated_tables": [
+        "alternative_names",
+        "api_tokens",
+        "attachment_types",
+        "attachments",
+        "bulk_info_provider_import_job_parts",
+        "bulk_info_provider_import_jobs",
+        "categories",
+        "currencies",
+        "footprints",
+        "groups",
+        "label_profiles",
+        "log",
+        "manufacturers",
+        "measurement_units",
+        "oauth2_access_token",
+        "oauth2_authorization_code",
+        "oauth2_client",
+        "oauth2_refresh_token",
+        "oauth_client_grant_preferences",
+        "oauth_dynamically_registered_clients",
+        "oauth_tokens",
+        "orderdetails",
+        "parameters",
+        "part_association",
+        "part_custom_states",
+        "part_lots",
+        "parts",
+        "pricedetails",
+        "project_bom_entries",
+        "projects",
+        "settings_entry",
+        "storelocations",
+        "suppliers",
+        "u2f_keys",
+        "users",
+        "webauthn_keys"
+    ]
+}

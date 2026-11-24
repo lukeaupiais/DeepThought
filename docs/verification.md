@@ -446,6 +446,33 @@ found, more wrong or extra, or changed labels. The labels are built offline,
 `ruby tools/rails_table_oracle.rb CHECKOUT` with Ruby 3.3 and activerecord
 7.2.2, and committed. `tests/test_rails_table_oracle.py` skips without them.
 
+### Doctrine entity tables
+
+The same gate covers PHP entities (`"language": "php"` on a `tables` corpus).
+`tools/doctrine_table_oracle.php` reads every class under `src/` with PHP's
+tokenizer. A class carrying `#[ORM\Entity]` (or `@ORM\Entity`) is an
+entity. Its table is the literal `ORM\Table` name, positional or `name:`,
+with Doctrine's backtick quoting removed. Without one, the table is the short
+class name under the naming strategy named on the command line, as the
+repository configures it in config/packages/doctrine.yaml. Literal
+`ORM\JoinTable` names in its body are its join tables, which the engine may
+also map the entity to.
+
+An entity with `InheritanceType`, or one below such a root, is not counted,
+because its table depends on the hierarchy. A label is then checked against
+the schema the repository's own migrations build: `CREATE`, `RENAME` and
+`DROP TABLE` statements and schema calls in each migration's `up()` (or
+`mySQLUp()`), in version order, as Doctrine's schema tool wrote them from
+the same mapping. A label whose table is not in that schema is reported, and
+a corpus is committed only when every label and join table is there. This
+check caught two oracle mistakes while the oracle was being built: a
+positional `Table('`footprints`')` and backtick-quoted names.
+
+| App | Pin | Naming | Entities | Found | Wrong | Missed | Not counted | Migrated tables with no entity |
+|---|---|---|---|---|---|---|---|---|
+| kimai | d46d79e | underscore_number_aware | 29 | 29 | 0 | 0 | 0 | 1 (`kimai2_sessions`, Symfony's session table) |
+| Part-DB | 04aeda7 | underscore_number_aware | 28 | 28 | 0 | 0 | 54 (inheritance) | 8 (4 inheritance roots, 4 OAuth2 bundle tables) |
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly
