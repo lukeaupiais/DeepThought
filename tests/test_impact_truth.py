@@ -113,7 +113,7 @@ class ImpactTruthTests(unittest.TestCase):
         self.addCleanup(self.calls.unlink)
 
     def derive(self):
-        rows, aliases = impact_truth.derive(
+        rows, aliases, _ = impact_truth.derive(
             self.index, self.calls, self.repo, "python", "HEAD", commits=5
         )
         stream = io.StringIO()
@@ -236,12 +236,22 @@ class NestedFunctionTests(unittest.TestCase):
 class FunctionValueTests(unittest.TestCase):
     def test_initializers_that_hold_a_function(self):
         def holds(text):
-            return bool(impact_truth._FUNCTION_VALUE.match(text))
+            return impact_truth.holds_function(text)
 
         self.assertTrue(holds(" = <T extends Map<string, number>>(x: T) => x"))
         self.assertTrue(holds(" =\n  async (c) => {"))
         self.assertTrue(holds(": FC<\n  Props\n> = (props) => null"))
         self.assertFalse(holds(" = new Map<string, number>()"))
+        # Type parameters with a function-typed bound and a default.
+        self.assertTrue(
+            holds(
+                " = <\n  VF extends (v: unknown) => any = (v: unknown) => any,\n>(\n  t"
+            )
+        )
+        self.assertTrue(
+            holds(": FC<\n  P<{ r?: (e: E) => void }>\n> = (props) => null")
+        )
+        self.assertFalse(holds(": Map<string, () => void> = new Map()"))
         # A class property holding a function is named `C#m.`.
         self.assertEqual(
             impact_truth._TERM.search("src/`c.ts`/C#fetch.").group(1), "fetch"

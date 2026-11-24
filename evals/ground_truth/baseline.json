@@ -704,18 +704,17 @@
   },
   "hono": {
     "ambiguous_includes": 13,
-    "ambiguous_unjudged": 172,
+    "ambiguous_unjudged": 5,
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 3430,
-        "contradicted": 8,
         "not_indexed": 186,
         "unjudged": 20
       },
       "tree-sitter.call-lexical-name": {
-        "confirmed": 1517,
-        "contradicted": 15,
-        "not_indexed": 107
+        "confirmed": 1632,
+        "not_indexed": 107,
+        "unjudged": 2
       },
       "tree-sitter.call-module-attribute": {
         "confirmed": 135
@@ -732,32 +731,33 @@
         "not_indexed": 22
       }
     },
-    "confirmed": 5652,
-    "contradicted": 23,
+    "confirmed": 5767,
+    "contradicted": 0,
     "expected": 3009,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 32,
-          "expected": 34
+          "confirmed": 33,
+          "expected": 35
         },
         "2": {
-          "confirmed": 40,
-          "expected": 43
+          "confirmed": 41,
+          "expected": 44
         },
         "3": {
-          "confirmed": 21,
-          "expected": 28
+          "confirmed": 22,
+          "expected": 29
         }
       },
-      "confirmed": 93,
-      "expected": 105,
-      "extra": 49,
+      "confirmed": 96,
+      "expected": 108,
+      "extra": 0,
       "missed": 12,
-      "precision": 0.6549,
-      "recall": 0.8857,
-      "seeds": 39,
-      "seeds_undeclared": 0
+      "precision": 1.0,
+      "recall": 0.8889,
+      "seeds": 40,
+      "seeds_undeclared": 0,
+      "unjudged": 46
     },
     "imports": {
       "confirmed": 1003,
@@ -779,11 +779,11 @@
       "unresolved:outside_class": 1
     },
     "not_indexed": 326,
-    "precision": 0.9959,
+    "precision": 1.0,
     "recall": 0.5274,
-    "unjudged": 20,
+    "unjudged": 22,
     "unresolved_expected": 1351,
-    "unresolved_unjudged": 28517
+    "unresolved_unjudged": 28590
   },
   "ky": {
     "ambiguous_unjudged": 481,
@@ -832,7 +832,8 @@
       "precision": 1.0,
       "recall": 0.7943,
       "seeds": 38,
-      "seeds_undeclared": 0
+      "seeds_undeclared": 0,
+      "unjudged": 0
     },
     "imports": {
       "confirmed": 98,
@@ -909,7 +910,8 @@
       "precision": 1.0,
       "recall": 0.6027,
       "seeds": 28,
-      "seeds_undeclared": 0
+      "seeds_undeclared": 0,
+      "unjudged": 0
     },
     "imports": {
       "confirmed": 195,
