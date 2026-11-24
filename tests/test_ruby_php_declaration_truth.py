@@ -48,6 +48,13 @@ function top() {}
 """
 
 
+def _has_prism():
+    if shutil.which("ruby") is None:
+        return False
+    probe = subprocess.run(["ruby", "-e", 'require "prism"'], capture_output=True)
+    return probe.returncode == 0
+
+
 def oracle(command, name, text):
     root = Path(tempfile.mkdtemp())
     try:
@@ -99,6 +106,106 @@ class DeclarationOracleTests(unittest.TestCase):
                 (19, "byRef", "method", 19),
                 (20, "list", "method", 20),
                 (23, "top", "function", 23),
+            },
+        )
+
+    @unittest.skipUnless(_has_prism(), "ruby with Prism is required")
+    def test_ruby_requires(self):
+        files = {
+            "mygem.gemspec": 'Gem::Specification.new { |s| s.require_paths = ["src"] }\n',
+            "src/mygem.rb": (
+                'require "mygem/a"\n'
+                'require_relative "mygem/b"\n'
+                'autoload :C, "mygem/c"\n'
+                'require "set"\n'
+                'require "no_such_gem_here"\n'
+                'require "mygem/#{x}"\n'
+                'require_relative "missing"\n'
+            ),
+            "src/mygem/a.rb": "",
+            "src/mygem/b.rb": "",
+            "src/mygem/c.rb": "",
+            "lib/mygem/a.rb": "",
+            "vendor/skip.rb": 'require "set"\n',
+        }
+        root = Path(tempfile.mkdtemp())
+        try:
+            for name, text in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            out = subprocess.run(
+                ["ruby", str(ROOT / "tools/ruby_require_truth.rb"), str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        finally:
+            shutil.rmtree(root)
+        rows = {tuple(line.split("\t")) for line in out.splitlines() if line[0] != "#"}
+        # The gemspec's require_paths, not lib/, is the load path; a gem Ruby
+        # cannot find, an interpolated path and a missing relative file are
+        # not listed; vendor/ is skipped.
+        self.assertEqual(
+            rows,
+            {
+                ("src/mygem.rb", "1", "import", "src/mygem/a.rb", "0", "module"),
+                ("src/mygem.rb", "2", "import", "src/mygem/b.rb", "0", "module"),
+                ("src/mygem.rb", "3", "import", "src/mygem/c.rb", "0", "module"),
+                ("src/mygem.rb", "4", "import", "-", "0", "external"),
+            },
+        )
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_php_anonymous_class_after_an_attribute_or_modifier(self):
+        rows, _ = oracle(
+            ["php", str(ROOT / "tools/php_declaration_truth.php")],
+            "a.php",
+            "<?php\n$a = new #[Q('x')] class extends N {\n"
+            "    public function via() {}\n};\n"
+            "$b = new readonly class { function f() {} };\n",
+        )
+        self.assertEqual(rows, {(3, "via", "method", 3), (5, "f", "method", 5)})
+
+    @unittest.skipUnless(shutil.which("php"), "php is required")
+    def test_php_imports(self):
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "src/A").mkdir(parents=True)
+            (root / "src/B").mkdir(parents=True)
+            (root / "src/A/X.php").write_text(
+                "<?php\nnamespace A;\n"
+                "use B\\{Y, Z as Zed};\n"
+                "use function B\\helper;\n"
+                "use const B\\LIMIT;\n"
+                "use Psr\\Log\\LoggerInterface;\n"
+                "use B;\n"
+                "class X { use T; function f() { $g = function () use ($x) {}; } }\n",
+                "utf-8",
+            )
+            (root / "src/B/Y.php").write_text(
+                "<?php\nnamespace B;\ninterface Y {}\nclass Z {}\n"
+                "function helper() {}\ntrait T {}\n",
+                "utf-8",
+            )
+            out = subprocess.run(
+                ["php", str(ROOT / "tools/php_import_truth.php"), str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        finally:
+            shutil.rmtree(root)
+        rows = {tuple(line.split("\t")) for line in out.splitlines() if line[0] != "#"}
+        # The group, the function and the namespace (B declares Y, Z, T)
+        # resolve; the Psr name is outside; the constant, the trait use and
+        # the closure's `use` are not listed.
+        self.assertEqual(
+            rows,
+            {
+                ("src/A/X.php", "3", "import", "src/B/Y.php", "0", "module"),
+                ("src/A/X.php", "4", "import", "src/B/Y.php", "0", "module"),
+                ("src/A/X.php", "6", "import", "-", "0", "external"),
+                ("src/A/X.php", "7", "import", "src/B/Y.php", "0", "module"),
             },
         )
 

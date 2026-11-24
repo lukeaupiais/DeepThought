@@ -73,7 +73,12 @@ javac's own attribution (`tools/JavaCallTruth.java`, JDK only): every method
 invocation and `new` expression javac binds, at the line of the called name,
 targeting the line of the declaration's name. A `new` expression accepts its
 constructor and its class. Calls javac cannot bind (a missing library) are left
-out.
+out, and so is a call of an overloaded method or constructor with an
+argument whose type javac cannot resolve. gson's proto tests use classes built
+from `.proto` files that the corpus does not contain, so for
+`toJson(null, TestAllTypes.class)` javac's error recovery picked
+`toJson(JsonElement, Appendable)`. Leaving those calls out dropped 102 rows,
+nearly all in `proto/`.
 
 An engine link matches a target when it is on the target's line or is the
 innermost declaration whose span holds that line: the engine records a Java
@@ -147,7 +152,7 @@ Baseline (calls):
 | cobra | go | 2,197 | 1,044 | 0 | 1.0 | 0.4752 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,139 | 4,332 | 0 | 1.0 | 0.3824 |
+| gson | java | 11,050 | 4,331 | 0 | 1.0 | 0.3854 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -267,15 +272,45 @@ unindexed.
 
 | Corpus | Expected | Found | Kind mismatch | Missed | Extra |
 |---|---|---|---|---|---|
-| rack (Ruby) | 1014 | 950 | 60 | 4 | 0 |
-| Slim (PHP) | 876 | 863 | 0 | 13 | 0 |
+| rack (Ruby) | 1014 | 1014 | 0 | 0 | 0 |
+| Slim (PHP) | 876 | 876 | 0 | 0 | 0 |
+| laravel/framework (PHP) | 38104 | 38104 | 0 | 0 | 0 |
 
-rack's kind mismatches are all singleton methods defined outside a class
-body (`def self.x` at the top of a file, `def object.close` in a test
-block), which the engine reads as functions; its misses are singleton
-methods on an instance variable or nested in another method. Slim's misses
-are the methods of anonymous classes and three functions declared inside a
-method body.
+The PHP oracle also reads a method of an anonymous class written after an
+attribute or modifier (`new #[Queue('x')] class`, `new readonly class`) as a
+method. Before, it listed four such methods in laravel as functions.
+
+#### PHP imports
+
+The two PHP corpora also score `use` imports (layer `imports` under each
+declarations entry). `tools/php_import_truth.php` reads every top-level
+`use` with `token_get_all`, leaving out trait uses and closure `use (...)`.
+It resolves each class-like name through Composer's own class map
+(`composer dump-autoload --optimize --no-scripts --no-plugins` into a
+temporary vendor directory). A name Composer does not map falls back to the
+files whose tokens declare it, or that declare something in a namespace of
+that name. A `use function` resolves to the files declaring the function.
+Anything else is external, and `use const` is not listed.
+
+| Corpus | Repository imports | Confirmed | Contradicted | External |
+|---|---|---|---|---|
+| Slim | 306 | 306 | 0 | 510 |
+| laravel/framework | 9682 | 9682 | 0 | 5005 |
+
+The gate fails on fewer confirmed or more contradicted imports, or a
+changed truth.
+
+#### Ruby requires
+
+rack also carries require truth from `tools/ruby_require_truth.rb`. Prism
+finds each `require`, `require_relative` and `autoload` whose path is one
+literal string. A `require_relative` resolves against the requiring file's
+directory. A `require` or `autoload` searches the gemspec's `require_paths`
+first (`lib` by default), as `gem` and `bundle exec` do. Otherwise
+`$LOAD_PATH.resolve_feature_path` decides: a standard library or installed
+gem is external, and a feature Ruby cannot find here (`simplecov`, Rails in
+`test.rb`) is not listed. Of 340 rows, 287 name a repository file. The
+engine does not resolve Ruby requires yet, so the baseline is 0 confirmed.
 
 ### Service contracts
 
@@ -545,7 +580,7 @@ declaration already spans: a function `run` is not merged with a method
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
-| gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
+| gson | 164 | 5052 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 

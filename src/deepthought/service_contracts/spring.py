@@ -1227,7 +1227,10 @@ def _client_requests(
         api: {
             operation.method_name + suffix: operation
             for operation in operations
-            for suffix in CLIENT_METHOD_SUFFIXES
+            # A Feign client has only the interface's methods.
+            for suffix in (
+                CLIENT_METHOD_SUFFIXES if operation.client == "openapi-java" else ("",)
+            )
         }
         for api, operations in clients.items()
     }
@@ -1266,7 +1269,7 @@ def _client_requests(
                 caller_id=caller,
                 method=operation.http_method,
                 url=url,
-                client="openapi-java",
+                client=operation.client,
                 declared_in=f"{operation.spec_file}:{operation.spec_line}",
             )
         )

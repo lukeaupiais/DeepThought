@@ -154,6 +154,7 @@ arbitrary object gets no edge.
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` where `x` is declared in the function around the call and the innermost visible declaration writes a named type: a parameter, receiver or named result (`c *Command`), `var x T`, a typed `const`, or `x := T{...}`, `&T{...}`, `new(T)` or `make(T)`. It links to the method `M` declared on `T`, in the caller's package or, for `pkg.T`, in the package the file imports as `pkg`. Methods promoted from embedded fields are not followed, and a function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
+| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
@@ -169,7 +170,10 @@ and reason. The `calls` capability is not advertised, so an empty callers or
 callees result still says the relation was unsupported or unobserved.
 
 `tools/compare_calls_with_scip.py` checks linked calls against SCIP references
-at the callee name.
+at the callee name, matched as a whole identifier after the call's column. On
+Django 5.1.4 `django/` (scip-python 0.6.8) the Python rules link 8,731 calls:
+8,502 confirmed, 2 contradicted and 227 with no SCIP reference at the name.
+`tree-sitter.python-call-typed-receiver` links 85, all confirmed.
 
 ## Declaration nesting
 
@@ -699,9 +703,11 @@ declare the same type. Build files (Maven, Gradle) are not read.
 
 Java calls are method invocations (`m()`, `this.m()`, `T.m()`, `a.b.T.m()`)
 and `new T()` expressions, with the number of arguments written; Java methods
-and constructors record their parameter count and whether the last parameter
-is variable-arity. Calls link by Java's name lookup, without types, so every
-link is `name_matched`:
+and constructors record their parameter count, whether the last parameter
+is variable-arity, and each parameter's type as written, without type
+arguments (`parameter_types`: `List`, `int[]`, `T`, `String...`). Calls link
+by Java's name lookup, and by a type only where a declaration writes it, so
+every link is `name_matched`:
 
 | Rule | Callee |
 |---|---|
@@ -711,6 +717,7 @@ link is `name_matched`:
 | `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
 | `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
+| `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -734,8 +741,10 @@ anonymous classes around it (`anonymous`: base, the scope its methods are
 named in, first and last line); other calls do not have the field.
 
 A type's methods named `m` are the ones it declares, then those its
-repository bases have, followed in source order (a class's superclass
-first) through every level. A nearer method with the same parameter count
+repository bases have (a `private` method is not inherited, so it counts
+only in the type that declares it; Java methods and constructors record
+`private`), followed in source order (a class's superclass
+first) through every level. A nearer method with the same parameter shape (below)
 overrides an inherited one, and a method declared in a class (the
 superclass chain) also implements a same-shaped interface method; methods of
 two interfaces with the same shape are both kept, since only types say which
@@ -744,9 +753,46 @@ read, so their methods stay unresolved.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity`. Calls on variables
-or expressions (`list.add(x)`) need types and stay unresolved
-(`attribute_call`).
+several left are ambiguous, none is `no_matching_arity`.
+
+For a call `x.m()`, the analysis looks for the declaration of `x` that is in
+scope at the call, from the innermost scope out, and records the type it
+writes as the call's `receiver_type` (`Foo`, `Map.Entry`; type arguments
+dropped). Declarations that count:
+
+- a method, constructor or record parameter, or a lambda parameter with a
+  written type (`(Foo a) -> ...`);
+- a local variable declared in an enclosing block before the call, a `for`
+  initializer, an enhanced `for` variable, a `try` resource, or a `catch`
+  parameter with a single type;
+- `var x = new Foo()`;
+- a field of an enclosing class body (`this.x` names the innermost class's
+  field only).
+
+The first declaration found decides. It gives no type, and the call stays
+`attribute_call`, when it writes none that the lookup can use: a primitive,
+an array (`Foo[] a`, `Foo a[]`, `Foo... a`), `var` without `new`, an
+inferred lambda parameter, a multi-catch, an enum constant, or a type
+parameter of an enclosing method or class. A name bound by a pattern
+(`o instanceof Foo g`, `case Foo g`) anywhere in the method also gives no
+type, because a pattern variable's scope follows control flow. A field is
+not looked for past a class body that may inherit one of the same name: an
+anonymous class, an enum constant's body, or a type with a superclass or
+superinterfaces. `T` is then looked up as a type name (above). When it names
+no repository type (`String`), the call is `receiver_type_not_declared`.
+Calls on other expressions (`a.b().c()`, `x.f.m()`) need types and stay
+unresolved (`attribute_call`).
+
+A nearer method overrides an inherited one only when parameter count,
+variable arity and each parameter type as written agree. A simple name
+agrees with a qualified one that ends in it (`Entry`, `Map.Entry`), and
+type arguments are not compared. A class's type parameter agrees only with
+another class's type parameter, and a method's own only with another
+method's own. Otherwise both methods are candidates, since only the types
+say whether the nearer one overrides or overloads: `LongRange.fit(long)`
+and `Range.fit(T)` are overloads, and so are `getOrDefault(..., String)`
+and `getOrDefault(..., T)` when `T` is bound to an enum, but
+`write(JsonElement)` overrides `write(T)` in a `TypeAdapter<JsonElement>`.
 
 Checked against javac's own parser with
 `tools/compare_java_declarations_with_javac.py`, which runs
@@ -801,30 +847,37 @@ line); a `new` binds the class it creates.
 
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
-| google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
-| apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
-| google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
-| junit-team/junit5 | 18,630 / 19,306 | 8 | 668 | 9,343 | 6,233 |
+| google/gson | 7,282 / 7,285 | 0 | 3 | 2,160 | 124 |
+| apache/commons-lang | 23,855 / 25,038 | 0 | 1,183 | 11,306 | 380 |
+| google/guava | 55,814 / 55,981 | 0 | 167 | 65,144 | 3,439 |
+| junit-team/junit5 | 22,595 / 23,271 | 8 | 668 | 9,624 | 1,987 |
 
-Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
-36,756) and methods inherited from library types (`unbound_name`). Most of guava's
-ambiguous calls are test roots calling a type that both `guava/src` and
-`android/guava/src` declare. Five ambiguous calls (one in commons-lang, four
-in guava) leave out javac's method: an inherited overload, or a GWT
-super-source file javac binds elsewhere. javac binds none
-for 1,183 commons-lang links because those test calls pass lambdas to
+`tree-sitter.java-call-typed-receiver` accounts for 3,123, 5,057, 7,280 and
+3,649 of the confirmed links, and none of its links is contradicted. Most
+missed calls are calls on expressions or on variables whose declaration
+writes no usable type (`attribute_call`: 117, 378, 3,028 and 1,958).
+Calls through a typed variable become ambiguous where the hierarchy has
+several methods that only types can choose between, and where a type is
+declared in both `guava/src` and `android/guava/src`; most of guava's
+ambiguous calls are of that second kind. A few ambiguous calls leave out
+javac's method: an inherited overload, a GWT super-source file javac binds
+elsewhere, or a method whose own type parameter javac infers. javac binds
+none for 1,183 commons-lang links because those test calls pass lambdas to
 JUnit-typed parameters, and JUnit is not on javac's class path; the links go
-to the statically imported `LangAssertions` methods of the same name. The 37
-contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
-mostly overloads with the same arity elsewhere in the hierarchy that fit the
-argument types better (`putBytes`, `hashBytes`, `append`), which a count of
-arguments cannot tell apart. junit5's 8 contradictions are the same case
-(`ReflectionUtils.getFullyQualifiedMethodName`), and javac binds none for 657
-of its links for the same reason as in commons-lang: the statically imported
-`PreconditionAssertions` methods take lambdas typed by libraries that are
-not on javac's class path. junit5 indents with tabs; the oracle counts a tab
-as one column, as the analysis does, rather than expanding it to the next
-tab stop as javac's `LineMap.getColumnNumber` would.
+to the statically imported `LangAssertions` methods of the same name.
+junit5's 657 links to its statically imported `PreconditionAssertions`
+methods are the same case. 74 guava links of the new rule are to repository
+methods javac leaves unbound; they were sampled, not checked one by one.
+Deciding overrides by parameter types (above) removes the commons-lang
+contradictions (`Range.fit(T)` and `LongRange.fit(long)`) and 33 of
+guava's (`putBytes`, `hashBytes`, `append`); not inheriting private
+methods removes the last two (`getUninterruptibly` in `AggregateFuture`
+had linked to `AbstractFuture`'s private method instead of the statically
+imported `Uninterruptibles.getUninterruptibly`). junit5's 8 (`getFullyQualifiedMethodName`) pick a method
+by name and arity where javac picks another of the same arity by argument
+types. junit5 indents with tabs; the oracle counts a tab as one
+column, as the analysis does, rather than expanding it to the next tab stop
+as javac's `LineMap.getColumnNumber` would.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -1816,7 +1869,14 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
   resolvers. A member that is a function declared in the file
   (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
-  function, anything else to the file.
+  function, anything else to the file. A field's options object is read the
+  same way whether its `subscribe` (preferred) or `resolve` option is a
+  pair, a method (`subscribe() {...}`) or a shorthand (`{me}`), and
+  `withFilter(fn, ...)` anchors to its first argument when that is a
+  function or a name of one. A shorthand member bound to an options object
+  of the same file (`const tick = {subscribe: fn}`) is followed once. A
+  function expression passed as an argument has no definition of its own,
+  so its edge stays on the file.
 - A root key bound to a name is followed: to an object literal of the same
   file (`const Query = {...}`), or to a relative module of the repository
   bound by `require` (whole, destructured or `.Name`) or `import` (default,
@@ -1965,8 +2025,8 @@ version 7 or later, `interfaceOnly` true and no `delegatePattern`, every
 operation of the `inputSpec` file (OpenAPI 3 or Swagger 2, YAML or JSON) is
 read as a method of a generated interface:
 
-- the interface is `apiPackage.<apiNamePrefix><Group><apiNameSuffix>`, once
-  per group, where the groups are the operation's tags with `useTags`
+- the interface is `apiPackage.<Group><apiNameSuffix>`, once
+  per group (Spring's `toApiName` takes no `apiNamePrefix`), where the groups are the operation's tags with `useTags`
   (`default` when it has none) and its first path segment without it, as
   the generator's `addOperationToGroup` does;
 - the method is the `operationId` with a lower-case first letter.
@@ -2055,8 +2115,7 @@ The `REQUESTS` edge carries `declared_in` and one of
 also state the generated-client step. Libraries such as `rest-assured`,
 `retrofit2`, `vertx` and `microprofile` are unread as
 `openapi:client_library`, older plugins as `openapi:generator_version`, and
-an unreadable configuration file as `openapi:config_not_read`. Spring
-`spring-cloud` (Feign) clients are not read yet.
+an unreadable configuration file as `openapi:config_not_read`.
 
 Results on three repositories:
 
@@ -2067,6 +2126,30 @@ Results on three repositories:
 | openapi-generator-maven-plugin-demo (`7a86bda`) | 1 of 1 | Linked to the right operation, using library `feign` from the configurationFile and the default apiPackage |
 
 No link is wrong. spring-petclinic-rest still gives 36 routes.
+
+#### Generated Feign clients
+
+An execution with generator `spring`, library `spring-cloud`, plugin version
+7 or later and `interfaceOnly` false generates, per group (as for Spring
+servers), the interface `apiPackage.<Group><apiNameSuffix>` and the Feign
+client `<that name>Client` that extends it (`SpringCodegen` and
+`spring-cloud/apiClient.mustache`, checked at v7.4.0 and v7.16.0). A call of
+`<operation>` on a name declared once in the file with the client as its
+type is an `HttpRequest` with client `openapi-spring-cloud` and the spec
+location as `declared_in`. The client's `@FeignClient` URL is the
+`<api var>.url` property with the server URL as its default, or service
+discovery by the `<api var>.name` property without `useFeignClientUrl`. Both
+are run-time settings, so the base is unknown and only the path is matched.
+The `REQUESTS` edge carries `service-contracts.openapi-feign-client-path` or
+`openapi-feign-client-gateway` (pattern_matched). With `interfaceOnly` no
+client is generated (`openapi:client_not_generated`). Calls on the plain
+interface type are not read, because a server may implement it too.
+
+| Repository | Call sites in main code | Outcome |
+|---|---|---|
+| TPE-TicketYa (`cdf3173`, 6 services, plugin 7.16) | 7 | 7 linked, each to the controller method of the operation (precision 7/7, recall 7/7) |
+| oficina-agua-pagos (`0040a10`, plugin 7.21) | 2 | 2 requests found, unresolved: the bank and ERP servers are JSON mock definitions, not code in the repository |
+| cf-kaizen (`449d8d0`, plugin 7.18) | 3 | Not read: the spec's operations have no `operationId` (`openapi:operation_id`, 63) |
 
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The
@@ -2269,6 +2352,23 @@ all have the configured destination. The other 5 are unread, not wrong:
 
 Samples without a `spring.application.name` are not services here and give
 nothing.
+
+A `StreamBridge.send(binding, ...)` whose binding is a parameter of a
+`private` method takes the literal value of the argument that each direct
+call in the file passes (`m(...)` or `this.m(...)`, inside lambdas too). The
+send site gets one binding per distinct value, and a caller's own parameter
+is followed the same way, at most three methods deep. The binding stays
+`binding_not_literal` when the method:
+- is not private;
+- assigns the parameter, or declares a local that shadows it;
+- is used as a method reference;
+- has an overload of another arity;
+- is never called;
+- gets any argument that is not literal.
+
+On the Packt chapters this resolves product-composite's `sendMessage("products-out-0", ...)`
+helper. With the Compose identity below, `contracts-packt-chapter07` and
+`contracts-packt-chapter23` each score 3/3 labelled links with no false ones.
 
 #### Services that Compose builds
 
