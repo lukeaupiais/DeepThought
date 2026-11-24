@@ -263,6 +263,8 @@ class GraphTransportIntegrationTests(unittest.TestCase):
                             "getComponentDependencies",
                             "getComponentImpact",
                             "getSharedTables",
+                            "searchContracts",
+                            "getContractImpact",
                         }
                         if raw_enabled:
                             expected.add("queryGraph")
