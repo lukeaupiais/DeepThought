@@ -59,6 +59,16 @@ NESTS_RULE = register_rule(
     )
 )
 
+UNLINKED_CALL_RULE = register_rule(
+    EvidenceRule(
+        "tree-sitter.call-site-unlinked",
+        "resolved",
+        "The parse tree places this call inside the declaration (or at the top "
+        "level of the file); no call rule links it to exactly one declaration, "
+        "for the reason the call site records.",
+    )
+)
+
 IMPORT_RULES = {
     rule.rule_id: rule
     for rule in (
@@ -572,6 +582,12 @@ BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
 )
 
 
+def _call_name(callee):
+    """The name a call site calls: the last name of its callee
+    (``c.req.param`` calls ``param``)."""
+    return callee.rsplit(".", 1)[-1]
+
+
 def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
 
@@ -833,8 +849,6 @@ class TreeSitterTool(AnalysisTool):
                 ":" + resolution.reason if resolution.reason else ""
             )
             call_counts[key] = call_counts.get(key, 0) + 1
-            if resolution.status != "linked":
-                continue
             site = sites[resolution.call_id]
             if site.caller_id is None:
                 source = (["File"], files[site.file])
@@ -843,6 +857,57 @@ class TreeSitterTool(AnalysisTool):
                     [kinds[site.caller_id], "Symbol"],
                     qualified[site.caller_id],
                 )
+            if resolution.status != "linked":
+                # The call is a fact of the code even when no rule names its
+                # target: kept so that linked and unlinked calls of a name
+                # can be counted together.
+                call_name = f"{repo_url}::{site.file}::call::{site.id}"
+                nodes.append(
+                    NodeData(
+                        ["UnresolvedCall"],
+                        {
+                            "qualified_name": call_name,
+                            "repo_url": repo_url,
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "file_path": site.file,
+                            "line": site.line,
+                            "column": site.column,
+                            "end_line": site.end_line,
+                            "end_column": site.end_column,
+                            "status": resolution.status,
+                            # Which resolver left it unlinked, and why.
+                            "resolver": "tree-sitter",
+                            **(
+                                {"reason": resolution.reason}
+                                if resolution.reason
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "candidates": [
+                                        qualified[c] for c in resolution.candidates
+                                    ]
+                                }
+                                if resolution.candidates
+                                else {}
+                            ),
+                        },
+                    )
+                )
+                relationships.append(
+                    RelationshipData(
+                        "HAS_UNRESOLVED_CALL",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        ["UnresolvedCall"],
+                        {"qualified_name": call_name, "repo_url": repo_url},
+                        {"line": site.line, **_evidence(UNLINKED_CALL_RULE)},
+                    )
+                )
+                continue
             relationships.append(
                 RelationshipData(
                     "CALLS",
@@ -856,6 +921,7 @@ class TreeSitterTool(AnalysisTool):
                     {
                         "call_id": site.id,
                         "callee": site.callee,
+                        "name": _call_name(site.callee),
                         "call_kind": site.kind,
                         "line": site.line,
                         "column": site.column,
@@ -955,6 +1021,8 @@ class TreeSitterTool(AnalysisTool):
                 "diagnostics": diagnostics,
                 "analyzer_versions": artifact["analyzer_versions"],
                 "capabilities": artifact["capabilities"],
+                # Unlinked calls are stored as UnresolvedCall nodes.
+                "unresolved_call_sites": True,
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
