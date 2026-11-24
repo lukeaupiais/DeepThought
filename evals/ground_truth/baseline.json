@@ -1046,11 +1046,10 @@
     "unresolved_unjudged": 28454
   },
   "ky": {
-    "ambiguous_unjudged": 481,
     "by_rule": {
       "tree-sitter.call-imported-name": {
         "confirmed": 110,
-        "not_indexed": 148
+        "not_indexed": 629
       },
       "tree-sitter.call-lexical-name": {
         "confirmed": 120,
@@ -1119,7 +1118,7 @@
     },
     "missed": 0,
     "missed_by_engine_outcome": {},
-    "not_indexed": 859,
+    "not_indexed": 1340,
     "precision": 1.0,
     "recall": 1.0,
     "unjudged": 1,
