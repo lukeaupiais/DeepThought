@@ -1,0 +1,138 @@
+# file	line	name	target_file	target_line	kind
+# indexed	httpx/__init__.py
+# indexed	httpx/__version__.py
+# indexed	httpx/_api.py
+# indexed	httpx/_auth.py
+# indexed	httpx/_client.py
+# indexed	httpx/_config.py
+# indexed	httpx/_content.py
+# indexed	httpx/_decoders.py
+# indexed	httpx/_exceptions.py
+# indexed	httpx/_main.py
+# indexed	httpx/_models.py
+# indexed	httpx/_multipart.py
+# indexed	httpx/_status_codes.py
+# indexed	httpx/_transports/__init__.py
+# indexed	httpx/_transports/asgi.py
+# indexed	httpx/_transports/base.py
+# indexed	httpx/_transports/default.py
+# indexed	httpx/_transports/mock.py
+# indexed	httpx/_transports/wsgi.py
+# indexed	httpx/_types.py
+# indexed	httpx/_urlparse.py
+# indexed	httpx/_urls.py
+# indexed	httpx/_utils.py
+# indexed	tests/__init__.py
+# indexed	tests/client/__init__.py
+# indexed	tests/client/test_async_client.py
+# indexed	tests/client/test_auth.py
+# indexed	tests/client/test_client.py
+# indexed	tests/client/test_cookies.py
+# indexed	tests/client/test_event_hooks.py
+# indexed	tests/client/test_headers.py
+# indexed	tests/client/test_properties.py
+# indexed	tests/client/test_proxies.py
+# indexed	tests/client/test_queryparams.py
+# indexed	tests/client/test_redirects.py
+# indexed	tests/common.py
+# indexed	tests/concurrency.py
+# indexed	tests/conftest.py
+# indexed	tests/models/__init__.py
+# indexed	tests/models/test_cookies.py
+# indexed	tests/models/test_headers.py
+# indexed	tests/models/test_queryparams.py
+# indexed	tests/models/test_requests.py
+# indexed	tests/models/test_responses.py
+# indexed	tests/models/test_url.py
+# indexed	tests/models/test_whatwg.py
+# indexed	tests/test_api.py
+# indexed	tests/test_asgi.py
+# indexed	tests/test_auth.py
+# indexed	tests/test_config.py
+# indexed	tests/test_content.py
+# indexed	tests/test_decoders.py
+# indexed	tests/test_exceptions.py
+# indexed	tests/test_exported_members.py
+# indexed	tests/test_main.py
+# indexed	tests/test_multipart.py
+# indexed	tests/test_status_codes.py
+# indexed	tests/test_timeouts.py
+# indexed	tests/test_utils.py
+# indexed	tests/test_wsgi.py
+httpx/_auth.py	113	FunctionAuth	httpx/_auth.py	22	type
+httpx/_auth.py	126	BasicAuth	httpx/_auth.py	22	type
+httpx/_auth.py	145	NetRCAuth	httpx/_auth.py	22	type
+httpx/_auth.py	175	DigestAuth	httpx/_auth.py	22	type
+httpx/_client.py	125	ClientState	-	0	external
+httpx/_client.py	139	BoundSyncStream	httpx/_types.py	92	type
+httpx/_client.py	162	BoundAsyncStream	httpx/_types.py	106	type
+httpx/_client.py	594	Client	httpx/_client.py	188	type
+httpx/_client.py	1307	AsyncClient	httpx/_client.py	188	type
+httpx/_content.py	31	ByteStream	httpx/_types.py	92	type
+httpx/_content.py	31	ByteStream	httpx/_types.py	106	type
+httpx/_content.py	42	IteratorByteStream	httpx/_types.py	92	type
+httpx/_content.py	67	AsyncIteratorByteStream	httpx/_types.py	106	type
+httpx/_content.py	92	UnattachedStream	httpx/_types.py	92	type
+httpx/_content.py	92	UnattachedStream	httpx/_types.py	106	type
+httpx/_decoders.py	44	IdentityDecoder	httpx/_decoders.py	36	type
+httpx/_decoders.py	56	DeflateDecoder	httpx/_decoders.py	36	type
+httpx/_decoders.py	85	GZipDecoder	httpx/_decoders.py	36	type
+httpx/_decoders.py	108	BrotliDecoder	httpx/_decoders.py	36	type
+httpx/_decoders.py	161	ZStandardDecoder	httpx/_decoders.py	36	type
+httpx/_decoders.py	203	MultiDecoder	httpx/_decoders.py	36	type
+httpx/_exceptions.py	74	HTTPError	-	0	external
+httpx/_exceptions.py	107	RequestError	httpx/_exceptions.py	74	type
+httpx/_exceptions.py	123	TransportError	httpx/_exceptions.py	107	type
+httpx/_exceptions.py	132	TimeoutException	httpx/_exceptions.py	123	type
+httpx/_exceptions.py	140	ConnectTimeout	httpx/_exceptions.py	132	type
+httpx/_exceptions.py	146	ReadTimeout	httpx/_exceptions.py	132	type
+httpx/_exceptions.py	152	WriteTimeout	httpx/_exceptions.py	132	type
+httpx/_exceptions.py	158	PoolTimeout	httpx/_exceptions.py	132	type
+httpx/_exceptions.py	167	NetworkError	httpx/_exceptions.py	123	type
+httpx/_exceptions.py	175	ReadError	httpx/_exceptions.py	167	type
+httpx/_exceptions.py	181	WriteError	httpx/_exceptions.py	167	type
+httpx/_exceptions.py	187	ConnectError	httpx/_exceptions.py	167	type
+httpx/_exceptions.py	193	CloseError	httpx/_exceptions.py	167	type
+httpx/_exceptions.py	202	ProxyError	httpx/_exceptions.py	123	type
+httpx/_exceptions.py	208	UnsupportedProtocol	httpx/_exceptions.py	123	type
+httpx/_exceptions.py	216	ProtocolError	httpx/_exceptions.py	123	type
+httpx/_exceptions.py	222	LocalProtocolError	httpx/_exceptions.py	216	type
+httpx/_exceptions.py	232	RemoteProtocolError	httpx/_exceptions.py	216	type
+httpx/_exceptions.py	243	DecodingError	httpx/_exceptions.py	107	type
+httpx/_exceptions.py	249	TooManyRedirects	httpx/_exceptions.py	107	type
+httpx/_exceptions.py	258	HTTPStatusError	httpx/_exceptions.py	74	type
+httpx/_exceptions.py	271	InvalidURL	-	0	external
+httpx/_exceptions.py	280	CookieConflict	-	0	external
+httpx/_exceptions.py	297	StreamError	-	0	external
+httpx/_exceptions.py	309	StreamConsumed	httpx/_exceptions.py	297	type
+httpx/_exceptions.py	327	StreamClosed	httpx/_exceptions.py	297	type
+httpx/_exceptions.py	340	ResponseNotRead	httpx/_exceptions.py	297	type
+httpx/_exceptions.py	353	RequestNotRead	httpx/_exceptions.py	297	type
+httpx/_models.py	139	Headers	-	0	external
+httpx/_multipart.py	224	MultipartStream	httpx/_types.py	92	type
+httpx/_multipart.py	224	MultipartStream	httpx/_types.py	106	type
+httpx/_status_codes.py	8	codes	-	0	external
+httpx/_transports/asgi.py	55	ASGIResponseStream	httpx/_types.py	106	type
+httpx/_transports/asgi.py	63	ASGITransport	httpx/_transports/base.py	65	type
+httpx/_transports/default.py	121	ResponseStream	httpx/_types.py	92	type
+httpx/_transports/default.py	135	HTTPTransport	httpx/_transports/base.py	14	type
+httpx/_transports/default.py	265	AsyncResponseStream	httpx/_types.py	106	type
+httpx/_transports/default.py	279	AsyncHTTPTransport	httpx/_transports/base.py	65	type
+httpx/_transports/mock.py	15	MockTransport	httpx/_transports/base.py	14	type
+httpx/_transports/mock.py	15	MockTransport	httpx/_transports/base.py	65	type
+httpx/_transports/wsgi.py	30	WSGIByteStream	httpx/_types.py	92	type
+httpx/_transports/wsgi.py	44	WSGITransport	httpx/_transports/base.py	14	type
+httpx/_urlparse.py	158	ParseResult	-	0	external
+tests/client/test_async_client.py	184	Transport	httpx/_transports/base.py	65	type
+tests/client/test_async_client.py	216	Transport	httpx/_transports/base.py	65	type
+tests/client/test_async_client.py	347	CancelledStream	httpx/_types.py	106	type
+tests/client/test_auth.py	87	RepeatAuth	httpx/_auth.py	22	type
+tests/client/test_auth.py	115	ResponseBodyAuth	httpx/_auth.py	22	type
+tests/client/test_auth.py	137	SyncOrAsyncAuth	httpx/_auth.py	22	type
+tests/client/test_auth.py	688	ConsumeBodyTransport	httpx/_transports/mock.py	15	type
+tests/client/test_client.py	233	Transport	httpx/_transports/base.py	14	type
+tests/client/test_client.py	264	Transport	httpx/_transports/base.py	14	type
+tests/client/test_redirects.py	345	ConsumeBodyTransport	httpx/_transports/mock.py	15	type
+tests/conftest.py	224	TestServer	-	0	external
+tests/test_api.py	34	Data	httpx/_types.py	92	type
+tests/test_multipart.py	389	IteratorIO	-	0	external

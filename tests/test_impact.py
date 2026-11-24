@@ -1,6 +1,7 @@
 """Deterministic impact queries over stored edges."""
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -27,6 +28,7 @@ READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
 )
 JAVA_READY = importlib.util.find_spec("tree_sitter_java")
+GO_READY = importlib.util.find_spec("tree_sitter_go")
 SCIP_READY = importlib.util.find_spec("google") and importlib.util.find_spec(
     "google.protobuf"
 )
@@ -398,6 +400,47 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         )
 
     @unittest.skipUnless(SCIP_READY, "Provision the scip extra")
+    @unittest.skipUnless(GO_READY, "Provision the go grammar")
+    async def test_go_implementations_reach_interface_callers(self):
+        files = {
+            "store.go": "package app\n\n"
+            "type Store interface{ Get(k string) string }\n\n"
+            "type Mem struct{}\n\n"
+            "func (Mem) Get(k string) string { return k }\n\n"
+            "type Disk struct{}\n\n"
+            "func (Disk) Get(k string) string { return k }\n\n"
+            'func Load(s Store) string { return s.Get("k") }\n',
+        }
+
+        class GoTool(TreeSitterTool):
+            async def analyze(self, repo_url, **options):
+                return await super().analyze(repo_url, languages=("go",))
+
+        repo, snapshot, names = await self.write(GoTool, files, "tree-sitter")
+        impact = await self.service.get_impact(
+            names["Mem.Get"], repo, snapshot_id=snapshot
+        )
+        # The interface method dispatches to Mem.Get, so the interface's
+        # callers are reached; the other implementation is not.
+        self.assertEqual(
+            [(row[0], row[1], row[3]) for row in self.rows(impact)],
+            [
+                ("Store.Get", 1, ["DISPATCHES_TO"]),
+                ("Load", 2, ["CALLS", "DISPATCHES_TO"]),
+            ],
+        )
+        interface = await self.service.get_impact(
+            names["Store"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            sorted((row[0], row[3]) for row in self.rows(interface)),
+            [
+                ("Disk", ["IMPLEMENTS"]),
+                ("Load", ["CALLS"]),
+                ("Mem", ["IMPLEMENTS"]),
+            ],
+        )
+
     async def test_implementations_are_resolved_dependents(self):
         fixture = Path(__file__).parent / "fixtures/scip_implementations"
         repo = "impact-" + uuid4().hex
@@ -504,6 +547,77 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(
             "StatsController.latest", [row[0] for row in self.rows(reader)]
         )
+
+    @unittest.skipUnless(JAVA_READY, "Provision the java grammar")
+    async def test_contract_impact_reaches_providers_clients_and_callers(self):
+        from deepthought.analysis_tools.service_contracts import ServiceContractTool
+
+        repo = "impact-" + uuid4().hex
+        self.repos.append(repo)
+        with tempfile.TemporaryDirectory() as directory:
+            for path, content in SERVICES.items():
+                (Path(directory) / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(directory) / path).write_text(content)
+            trees = await TreeSitterTool(directory).analyze(repo, languages={"java"})
+            contracts = await ServiceContractTool(Path(directory)).analyze(repo)
+        snapshot = trees.metadata.custom_metrics["snapshot_id"]
+        written = await WriteCoordinator(
+            self.manager.driver, database=self.manager.database
+        ).write_outputs([trees, contracts], repo, snapshot_id=snapshot)
+        self.assertTrue(written.success, written.errors)
+        found = await self.service.search_contracts(
+            "stats/LATEST", repo, snapshot_id=snapshot
+        )
+        self.assertEqual(
+            [
+                (i["kind"], i["name"], i["providers"], i["clients"])
+                for i in found["items"]
+            ],
+            [("HttpRoute", "GET /stats/latest", 1, 1)],
+        )
+        self.assertEqual(
+            (
+                await self.service.search_contracts(
+                    "stats", repo, snapshot_id=snapshot, kind="DbTable"
+                )
+            )["items"],
+            [],
+        )
+        with self.assertRaises(ValueError):
+            await self.service.search_contracts(
+                "", repo, snapshot_id=snapshot, kind="Route"
+            )
+        route = found["items"][0]["qualified_name"]
+        impact = await self.service.get_contract_impact(
+            route, repo, snapshot_id=snapshot, max_depth=3
+        )
+        self.assertEqual(
+            [(p["name"], p["relations"]) for p in impact["providers"]],
+            [("StatsController.latest", ["HANDLES"])],
+        )
+        self.assertFalse(impact["providers_truncated"])
+        self.assertEqual(
+            [
+                (row[0], row[1], row[3], item["impact"])
+                for row, item in zip(self.rows(impact), impact["items"])
+                if not row[0].endswith(".java")
+            ],
+            [
+                ("StatsReader.read", 1, ["REQUESTS"], "direct"),
+                ("StatsReader.twice", 2, ["CALLS", "REQUESTS"], "transitive"),
+            ],
+        )
+        # The smallest budget still answers, within it.
+        small = await self.service.get_contract_impact(
+            route, repo, snapshot_id=snapshot, max_output_bytes=2048
+        )
+        self.assertLessEqual(
+            len(json.dumps(small, sort_keys=True, ensure_ascii=False).encode()), 2048
+        )
+        with self.assertRaises(ValueError):
+            await self.service.get_contract_impact(
+                route, repo, snapshot_id=snapshot, max_output_bytes=2047
+            )
 
     @staticmethod
     def rows_edges(response):

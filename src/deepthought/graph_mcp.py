@@ -145,6 +145,12 @@ def create_server():
 
     Evidence = list[Literal["resolved", "pattern_matched", "name_matched"]] | None
     Roles = list[Literal["test", "example"]] | None
+    ContractKind = (
+        Literal[
+            "DbTable", "GraphqlField", "GrpcMethod", "HttpRoute", "MessageDestination"
+        ]
+        | None
+    )
 
     @server.tool()
     async def getFunctionCallers(
@@ -196,7 +202,8 @@ def create_server():
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
-        Follows CALLS, INHERITS_FROM, IMPLEMENTS and REQUESTS backwards and
+        Follows CALLS, INHERITS_FROM, IMPLEMENTS, DISPATCHES_TO (Go interface
+        methods to implementations) and REQUESTS backwards and
         HANDLES forwards, so callers of a changed HTTP handler's route in
         other services count; each dependent has its depth, its path's edges
         and the path's weakest evidence. A truncated list continues with
@@ -208,6 +215,60 @@ def create_server():
         examples, and ``exclude_roles`` leaves those roles out before paging.
         """
         return await ctx.request_context.lifespan_context.get_impact(
+            qualified_name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            max_depth=max_depth,
+            evidence_types=evidence_types,
+            limit=max_elements,
+            offset=offset,
+            exclude_roles=exclude_roles,
+        )
+
+    @server.tool()
+    async def searchContracts(
+        query: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        kind: ContractKind = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """Find contracts by name, path or qualified name (empty lists all).
+
+        Contracts are HTTP routes (``GET /api/x``), gRPC methods, GraphQL
+        fields, message destinations and database tables; each comes with
+        its provider and client counts. Pass one's ``qualified_name`` to
+        getContractImpact.
+        """
+        return await ctx.request_context.lifespan_context.search_contracts(
+            query,
+            repository_id,
+            snapshot_id=snapshot_id,
+            kind=kind,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getContractImpact(
+        qualified_name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        max_depth: Annotated[int, Field(ge=1, le=5)] = 3,
+        evidence_types: Evidence = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+        offset: Annotated[int, Field(ge=0, le=100_000)] = 0,
+        exclude_roles: Roles = None,
+    ) -> dict:
+        """Get what a contract change affects: its providers and, transitively, its clients and their callers.
+
+        ``providers`` lists the handlers, publishers, writers and mappings of
+        the contract (searchContracts finds it). Dependents are the code that
+        requests, consumes or reads it, then their callers, also across
+        services, as for getImpact.
+        """
+        return await ctx.request_context.lifespan_context.get_contract_impact(
             qualified_name,
             repository_id,
             snapshot_id=snapshot_id,
@@ -437,6 +498,24 @@ def create_server():
             repository_id,
             snapshot_id=snapshot_id,
             after_path=after_path,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getCallSites(
+        name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        file_path: str | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them."""
+        return await ctx.request_context.lifespan_context.get_call_sites(
+            name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            file_path=file_path,
             limit=max_elements,
         )
 

@@ -16,15 +16,18 @@ from copy import deepcopy
 from .._version import __version__
 from .. import calls as call_rules
 from .. import imports as import_rules
+from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
+from .. import scip_calls
+from ..scip_calls import bind_calls
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
     RustExpander,
     declaration_sources,
     make_parser,
-    prepare_source,
+    parse_source,
 )
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -56,6 +59,16 @@ NESTS_RULE = register_rule(
         "resolved",
         "The parse tree places the inner declaration within the outer one; the "
         "outer is the innermost declaration whose span encloses it.",
+    )
+)
+
+UNLINKED_CALL_RULE = register_rule(
+    EvidenceRule(
+        "tree-sitter.call-site-unlinked",
+        "resolved",
+        "The parse tree places this call inside the declaration (or at the top "
+        "level of the file); no call rule links it to exactly one declaration, "
+        "for the reason the call site records.",
     )
 )
 
@@ -310,7 +323,7 @@ def _declaration_sources(root, result):
             parsers[key] = make_parser(item.language, suffix)
         sources.update(
             declaration_sources(
-                parsers[key].parse(prepare_source(item.language, content)),
+                parse_source(parsers[key], item.language, suffix, content),
                 content,
                 result.repository_id,
                 item.file,
@@ -560,6 +573,20 @@ BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
         "is (after the items and uses of the function bodies around it).",
     )
 )
+GO_INTERFACE_RULE = register_rule(
+    EvidenceRule(
+        go_interfaces.GO_INTERFACE_METHOD_SET,
+        "name_matched",
+        "A Go type (or a pointer to it) declared in the analyzed files "
+        "declares, for each method of an interface of the same module (its "
+        "own, and those of the interfaces it embeds: of the same module, "
+        "'error', or exported standard library interfaces), exactly one "
+        "method of that name whose parameter and result types are written "
+        "alike once each named type is tied to its package; an unexported "
+        "method only in the interface's package. The type IMPLEMENTS the "
+        "interface, and each interface method DISPATCHES_TO the type's method.",
+    )
+)
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_IMPL_TRAIT,
@@ -572,8 +599,49 @@ BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
 )
 
 
+# Call targets read from a compiler-backed SCIP index. Each edge also names
+# the indexer that produced it and the digest of the index's receipt.
+CALL_RULES.update(
+    {
+        rule_id: register_rule(EvidenceRule(rule_id, "resolved", text))
+        for rule_id, text in {
+            scip_calls.SCIP_CALL_OCCURRENCE: "A call site in a file a SCIP "
+            "index covers links to the declaration of the symbol the index "
+            "records at the start of the callee's last name: the parsed "
+            "declaration whose span holds the symbol's SCIP definition and "
+            "whose name is the one written there.",
+            scip_calls.SCIP_CALL_LOCAL_SYMBOL: "As scip.call-occurrence, for a "
+            "symbol the index declares local to the file (a nested function, "
+            "a local class or a variable bound to a function).",
+            scip_calls.SCIP_CALL_CONSTRUCTOR: "A construction the index "
+            "resolves to a class ('new C()'), or to a class and its "
+            "constructor together, links to the one constructor the class "
+            "declares.",
+            scip_calls.SCIP_CALL_OVERLOAD_IMPLEMENTATION: "A call the index "
+            "resolves to overload signatures (TypeScript overloads, Python "
+            "@overload) links to the one implementation declared beside "
+            "them; more than one leaves the call ambiguous.",
+        }.items()
+    }
+)
+
+
+def _call_name(callee):
+    """The name a call site calls: the last name of its callee
+    (``c.req.param`` calls ``param``)."""
+    return callee.rsplit(".", 1)[-1]
+
+
 def _evidence(rule):
     return {"evidence_type": rule.evidence_type, "rule_id": rule.rule_id}
+
+
+def _produced(producer):
+    """The indexer (``name@version``) and receipt digest behind a call an
+    index decided; nothing for the parser's."""
+    if producer is None:
+        return {}
+    return {"producer": producer[0], "receipt": producer[1]}
 
 
 @register_tool
@@ -629,8 +697,14 @@ class TreeSitterTool(AnalysisTool):
         file_patterns=None,
         skip_patterns=None,
         previous=None,
+        scip_indexes=(),
     ):
         """Analyze the workspace; ``previous`` is an earlier AnalysisResult.
+
+        ``scip_indexes`` are pairs of an ingested SCIP index
+        (``deepthought.ingest_scip``, with the workspace's file paths) and the
+        digest of its receipt: call sites in the files they cover take their
+        targets from them (``deepthought.scip_calls``).
 
         Unchanged files reuse ``previous`` facts (see analyze_repository); the
         output equals a full run. The analysis and reuse counts are kept on
@@ -827,14 +901,21 @@ class TreeSitterTool(AnalysisTool):
         }
         kinds = {d.id: d.kind for d in result.definitions}
         sites = {site.id: site for site in result.call_sites}
-        call_counts = {}
-        for resolution in call_rules.resolve_calls(result):
+        call_counts, resolver_counts = {}, {}
+        binding = bind_calls(result, scip_indexes, self.repo_path)
+        for resolution in binding.resolutions:
+            producer = binding.producers.get(resolution.call_id)
             key = resolution.status + (
                 ":" + resolution.reason if resolution.reason else ""
             )
             call_counts[key] = call_counts.get(key, 0) + 1
-            if resolution.status != "linked":
-                continue
+            # Separately by who decided: the index (its "nothing here"
+            # included), the parser kept over a suspect index target, or the
+            # parser in a file no index covers.
+            by_resolver = resolver_counts.setdefault(
+                binding.resolver(resolution.call_id), {}
+            )
+            by_resolver[key] = by_resolver.get(key, 0) + 1
             site = sites[resolution.call_id]
             if site.caller_id is None:
                 source = (["File"], files[site.file])
@@ -843,6 +924,58 @@ class TreeSitterTool(AnalysisTool):
                     [kinds[site.caller_id], "Symbol"],
                     qualified[site.caller_id],
                 )
+            if resolution.status != "linked":
+                # The call is a fact of the code even when no rule names its
+                # target: kept so that linked and unlinked calls of a name
+                # can be counted together.
+                call_name = f"{repo_url}::{site.file}::call::{site.id}"
+                nodes.append(
+                    NodeData(
+                        ["UnresolvedCall"],
+                        {
+                            "qualified_name": call_name,
+                            "repo_url": repo_url,
+                            "call_id": site.id,
+                            "callee": site.callee,
+                            "name": _call_name(site.callee),
+                            "call_kind": site.kind,
+                            "file_path": site.file,
+                            "line": site.line,
+                            "column": site.column,
+                            "end_line": site.end_line,
+                            "end_column": site.end_column,
+                            "status": resolution.status,
+                            # Which resolver left it unlinked, and why.
+                            "resolver": "tree-sitter" if producer is None else "scip",
+                            **_produced(producer),
+                            **(
+                                {"reason": resolution.reason}
+                                if resolution.reason
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "candidates": [
+                                        qualified[c] for c in resolution.candidates
+                                    ]
+                                }
+                                if resolution.candidates
+                                else {}
+                            ),
+                        },
+                    )
+                )
+                relationships.append(
+                    RelationshipData(
+                        "HAS_UNRESOLVED_CALL",
+                        source[0],
+                        {"qualified_name": source[1], "repo_url": repo_url},
+                        ["UnresolvedCall"],
+                        {"qualified_name": call_name, "repo_url": repo_url},
+                        {"line": site.line, **_evidence(UNLINKED_CALL_RULE)},
+                    )
+                )
+                continue
             relationships.append(
                 RelationshipData(
                     "CALLS",
@@ -856,9 +989,11 @@ class TreeSitterTool(AnalysisTool):
                     {
                         "call_id": site.id,
                         "callee": site.callee,
+                        "name": _call_name(site.callee),
                         "call_kind": site.kind,
                         "line": site.line,
                         "column": site.column,
+                        **_produced(producer),
                         **_evidence(CALL_RULES[resolution.rule_id]),
                     },
                 )
@@ -929,6 +1064,38 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        implementations = go_interfaces.resolve_go_implementations(result)
+        for item in implementations:
+            relationships.append(
+                RelationshipData(
+                    "IMPLEMENTS",
+                    [kinds[item.type_id], "Symbol"],
+                    {"qualified_name": qualified[item.type_id], "repo_url": repo_url},
+                    [kinds[item.interface_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[item.interface_id],
+                        "repo_url": repo_url,
+                    },
+                    _evidence(GO_INTERFACE_RULE),
+                )
+            )
+        # A call of an interface method can run the method each implementing
+        # type declares: the interface method dispatches to it.
+        dispatches = sorted({pair for item in implementations for pair in item.methods})
+        for interface_method, method in dispatches:
+            relationships.append(
+                RelationshipData(
+                    "DISPATCHES_TO",
+                    [kinds[interface_method], "Symbol"],
+                    {
+                        "qualified_name": qualified[interface_method],
+                        "repo_url": repo_url,
+                    },
+                    [kinds[method], "Symbol"],
+                    {"qualified_name": qualified[method], "repo_url": repo_url},
+                    _evidence(GO_INTERFACE_RULE),
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -955,10 +1122,17 @@ class TreeSitterTool(AnalysisTool):
                 "diagnostics": diagnostics,
                 "analyzer_versions": artifact["analyzer_versions"],
                 "capabilities": artifact["capabilities"],
+                # Unlinked calls are stored as UnresolvedCall nodes.
+                "unresolved_call_sites": True,
                 "source_facts_schema_version": result.schema_version,
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
+                "call_resolution_by_resolver": {
+                    resolver: dict(sorted(counts.items()))
+                    for resolver, counts in sorted(resolver_counts.items())
+                },
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "go_implementations": len(implementations),
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,

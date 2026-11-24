@@ -319,6 +319,62 @@ class InheritsTruthTest(unittest.TestCase):
         self.assertEqual(report["contradicted"], 0)
 
 
+class ScipPythonRepairTest(unittest.TestCase):
+    PKG = "scip-python python pkg 1.0 `pkg._models`/"
+    MODELS = [
+        '__all__ = ["Request", "Response"]',
+        "class Request: ...",
+        "class Response: ...",
+    ]
+
+    def setUp(self):
+        self.defined = {
+            self.PKG + "Request#": {("pkg/_models.py", 2, "callable")},
+            self.PKG + "Response#": {("pkg/_models.py", 3, "callable")},
+            self.PKG + "helper().": {("pkg/_models.py", 9, "callable")},
+        }
+        self.files = {"pkg/_models.py": self.MODELS, "use.py": ["import pkg"]}
+
+    def repair(self, native, written, file="use.py"):
+        return ground_truth._star_export(
+            native, written, file, self.defined, lambda f: self.files.get(f, [])
+        )
+
+    def test_a_star_export_names_the_sibling_it_spells(self):
+        # scip-python 0.6.8 records `pkg.Response(...)` as `_models/Request#`.
+        self.assertEqual(
+            self.repair(self.PKG + "Request#", "Response"), self.PKG + "Response#"
+        )
+
+    def test_matching_names_and_aliases_keep_their_symbol(self):
+        self.assertEqual(
+            self.repair(self.PKG + "Request#", "Request"), self.PKG + "Request#"
+        )
+        self.files["use.py"] = ["from pkg._models import Request as R"]
+        self.assertEqual(self.repair(self.PKG + "Request#", "R"), self.PKG + "Request#")
+
+    def test_a_name_it_cannot_place_is_unjudged(self):
+        # Not exported by the symbol's module: a re-export through two stars.
+        self.assertIsNone(self.repair(self.PKG + "Request#", "Transport"))
+        self.assertIsNone(self.repair(self.PKG + "helper().", "other"))
+
+    def test_external_and_member_symbols_are_left_alone(self):
+        builtin = "scip-python python python-stdlib 3.11 builtins/set#"
+        self.assertEqual(self.repair(builtin, "frozen"), builtin)
+        member = self.PKG + "Request#send()."
+        self.assertEqual(self.repair(member, "other"), member)
+
+    def test_an_attribute_of_self_is_not_a_builtin(self):
+        builtin = "scip-python python python-stdlib 3.11 builtins/set#"
+        self.assertTrue(ground_truth._SELF_BUILTIN.search("        self.\0" + builtin))
+        self.assertFalse(ground_truth._SELF_BUILTIN.search("    x = \0" + builtin))
+        self.assertFalse(
+            ground_truth._SELF_BUILTIN.search(
+                "        self.\0scip-python python python-stdlib 3.11 builtins/str#join()."
+            )
+        )
+
+
 class LocalConstructorTest(unittest.TestCase):
     def test_finds_the_constructor_of_the_class_body(self):
         lines = [

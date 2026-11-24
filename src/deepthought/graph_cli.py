@@ -150,6 +150,9 @@ def parser():
         "component-required-by",
         "component-impact",
         "shared-tables",
+        "contracts",
+        "contract-impact",
+        "call-sites",
         "cypher",
     ):
         q = commands.add_parser(name)
@@ -160,6 +163,20 @@ def parser():
         q.add_argument("--max-output-bytes", type=int, default=16000)
         if name in {"search", "cypher"}:
             q.add_argument("--query", required=True)
+        if name == "contracts":
+            q.add_argument("--query", default="", help="Name, path or qualified name")
+            q.add_argument(
+                "--kind",
+                choices=(
+                    "DbTable",
+                    "GraphqlField",
+                    "GrpcMethod",
+                    "HttpRoute",
+                    "MessageDestination",
+                ),
+            )
+        if name == "contract-impact":
+            q.add_argument("--contract", required=True, help="Qualified name")
         if name in {
             "context",
             "structure",
@@ -200,7 +217,7 @@ def parser():
             q.add_argument("--symbol", required=True, help="Qualified name")
         if name == "file-impact":
             q.add_argument("--file", required=True)
-        if name in {"impact", "file-impact", "component-impact"}:
+        if name in {"impact", "file-impact", "component-impact", "contract-impact"}:
             q.add_argument("--max-depth", type=int, default=3, help="1 to 5 hops")
             q.add_argument(
                 "--offset",
@@ -208,7 +225,7 @@ def parser():
                 default=0,
                 help="Skip this many dependents: a truncated answer's next_offset",
             )
-        if name in {"impact", "file-impact"}:
+        if name in {"impact", "file-impact", "contract-impact"}:
             q.add_argument(
                 "--exclude-role",
                 action="append",
@@ -224,6 +241,7 @@ def parser():
             "importers",
             "impact",
             "file-impact",
+            "contract-impact",
         }:
             q.add_argument(
                 "--evidence",
@@ -233,6 +251,11 @@ def parser():
             )
         if name == "explain-edge":
             q.add_argument("--edge-id", required=True)
+        if name == "call-sites":
+            q.add_argument(
+                "--name", required=True, help="Last name of the callee (param)"
+            )
+            q.add_argument("--file", help="Only calls written in this file")
         if name == "components":
             q.add_argument("--kind", help="Only components of this kind")
         if name == "file-components":
@@ -482,8 +505,26 @@ async def execute(args):
                 offset=args.offset,
                 **kwargs,
             )
+        if args.command == "contracts":
+            return await service.search_contracts(
+                args.query, args.repository_id, kind=args.kind, **kwargs
+            )
+        if args.command == "contract-impact":
+            return await service.get_contract_impact(
+                args.contract,
+                args.repository_id,
+                max_depth=args.max_depth,
+                evidence_types=args.evidence,
+                offset=args.offset,
+                exclude_roles=args.exclude_role,
+                **kwargs,
+            )
         if args.command == "shared-tables":
             return await service.get_shared_tables(args.repository_id, **kwargs)
+        if args.command == "call-sites":
+            return await service.get_call_sites(
+                args.name, args.repository_id, file_path=args.file, **kwargs
+            )
         if args.command == "component-files":
             return await service.get_component_files(
                 args.component,

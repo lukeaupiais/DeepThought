@@ -150,10 +150,68 @@ Tree-sitter extraction records each call whose callee is a plain or dotted name
 enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
-inheritance and dynamic dispatch are not checked. Resolved call edges come from
-SCIP. The original builder's `confidence` floats and its `resolved_method` label
+inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
+covers take their targets from the index instead (below); the original's SCIP
+tool did not write CALLS. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
+
+A call site that no rule links to exactly one declaration is still stored: an
+`UnresolvedCall` node with its `callee`, `name` (the callee's last name, `param`
+for `c.req.param()`), file, line and column, `status` (`unresolved` or
+`ambiguous`), the `resolver` that left it unlinked (`tree-sitter`) and the
+`reason` it gives and, when ambiguous, the
+`candidates`' qualified names. Its caller (the innermost enclosing declaration,
+or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+query counts the linked, ambiguous and unresolved calls of a name:
+`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+returns those counts and the call sites, each linked one with its target and
+rule. Snapshots written before this change have no such nodes and answer
+`unsupported_or_unobserved`. Calls made through another name (an alias, a
+callback, dynamic dispatch) are not counted.
+
+Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
+covers are bound from the index (`deepthought.scip_calls.bind_calls`;
+`TreeSitterTool.analyze(..., scip_indexes=[(ingested index, receipt digest)])`).
+Each call site records where the last name of its callee starts
+(`callee_at`); the SCIP reference there names a symbol, and the symbol's SCIP
+definition is read back to the innermost parsed declaration whose span holds it
+and whose own name is the one written at it. Columns are converted between the
+index's encoding and UTF-8 bytes; documents that leave the encoding unspecified
+are read as scip-python and scip-typescript write them (UTF-16 code units) and
+otherwise as bytes (scip-go). These edges carry `resolved` evidence, the
+indexer as `producer` (`name@version`) and the index's `receipt` digest.
+Several indexes of one indexer (a second pass, one index per Go module) share
+their global symbols, so a call in one links to a declaration another defines:
+
+| Rule | Links |
+|---|---|
+| `scip.call-occurrence` | the call to the declaration of the symbol the index records at its name |
+| `scip.call-local-symbol` | the same, for a symbol the index declares local to the file (a nested function) |
+| `scip.call-constructor` | `new C()` resolved to the class, or a class and its constructor resolved together, to the one constructor (of overloaded constructors, the implementation) |
+| `scip.call-overload-implementation` | a call resolved to overload signatures (TypeScript overloads, `@overload`) to the one implementation beside them |
+
+A covered call the index does not link stays unlinked, with `resolver: scip`,
+the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
+the name), `scip_external` (a symbol defined outside the index),
+`scip_target_not_declaration` (a definition no parsed declaration names, such
+as a variable) or `multiple_declarations` (more than one target, with the
+candidates). The parser's rules are not used for it. Two scip-python 0.6.8
+faults are guarded: in a Python file, a target whose name is not the name
+written at the call, unless an import binds that name to it (the index may
+follow a star re-export to the wrong function), and an external target for
+`self.x()` when the enclosing class or a repository base declares `x` (the
+index may name a builtin). Both are `scip_suspect_target`: the parser's link
+stands if it has one, otherwise the call stays unlinked. Files no index covers
+keep the parser's rules, which also run in shadow over covered files;
+`tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
+the covered call sites where the two targets differ (file, line, callee, SCIP
+target file and line, parser target file and line, reason, rule). The
+tool's `call_resolution_by_resolver` metric counts call outcomes separately for
+`scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
+(the parser's link kept over a suspect index target) and `tree-sitter` (files
+no index covers).
 
 | Rule | Links |
 |---|---|
@@ -288,7 +346,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS and REQUESTS, and forwards over HANDLES. A route a changed
+  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  interface method DISPATCHES_TO each implementation (see "Interface
+  implementations"), so a changed implementation reaches the interface
+  method and its callers, but not the other implementations. A route a changed
   handler HANDLES is affected, and so is every declaration (or file) that
   REQUESTS that route, so impact crosses service boundaries along the HTTP
   contracts the `service-contracts` tool records (see "Service contracts").
@@ -301,8 +362,24 @@ the chat model. The port answers from stored edges only:
   later.
 - `get_file_impact(path)` (`deepthought-graph file-impact --file`, MCP
   getFileImpact): dependent files backwards over IMPORTS and DEPENDS_ON.
+- `get_contract_impact(qualified_name)` (`deepthought-graph contract-impact
+  --contract`, MCP getContractImpact) starts from a contract instead: an HTTP
+  route, gRPC method, GraphQL field, message destination or database table.
+  The change set is the contract and its providers, the declarations or files
+  that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
+  lists under `providers` (at most 10, `providers_truncated` when more).
+  Dependents are then found as for `get_impact`: the code that REQUESTS,
+  CONSUMES or READS the contract (direct), and the callers of that code, also
+  through other contracts it handles (transitive). Providers and dependents
+  share the byte budget, which must be at least 2048 here. Contract nodes are
+  not declarations, so `search_contracts(query)` (`deepthought-graph
+  contracts --query [--kind]`, MCP searchContracts) finds them: contracts
+  whose name (`GET /api/x`), display name, path or qualified name contains
+  the query, case-insensitively, optionally of one kind (`HttpRoute`,
+  `GrpcMethod`, `GraphqlField`, `MessageDestination`, `DbTable`), each with
+  its provider and client counts.
 
-Both take `--max-depth` (1 to 5, default 3) and an optional evidence filter
+All three take `--max-depth` (1 to 5, default 3) and an optional evidence filter
 that limits which edges may be crossed. Each dependent is listed once, with
 the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
@@ -728,6 +805,43 @@ The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
 so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
+
+### Interface implementations
+
+Nothing in Go declares that a type implements an interface, so
+`deepthought.go_interfaces` compares method sets
+(`tree-sitter.go-interface-method-set`, `name_matched`). Each Go function,
+method and interface method records `Definition.signature`, its parameter and
+result types without names (`(string,[]byte)(error)`, `...T` for a variadic
+parameter), and each interface records `Definition.embeds`, the elements it
+embeds as written. A named type in a signature is tied to its package: a
+package of the analyzed files by its directory, another by the one import of
+the file whose alias, or conventional name (the last path element without a
+`/vN` or `.vN` suffix or `go-` prefix), is the qualifier. `byte` and `uint8`,
+`rune` and `int32`, and `any` and `interface{}` are the same type.
+
+A struct or other named type (or a pointer to it) implements an interface of
+its own module when, for every method of the interface, it declares exactly one
+method of that name with the same signature; an unexported method matches only
+in the interface's package. The interface's methods are its own and those of
+what it embeds: an interface of the same module, `error`, or an exported
+standard library interface listed in `src/deepthought/go_std_interfaces.json`
+(`go list std | grep -v -e internal -e vendor | go run
+tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
+interface, and each interface method DISPATCHES_TO the type's method, so
+impact reaches the callers of an interface method from a changed
+implementation (see "Impact").
+
+Nothing is guessed. An interface is left out when an embedded element is a
+type constraint, another module's or a third-party interface, or names no one
+interface; when a method's signature names a type parameter, an instantiated
+generic type, a struct or a non-empty interface literal; or when a named type
+cannot be tied to a package (a qualifier no import binds, a bare name in a file
+with a dot import). A type is left out when its name is declared more than
+once in its package, as files for different platforms may. Methods promoted
+from embedded fields are not counted, so a type that relies on them is missed,
+not wrongly matched. `tools/go_interface_dispatch.go` lists the pairs go/types
+gives, for comparison.
 
 ## Java
 
@@ -2002,7 +2116,9 @@ tool scored string literals that looked like API paths (0.95 for `/api/v1/x`,
 0.75 for `/x/{id}`) and inferred the method from nearby words; it never matched
 clients to servers. None of it is carried over.
 
-Facts are read from Java sources outside test source sets (`src/test/`):
+Facts are read from Java sources outside test source sets (`src/test/`).
+From test sources only client requests are read (see "Test sources"
+below):
 
 - **Routes.** A method carrying `@GetMapping`, `@PostMapping`, `@PutMapping`,
   `@DeleteMapping`, `@PatchMapping` or `@RequestMapping` imported from
@@ -2057,7 +2173,19 @@ Facts are read from Java sources outside test source sets (`src/test/`):
 
 Python, JavaScript/TypeScript and Go sources are read too
 (`deepthought.service_contracts.web`), outside test files (`test_*.py`,
-`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like):
+`*_test.py`, `*_test.go`, `*.test.js`, `*.spec.ts` and the like), from
+which only client requests are read:
+
+- **Test sources.** A request or gRPC stub call in a test source file is
+  read like any other and its `REQUESTS` edge carries `test_source: true`,
+  so impact analysis reaches the tests that call a contract. Nothing else
+  is read from those files: their routes, servers, messaging, GraphQL and
+  repository-wide facts (constants, mounts, prefixes) are left out, so a
+  test's stub server never becomes a route. A test's request whose base is
+  unknown is not kept from its own project's routes, since tests usually
+  call their own service. The contract ground-truth scorer leaves
+  `test_source` links out unless asked, because the labels cover
+  application code.
 
 - **Routes.** Flask and FastAPI route decorators (`route`, `api_route`, `get`,
   `post`, ...) on a `Flask`, `Blueprint`, `FastAPI` or `APIRouter` object
@@ -2084,7 +2212,28 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Flask `<id>`, Express
+  route unread. chi routes (rule `chi-route`) are `Get`/`Post`/`Put`/
+  `Patch`/`Delete`/`Head`/`Options`/`Connect`/`Trace(path, handler)`,
+  `Method`/`MethodFunc(method, path, handler)` and `Handle`/`HandleFunc(path,
+  handler)` (any method) calls on a router made by `chi.NewRouter()`/
+  `chi.NewMux()`, typed `*chi.Mux`, returned by `With(...)` or
+  `Route(prefix, ...)`, or the `chi.Router` parameter of a function literal
+  passed to `Route(prefix, fn)` (the prefix is joined) or `Group(fn)` (no
+  prefix); any other `chi.Router` parameter is a router passed in, as for
+  Gin. chi's `{id}` and `{id:regex}` are route variables and a trailing `*`
+  matches the rest of the path. A handler passed as a method value
+  (`r.Route("/api", api.Routes)`) is not followed.
+  Next.js API routes (rule `nextjs-route`) are files of a
+  package whose `package.json` depends on `next`: `pages/api/**` (or
+  `src/pages/api/**`) is one route for any method, handled by the default
+  export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
+  `src/app`) is one route per HTTP verb the module exports (a function, a
+  `const`, or `export { local as VERB }`), handled by that definition. Route
+  groups `(name)` and parallel slots `@name` add no segment; `_private`
+  directories and intercepting routes `(.)name` are not routes; `[x]` is a
+  route variable and `[...x]`/`[[...x]]` match the rest of the path. A
+  single literal `basePath` in `next.config.{js,mjs,cjs,ts}` prefixes every
+  route; rewrites and middleware are not read. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no
@@ -2117,8 +2266,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   `locust`. A literal `base_url` prefixes the path: httpx appends it to the
   base path and aiohttp joins it as a relative reference; an absolute URL, or
   a base that is not a literal, leaves the URL as written. JavaScript `fetch` (with `options.method`), `axios`, `request` and
-  `superagent` (`.get(url)`, or `request({uri, method})`); Angular
-  `HttpClient` and `httpResource` (below); Go `http.Get`,
+  `superagent` (`.get(url)`, or `request({uri, method})`), and the same
+  verb calls, `request({url, method})` or a call of the instance itself on an
+  axios instance: a name bound once to `axios.create(config)`, `this.NAME`
+  given that call as its one value in the class (a field initializer or a
+  `this.NAME =` assignment), or a name imported from a repository module
+  that exports one (`export default NAME`, `export const NAME =`, `export {
+  NAME }` or `export default axios.create(...)`). The config's literal
+  `baseURL` is joined to the request URL with one slash, unless the URL is
+  absolute or protocol-relative, and a protocol-relative URL is read as
+  http; a config that is not an object literal, or spreads one, gives an
+  unknown base. Angular `HttpClient` and `httpResource` (below); Go `http.Get`,
   `http.Head`, `http.Post`, `http.PostForm` and `http.NewRequest[WithContext]`.
 - **URL values.** String literals, `+`, template strings and f-strings,
   `str.format`, `%` and `fmt.Sprintf` (each field is unknown text), and names
@@ -2520,10 +2678,24 @@ a TypeScript file of the same Node package (nearest `package.json`), and
 applies to every route of that package. The rule is
 `service-contracts.nestjs-route` (pattern_matched).
 
+Versions are read when the package calls `enableVersioning` with a literal
+options object: `type: VersioningType.URI`, `HEADER`, `MEDIA_TYPE` or
+`CUSTOM`, an optional string `prefix` (`v` by default, none for `false`)
+and an optional `defaultVersion` (a string, an array of strings or
+`VERSION_NEUTRAL`). A route's versions are its method's `@Version(...)`,
+else its controller's `version` option, else the default version. With URI
+versioning each version adds a `{prefix}{version}` segment after the global
+prefix, one route per version, and `VERSION_NEUTRAL` (or no version at all)
+adds none. The other types select a version from the request's headers, so
+they leave the path alone.
+
 Counted as unread instead of guessed, by reason:
-- `version`: a controller or method with a version, since URI versioning
-  depends on the versioning type;
-- `versioning`: every route of a package that calls `enableVersioning`;
+- `version`: a controller or method whose version is not a literal (string,
+  array of strings or `VERSION_NEUTRAL`), or that has a version in a
+  package that does not enable versioning with literal options;
+- `versioning`: every route of a package whose `enableVersioning` options
+  are not a literal object of the form above, and `versioning_ambiguous`
+  when the package enables versioning in two different ways;
 - `router_module`: every route of a package that uses `RouterModule`;
 - `global_prefix_options`, `global_prefix_not_literal` and
   `global_prefix_ambiguous`: every route of a package whose global prefix
@@ -3024,9 +3196,10 @@ otherwise there is no edge, and File nodes list the call in
 `no_proto_service`, `several_proto_packages`, `no_proto_method`). A server
 that cannot be tied to a declaration is counted in `unread` as
 `grpc_server:implementation_not_read`, `handler_not_declared` and so on.
-Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like), Go
-`_test.go` files, Python `test_*.py` files and `src/test/` are neither servers
-nor clients. The channel's target address is never read, so a stub links to
+Generated code (`*.pb.go`, `*_pb2_grpc.py`, `*_grpc_pb.js` and the like) is
+neither server nor client; test source files (Go `_test.go`, Python
+`test_*.py`, `src/test/` and the like) are clients only, their calls marked
+`test_source`. The channel's target address is never read, so a stub links to
 the method wherever it is served; interceptors, reflection and dynamically
 loaded service definitions are not followed. Every edge is `pattern_matched`.
 
@@ -4215,7 +4388,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.

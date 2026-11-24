@@ -19,6 +19,22 @@ from .source_roles import ROLE_PATTERNS, exclusion_pattern
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 
 
+# Relations ``get_impact`` and ``get_contract_impact`` follow backwards (from
+# the dependent's side) and forwards (from the changed side).
+_IMPACT_BACKWARD = (
+    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
+)
+_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+# The labels a Contract node carries beside ``Contract``.
+CONTRACT_KINDS = (
+    "DbTable",
+    "GraphqlField",
+    "GrpcMethod",
+    "HttpRoute",
+    "MessageDestination",
+)
+
+
 def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
 
@@ -158,6 +174,7 @@ class GraphQueryService:
         database_scope=False,
         repository_scope=False,
         required_capability=None,
+        metric=None,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -219,6 +236,8 @@ class GraphQueryService:
                     "returned": 0,
                     "truncated": False,
                 }
+                if metric is not None:
+                    response[metric] = metrics.get(metric)
                 if repository_scope:
                     # Several snapshots; their own analysis facts are per item.
                     del response["capabilities"], response["analysis_status"]
@@ -756,6 +775,86 @@ class GraphQueryService:
             raise ValueError("Query response exceeds output byte budget")
         return response
 
+    async def get_call_sites(
+        self,
+        name,
+        repo_url,
+        *,
+        snapshot_id,
+        file_path=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Every call site that calls ``name`` (the last name of its callee,
+        ``param`` for ``c.req.param()``): linked ones by their CALLS edge and
+        target, the others with the reason no rule linked them, and how many
+        there are of each."""
+        _text(name, "name")
+        if file_path is not None:
+            _text(file_path, "file_path")
+        _bounds(limit, max_output_bytes, timeout)
+        parameters = {"name": name, "file_path": file_path}
+        linked = """MATCH (caller)-[r:CALLS {name:$name}]->(target)
+            WHERE caller.repo_url=$repo_url AND caller.snapshot_id=$snapshot_id
+              AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
+              AND ($file_path IS NULL OR caller.file_path=$file_path)"""
+        unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
+            WHERE $file_path IS NULL OR call.file_path=$file_path"""
+        counts = await self._read(
+            "CALL () { "
+            + linked
+            + " RETURN 'linked' AS status,count(r) AS calls UNION ALL "
+            + unlinked
+            + " RETURN call.status AS status,count(call) AS calls } "
+            "RETURN status,sum(calls) AS calls ORDER BY status",
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=3,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        response = await self._read(
+            "CALL () { "
+            + linked
+            + " RETURN 'linked' AS status,r.callee AS callee,caller.file_path AS file_path,"
+            "r.line AS line,r.column AS column,null AS reason,null AS resolver,"
+            "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
+            + unlinked
+            + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
+            "call.line AS line,call.column AS column,call.reason AS reason,"
+            "call.resolver AS resolver,null AS target,"
+            "coalesce(call.candidates,[]) AS candidates,null AS relationship } "
+            "RETURN status,callee,file_path,line,column,reason,resolver,target,candidates,"
+            "relationship "
+            "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            metric="unresolved_call_sites",
+        )
+        recorded = response.pop("unresolved_call_sites")
+        response["counts"] = {
+            status: 0 for status in ("linked", "ambiguous", "unresolved")
+        } | {item["status"]: item["calls"] for item in counts["items"]}
+        if recorded is not True:
+            # Written before unlinked calls were stored.
+            response["status"] = "unsupported_or_unobserved"
+        response["semantics"] = (
+            "Call sites whose callee's last name is the name given, as the "
+            "parser reads them. Linked calls carry the rule that linked them; "
+            "unresolved and ambiguous ones carry the reason. Calls made "
+            "through other names (aliases, callbacks, dynamic dispatch) are "
+            "not counted."
+        )
+        if len(_json(response).encode()) > max_output_bytes:
+            raise ValueError("Query response exceeds output byte budget")
+        return response
+
     async def get_impact(
         self,
         qname,
@@ -774,7 +873,9 @@ class GraphQueryService:
 
         The change set is the declaration and every declaration it CONTAINS.
         Dependents are reached backwards over CALLS, INHERITS_FROM,
-        IMPLEMENTS, REQUESTS, CONSUMES and READS edges, and forwards over
+        IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
+        a call through it can run, so a changed implementation reaches the
+        interface's callers), REQUESTS, CONSUMES and READS edges, and forwards over
         HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
@@ -793,7 +894,7 @@ class GraphQueryService:
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
             "WHERE part.repo_url=$repo_url AND part.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT part) AS parts ",
-            "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS|CONSUMES|READS",
+            _IMPACT_BACKWARD,
             qname,
             repo_url,
             snapshot_id,
@@ -803,9 +904,130 @@ class GraphQueryService:
             max_output_bytes,
             timeout,
             offset=offset,
-            reverse="HANDLES|PUBLISHES|WRITES",
+            reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
         )
+
+    async def search_contracts(
+        self,
+        query,
+        repo_url,
+        *,
+        snapshot_id,
+        kind=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Contracts whose name, display name, path or qualified name
+        contains ``query`` (case-insensitive; empty selects all): HTTP routes
+        (``GET /api/x``), gRPC methods, GraphQL fields, message destinations
+        and database tables, optionally of one ``kind`` (a label such as
+        ``HttpRoute`` or ``DbTable``), with how many providers and clients
+        each has. Their qualified names seed ``get_contract_impact``."""
+        if not isinstance(query, str):
+            raise ValueError("query must be a string; empty selects all contracts")
+        if kind is not None and kind not in CONTRACT_KINDS:
+            raise ValueError("kind must be one of " + ", ".join(CONTRACT_KINDS))
+        return await self._read(
+            "MATCH (c:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id}) "
+            "WHERE ($kind IS NULL OR $kind IN labels(c)) AND ($query = '' OR any("
+            "text IN [c.name, c.display_name, c.path, c.qualified_name] "
+            "WHERE toLower(coalesce(text, '')) CONTAINS toLower($query))) "
+            "OPTIONAL MATCH (provider)-[:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(c) "
+            "WITH c, count(DISTINCT provider) AS providers "
+            "OPTIONAL MATCH (client)-[:REQUESTS|CONSUMES|READS]->(c) "
+            "WITH c, providers, count(DISTINCT client) AS clients "
+            "RETURN c.qualified_name AS qualified_name, "
+            "[label IN labels(c) WHERE label IN $kinds][0] AS kind, "
+            "coalesce(c.display_name, c.name) AS name, c.file_path AS file_path, "
+            "providers, clients "
+            "ORDER BY kind, name, qualified_name LIMIT $fetch_limit",
+            {"query": query, "kind": kind, "kinds": list(CONTRACT_KINDS)},
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+
+    async def get_contract_impact(
+        self,
+        qualified_name,
+        repo_url,
+        *,
+        snapshot_id,
+        max_depth=3,
+        evidence_types=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+        offset=0,
+        exclude_roles=None,
+    ):
+        """What depends on a contract: an HTTP route, gRPC method, GraphQL
+        field, message destination or database table.
+
+        The change set is the contract and its providers: the declarations
+        (or files) that HANDLE the route, PUBLISH to the destination, WRITE,
+        map (MAPS_TO) or DECLARE the table, listed under ``providers``.
+        Dependents are then found as ``get_impact`` finds them: the callers
+        that REQUEST the route, the consumers and readers, and their callers
+        in turn, also across services. ``offset``, ``exclude_roles`` and the
+        output are as for ``get_impact``; ``max_output_bytes`` is at least
+        2048.
+        """
+        _text(qualified_name, "qualified_name")
+        _bounds(limit, max_output_bytes, timeout)
+        if max_output_bytes < 2048:
+            # Providers and dependents each need room of their own.
+            raise ValueError("contract impact needs max_output_bytes of 2048 or more")
+        found = await self._read(
+            "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
+            "qualified_name:$subject}) "
+            "MATCH (provider)-[r:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
+            "WITH provider, collect(DISTINCT type(r)) AS relations "
+            "RETURN provider.qualified_name AS qualified_name, "
+            "coalesce(provider.name, provider.path) AS name, "
+            "coalesce(provider.file_path, provider.path) AS file_path, "
+            "provider.start_line AS start_line, relations "
+            "ORDER BY file_path, start_line, qualified_name",
+            {"subject": qualified_name},
+            repo_url,
+            snapshot_id,
+            limit=10,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        providers = found["items"]
+        # The providers share the output budget with the dependents.
+        while providers and max_output_bytes - len(_json(providers).encode()) < 1200:
+            providers.pop()
+        response = await self._impact(
+            "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
+            "qualified_name:$subject}) "
+            "OPTIONAL MATCH (provider)-[:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
+            "WITH root, collect(DISTINCT provider) AS parts ",
+            _IMPACT_BACKWARD,
+            qualified_name,
+            repo_url,
+            snapshot_id,
+            max_depth,
+            evidence_types,
+            limit,
+            max_output_bytes - len(_json(providers).encode()) - 64,
+            timeout,
+            offset=offset,
+            reverse=_IMPACT_FORWARD,
+            exclude_roles=exclude_roles,
+        )
+        response["providers"] = providers
+        response["providers_truncated"] = found["truncated"] or len(providers) < len(
+            found["items"]
+        )
+        return response
 
     async def get_file_impact(
         self,
@@ -981,8 +1203,8 @@ class GraphQueryService:
         if reverse:
             response["forward_relations"] = reverse.split("|")
         response["semantics"] = (
-            "Dependents reachable backwards over observed "
-            + ", ".join(relations.split("|"))
+            # The backward relations are listed in `relations`.
+            "Dependents reachable backwards over observed `relations`"
             + (
                 " edges and forwards over " + ", ".join(reverse.split("|"))
                 if reverse

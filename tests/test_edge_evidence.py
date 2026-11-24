@@ -168,6 +168,8 @@ class TreeSitterEvidenceTests(unittest.TestCase):
                 ("DEFINES", "tree-sitter.file-defines-declaration"): symbols,
                 ("IMPORTS", "tree-sitter.python-absolute-module-path"): 3,
                 ("CALLS", "tree-sitter.call-imported-name"): 3,
+                # `missing_function()` is bound by nothing.
+                ("HAS_UNRESOLVED_CALL", "tree-sitter.call-site-unlinked"): 1,
             },
         )
 

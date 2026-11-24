@@ -60,7 +60,19 @@ scored against a yardstick its own rules cannot move.
   `@overload` group (the implementation too), and a redefinition of a name
   in one scope, the first declaration's symbol, so a call to that symbol
   lists each of those `def` lines as a target: a link to the implementation
-  confirms.
+  confirms. scip-python 0.6.8 also mis-binds two Python patterns, and these
+  are corrected when truth is derived:
+  - **Star re-exports.** Every name a package re-exports through
+    `from .m import *` gets a single symbol of `m`: `httpx.Response(...)` is
+    recorded as `_models/Request#`. A call that spells a different
+    top-level name than its symbol is linked to that name's own symbol when
+    the module lists the name in `__all__` and defines it. Aliases written
+    with `import ... as` keep their symbol. Any other mismatch, such as a
+    re-export through two star imports, is left unjudged.
+  - **Attributes named like builtins.** `self.set(...)` or `self.type(...)` in
+    a class that defines that attribute is recorded as the builtin `set` or
+    `type`. An attribute of `self` or `cls` is never a top-level builtin, so
+    these calls are left unjudged.
 - `baseline.json` is the current score of each corpus.
 
 When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
@@ -106,8 +118,14 @@ python tools/ground_truth.py check --corpus click    # one corpus
 # A name that is in no manifest list fails instead of checking nothing.
 python tools/ground_truth.py check --update-baseline # accept a new score
 python tools/ground_truth.py score WORKSPACE TRUTH --language python
+# Calls bound from SCIP indexes, and where they differ from the parser's:
+python tools/ground_truth.py score WORKSPACE TRUTH --language python \
+    --scip INDEX --disagreements OUT.tsv
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
 ```
+
+Truth derived from the same SCIP index that binds the calls checks the
+binding, not the indexer; independent oracles judge the indexer.
 
 `check` exits 1 when a corpus has more contradictions or fewer confirmed links
 than its baseline, or when its truth file no longer matches the baseline's
