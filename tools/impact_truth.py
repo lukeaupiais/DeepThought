@@ -479,6 +479,7 @@ def score(
     fold_nested=False,
     nodes=None,
     unjudged=None,
+    indexed=None,
 ):
     """Engine dependents of each seed against the oracle's.
 
@@ -502,6 +503,10 @@ def score(
     ``unjudged``: (seed file, seed line, file, line) pairs the truth's
     ``# unjudged`` rows list, dependents reached only through a call the
     oracle cannot rule on. An engine dependent among them is unjudged too.
+
+    ``indexed``: the files the call oracle indexed. An engine dependent in
+    any other file (a Go file behind a build tag the index was not built
+    with) is one the oracle never saw: unjudged, not extra.
     """
     from deepthought.calls import resolve_calls
 
@@ -624,7 +629,9 @@ def score(
                 samples["missed"].append([*seed[:2], *node[:2], node[2], depth])
         for node, depth in sorted(reached.items()):
             if node not in expected and (
-                (nodes and node[:2] not in nodes) or is_unjudged(seed, node)
+                (nodes and node[:2] not in nodes)
+                or is_unjudged(seed, node)
+                or (indexed is not None and node[0] not in indexed)
             ):
                 counts["unjudged"] += 1
             elif node not in expected:
