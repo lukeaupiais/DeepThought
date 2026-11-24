@@ -334,8 +334,8 @@
           "missed": 0
         },
         "method": {
-          "found": 691,
-          "missed": 4
+          "found": 755,
+          "missed": 0
         },
         "module": {
           "found": 69,
@@ -348,10 +348,10 @@
       },
       "expected": 1014,
       "extra": 0,
-      "found": 950,
-      "kind_mismatch": 60,
-      "missed": 4,
-      "recall": 0.9369
+      "found": 1014,
+      "kind_mismatch": 0,
+      "missed": 0,
+      "recall": 1.0
     },
     "slim": {
       "by_kind": {
