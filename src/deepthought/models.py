@@ -57,7 +57,8 @@ class Definition:
     # named as the enum's members are: True. They are no members of the enum
     # type; a call through it binds the enum's own or inherited method.
     constant_body: bool | None = None
-    # JavaScript and TypeScript methods declared ``static``: True. None
+    # JavaScript and TypeScript methods declared ``static``: True. C
+    # functions with internal linkage (declared ``static``): True. None
     # elsewhere.
     static: bool | None = None
     # JavaScript and TypeScript declarations their module exports as
@@ -70,12 +71,17 @@ class Definition:
     # a signature without a body that overloads a function or method
     # implemented beside it. None elsewhere.
     overload: bool | None = None
+    # C functions declared without a body (a prototype): True. None
+    # elsewhere.
+    prototype: bool | None = None
     # Go functions and methods (interface methods too): the type of the
     # first result, as ``T``, ``pkg.T`` or ``[]`` before an element type,
     # through pointers and type arguments. Java methods: the return type as
     # written without type arguments (``Foo``, ``Map.Entry``, ``int``). None
     # elsewhere, or when that type is of another kind (``void``, an array, a
-    # type parameter). Rust functions and methods with a body: the type path
+    # type parameter). Python functions and methods: the class the return
+    # annotation names, as a parameter annotation's (``T``, ``m.T``,
+    # ``Optional[T]``). Rust functions and methods with a body: the type path
     # the return type writes, joined by ``::``, through references and
     # without type arguments (``T``, ``m::T``, ``Self``), unless it names a
     # type parameter; None for any other return type.
@@ -152,6 +158,8 @@ class Definition:
             raise ValueError("default_export must be True or None")
         if self.overload is not None and self.overload is not True:
             raise ValueError("overload must be True or None")
+        if self.prototype is not None and self.prototype is not True:
+            raise ValueError("prototype must be True or None")
         if self.macro_export is not None and type(self.macro_export) is not bool:
             raise ValueError("macro_export must be a boolean or None")
         if self.parameters is not None and (
@@ -220,7 +228,8 @@ class Reference:
 # "use", "use_glob" and "extern_crate": a Rust use declaration's leaf, glob
 # or an extern crate. "script_config", "path_alias" and "package_entry": a
 # tsconfig.json or jsconfig.json and its ``paths`` entries, and the entry
-# files a package.json names; module resolution reads them.
+# files a package.json names; module resolution reads them. "include": a C
+# `#include "path"`.
 IMPORT_KINDS = frozenset(
     {
         "import",
@@ -238,6 +247,7 @@ IMPORT_KINDS = frozenset(
         "script_config",
         "path_alias",
         "package_entry",
+        "include",
     }
 )
 
@@ -407,7 +417,8 @@ class CallSite:
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
     # Java calls ``e.m()`` whose receiver ``e`` is itself a method call or a
     # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
-    # line, end column) of ``e``. Rust calls ``x.m()`` whose receiver is the
+    # line, end column) of ``e``. Python calls ``x.m()`` on a local whose one
+    # binding is ``x = f(...)``: the span of that call. Rust calls ``x.m()`` whose receiver is the
     # result of a call: the span of that call, either the receiver itself
     # (``T::new().m()``, ``x.a().m()``) or the value of the ``let`` that is
     # the innermost declaration of the local ``x`` and binds it alone without
@@ -863,6 +874,8 @@ class AnalysisResult:
                 del item["macro_export"]
             if item["overload"] is None:
                 del item["overload"]
+            if item["prototype"] is None:
+                del item["prototype"]
             if item["result_type"] is None:
                 del item["result_type"]
             if item["fields"] is None:

@@ -21,6 +21,7 @@ from .imports import (
     PYTHON_FROM_IMPORT_SUBMODULE,
     _java_index,
     _RustIndex,
+    c_include_target,
     resolve_imports,
 )
 from .models import AnalysisResult, Definition
@@ -40,7 +41,9 @@ CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 PYTHON_CALL_SUPER = "tree-sitter.python-call-super"
+PYTHON_CALL_RESULT_RECEIVER = "tree-sitter.python-call-result-receiver"
 PYTHON_CALL_SELF_INHERITED = "tree-sitter.python-call-self-inherited"
+PYTHON_CALL_ATTRIBUTE_RECEIVER = "tree-sitter.python-call-attribute-receiver"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
 JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
@@ -64,6 +67,8 @@ PHP_CALL_FUNCTION = "tree-sitter.php-call-function"
 PHP_CALL_NEW = "tree-sitter.php-call-new"
 PHP_CALL_STATIC_METHOD = "tree-sitter.php-call-static-method"
 PHP_CALL_THIS_METHOD = "tree-sitter.php-call-this-method"
+C_CALL_STATIC = "tree-sitter.c-call-static"
+C_CALL_EXTERNAL = "tree-sitter.c-call-external"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1731,6 +1736,74 @@ class _PhpCalls:
         return CallResolution(site.id, "unresolved", reason="not_defined")
 
 
+class _CCalls:
+    """C calls of a plain name, read as the linker binds them: a function
+    with internal linkage in the calling file, else the one definition with
+    external linkage among the repository's C files."""
+
+    def __init__(self, result, languages):
+        files = {f for f, language in languages.items() if language == "c"}
+        # Files each C file includes by a path relative to its directory.
+        self.includes = defaultdict(set)
+        for item in result.imports:
+            if item.kind == "include":
+                target = c_include_target(item, files)
+                if target is not None:
+                    self.includes[item.file].add(target)
+        self.units = {}
+        self.macros = set()
+        self.internal = defaultdict(list)
+        self.static_names = defaultdict(set)
+        self.external = defaultdict(list)
+        for d in result.definitions:
+            if languages.get(d.file) != "c":
+                continue
+            if d.kind == "Macro":
+                self.macros.add(d.symbol)
+            elif d.kind == "Function":
+                if d.static:
+                    self.static_names[d.file].add(d.symbol)
+                if not d.prototype:
+                    self.internal[(d.file, d.symbol)].append(d)
+        for (file, name), found in self.internal.items():
+            if name not in self.static_names[file]:
+                self.external[name].extend(found)
+
+    def unit(self, file):
+        """The file and every file it includes, through includes."""
+        if file not in self.units:
+            seen, stack = set(), [file]
+            while stack:
+                current = stack.pop()
+                if current not in seen:
+                    seen.add(current)
+                    stack.extend(sorted(self.includes[current]))
+            self.units[file] = seen
+        return self.units[file]
+
+    def call(self, site):
+        name = site.callee
+        if site.shadowed:
+            # A parameter, local or file-scope variable of that name.
+            return CallResolution(site.id, "unresolved", reason="local_binding")
+        if name in self.macros:
+            # A macro of that name may expand the call away.
+            return CallResolution(site.id, "unresolved", reason="macro")
+        unit = sorted(self.unit(site.file))
+        if any(name in self.static_names[file] for file in unit):
+            # Internal linkage in the translation unit the file starts: a
+            # later definition without `static` has it too.
+            return _pick(
+                site.id,
+                [d for file in unit for d in self.internal.get((file, name), ())],
+                C_CALL_STATIC,
+                "not_defined",
+            )
+        return _pick(
+            site.id, self.external.get(name, ()), C_CALL_EXTERNAL, "not_defined"
+        )
+
+
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
@@ -1754,6 +1827,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         if any(item.language == "rust" for item in result.coverage)
         else None
     )
+    c_calls = _CCalls(result, languages)
 
     defaults = defaultdict(list)
     for d in result.definitions:
@@ -2042,6 +2116,40 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             return [], str(error)
         return found, "not_declared_on_type"
 
+    def python_field(cls, name):
+        """``(classes, reason)``: the class the instance attribute ``name``
+        of a Python class holds, by the first class in its method
+        resolution order that declares the attribute (``fields``) or
+        anything else of that name. A base that names no repository class
+        may declare it, so the lookup stops there."""
+        python_method(cls, name)  # loads the bases
+        seen = set()
+
+        def walk(current):
+            if current.id in seen:
+                raise LookupError("diamond")
+            seen.add(current.id)
+            fields = dict(current.fields or ())
+            if name in fields:
+                return python_class(
+                    current.file, current.symbol.split("."), fields[name]
+                ), "attribute_type_not_declared"
+            if by_symbol.get((current.file, f"{current.symbol}.{name}")):
+                return [], "attribute_not_typed"
+            for _, base in python_bases.get(current.id, ()):
+                if base.status != "linked":
+                    raise LookupError("base_not_resolved")
+                found = walk(by_id[base.target_id])
+                if found is not None:
+                    return found
+            return None
+
+        try:
+            found = walk(cls)
+        except LookupError as error:
+            return [], str(error)
+        return found if found is not None else ([], "attribute_not_typed")
+
     def python_super(site, scope, name):
         """``super().m()`` in a method of the Python class ``C`` around it:
         the method ``m`` the bases of ``C`` declare or inherit, in the
@@ -2188,7 +2296,52 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         if languages.get(site.file) == "php":
             resolutions.append(php.call(site))
             continue
+        if languages.get(site.file) == "c":
+            resolutions.append(c_calls.call(site))
+            continue
         parts = site.callee.split(".")
+        if site.receiver_steps and languages.get(site.file) == "python":
+            # `self.a.m()` or `x.a.m()`: from the method's class or `x`'s
+            # annotated class, each attribute's declared or inferred class.
+            if site.receiver_type == "self":
+                classes = next(
+                    (
+                        found
+                        for depth in range(len(scope) - 1, 0, -1)
+                        if (
+                            found := [
+                                d
+                                for d in by_symbol.get(
+                                    (site.file, ".".join(scope[:depth])), ()
+                                )
+                                if d.kind == "Class"
+                            ]
+                        )
+                    ),
+                    [],
+                )
+                reason = "outside_class"
+            else:
+                classes = python_class(site.file, scope[:-1], site.receiver_type)
+                reason = "receiver_type_not_declared"
+            for step in site.receiver_steps:
+                if len(classes) != 1:
+                    break
+                classes, reason = python_field(classes[0], step)
+            if len(classes) != 1:
+                resolutions.append(
+                    CallResolution(
+                        site.id,
+                        "unresolved" if not classes else "ambiguous",
+                        reason=reason if not classes else "multiple_declarations",
+                    )
+                )
+                continue
+            methods, reason = python_method(classes[0], parts[-1])
+            resolutions.append(
+                _pick(site.id, methods, PYTHON_CALL_ATTRIBUTE_RECEIVER, reason)
+            )
+            continue
         classes = (
             python_class(site.file, scope[:-1], site.receiver_type)
             if site.receiver_type is not None and languages.get(site.file) == "python"
@@ -2474,6 +2627,50 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(
                 CallResolution(site.id, "unresolved", reason="attribute_call")
             )
+    # Python `x = f(...); x.m()`: once `f(...)` links, the class its return
+    # annotation names. A receiver call may itself be such a call, so this
+    # repeats while links are added.
+    python_spans = {
+        (s.file, s.line, s.column, s.end_line, s.end_column): s
+        for s in result.call_sites
+        if languages.get(s.file) == "python"
+    }
+    position = {r.call_id: i for i, r in enumerate(resolutions)}
+    changed = True
+    while changed:
+        changed = False
+        for site in sorted(result.call_sites, key=lambda value: value.id):
+            if (
+                site.receiver_call is None
+                or languages.get(site.file) != "python"
+                or resolutions[position[site.id]].status != "unresolved"
+            ):
+                continue
+            receiver = python_spans.get((site.file, *site.receiver_call))
+            linked = (
+                resolutions[position[receiver.id]] if receiver is not None else None
+            )
+            target = (
+                by_id.get(linked.target_id)
+                if linked is not None and linked.status == "linked"
+                else None
+            )
+            if (
+                target is None
+                or target.kind not in _METHOD
+                or target.result_type is None
+            ):
+                continue
+            classes = python_class(
+                target.file, target.symbol.split(".")[:-1], target.result_type
+            )
+            if len(classes) != 1:
+                continue
+            methods, reason = python_method(classes[0], site.callee.split(".")[-1])
+            resolution = _pick(site.id, methods, PYTHON_CALL_RESULT_RECEIVER, reason)
+            if resolution != resolutions[position[site.id]]:
+                resolutions[position[site.id]] = resolution
+                changed = resolution.status == "linked" or changed
     return tuple(_constructors(resolutions, result, by_id, by_symbol, languages))
 
 

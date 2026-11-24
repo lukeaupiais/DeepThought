@@ -1162,6 +1162,20 @@ def check(names, cache, update=False, examples=10):
                     "imports: " + p
                     for p in regressions(imported, declared[corpus["name"]]["imports"])
                 ]
+        if "calls" in corpus:
+            called, call_samples = score(
+                result, read_truth(CORPUS / corpus["calls"]), examples
+            )
+            report["calls"] = called
+            samples = {
+                **(samples if "declarations" in samples else {"declarations": samples}),
+                "calls": call_samples,
+            }
+            if not update and "calls" in declared.get(corpus["name"], {}):
+                problems += [
+                    "calls: " + p
+                    for p in regressions(called, declared[corpus["name"]]["calls"])
+                ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
             "commit": corpus["commit"],

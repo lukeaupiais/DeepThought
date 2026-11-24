@@ -166,7 +166,9 @@ arbitrary object gets no edge.
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-super` | Python: `super().m()` written directly in a method of class `C` (not in a function nested in it) to the `m` that `C`'s declared bases declare or inherit, in the method resolution order after `C`; a class reached twice or a base that names no repository class leaves it unresolved (`diamond`, `base_not_resolved`) |
 | `tree-sitter.python-call-self-inherited` | Python: `self.m()` where the class around it declares no `m`, to the `m` its declared bases declare or inherit, in the same order and with the same stops as `tree-sitter.python-call-typed-receiver`; a subclass's override is not followed |
-| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
+| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose bindings in the function are all `x = T(...)` or `x: T = ...` for the same `T`, apart from assignments of `None`. The function must bind `x` in no other way and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
+| `tree-sitter.python-call-result-receiver` | Python: `x.m()` where the local `x`'s one binding in the function is `x = f(...)`, under the same conditions as `tree-sitter.python-call-typed-receiver`, and the call `f(...)` links to a function or method whose return annotation names one repository class `T` (as a parameter annotation does, looked up where that function is defined): `m` declared on `T` or inherited, with the same order and stops. Repeated while links are added, so `f(...)` may itself be such a call. On click this and allowing several same-class assignments confirmed 24 more calls (3,028), none contradicted, and raised impact from 742 to 750 of 1,080 |
+| `tree-sitter.python-call-attribute-receiver` | Python: `x.a.m()` (any number of attributes) where `x` is the first parameter of an instance method directly in a class body (not a `staticmethod` or `classmethod`, not rebound), or has a class under the conditions of `tree-sitter.python-call-typed-receiver`. Each attribute's class comes from the first class in the method resolution order that declares that name: an annotation in the class body (`a: T`) or on `self.a: T = ...` decides it; without one, every assignment the class's instance methods make must be `self.a = p` from a parameter `p: T`, `self.a = T(...)`, or `None`, all naming the same `T`, as a type checker infers a member variable; anything else assigned, or an unannotated class-body assignment, leaves the attribute untyped. A class that declares anything else of that name, or a base that is no repository class reached first, stops the lookup. A generic annotation `C[...]` names `C` (for parameters too). On click this confirmed 18 more calls (3,046), none contradicted, and raised impact from 750 to 771 of 1,080 |
 | `tree-sitter.js-call-static-method` | JavaScript/TypeScript: `C.m()` to the method `m` that the class `C` declares `static` (`Definition.static`), as ky's `Ky.create(...)` and `NonError.wrap(...)`. `C` is the class declared where the call's scopes see `C` (`CallSite.binding` records that declaration for `x.m` calls too), or the one class a named or default import binds to `C`, followed as for `call-imported-name`. A static method `C` inherits is not followed (`static_not_declared`), and a name a scope binds to anything else (a parameter, `const C = other`) leaves the call `attribute_call` |
 | `tree-sitter.js-call-typed-receiver` | JavaScript/TypeScript: `x.m()` where the declaration of `x` the call sees (`CallSite.binding`) is a variable or parameter annotated `x: C` or `x: C<...>`, or a variable initialized with `new C(...)`. `C` is found as for `js-call-static-method`, from where `x` is declared (`CallSite.receiver_type` and `receiver_binding`), and must be one class that no interface or namespace merges with. It links to the instance method `m` that `C` declares, or that it inherits through `extends`, class by class. An instance field or constructor parameter property named `m` on the way hides the method (`field_not_method`, `Definition.properties`), and a base that names no repository class stops the lookup (`base_not_resolved`), since it may declare `m`. A file that declares an interface, type alias or type parameter named `C` anywhere is not read, since that name may be the type. Member chains and `this` follow `js-call-member-chain`. Receivers typed any other way (a function's result, a callback parameter typed by its context), interfaces, private names `x.#m` and methods named on an object type stay `attribute_call` |
 | `tree-sitter.js-call-member-chain` | JavaScript/TypeScript: `x.a.b.m()` where `x` is typed as for `js-call-typed-receiver`, or is `this` in an instance method or field of a class declaration (through arrow functions); and `y.m()` where `y` is declared from such a chain (`const y = x.a`) or destructured from it (`const { a } = x`, `const { a: y } = this`). `CallSite.receiver_type` holds the class (or `"this"`, the innermost class around the call) and `CallSite.receiver_steps` the property names. Each step reads `Definition.fields`: an instance field annotated with a class or initialized with `new` of one, a constructor parameter property annotated with one, or a getter whose return type is one, declared on the class or inherited through `extends`. The written name is the class's own scopes' declaration, or else what the file's import of it names, and must be one class that no interface or namespace merges with. It links to the instance method `m` of the last class, as `js-call-typed-receiver` does. A step that is untyped, a method, external, an interface, an enum or a type parameter of the file leaves the call unresolved (`receiver_type_unknown`). Private names, computed or quoted keys, annotated patterns, static fields, `super`, a plain alias `const y = x` and the `this` of a function, a static method or a class expression are not followed |
@@ -1506,8 +1508,52 @@ those declared inside a struct's members, which C does not scope), typedef
 names (`TypeAlias`) and macros (`Macro`, wherever they are defined, since a
 macro holds for the rest of the file). Names are not qualified. Variables,
 enumerators, fields, forward declarations, unnamed types and types and
-prototypes declared in a function body are not declarations. Imports, calls
-and other facts are not recorded for C yet.
+prototypes declared in a function body are not declarations. A function
+declared `static` records `Definition.static`, and a prototype (a function
+declared without a body) records `Definition.prototype`. Other facts than
+declarations, includes and calls are not recorded for C yet.
+
+### C includes
+
+Each `#include "path"`, in every preprocessor branch, is an import of kind
+`include` whose specifier is the path as written. `#include <path>` and an
+include computed from a macro are not recorded, since the compiler finds them
+on the include path the build gives it. A compiler looks for a quoted path
+first in the directory of the file that writes it, and that is the one place
+resolution looks: the include links the file there with rule
+`tree-sitter.c-include-relative` (`resolved`), and is unresolved
+(`not_in_repository`) when no analyzed file is there. Include paths given to
+the compiler (`-I`) are not known, so a header found only through one is
+unresolved.
+
+### C calls
+
+Each call `f(...)` whose callee is a plain name is a call site, in every
+preprocessor branch, its caller the function definition around it. Calls
+through a field, a pointer expression or a parenthesized callee are not call
+sites. `CallSite.shadowed` is True when the function's parameters or the
+declarations in its body declare the name (a pointer to a function, or a
+prototype written in the body), or when a declaration at file scope declares
+it as a variable. A call is resolved as the linker binds it:
+
+- `tree-sitter.c-call-static` when the calling file's translation unit
+  declares a function `f` `static` (a prototype or a definition): the
+  definition of `f` in that unit, since a later definition without `static`
+  has internal linkage too;
+- `tree-sitter.c-call-external` otherwise: the one definition of `f` without
+  `static` among the repository's C files.
+
+Both are `resolved`. Two definitions (one per program, such as a test's
+`setUp`, or one per platform) are `ambiguous` (`multiple_declarations`), and
+none (a C library function) is `not_defined`. A shadowed name is
+`local_binding`, and a name any C file defines as a macro is `macro`, since
+the macro may expand the call away.
+
+A file's translation unit is the file and every file its resolved includes
+reach, followed transitively, so a `static inline` function in an included
+header or a `static` function in an included `.c` file binds there. A
+definition in a file that declares its name `static` is never offered to
+another unit, and an include that does not resolve adds nothing to the unit.
 
 Four shapes the grammar gives to code it does not fully read are read
 deterministically. A function declared after a macro the grammar does not
@@ -2164,7 +2210,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
 | `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name` or deployment name, or to a host name only that service's deployments answer to (see "Services named by their deployments"); only that service's routes are candidates |
 | `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
-| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
+| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`) |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
 
 The URL's path is compared segment by segment with each candidate's
@@ -2311,11 +2357,17 @@ PHP files are read for routes and requests (`service_contracts.php`):
   constructor parameter typed `Client` or `ClientInterface`. A literal
   `base_uri` is resolved as Guzzle does (RFC 3986: a rooted path replaces
   the base path, a relative one joins the base's directory); an absolute
-  URL, or a base that is not literal, leaves the URL as written. Laravel:
+  URL is kept. A base that is not literal is taken to start with its
+  origin and to add no path of its own: a rooted path follows the unknown
+  origin (`{?}/books`), a relative one the base's literal directory
+  (`'%env(URL)%/api/'` and `books` give `{?}/api/books`), and a relative
+  one against a base with no literal directory stays glued to the unknown
+  text, so it is not matched. Laravel:
   `Http::get(...)`, ... and `Http::send($method, $url)`, also at the end of
   a chain (`Http::withToken(...)->get(...)`), on the facade imported from
   `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
-  a literal `baseUrl(...)` in the chain is prepended. A method that is not
+  a literal `baseUrl(...)` in the chain is prepended (one that is not
+  literal gives unknown text, as for Guzzle). A method that is not
   a literal is unknown; a dynamic method name (`->$method(...)`) is read
   when it folds to one of the verbs, else the call is not read.
 - **Symfony HttpClient requests** (client `symfony-http`).
@@ -2330,7 +2382,7 @@ PHP files are read for routes and requests (`service_contracts.php`):
   as Symfony parses it (`orders.client` is `$ordersClient`, and so is
   `$orders_client`), so an injected parameter or promoted property with that
   name takes the client's `base_uri` when it is literal; a parameter or
-  `%env(...)%` base leaves the URL as written. A parameter attribute
+  `%env(...)%` in the base is unknown text, resolved as for Guzzle. A parameter attribute
   `#[Autowire(service: 'id')]`, `#[Autowire('@id')]` or `#[Target('id')]`
   names the client instead (any other `#[Autowire]` gives no base);
   `services.yaml` bindings are not read. For Guzzle and Symfony clients

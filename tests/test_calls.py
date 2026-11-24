@@ -24,6 +24,8 @@ from deepthought.calls import (
     CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     PYTHON_CALL_SELF_INHERITED,
+    PYTHON_CALL_ATTRIBUTE_RECEIVER,
+    PYTHON_CALL_RESULT_RECEIVER,
     PYTHON_CALL_SUPER,
     resolve_calls,
 )
@@ -599,6 +601,141 @@ class PythonCallTests(unittest.TestCase):
         self.assertEqual(
             found[("shadow.py", 4, "work")],
             ("ambiguous", None, None, "multiple_bindings"),
+        )
+
+    def test_calls_on_locals_bound_to_a_call_whose_return_annotation_names_a_class(
+        self,
+    ):
+        files = {
+            "lib.py": (
+                "import typing as t\n"
+                "class Base:\n"
+                "    def up(self): pass\n"
+                "class Ctx(Base):\n"
+                "    def run(self): pass\n"
+                "    def child(self) -> 'Ctx': return Ctx()\n"
+                "    def maybe(self) -> t.Optional['Ctx']: return None\n"
+                "def make() -> Ctx: return Ctx()\n"
+                "def plain(): return Ctx()\n"
+                "def text() -> str: return ''\n"
+            ),
+            "main.py": (
+                "from lib import Ctx, make, plain, text\n"
+                "def f(c: Ctx):\n"
+                "    a = make()\n"
+                "    a.run(); a.up()\n"  # 4: declared, inherited
+                "    b = c.child()\n"
+                "    b.run()\n"  # 6: a method's return annotation
+                "    d = b.maybe()\n"
+                "    d.run()\n"  # 8: through a receiver that is one too
+                "    e = plain()\n"
+                "    e.run()\n"  # 10: no annotation
+                "    s = text()\n"
+                "    s.upper()\n"  # 12: not a repository class
+                "    g = make()\n"
+                "    g = plain()\n"
+                "    g.run()\n"  # 15: two assignments
+                "    h: Ctx | None = None\n"
+                "    h = Ctx()\n"
+                "    h.run()\n"  # 18: None, then the class
+                "    a.missing()\n"  # 19
+            ),
+        }
+        found = links(analyze(files, "python"))
+        run = ("linked", "lib.py::Ctx.run", PYTHON_CALL_RESULT_RECEIVER, None)
+        self.assertEqual(found[("main.py", 4, "a.run")], run)
+        self.assertEqual(
+            found[("main.py", 4, "a.up")],
+            ("linked", "lib.py::Base.up", PYTHON_CALL_RESULT_RECEIVER, None),
+        )
+        self.assertEqual(found[("main.py", 6, "b.run")], run)
+        self.assertEqual(found[("main.py", 8, "d.run")], run)
+        for line, callee in ((10, "e.run"), (12, "s.upper"), (15, "g.run")):
+            with self.subTest(line=line):
+                self.assertEqual(found[("main.py", line, callee)][0], "unresolved")
+        self.assertEqual(
+            found[("main.py", 18, "h.run")],
+            ("linked", "lib.py::Ctx.run", CALL_PYTHON_TYPED_RECEIVER, None),
+        )
+        self.assertEqual(
+            found[("main.py", 19, "a.missing")],
+            ("unresolved", None, None, "not_declared_on_type"),
+        )
+
+    def test_calls_through_instance_attributes_whose_class_is_declared(self):
+        files = {
+            "lib.py": (
+                "import typing as t\n"
+                "class Cmd:\n"
+                "    def run(self): pass\n"
+                "class Ctx:\n"
+                "    command: Cmd\n"  # 5: declared in the class body
+                "    parent: t.Optional['Ctx']\n"
+                "    def __init__(self, command: Cmd, other: Cmd, n: int):\n"
+                "        self.command = command\n"
+                "        self.kept = command\n"  # 9: inferred from a parameter
+                "        self.made = Cmd()\n"
+                "        self.mixed = command\n"
+                "        self.count = n\n"
+                "        self.later = None\n"
+                "        self.typed: t.Optional[Cmd] = None\n"
+                "    def reset(self):\n"
+                "        self.mixed = 3\n"  # 16: another assignment
+                "        self.later = Cmd()\n"
+                "    def go(self):\n"
+                "        self.command.run()\n"  # 19
+                "        self.parent.command.run()\n"
+                "        self.kept.run()\n"  # 21
+                "        self.made.run()\n"
+                "        self.mixed.run()\n"  # 23: unknown
+                "        self.count.run()\n"  # 24: not a class
+                "        self.later.run()\n"  # 25: None, then the class
+                "        self.typed.run()\n"
+                "        self.command.missing()\n"  # 27
+                "    @staticmethod\n"
+                "    def s(self):\n"
+                "        self.command.run()\n"  # 30: not an instance
+                "class Sub(Ctx):\n"
+                "    def more(self):\n"
+                "        self.command.run()\n"  # 33: an inherited attribute
+                "def use(c: Ctx):\n"
+                "    c.command.run()\n"  # 35: from a typed parameter
+                "    c.nothing.run()\n"
+                "class Holder:\n"
+                "    wrapped: Cmd[int]\n"
+                "    items: list[Cmd]\n"
+                "    def go(self):\n"
+                "        self.wrapped.run()\n"  # 41: a generic class
+                "        self.items.run()\n"  # 42: no repository class
+            ),
+        }
+        found = links(analyze(files, "python"))
+        run = ("linked", "lib.py::Cmd.run", PYTHON_CALL_ATTRIBUTE_RECEIVER, None)
+        for line, callee in (
+            (19, "self.command.run"),
+            (20, "self.parent.command.run"),
+            (21, "self.kept.run"),
+            (22, "self.made.run"),
+            (25, "self.later.run"),
+            (26, "self.typed.run"),
+            (33, "self.command.run"),
+            (35, "c.command.run"),
+            (41, "self.wrapped.run"),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(found[("lib.py", line, callee)], run)
+        for line, callee in (
+            (23, "self.mixed.run"),
+            (24, "self.count.run"),
+            (30, "self.command.run"),
+            (36, "c.nothing.run"),
+            (42, "self.items.run"),
+        ):
+            with self.subTest(line=line):
+                self.assertNotEqual(found[("lib.py", line, callee)][0], "linked")
+        self.assertEqual(
+            found[("lib.py", 27, "self.command.missing")],
+            ("unresolved", None, None, "not_declared_on_type"),
         )
 
     def test_calls_on_parameters_and_locals_whose_binding_names_a_class(self):
