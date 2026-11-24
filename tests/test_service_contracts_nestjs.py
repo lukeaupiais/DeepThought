@@ -95,7 +95,8 @@ import { VersioningType } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableVersioning({ type: VersioningType.URI });
+  // Options that are not a literal object leave routes unread.
+  app.enableVersioning(versioningOptions);
 }
 """
 
@@ -222,6 +223,158 @@ class NestRouteTests(unittest.TestCase):
         )
         linked = [r for r in self.resolutions if r.status == "linked"]
         self.assertEqual(len(linked), 1)
+
+
+URI_MAIN = """
+import { NestFactory } from '@nestjs/core';
+import { VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api');
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+}
+"""
+
+URI_USERS = """
+import { Controller, Get, Post, Version, VERSION_NEUTRAL } from '@nestjs/common';
+
+@Controller({ path: 'users', version: ['1', '2'] })
+export class UsersController {
+  @Get()
+  list() {}
+
+  @Version('3')
+  @Post()
+  create() {}
+
+  @Version(VERSION_NEUTRAL)
+  @Get('health')
+  health() {}
+}
+
+@Controller('seats')
+export class SeatsController {
+  @Post('reserve')
+  reserve() {}
+}
+
+@Controller({ path: 'odd', version: someVersion })
+export class OddController {
+  @Get()
+  odd() {}
+}
+"""
+
+HEADER_MAIN = """
+import { VersioningType } from '@nestjs/common';
+
+async function bootstrap(app) {
+  app.enableVersioning({ type: VersioningType.HEADER, header: 'X-Version' });
+}
+"""
+
+HEADER_FLIGHTS = """
+import { Controller, Get } from '@nestjs/common';
+
+@Controller({ path: 'flights', version: '1' })
+export class FlightsController {
+  @Get()
+  list() {}
+}
+"""
+
+PREFIX_MAIN = """
+import { VersioningType } from '@nestjs/common';
+
+async function bootstrap(app) {
+  app.enableVersioning({ type: VersioningType.URI, prefix: 'version-' });
+}
+"""
+
+PREFIX_TRIPS = """
+import { Controller, Get } from '@nestjs/common';
+
+@Controller({ path: 'trips', version: '2' })
+export class TripsController {
+  @Get()
+  list() {}
+}
+"""
+
+SEAT_CLIENT = """
+import axios from 'axios';
+
+export async function reserve() {
+  return axios.post('http://users/api/v1/seats/reserve');
+}
+"""
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class NestVersioningTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        _write(
+            root,
+            {
+                "users/package.json": "{}",
+                "users/src/main.ts": URI_MAIN,
+                "users/src/users.controller.ts": URI_USERS,
+                "flights/package.json": "{}",
+                "flights/src/main.ts": HEADER_MAIN,
+                "flights/src/flights.controller.ts": HEADER_FLIGHTS,
+                "trips/package.json": "{}",
+                "trips/src/main.ts": PREFIX_MAIN,
+                "trips/src/trips.controller.ts": PREFIX_TRIPS,
+                "web/package.json": "{}",
+                "web/src/client.ts": SEAT_CLIENT,
+            },
+        )
+        self.tool = ServiceContractTool(root)
+        asyncio.run(self.tool.analyze("r"))
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_routes(self):
+        _, routes, _, unread, _ = self.tool.last_facts
+        self.assertEqual(
+            sorted(
+                (r.file.rpartition("/")[2], r.line, r.methods, r.path)
+                for r in routes
+                if r.framework == "nestjs"
+            ),
+            [
+                # Header versioning leaves the path alone.
+                ("flights.controller.ts", 6, ("GET",), "/flights"),
+                # A custom URI prefix.
+                ("trips.controller.ts", 6, ("GET",), "/version-2/trips"),
+                # The controller's versions, one route each.
+                ("users.controller.ts", 6, ("GET",), "/api/v1/users"),
+                ("users.controller.ts", 6, ("GET",), "/api/v2/users"),
+                # @Version overrides the controller's.
+                ("users.controller.ts", 10, ("POST",), "/api/v3/users"),
+                # VERSION_NEUTRAL adds no segment.
+                ("users.controller.ts", 14, ("GET",), "/api/users/health"),
+                # No version: the default version.
+                ("users.controller.ts", 20, ("POST",), "/api/v1/seats/reserve"),
+            ],
+        )
+        self.assertEqual(
+            [(u.file.rpartition("/")[2], u.line, u.reason) for u in unread],
+            [("users.controller.ts", 24, "version")],
+        )
+
+    def test_request_links_to_versioned_route(self):
+        _, routes, requests, _, resolutions = self.tool.last_facts
+        by_id = {r.id: r for r in routes}
+        status = {r.request_id: r for r in resolutions}
+        self.assertEqual(
+            [by_id[status[q.id].route_id].path for q in requests],
+            ["/api/v1/seats/reserve"],
+        )
 
 
 if __name__ == "__main__":

@@ -2510,10 +2510,24 @@ a TypeScript file of the same Node package (nearest `package.json`), and
 applies to every route of that package. The rule is
 `service-contracts.nestjs-route` (pattern_matched).
 
+Versions are read when the package calls `enableVersioning` with a literal
+options object: `type: VersioningType.URI`, `HEADER`, `MEDIA_TYPE` or
+`CUSTOM`, an optional string `prefix` (`v` by default, none for `false`)
+and an optional `defaultVersion` (a string, an array of strings or
+`VERSION_NEUTRAL`). A route's versions are its method's `@Version(...)`,
+else its controller's `version` option, else the default version. With URI
+versioning each version adds a `{prefix}{version}` segment after the global
+prefix, one route per version, and `VERSION_NEUTRAL` (or no version at all)
+adds none. The other types select a version from the request's headers, so
+they leave the path alone.
+
 Counted as unread instead of guessed, by reason:
-- `version`: a controller or method with a version, since URI versioning
-  depends on the versioning type;
-- `versioning`: every route of a package that calls `enableVersioning`;
+- `version`: a controller or method whose version is not a literal (string,
+  array of strings or `VERSION_NEUTRAL`), or that has a version in a
+  package that does not enable versioning with literal options;
+- `versioning`: every route of a package whose `enableVersioning` options
+  are not a literal object of the form above, and `versioning_ambiguous`
+  when the package enables versioning in two different ways;
 - `router_module`: every route of a package that uses `RouterModule`;
 - `global_prefix_options`, `global_prefix_not_literal` and
   `global_prefix_ambiguous`: every route of a package whose global prefix
