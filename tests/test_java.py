@@ -15,6 +15,7 @@ from deepthought.calls import (
     JAVA_INHERITED_METHOD,
     JAVA_STATIC_IMPORT,
     JAVA_TYPE_MEMBER,
+    JAVA_TYPED_RECEIVER,
     JAVA_TYPE_NAME,
     resolve_calls,
 )
@@ -377,7 +378,8 @@ class JavaTests(unittest.TestCase):
                 ("Peer", 22): ("Peer", JAVA_TYPE_NAME),
                 ("Strings.Builder", 23): ("util:Strings.Builder", JAVA_TYPE_NAME),
                 ("Inner", 24): ("Main.Inner", JAVA_TYPE_NAME),
-                ("s.trim", 25): (None, "attribute_call"),
+                # `String s`: String is not declared in the repository.
+                ("s.trim", 25): (None, "receiver_type_not_declared"),
                 ("java.util.List.of", 26): (None, "attribute_call"),
                 ("missing", 27): (None, "unbound_name"),
                 ("Tools", 28): ("Tools", JAVA_TYPE_NAME),
@@ -652,6 +654,269 @@ class JavaTests(unittest.TestCase):
                 # Sub's; which interface method wins is not decided by name.
                 (28, "name", None, "multiple_declarations"),
             ],
+        )
+
+    def test_private_methods_are_not_inherited(self):
+        files = {
+            "src/p/Util.java": (
+                "package p;\nclass Util { static int get(Object o) { return 0; } }\n"
+            ),
+            "src/p/Base.java": (
+                "package p;\n"
+                "class Base {\n"
+                "  private static int get(Object o) { return 1; }\n"
+                "  private void own() { get(null); }\n"  # 4: its own
+                "  void open() {}\n"
+                "}\n"
+            ),
+            "src/p/Sub.java": (
+                "package p;\n"
+                "import static p.Util.get;\n"
+                "class Sub extends Base {\n"
+                "  void m(Sub s) {\n"
+                "    get(null);\n"  # 5: the import, not Base's private get
+                "    s.own();\n"  # 6: not inherited
+                "    s.open();\n"  # 7
+                "    new Base() {\n"
+                "      void f() { own(); }\n"  # 9: not inherited either
+                "    };\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        methods = {d.symbol: d for d in result.definitions if d.kind == "Method"}
+        self.assertTrue(methods["Base.own"].private)
+        self.assertIsNone(methods["Base.open"].private)
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].line): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual(
+            found[("src/p/Base.java", 4)],
+            ("Base.get", JAVA_ENCLOSING_METHOD),
+        )
+        self.assertEqual(found[("src/p/Sub.java", 5)], ("Util.get", JAVA_STATIC_IMPORT))
+        self.assertEqual(found[("src/p/Sub.java", 6)], (None, "not_declared_in_type"))
+        self.assertEqual(
+            found[("src/p/Sub.java", 7)], ("Base.open", JAVA_INHERITED_METHOD)
+        )
+        self.assertEqual(found[("src/p/Sub.java", 9)], (None, "unbound_name"))
+
+    def test_calls_on_variables_whose_declaration_writes_the_type(self):
+        files = {
+            "src/p/Foo.java": (
+                "package p;\n"
+                "class Foo extends Root {\n"
+                "  void go() {}\n"
+                "  static class Inner { void in() {} }\n"
+                "}\n"
+                "class Root { void up() {} }\n"
+                "class Box<T> { void open() {} }\n"
+            ),
+            "src/p/Main.java": (
+                "package p;\n"
+                "class Main<T> {\n"
+                "  Foo field;\n"
+                "  T held;\n"
+                "  <U> void m(Foo p, U u, Foo[] arr, Foo... more) {\n"  # 5
+                "    p.go();\n"  # 6: parameter
+                "    Foo x = new Foo();\n"
+                "    x.go();\n"  # 8: local
+                "    var y = new Foo();\n"
+                "    y.up();\n"  # 10: var, inherited method
+                "    field.go();\n"  # 11: field
+                "    this.field.go();\n"  # 12
+                "    for (Foo z : arr) { z.go(); }\n"  # 13: enhanced for
+                "    try (Foo w = make()) { w.go(); }\n"  # 14: resource
+                "    catch (Foo e) { e.go(); }\n"  # 15: catch
+                "    Runnable r = (Foo a) -> a.go();\n"  # 16: typed lambda
+                "    Box<Foo> b = null;\n"
+                "    b.open();\n"  # 18: generic type
+                "    Foo.Inner i = null;\n"
+                "    i.in();\n"  # 20: qualified type
+                "    arr.clone();\n"  # 21: array
+                "    more.clone();\n"  # 22: variable arity
+                "    u.go();\n"  # 23: type parameter
+                "    held.go();\n"  # 24: class type parameter
+                "    later.go();\n"  # 25: declared after
+                "    Foo later = null;\n"
+                "    { Foo hidden = null; }\n"
+                "    hidden.go();\n"  # 28: in a block that ended
+                "    if (p instanceof Foo g) { g.go(); }\n"  # 29: pattern
+                "    Runnable s = q -> q.go();\n"  # 30: inferred lambda
+                "    x.go(1);\n"  # 31: no such arity
+                "    new Runnable() { public void run() { x.go(); } };\n"  # 32
+                "  }\n"
+                "  class Sub extends Root { void s() { field.go(); } }\n"  # 34
+                "  Foo make() { return null; }\n"
+                "  void n(Object o) {\n"
+                "    if (o instanceof Box field) { field.open(); }\n"  # 37
+                "    switch (o) { case Box field -> field.open(); default -> {} }\n"
+                "    Foo c[] = null;\n"
+                "    c.clone();\n"  # 40: an array declarator
+                "    try { } catch (Foo | Root e2) { e2.go(); }\n"  # 41: multi-catch
+                "    var v = make();\n"
+                "    v.go();\n"  # 43: var without new
+                "    Runnable t = (var d) -> d.go();\n"  # 44
+                "  }\n"
+                "  class In { void t() { this.field.go(); } }\n"  # 46
+                "  enum E { field; void f() { field.go(); } }\n"  # 47
+                "  class Impl implements Runnable { void f() { field.go(); } }\n"
+                "  interface J extends Runnable { default void f() { field.go(); } }\n"
+                "  enum K { A { void f() { field.go(); } } }\n"  # 50
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                symbols.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "src/p/Main.java"
+        }
+        typed = ("Foo.go", JAVA_TYPED_RECEIVER)
+        self.assertEqual(found[(6, "p.go")], typed)
+        self.assertEqual(found[(8, "x.go")], typed)
+        self.assertEqual(found[(10, "y.up")], ("Root.up", JAVA_INHERITED_METHOD))
+        self.assertEqual(found[(11, "field.go")], typed)
+        self.assertEqual(found[(12, "this.field.go")], typed)
+        self.assertEqual(found[(13, "z.go")], typed)
+        self.assertEqual(found[(14, "w.go")], typed)
+        self.assertEqual(found[(15, "e.go")], typed)
+        self.assertEqual(found[(16, "a.go")], typed)
+        self.assertEqual(found[(18, "b.open")], ("Box.open", JAVA_TYPED_RECEIVER))
+        self.assertEqual(found[(20, "i.in")], ("Foo.Inner.in", JAVA_TYPED_RECEIVER))
+        self.assertEqual(found[(31, "x.go")], (None, "no_matching_arity"))
+        for line, callee in (
+            (21, "arr.clone"),
+            (22, "more.clone"),
+            (23, "u.go"),
+            (24, "held.go"),
+            (25, "later.go"),
+            (28, "hidden.go"),
+            (29, "g.go"),
+            (30, "q.go"),
+            # A class with a superclass may inherit a field of that name.
+            (34, "field.go"),
+            # Pattern variables: their scope follows control flow.
+            (37, "field.open"),
+            (38, "field.open"),
+            (40, "c.clone"),
+            (41, "e2.go"),
+            (43, "v.go"),
+            (44, "d.go"),
+            # `this.field` is a field of the innermost class only.
+            (46, "this.field.go"),
+            # An enum constant hides the outer field.
+            (47, "field.go"),
+            # An anonymous class, a type with superinterfaces and an enum
+            # constant's body may each inherit a field of that name.
+            (32, "x.go"),
+            (48, "field.go"),
+            (49, "field.go"),
+            (50, "field.go"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(found[(line, callee)], (None, "attribute_call"))
+
+    def test_an_override_needs_parameter_types_that_may_be_the_same(self):
+        files = {
+            "src/p/Range.java": (
+                "package p;\n"
+                "import java.util.Map;\n"
+                "class Range<T> {\n"
+                "  T fit(T x) { return x; }\n"
+                "  void up(java.util.List<String> xs) {}\n"
+                "  void put(byte[] b) {}\n"
+                "  void all(T[] xs) {}\n"
+                "  void entry(Map.Entry e) {}\n"
+                "  <U> void any(U u) {}\n"
+                "  void arr(String[] a) {}\n"
+                "}\n"
+                "class LongRange extends Range<Long> {\n"
+                "  long fit(long x) { return x; }\n"
+                "  void up(java.util.List<Long> xs) {}\n"
+                "  void put(java.nio.ByteBuffer b) {}\n"
+                "  void all(Long xs) {}\n"
+                "  void entry(Entry e) {}\n"
+                "  void any(String u) {}\n"
+                "  void arr(String a) {}\n"
+                "}\n"
+                "class Box extends Range<String> {\n"
+                "  String fit(String x) { return x; }\n"
+                "}\n"
+                "class Main {\n"
+                "  void m(LongRange r, Box b) {\n"
+                "    r.fit(1L);\n"
+                "    r.up(null);\n"
+                "    r.put(null);\n"
+                "    r.all(null);\n"
+                "    r.entry(null);\n"
+                "    r.any(null);\n"
+                "    b.fit(null);\n"
+                "    r.arr(null);\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        methods = {d.symbol: d for d in result.definitions if d.kind == "Method"}
+        self.assertEqual(methods["Range.fit"].parameter_types, ("*",))
+        self.assertEqual(methods["Range.all"].parameter_types, ("*[]",))
+        self.assertEqual(methods["Range.any"].parameter_types, ("?",))
+        self.assertEqual(methods["LongRange.up"].parameter_types, ("java.util.List",))
+        self.assertEqual(methods["Range.entry"].parameter_types, ("Map.Entry",))
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].callee: (
+                symbols.get(r.target_id),
+                sorted(symbols[c] for c in r.candidates),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+
+        def both(name):
+            return (
+                None,
+                [f"LongRange.{name}", f"Range.{name}"],
+                "multiple_declarations",
+            )
+
+        def near(symbol):
+            return (symbol, [], JAVA_TYPED_RECEIVER)
+
+        # A type parameter is not the same type as written: both stay.
+        self.assertEqual(found["r.fit"], both("fit"))
+        # Type arguments are not compared, as for erasure.
+        self.assertEqual(found["r.up"], near("LongRange.up"))
+        # Two different types as written: overloads.
+        self.assertEqual(found["r.put"], both("put"))
+        # A type parameter's array is not a single type.
+        self.assertEqual(found["r.all"], both("all"))
+        # A simple name may be the imported qualified one.
+        self.assertEqual(found["r.entry"], near("LongRange.entry"))
+        # A different array dimension: an overload.
+        self.assertEqual(found["r.arr"], both("arr"))
+        # A method's own type parameter erases to its bound: an overload.
+        self.assertEqual(found["r.any"], both("any"))
+        # Whether a reference type stands for the class's type parameter
+        # depends on the base's type arguments, which are not followed.
+        self.assertEqual(
+            found["b.fit"], (None, ["Box.fit", "Range.fit"], "multiple_declarations")
         )
 
     def test_calls_in_anonymous_classes_look_there_first(self):

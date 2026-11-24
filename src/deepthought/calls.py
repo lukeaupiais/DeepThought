@@ -34,6 +34,7 @@ JAVA_STATIC_IMPORT = "tree-sitter.java-static-import"
 JAVA_TYPE_MEMBER = "tree-sitter.java-type-member"
 JAVA_TYPE_NAME = "tree-sitter.java-type-name"
 JAVA_INHERITED_METHOD = "tree-sitter.java-inherited-method"
+JAVA_TYPED_RECEIVER = "tree-sitter.java-call-typed-receiver"
 RUST_CALL_PATH = "tree-sitter.rust-call-path"
 RUST_CALL_LOCAL_ITEM = "tree-sitter.rust-call-local-item"
 RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
@@ -197,6 +198,42 @@ class _Member:
     @property
     def variadic(self):
         return self.definition.variadic
+
+
+def _shape(method):
+    """What decides whether a Java method overrides another: its parameter
+    count, variable arity and parameter types as written."""
+    return (method.parameters, method.variadic, method.definition.parameter_types)
+
+
+def _may_override(near, far):
+    """Whether a parameter of type ``near`` as written may override one of
+    type ``far``: the same type, where a simple name may be an imported
+    qualified one (``Map.Entry`` and ``Entry``). A type parameter of a class
+    (``*``) matches only another: ``write(JsonElement)`` may override
+    ``write(T)`` in ``TypeAdapter<T>``, but ``getOrDefault(..., String)``
+    overloads ``getOrDefault(..., T)`` when ``T`` is bound to an enum, and
+    telling the two apart needs the type arguments of every base."""
+    near_base, far_base = near.rstrip("[]."), far.rstrip("[].")
+    if near[len(near_base) :] != far[len(far_base) :]:
+        return False  # different array dimensions or variable arity
+    if "*" in {near_base, far_base}:
+        return near_base == far_base
+    return near_base.split(".")[-1] == far_base.split(".")[-1]
+
+
+def _overridden(method, shapes):
+    """Whether a nearer method with one of ``shapes`` overrides ``method``:
+    the same parameter count and variable arity, and parameter types that
+    may be the same (``_may_override``). Otherwise the methods may be
+    overloads (``putBytes(byte[])`` and ``putBytes(ByteBuffer)``), and
+    both stay."""
+    count, variadic, types = _shape(method)
+    return any(
+        (c, v) == (count, variadic)
+        and (t == types if None in (t, types) else all(map(_may_override, t, types)))
+        for c, v, t in shapes
+    )
 
 
 class _JavaScope:
@@ -371,20 +408,21 @@ class _JavaScope:
         if (file, symbol) in seen:
             return found
         seen = seen | {(file, symbol)}
-        shapes = {(m.parameters, m.variadic) for m in found}
+        shapes = {_shape(m) for m in found}
         outer = symbol.split(".")[:-1]
         inherited = {}
         # Bases in source order: a class's superclass comes first.
         for base in self.bases.get((file, symbol), ()):
             for t in self.type(file, outer, base):
                 for m in self._inherit(t.file, t.symbol, name, seen):
-                    if (m.parameters, m.variadic) not in shapes:
+                    # A private method is not inherited.
+                    if not m.definition.private and not _overridden(m, shapes):
                         inherited.setdefault(m.id, _Member(m.definition, True))
             # A method declared in a class (the superclass chain) implements
             # a same-shaped interface method rather than competing with it;
             # interface methods do not hide each other by name.
             shapes |= {
-                (m.parameters, m.variadic)
+                _shape(m)
                 for m in inherited.values()
                 if self._defs(
                     m.definition.file,
@@ -396,19 +434,20 @@ class _JavaScope:
 
     def anonymous_members(self, file, anonymous, name):
         """Methods ``name`` of an anonymous class: declared in its body, then
-        inherited from its base (unless a body method of the same parameter
-        count overrides them). A base outside the repository adds none."""
+        inherited from its base (unless a body method of the same shape
+        overrides them, and except private ones). A base outside the
+        repository adds none."""
         base, scope, first, last = anonymous
         found = [
             _Member(m, False)
             for m in self._defs(file, f"{scope}.{name}", {"Method"})
             if first <= m.line <= last
         ]
-        shapes = {(m.parameters, m.variadic) for m in found}
+        shapes = {_shape(m) for m in found}
         inherited = {}
         for t in self.type(file, scope.split("."), base):
             for m in self.members(t.file, t.symbol, name):
-                if (m.parameters, m.variadic) not in shapes:
+                if not m.definition.private and not _overridden(m, shapes):
                     inherited.setdefault(m.id, _Member(m.definition, True))
         return found + list(inherited.values())
 
@@ -480,6 +519,19 @@ class _JavaScope:
                 return CallResolution(site.id, "unresolved", reason="outside_class")
             return self.methods(
                 site, innermost, CALL_SELF_METHOD, "not_declared_in_class"
+            )
+        if site.receiver_type is not None:
+            # A variable or field whose declaration writes its type.
+            owners = self.type(file, scope, site.receiver_type)
+            if not owners:
+                return CallResolution(
+                    site.id, "unresolved", reason="receiver_type_not_declared"
+                )
+            return self.methods(
+                site,
+                [m for t in owners for m in self.members(t.file, t.symbol, name)],
+                JAVA_TYPED_RECEIVER,
+                "not_declared_in_type",
             )
         owners = self.type(file, scope, head)
         if not owners:
