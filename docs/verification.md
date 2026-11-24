@@ -295,6 +295,18 @@ Anything else is external, and `use const` is not listed.
 The gate fails on fewer confirmed or more contradicted imports, or a
 changed truth.
 
+#### Ruby requires
+
+rack also carries require truth from `tools/ruby_require_truth.rb`. Prism
+finds each `require`, `require_relative` and `autoload` whose path is one
+literal string. A `require_relative` resolves against the requiring file's
+directory. A `require` or `autoload` searches the gemspec's `require_paths`
+first (`lib` by default), as `gem` and `bundle exec` do. Otherwise
+`$LOAD_PATH.resolve_feature_path` decides: a standard library or installed
+gem is external, and a feature Ruby cannot find here (`simplecov`, Rails in
+`test.rb`) is not listed. Of 340 rows, 287 name a repository file. The
+engine does not resolve Ruby requires yet, so the baseline is 0 confirmed.
+
 ### Service contracts
 
 The `contracts` entries in the manifest gate cross-service links the same way.
