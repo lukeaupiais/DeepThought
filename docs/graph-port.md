@@ -2400,6 +2400,45 @@ No edge is wrong. On the corpora, nothing changes.
 
 No Go edge is wrong. On the corpora, nothing changes.
 
+#### NestJS microservices
+
+NestJS microservice patterns are read with broker `nestjs`:
+
+- **Consumers.** A method of a class decorated `@Controller` (from
+  `@nestjs/common`) that carries `@MessagePattern(pattern)` or
+  `@EventPattern(pattern)` from `@nestjs/microservices` (rule
+  `service-contracts.nestjs-message-pattern`).
+- **Publishers.** `send(pattern, ...)` (a message) and `emit(pattern, ...)`
+  (an event), on a name the file declares only with a client type from
+  `@nestjs/microservices`: `ClientProxy`, `ClientKafka`, `ClientRMQ`,
+  `ClientNats`, `ClientRedis`, `ClientMqtt` or `ClientTCP` (rule
+  `service-contracts.nestjs-client-send`). The name can be a field, a
+  constructor parameter property such as `private client: ClientProxy`, or a
+  local.
+
+The destination is `message:<route>` or `event:<route>`. Nest matches messages
+and events separately, so `emit` never reaches a `@MessagePattern`. The route
+is the pattern as Nest's `transformPatternToRoute` writes it:
+
+- A string or an integer is kept as written.
+- An object becomes `{"key":value,...}`, with string values quoted and `"`
+  and `\` escaped. A `const` object declared once in the file counts as
+  written in place.
+- Nest sorts keys with `localeCompare`. Only keys of ASCII letters and
+  digits, whose order does not depend on case, are read, because that is
+  where code-point order is known to agree. Other keys are
+  `destination_not_literal`.
+
+The transport (TCP, Kafka, RabbitMQ and so on) is configured elsewhere and is
+not checked.
+
+| Repository | Sites | Outcome |
+|---|---|---|
+| Denrox/nestjs-microservices-example `112c1d3` | 13 patterns, 15 client sends | All 28 read, and every one of the 13 patterns has a sender and a handler. The gateway reaches the user, task, token and permission services, and the user service reaches the mailer. supertest's `.send()` in the e2e tests is not read |
+| nestjs/nest `sample/03-microservices` | 1 pattern, 1 send | The send (a `const pattern = { cmd: 'sum' }`) meets its handler |
+
+No edge is wrong. On the corpora, nothing changes.
+
 ### STOMP destinations
 
 STOMP over WebSocket is read as messaging with broker `stomp`. A destination
