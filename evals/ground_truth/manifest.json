@@ -177,6 +177,26 @@
       "kinds": [
         "graphql"
       ]
+    },
+    {
+      "name": "contracts-packt-chapter07",
+      "url": "https://github.com/PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition",
+      "commit": "db9e0fa7d41756224a149a5a870647e0f0426b2e",
+      "root": "Chapter07",
+      "labels": "../fixtures/service_contracts/packt-chapter07.json",
+      "kinds": [
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-packt-chapter23",
+      "url": "https://github.com/PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition",
+      "commit": "db9e0fa7d41756224a149a5a870647e0f0426b2e",
+      "root": "Chapter23",
+      "labels": "../fixtures/service_contracts/packt-chapter23.json",
+      "kinds": [
+        "messaging"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
