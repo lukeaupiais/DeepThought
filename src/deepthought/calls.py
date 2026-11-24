@@ -1865,7 +1865,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 continue
             if site.receiver_steps or site.receiver_type == "this":
                 resolutions.append(
-                    CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
+                    CallResolution(
+                        site.id, "unresolved", reason="receiver_type_unknown"
+                    )
                 )
                 continue
         if not script and (

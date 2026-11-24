@@ -2425,21 +2425,30 @@ def _js_origin(node, name, content, cache, root, depth):
         cache[("types",)] = _js_type_names(root, content)
     types = cache[("types",)]
     if declaration.type in {"required_parameter", "optional_parameter"} and key is None:
-        found = _js_written_class(declaration.child_by_field_name("type"), content, types)
+        found = _js_written_class(
+            declaration.child_by_field_name("type"), content, types
+        )
         if found is None:
             return None
         return (found[1], _js_binding(found[0], content, found[1], cache), (), False)
     if declaration.type != "variable_declarator":
         return None
     if key is None:
-        found = _js_written_class(declaration.child_by_field_name("type"), content, types)
+        found = _js_written_class(
+            declaration.child_by_field_name("type"), content, types
+        )
         value = declaration.child_by_field_name("value")
         if found is None and value is not None and value.type == "new_expression":
             found = _js_written_class(
                 value.child_by_field_name("constructor"), content, types
             )
         if found is not None:
-            return (found[1], _js_binding(found[0], content, found[1], cache), (), False)
+            return (
+                found[1],
+                _js_binding(found[0], content, found[1], cache),
+                (),
+                False,
+            )
     elif not (
         declaration.child_by_field_name("name").type == "object_pattern"
         and declaration.child_by_field_name("type") is None
@@ -2450,9 +2459,7 @@ def _js_origin(node, name, content, cache, root, depth):
     if path is None:
         return None
     head, names = path
-    origin = _js_origin(
-        head, _text(head, content), content, cache, root, depth + 1
-    )
+    origin = _js_origin(head, _text(head, content), content, cache, root, depth + 1)
     if origin is None:
         return None
     return (
@@ -2529,7 +2536,11 @@ def _js_fields(node, content, types):
                         and written
                         and any(
                             c.type
-                            in {"accessibility_modifier", "readonly", "override_modifier"}
+                            in {
+                                "accessibility_modifier",
+                                "readonly",
+                                "override_modifier",
+                            }
                             for c in parameter.children
                         )
                     ):
