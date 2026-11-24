@@ -469,6 +469,12 @@ export function useLogin() {
 const AMBIGUOUS = gql`{ shared ghost }`;
 """,
     "web/src/me.graphql": "query Me { me { id } }\nfragment Extra on Query { me { id } }\nquery { pending }\ntype Local { query: String }\nfragment Tail on Launch { id }\n",
+    # A starter app: its client belongs to its own (empty) server, not to
+    # the farther one that resolves the field.
+    "start/server/package.json": '{"dependencies": {"apollo-server": "3.0.0"}}',
+    "start/server/index.js": "const server = new ApolloServer({});\n",
+    "start/web/package.json": '{"dependencies": {"@apollo/client": "3.9.0"}}',
+    "start/web/q.js": "const Q = gql`{ launches }`;\n",
 }
 
 
@@ -524,8 +530,8 @@ class ClientTests(unittest.TestCase):
         unread = output.metadata.custom_metrics["unread"]
         self.assertEqual(unread["graphql:client_fragment_root"], 1)
         self.assertEqual(unread["graphql:client_field_ambiguous"], 1)
-        self.assertEqual(unread["graphql:client_field_unknown"], 1)
-        self.assertEqual(output.metadata.custom_metrics["graphql_requests"], 6)
+        self.assertEqual(unread["graphql:client_field_unknown"], 2)
+        self.assertEqual(output.metadata.custom_metrics["graphql_requests"], 7)
 
 
 if __name__ == "__main__":
