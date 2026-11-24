@@ -139,6 +139,29 @@ def _unescape(text):
     )
 
 
+def _text_block(raw):
+    """The value of a Java text block (JLS 3.10.6): incidental indentation
+    and trailing spaces stripped, then escapes interpreted."""
+    body = raw[3:-3].replace("\r\n", "\n").replace("\r", "\n")
+    newline = body.find("\n")
+    if newline < 0:
+        return PLACEHOLDER
+    lines = body[newline + 1 :].split("\n")
+    # The closing delimiter's line counts even when blank.
+    significant = [line for line in lines[:-1] if line.strip()] + [lines[-1]]
+    indent = min(len(line) - len(line.lstrip(" \t")) for line in significant)
+    text = "\n".join(
+        line[indent:].rstrip(" \t") if line.strip() else "" for line in lines
+    )
+    return re.sub(
+        r"\\(\n|.)",
+        lambda m: {"\n": "", "s": " ", "n": "\n", "t": "\t", "r": "\r"}.get(
+            m.group(1), m.group(1)
+        ),
+        text,
+    )
+
+
 _STRING_TYPES = ("String", "java.lang.String")
 _SCOPES = ("method_declaration", "constructor_declaration", "lambda_expression")
 # Nested helper calls folded at most this deep.
@@ -461,6 +484,9 @@ class _Values:
             return [PLACEHOLDER]
         kind = node.type
         if kind == "string_literal":
+            raw = _text(node, self.content)
+            if raw.startswith('"""'):
+                return [_text_block(raw)]
             parts = []
             for child in node.named_children:
                 text = _text(child, self.content)
