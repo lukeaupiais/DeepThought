@@ -563,18 +563,18 @@
   },
   "gson": {
     "ambiguous_excludes": 2,
-    "ambiguous_includes": 2129,
-    "ambiguous_unjudged": 80,
+    "ambiguous_includes": 709,
+    "ambiguous_unjudged": 53,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
       },
       "tree-sitter.java-call-typed-receiver": {
-        "confirmed": 3342,
-        "unjudged": 7
+        "confirmed": 4703,
+        "unjudged": 34
       },
       "tree-sitter.java-enclosing-type-method": {
-        "confirmed": 1530,
+        "confirmed": 1555,
         "unjudged": 3
       },
       "tree-sitter.java-inherited-method": {
@@ -584,37 +584,37 @@
         "confirmed": 8
       },
       "tree-sitter.java-type-member": {
-        "confirmed": 391
+        "confirmed": 425
       },
       "tree-sitter.java-type-name": {
         "confirmed": 2378,
         "unjudged": 380
       }
     },
-    "confirmed": 7726,
+    "confirmed": 9146,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 575,
+          "confirmed": 686,
           "expected": 788
         },
         "2": {
-          "confirmed": 1031,
+          "confirmed": 1157,
           "expected": 2094
         },
         "3": {
-          "confirmed": 1006,
+          "confirmed": 1023,
           "expected": 2170
         }
       },
-      "confirmed": 2612,
+      "confirmed": 2866,
       "expected": 5052,
-      "extra": 0,
-      "missed": 2440,
-      "precision": 1.0,
-      "recall": 0.517,
+      "extra": 5,
+      "missed": 2186,
+      "precision": 0.9983,
+      "recall": 0.5673,
       "seeds": 164,
       "seeds_undeclared": 0
     },
@@ -627,16 +627,16 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 3418,
+    "missed": 2004,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 2124,
+      "ambiguous:multiple_declarations": 710,
       "no_call_site": 1165,
       "unresolved:attribute_call": 122,
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.6907,
-    "unjudged": 390,
+    "recall": 0.8186,
+    "unjudged": 417,
     "unresolved_expected": 129,
     "unresolved_unjudged": 8034
   },

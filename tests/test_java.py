@@ -875,7 +875,7 @@ class JavaTests(unittest.TestCase):
             "  void e(String x) {}",  # 38
             "  void d(double x) {}",  # 39
             "  void d(Object x) {}",  # 40
-            "  void inside() { h(\"x\"); }",  # 41
+            '  void inside() { h("x"); }',  # 41
             "  void p(int x) {}",  # 42
             "  void p(String x) {}",  # 43
             "  void k2(Plain x) {}",  # 44
@@ -928,7 +928,7 @@ class JavaTests(unittest.TestCase):
             "    a.g2(1, o.toString());",  # 91: phase 1 or phase 2
             "    a.fl(1.5f);",  # 92
             "    a.n((long) 1);",  # 93: a primitive cast
-            "    a.s((\"x\"));",  # 94: parentheses
+            '    a.s(("x"));',  # 94: parentheses
             "    a.s((x.y.Integer) o);",  # 95: not java.lang.Integer
             "    a.arr(null);",  # 96: an array is an Object
             "    a.dup(new Dup());",  # 97: two classes named Dup
