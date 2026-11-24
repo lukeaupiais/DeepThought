@@ -174,6 +174,7 @@ class GraphQueryService:
         database_scope=False,
         repository_scope=False,
         required_capability=None,
+        metric=None,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -235,6 +236,8 @@ class GraphQueryService:
                     "returned": 0,
                     "truncated": False,
                 }
+                if metric is not None:
+                    response[metric] = metrics.get(metric)
                 if repository_scope:
                     # Several snapshots; their own analysis facts are per item.
                     del response["capabilities"], response["analysis_status"]
@@ -769,6 +772,86 @@ class GraphQueryService:
             "Observed CALLS edges only; absence does not prove that no calls exist."
         )
         if len(_json(response).encode()) > budget:
+            raise ValueError("Query response exceeds output byte budget")
+        return response
+
+    async def get_call_sites(
+        self,
+        name,
+        repo_url,
+        *,
+        snapshot_id,
+        file_path=None,
+        limit=20,
+        max_output_bytes=16000,
+        timeout=5,
+    ):
+        """Every call site that calls ``name`` (the last name of its callee,
+        ``param`` for ``c.req.param()``): linked ones by their CALLS edge and
+        target, the others with the reason no rule linked them, and how many
+        there are of each."""
+        _text(name, "name")
+        if file_path is not None:
+            _text(file_path, "file_path")
+        _bounds(limit, max_output_bytes, timeout)
+        parameters = {"name": name, "file_path": file_path}
+        linked = """MATCH (caller)-[r:CALLS {name:$name}]->(target)
+            WHERE caller.repo_url=$repo_url AND caller.snapshot_id=$snapshot_id
+              AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
+              AND ($file_path IS NULL OR caller.file_path=$file_path)"""
+        unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
+            WHERE $file_path IS NULL OR call.file_path=$file_path"""
+        counts = await self._read(
+            "CALL () { "
+            + linked
+            + " RETURN 'linked' AS status,count(r) AS calls UNION ALL "
+            + unlinked
+            + " RETURN call.status AS status,count(call) AS calls } "
+            "RETURN status,sum(calls) AS calls ORDER BY status",
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=3,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        response = await self._read(
+            "CALL () { "
+            + linked
+            + " RETURN 'linked' AS status,r.callee AS callee,caller.file_path AS file_path,"
+            "r.line AS line,r.column AS column,null AS reason,null AS resolver,"
+            "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
+            + unlinked
+            + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
+            "call.line AS line,call.column AS column,call.reason AS reason,"
+            "call.resolver AS resolver,null AS target,"
+            "coalesce(call.candidates,[]) AS candidates,null AS relationship } "
+            "RETURN status,callee,file_path,line,column,reason,resolver,target,candidates,"
+            "relationship "
+            "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
+            parameters,
+            repo_url,
+            snapshot_id,
+            limit=limit,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+            metric="unresolved_call_sites",
+        )
+        recorded = response.pop("unresolved_call_sites")
+        response["counts"] = {
+            status: 0 for status in ("linked", "ambiguous", "unresolved")
+        } | {item["status"]: item["calls"] for item in counts["items"]}
+        if recorded is not True:
+            # Written before unlinked calls were stored.
+            response["status"] = "unsupported_or_unobserved"
+        response["semantics"] = (
+            "Call sites whose callee's last name is the name given, as the "
+            "parser reads them. Linked calls carry the rule that linked them; "
+            "unresolved and ambiguous ones carry the reason. Calls made "
+            "through other names (aliases, callbacks, dynamic dispatch) are "
+            "not counted."
+        )
+        if len(_json(response).encode()) > max_output_bytes:
             raise ValueError("Query response exceeds output byte budget")
         return response
 

@@ -150,10 +150,26 @@ Tree-sitter extraction records each call whose callee is a plain or dotted name
 enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
-inheritance and dynamic dispatch are not checked. Resolved call edges come from
-SCIP. The original builder's `confidence` floats and its `resolved_method` label
+inheritance and dynamic dispatch are not checked. No CALLS edge comes from SCIP
+yet: the `scip` tool records references, file dependencies and implementations,
+and the original's SCIP tool did not write CALLS either. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
+
+A call site that no rule links to exactly one declaration is still stored: an
+`UnresolvedCall` node with its `callee`, `name` (the callee's last name, `param`
+for `c.req.param()`), file, line and column, `status` (`unresolved` or
+`ambiguous`), the `resolver` that left it unlinked (`tree-sitter`) and the
+`reason` it gives and, when ambiguous, the
+`candidates`' qualified names. Its caller (the innermost enclosing declaration,
+or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+query counts the linked, ambiguous and unresolved calls of a name:
+`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+returns those counts and the call sites, each linked one with its target and
+rule. Snapshots written before this change have no such nodes and answer
+`unsupported_or_unobserved`. Calls made through another name (an alias, a
+callback, dynamic dispatch) are not counted.
 
 | Rule | Links |
 |---|---|
@@ -2140,7 +2156,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Flask `<id>`, Express
+  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  package whose `package.json` depends on `next`: `pages/api/**` (or
+  `src/pages/api/**`) is one route for any method, handled by the default
+  export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
+  `src/app`) is one route per HTTP verb the module exports (a function, a
+  `const`, or `export { local as VERB }`), handled by that definition. Route
+  groups `(name)` and parallel slots `@name` add no segment; `_private`
+  directories and intercepting routes `(.)name` are not routes; `[x]` is a
+  route variable and `[...x]`/`[[...x]]` match the rest of the path. A
+  single literal `basePath` in `next.config.{js,mjs,cjs,ts}` prefixes every
+  route; rewrites and middleware are not read. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no
@@ -4271,7 +4297,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.

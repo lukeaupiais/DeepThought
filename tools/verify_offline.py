@@ -44,9 +44,14 @@ root = pathlib.Path(sys.argv[1])
 result = analyze_repository(root / 'python', repository_id='core', languages=('python',))
 assert result.status == 'failed', result
 assert {d.code for d in result.diagnostics} == {'grammar_unavailable'}, result.diagnostics
-result = ingest_scip(root / 'scip/python.scip', repository_id='core')
-assert result.status == 'failed'
-assert {d.code for d in result.diagnostics} == {'protocol_unavailable'}, result.diagnostics
+# protobuf is a core dependency; an install without it must refuse SCIP
+# ingestion rather than report an index with no facts.
+try:
+    ingest_scip(root / 'scip/python.scip', repository_id='core')
+except RuntimeError as error:
+    assert 'protobuf' in str(error), error
+else:
+    raise AssertionError('SCIP ingestion without protobuf must fail')
 graph = compose_graph([result])
 assert graph.status == 'failed'
 assert GraphSnapshot.from_json(graph.to_json()) == graph
