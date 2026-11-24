@@ -16,6 +16,7 @@ from copy import deepcopy
 from .._version import __version__
 from .. import calls as call_rules
 from .. import imports as import_rules
+from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from ..syntax import (
@@ -560,6 +561,20 @@ BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
         "is (after the items and uses of the function bodies around it).",
     )
 )
+GO_INTERFACE_RULE = register_rule(
+    EvidenceRule(
+        go_interfaces.GO_INTERFACE_METHOD_SET,
+        "name_matched",
+        "A Go type (or a pointer to it) declared in the analyzed files "
+        "declares, for each method of an interface of the same module (its "
+        "own, and those of the interfaces it embeds: of the same module, "
+        "'error', or exported standard library interfaces), exactly one "
+        "method of that name whose parameter and result types are written "
+        "alike once each named type is tied to its package; an unexported "
+        "method only in the interface's package. The type IMPLEMENTS the "
+        "interface, and each interface method DISPATCHES_TO the type's method.",
+    )
+)
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
     EvidenceRule(
         base_rules.RUST_IMPL_TRAIT,
@@ -929,6 +944,38 @@ class TreeSitterTool(AnalysisTool):
                     },
                 )
             )
+        implementations = go_interfaces.resolve_go_implementations(result)
+        for item in implementations:
+            relationships.append(
+                RelationshipData(
+                    "IMPLEMENTS",
+                    [kinds[item.type_id], "Symbol"],
+                    {"qualified_name": qualified[item.type_id], "repo_url": repo_url},
+                    [kinds[item.interface_id], "Symbol"],
+                    {
+                        "qualified_name": qualified[item.interface_id],
+                        "repo_url": repo_url,
+                    },
+                    _evidence(GO_INTERFACE_RULE),
+                )
+            )
+        # A call of an interface method can run the method each implementing
+        # type declares: the interface method dispatches to it.
+        dispatches = sorted({pair for item in implementations for pair in item.methods})
+        for interface_method, method in dispatches:
+            relationships.append(
+                RelationshipData(
+                    "DISPATCHES_TO",
+                    [kinds[interface_method], "Symbol"],
+                    {
+                        "qualified_name": qualified[interface_method],
+                        "repo_url": repo_url,
+                    },
+                    [kinds[method], "Symbol"],
+                    {"qualified_name": qualified[method], "repo_url": repo_url},
+                    _evidence(GO_INTERFACE_RULE),
+                )
+            )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
         for resolution in resolutions:
             status_counts[resolution.status] += 1
@@ -959,6 +1006,7 @@ class TreeSitterTool(AnalysisTool):
                 "import_resolution": status_counts,
                 "call_resolution": dict(sorted(call_counts.items())),
                 "supertype_resolution": dict(sorted(base_counts.items())),
+                "go_implementations": len(implementations),
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,
