@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -20,6 +21,9 @@ from deepthought.calls import (
     JAVA_TYPE_MEMBER,
     JAVA_TYPED_RECEIVER,
     JAVA_TYPE_NAME,
+    _JavaScope,
+    _overridden,
+    name_bindings,
     resolve_calls,
 )
 from deepthought.inheritance import JAVA_BASE_TYPE, resolve_supertypes
@@ -1519,6 +1523,59 @@ class JavaTests(unittest.TestCase):
         self.assertIsNone(site.argument_fields)
         site = next(s for s in sites.values() if s.line == 34)
         self.assertEqual(site.argument_fields, (("Prim", "ONE"),))
+
+    def test_assignability_of_written_types(self):
+        result = analyze(
+            {
+                "p/A.java": "package p;\n"
+                "class Base {}\n"
+                "class Sub extends Base {}\n"
+                "class A {}\n"
+            }
+        )
+        scope = _JavaScope(result, name_bindings(result).by_symbol)
+        at = ("p/A.java", ("A",))
+        for near, far, phase, expected in (
+            # A type parameter (`?` of a method, `*` of a class) has no known
+            # bounds, even against an array or a primitive.
+            ("?", "int", 1, None),
+            ("int[]", "*", 1, None),
+            # Arrays of one dimension count: primitive elements must be the
+            # same type, class elements subtypes.
+            ("int[]", "int[]", 1, True),
+            ("int[]", "long[]", 1, False),
+            ("Sub[]", "Base[]", 1, True),
+            # Any array is an Object; one of more dimensions than a
+            # parameter's array may still be one, but never a primitive.
+            ("Sub[][]", "Object", 1, True),
+            ("Sub[][]", "Object[]", 1, None),
+            ("Sub[]", "Base", 1, None),
+            ("Sub[]", "int", 1, False),
+            # Unboxing, then widening, in phase 2 only; an unknown class or
+            # one with unread bases may unbox to nothing known.
+            ("Integer", "long", 2, True),
+            ("Integer", "int", 2, True),
+            ("Integer", "short", 2, False),
+            ("Integer", "int", 1, False),
+            ("Missing", "int", 2, None),
+        ):
+            with self.subTest(near=near, far=far, phase=phase):
+                self.assertIs(scope.subtype(near, at, far, at, phase), expected)
+
+    def test_override_needs_the_same_known_parameter_types(self):
+        def method(types):
+            return SimpleNamespace(
+                parameters=1,
+                variadic=False,
+                definition=SimpleNamespace(parameter_types=types),
+            )
+
+        self.assertTrue(_overridden(method(("int",)), [(1, False, ("int",))]))
+        self.assertFalse(_overridden(method(("int",)), [(1, False, ("long",))]))
+        # Unknown parameter types match only unknown ones.
+        self.assertTrue(_overridden(method(None), [(1, False, None)]))
+        self.assertFalse(_overridden(method(None), [(1, False, ("int",))]))
+        self.assertFalse(_overridden(method(("int",)), [(1, True, ("int",))]))
 
     def test_overloads_ruled_out_or_left_open_by_what_types_are_known(self):
         lines = [

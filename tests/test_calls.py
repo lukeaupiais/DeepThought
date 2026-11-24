@@ -1117,6 +1117,13 @@ class TypeScriptCallTests(unittest.TestCase):
             with self.subTest(properties=bad), self.assertRaises(ValueError):
                 replace(owner, properties=bad)
 
+    def test_a_binding_that_declares_no_callable_links_nothing(self):
+        result = analyze({"main.ts": "enum E { A }\nE();\n"}, "typescript")
+        self.assertEqual(
+            links(result)[("main.ts", 2, "E")],
+            ("unresolved", None, None, "local_binding"),
+        )
+
     def test_javascript_receivers_bound_to_new(self):
         result = analyze(
             {
