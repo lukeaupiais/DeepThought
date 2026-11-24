@@ -1117,6 +1117,124 @@ _PHP_NAMES = {"name", "qualified_name", "relative_name"}
 _PHP_FOLD = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
+def _php_resolve(text, namespace, uses, function=False):
+    """The fully qualified names a written class or function name may
+    refer to, in the order PHP tries them."""
+    if text.startswith("\\"):
+        return (text[1:].replace("\\", "."),)
+    parts = text.split("\\")
+    if len(parts) > 1 and parts[0].translate(_PHP_FOLD) == "namespace":
+        return (".".join((*namespace, *parts[1:])),)
+    if len(parts) == 1 and function:
+        # An unqualified function: its `use function`, else the
+        # namespace's function, falling back to the global one.
+        imported = uses["function"].get(parts[0].translate(_PHP_FOLD))
+        if imported is not None:
+            return (imported,)
+        return (".".join((*namespace, parts[0])), parts[0])[0 if namespace else 1 :]
+    imported = uses["class"].get(parts[0].translate(_PHP_FOLD))
+    if imported is not None:
+        return (".".join((imported, *parts[1:])),)
+    return (".".join((*namespace, *parts)),)
+
+
+def _php_statements(node, content, namespace=(), uses=None):
+    """Each statement of a PHP file outside namespace and ``use``
+    declarations, with the namespace it is in and the class and function
+    names the ``use`` declarations before it alias (lowercased local name ->
+    dot-joined name)."""
+    if uses is None:
+        uses = {"class": {}, "function": {}}
+    for child in node.named_children:
+        if child.type == "namespace_definition":
+            name = child.child_by_field_name("name")
+            names = tuple(_text(name, content).split("\\")) if name else ()
+            body = child.child_by_field_name("body")
+            fresh = {"class": {}, "function": {}}
+            if body is None:
+                namespace, uses = names, fresh
+            else:
+                yield from _php_statements(body, content, names, fresh)
+            continue
+        if child.type == "namespace_use_declaration":
+            for specifier, kind, _, (local,) in _php_imports(child, content):
+                group = {"use": "class", "use_function": "function"}.get(kind)
+                if group is not None:
+                    uses[group][local.translate(_PHP_FOLD)] = specifier.replace(
+                        "\\", "."
+                    )
+            continue
+        yield child, namespace, uses
+
+
+def extract_php_supertypes(
+    tree, content: bytes, repository_id: str, file: str, definitions
+) -> list[Supertype]:
+    """The bases of each named PHP class-like declaration: a class's
+    ``extends`` (kind ``extends``) and ``implements`` (``implements``), an
+    interface's ``extends`` (``extends``), an enum's ``implements``, and the
+    traits a class, trait or enum body's ``use`` declarations name (``uses``).
+    ``qualified_name`` is the name read against the namespace and the ``use``
+    declarations before it, as PHP reads a class name."""
+    owners = {
+        (d.line, d.column): d
+        for d in definitions
+        if d.file == file and d.kind in _PHP_TYPES.values()
+    }
+    found, ordinals = [], {}
+    clauses = {"base_clause": "extends", "class_interface_clause": "implements"}
+    for statement, namespace, uses in _php_statements(tree.root_node, content):
+        stack = [statement]
+        while stack:
+            node = stack.pop()
+            stack.extend(reversed(node.named_children))
+            owner = (
+                owners.get((node.start_point.row + 1, node.start_point.column))
+                if node.type in _PHP_TYPES
+                else None
+            )
+            if owner is None:
+                continue
+            entries = []
+            for child in node.named_children:
+                if child.type in clauses:
+                    entries.extend(
+                        (name, clauses[child.type])
+                        for name in child.named_children
+                        if name.type in _PHP_NAMES
+                    )
+                elif child.type in {"declaration_list", "enum_declaration_list"}:
+                    entries.extend(
+                        (name, "uses")
+                        for member in child.named_children
+                        if member.type == "use_declaration"
+                        for name in member.named_children
+                        if name.type in _PHP_NAMES
+                    )
+            for entry, kind in entries:
+                name = _text(entry, content)
+                key = (owner.id, name, kind)
+                ordinal = ordinals.get(key, 0)
+                ordinals[key] = ordinal + 1
+                found.append(
+                    Supertype(
+                        id=identifier(
+                            repository_id, file, f"{owner.id}:{name}", kind, ordinal
+                        ),
+                        file=file,
+                        owner_id=owner.id,
+                        name=name,
+                        kind=kind,
+                        line=entry.start_point.row + 1,
+                        column=entry.start_point.column,
+                        end_line=entry.end_point.row + 1,
+                        end_column=entry.end_point.column,
+                        qualified_name=_php_resolve(name, namespace, uses)[0],
+                    )
+                )
+    return found
+
+
 def extract_php_call_sites(
     tree, content: bytes, repository_id: str, file: str, definitions
 ) -> list[CallSite]:
@@ -1137,26 +1255,6 @@ def extract_php_call_sites(
         reverse=True,
     )
     sites, ordinals = [], {}
-
-    def resolve(text, namespace, uses, function=False):
-        """The fully qualified names a written class or function name may
-        refer to, in the order PHP tries them."""
-        if text.startswith("\\"):
-            return (text[1:].replace("\\", "."),)
-        parts = text.split("\\")
-        if len(parts) > 1 and parts[0].translate(_PHP_FOLD) == "namespace":
-            return (".".join((*namespace, *parts[1:])),)
-        if len(parts) == 1 and function:
-            # An unqualified function: its `use function`, else the
-            # namespace's function, falling back to the global one.
-            imported = uses["function"].get(parts[0].translate(_PHP_FOLD))
-            if imported is not None:
-                return (imported,)
-            return (".".join((*namespace, parts[0])), parts[0])[0 if namespace else 1 :]
-        imported = uses["class"].get(parts[0].translate(_PHP_FOLD))
-        if imported is not None:
-            return (".".join((imported, *parts[1:])),)
-        return (".".join((*namespace, *parts)),)
 
     def owner(node, namespace, uses, written):
         """The class ``self``, ``static`` or ``parent`` (``written``) names
@@ -1187,7 +1285,9 @@ def extract_php_call_sites(
                     if base is not None
                     else None
                 )
-                return resolve(_text(base, content), namespace, uses) if base else ()
+                return (
+                    _php_resolve(_text(base, content), namespace, uses) if base else ()
+                )
             current = current.parent
         return ()
 
@@ -1197,7 +1297,7 @@ def extract_php_call_sites(
         written = _text(node, content)
         if written.translate(_PHP_FOLD) in {"self", "static", "parent"}:
             return owner(node, namespace, uses, written.translate(_PHP_FOLD))
-        return resolve(written, namespace, uses)
+        return _php_resolve(written, namespace, uses)
 
     def site(node, callee, kind, names):
         start = (node.start_point.row + 1, node.start_point.column)
@@ -1230,7 +1330,12 @@ def extract_php_call_sites(
                 function = node.child_by_field_name("function")
                 if function.type in _PHP_NAMES:
                     written = _text(function, content)
-                    site(node, written, "call", resolve(written, namespace, uses, True))
+                    site(
+                        node,
+                        written,
+                        "call",
+                        _php_resolve(written, namespace, uses, True),
+                    )
             elif node.type == "object_creation_expression":
                 named = next(
                     (c for c in node.named_children if c.type in _PHP_NAMES), None
@@ -1274,29 +1379,8 @@ def extract_php_call_sites(
                         ),
                     )
 
-    def statements(node, namespace, uses):
-        for child in node.named_children:
-            if child.type == "namespace_definition":
-                name = child.child_by_field_name("name")
-                names = tuple(_text(name, content).split("\\")) if name else ()
-                body = child.child_by_field_name("body")
-                fresh = {"class": {}, "function": {}}
-                if body is None:
-                    namespace, uses = names, fresh
-                else:
-                    statements(body, names, fresh)
-                continue
-            if child.type == "namespace_use_declaration":
-                for specifier, kind, _, (local,) in _php_imports(child, content):
-                    group = {"use": "class", "use_function": "function"}.get(kind)
-                    if group is not None:
-                        uses[group][local.translate(_PHP_FOLD)] = specifier.replace(
-                            "\\", "."
-                        )
-                continue
-            calls(child, namespace, uses)
-
-    statements(tree.root_node, (), {"class": {}, "function": {}})
+    for node, namespace, uses in _php_statements(tree.root_node, content):
+        calls(node, namespace, uses)
     return sites
 
 

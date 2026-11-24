@@ -14,6 +14,7 @@ from .calls import (
     RUST_IMPL_TYPE,  # noqa: F401 (re-exported)
     CallResolution,
     _JavaScope,
+    _PhpCalls,
     _pick,
     _RustPaths,
     name_bindings,
@@ -25,6 +26,7 @@ BASE_IMPORTED_NAME = "tree-sitter.base-imported-name"
 BASE_MODULE_ATTRIBUTE = "tree-sitter.base-module-attribute"
 JAVA_BASE_TYPE = "tree-sitter.java-base-type"
 RUST_SUPERTRAIT = "tree-sitter.rust-supertrait"
+PHP_BASE_NAME = "tree-sitter.php-base-name"
 
 _TYPES = {"Class", "Interface"}
 
@@ -38,7 +40,7 @@ def resolve_supertypes(result: AnalysisResult) -> tuple[CallResolution, ...]:
     bindings = name_bindings(result)
     languages = {item.file: item.language for item in result.coverage}
     java = _JavaScope(result, bindings.by_symbol)
-    rust = None
+    rust = php = None
     resolutions = []
     for item in sorted(result.supertypes, key=lambda value: value.id):
         # A base is evaluated in the scope that encloses its declaration, and
@@ -55,6 +57,31 @@ def resolve_supertypes(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     {"Trait"},
                     RUST_SUPERTRAIT,
                     RUST_SUPERTRAIT,
+                )
+            )
+            continue
+        if languages.get(item.file) == "php":
+            # A class extends a class, implements interfaces and uses
+            # traits; an interface extends interfaces.
+            php = php or _PhpCalls(result, languages)
+            owner = by_id[item.owner_id]
+            kind = (
+                "Trait"
+                if item.kind == "uses"
+                else "Class"
+                if item.kind == "extends" and owner.kind == "Class"
+                else "Interface"
+            )
+            resolutions.append(
+                _pick(
+                    item.id,
+                    [
+                        d
+                        for d in php.types.get(php.fold(item.qualified_name), ())
+                        if d.kind == kind
+                    ],
+                    PHP_BASE_NAME,
+                    "type_not_declared",
                 )
             )
             continue

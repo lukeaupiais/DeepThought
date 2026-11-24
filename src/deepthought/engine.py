@@ -33,6 +33,7 @@ from .syntax import (
     extract_csharp,
     extract_php,
     extract_php_call_sites,
+    extract_php_supertypes,
     extract_ruby,
     extract_call_sites,
     extract_cargo_manifest,
@@ -505,7 +506,7 @@ def analyze_repository(
                     )
                     continue
                 if language == "php":
-                    # PHP: declarations, imports and calls.
+                    # PHP: declarations, imports, calls and bases.
                     declared = extract_php(tree, content, repository_id, relative)
                     definitions.extend(declared)
                     imports.extend(
@@ -513,6 +514,11 @@ def analyze_repository(
                     )
                     call_sites.extend(
                         extract_php_call_sites(
+                            tree, content, repository_id, relative, declared
+                        )
+                    )
+                    supertypes.extend(
+                        extract_php_supertypes(
                             tree, content, repository_id, relative, declared
                         )
                     )

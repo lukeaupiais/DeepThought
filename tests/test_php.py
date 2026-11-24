@@ -9,6 +9,7 @@ import unittest
 from deepthought import analyze_repository
 from deepthought.calls import (
     PHP_CALL_FUNCTION,
+    PHP_CALL_INHERITED_METHOD,
     PHP_CALL_NEW,
     PHP_CALL_STATIC_METHOD,
     PHP_CALL_THIS_METHOD,
@@ -19,6 +20,7 @@ from deepthought.imports import (
     PHP_USE_NAMESPACE,
     resolve_imports,
 )
+from deepthought.inheritance import PHP_BASE_NAME, resolve_supertypes
 from deepthought.models import AnalysisResult
 from deepthought.syntax import declaration_sources, make_parser
 
@@ -135,7 +137,13 @@ class PhpTests(unittest.TestCase):
         self.assertEqual(
             [c.callee for c in result.call_sites], ["function_exists", "b"]
         )
-        self.assertEqual(result.supertypes, ())
+        self.assertEqual(
+            [(t.name, t.kind, t.qualified_name) for t in result.supertypes],
+            [
+                ("Base", "extends", "App.Http.Base"),
+                ("Contract", "implements", "App.Http.Contract"),
+            ],
+        )
 
     def test_use_imports_link_to_declaring_files(self):
         files = {
@@ -421,7 +429,11 @@ namespace Two { function g() { User::find(); } }
                     ("b.php", "Lib.Models.Plain"),
                     PHP_CALL_NEW,
                 ),
-                ("a.php", 12, 35): ("self", ("a.php", "App.C"), PHP_CALL_NEW),
+                ("a.php", 12, 35): (
+                    "self",
+                    ("a.php", "App.Base.__construct"),
+                    PHP_CALL_NEW,
+                ),
                 ("a.php", 12, 47): (
                     "parent",
                     ("a.php", "App.Base.__construct"),
@@ -449,7 +461,11 @@ namespace Two { function g() { User::find(); } }
                     ("b.php", "Lib.Models.User.find"),
                     PHP_CALL_STATIC_METHOD,
                 ),
-                ("a.php", 13, 76): ("SELF::up", None, "not_declared_on_type"),
+                ("a.php", 13, 76): (
+                    "SELF::up",
+                    ("a.php", "App.Base.up"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
                 ("a.php", 14, 8): (
                     "$this->m",
                     ("a.php", "App.C.m"),
@@ -460,7 +476,11 @@ namespace Two { function g() { User::find(); } }
                     ("a.php", "App.C.m"),
                     PHP_CALL_THIS_METHOD,
                 ),
-                ("a.php", 14, 33): ("$this->up", None, "not_declared_on_type"),
+                ("a.php", 14, 33): (
+                    "$this->up",
+                    ("a.php", "App.Base.up"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
                 ("a.php", 15, 34): ("$this->m", None, "receiver_type_unknown"),
                 ("a.php", 15, 62): ("self::m", None, "receiver_type_unknown"),
                 ("a.php", 16, 27): ("self::m", None, "receiver_type_unknown"),
@@ -497,6 +517,258 @@ namespace Two { function g() { User::find(); } }
         self.assertNotIn('"qualified_names": null', result.to_json())
         with self.assertRaises(ValueError):
             dataclasses.replace(result.call_sites[0], qualified_names=("",))
+
+    def test_methods_are_found_through_traits_and_parents(self):
+        result = analyze(
+            {
+                "h.php": r"""<?php
+namespace App;
+use Vendor\Base as VendorBase;
+use App\Traits\Greets;
+interface Shape extends Named, \Countable { function area(); }
+interface Named {}
+trait Loud { function shout() {} function hello() {} }
+class Root { function __construct() {} function hello() {} function root() {} }
+class Mid extends Root implements Shape { use Greets, Loud; function area() {} }
+class Leaf extends Mid {
+    function go() {
+        $this->hello(); $this->shout(); $this->root(); $this->wave(); $this->area();
+        parent::hello(); self::root(); static::shout(); $this->nothing(); new Leaf();
+    }
+}
+class Outside extends VendorBase { function go() { $this->helper(); new Outside(); } }
+class Unknown { use Missing; function go() { $this->x(); } }
+class Both { use Loud, Echoes; function go() { $this->shout(); $this->hello(); } }
+class A extends B { function go() { $this->loop(); } }
+class B extends A {}
+enum Suit: string implements Named { use Loud; case H = 'h'; function go() { $this->shout(); } }
+""",
+                "t.php": r"""<?php
+namespace App\Traits;
+trait Greets { use \App\Loud; function wave() {} }
+namespace App;
+trait Echoes { function shout() {} }
+""",
+            }
+        )
+        names = {d.id: (d.file, d.symbol) for d in result.definitions}
+        facts = {s.id: s for s in result.supertypes}
+        self.maxDiff = None
+        self.assertEqual(
+            {
+                (
+                    facts[r.call_id].file,
+                    facts[r.call_id].line,
+                    facts[r.call_id].column,
+                ): (
+                    names[facts[r.call_id].owner_id][1],
+                    facts[r.call_id].kind,
+                    facts[r.call_id].qualified_name,
+                    names.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_supertypes(result)
+            },
+            {
+                ("h.php", 5, 24): (
+                    "App.Shape",
+                    "extends",
+                    "App.Named",
+                    ("h.php", "App.Named"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 5, 31): (
+                    "App.Shape",
+                    "extends",
+                    "Countable",
+                    None,
+                    "type_not_declared",
+                ),
+                ("h.php", 9, 18): (
+                    "App.Mid",
+                    "extends",
+                    "App.Root",
+                    ("h.php", "App.Root"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 9, 34): (
+                    "App.Mid",
+                    "implements",
+                    "App.Shape",
+                    ("h.php", "App.Shape"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 9, 46): (
+                    "App.Mid",
+                    "uses",
+                    "App.Traits.Greets",
+                    ("t.php", "App.Traits.Greets"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 9, 54): (
+                    "App.Mid",
+                    "uses",
+                    "App.Loud",
+                    ("h.php", "App.Loud"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 10, 19): (
+                    "App.Leaf",
+                    "extends",
+                    "App.Mid",
+                    ("h.php", "App.Mid"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 16, 22): (
+                    "App.Outside",
+                    "extends",
+                    "Vendor.Base",
+                    None,
+                    "type_not_declared",
+                ),
+                ("h.php", 17, 20): (
+                    "App.Unknown",
+                    "uses",
+                    "App.Missing",
+                    None,
+                    "type_not_declared",
+                ),
+                ("h.php", 18, 17): (
+                    "App.Both",
+                    "uses",
+                    "App.Loud",
+                    ("h.php", "App.Loud"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 18, 23): (
+                    "App.Both",
+                    "uses",
+                    "App.Echoes",
+                    ("t.php", "App.Echoes"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 19, 16): (
+                    "App.A",
+                    "extends",
+                    "App.B",
+                    ("h.php", "App.B"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 20, 16): (
+                    "App.B",
+                    "extends",
+                    "App.A",
+                    ("h.php", "App.A"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 21, 29): (
+                    "App.Suit",
+                    "implements",
+                    "App.Named",
+                    ("h.php", "App.Named"),
+                    PHP_BASE_NAME,
+                ),
+                ("h.php", 21, 41): (
+                    "App.Suit",
+                    "uses",
+                    "App.Loud",
+                    ("h.php", "App.Loud"),
+                    PHP_BASE_NAME,
+                ),
+                ("t.php", 3, 19): (
+                    "App.Traits.Greets",
+                    "uses",
+                    "App.Loud",
+                    ("h.php", "App.Loud"),
+                    PHP_BASE_NAME,
+                ),
+            },
+        )
+        sites = {c.id: c for c in result.call_sites}
+        self.assertEqual(
+            {
+                (
+                    sites[r.call_id].file,
+                    sites[r.call_id].line,
+                    sites[r.call_id].column,
+                ): (
+                    sites[r.call_id].callee,
+                    names.get(r.target_id),
+                    r.rule_id or r.reason,
+                )
+                for r in resolve_calls(result)
+            },
+            {
+                ("h.php", 12, 8): (
+                    "$this->hello",
+                    ("h.php", "App.Loud.hello"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 12, 24): (
+                    "$this->shout",
+                    ("h.php", "App.Loud.shout"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 12, 40): (
+                    "$this->root",
+                    ("h.php", "App.Root.root"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 12, 55): (
+                    "$this->wave",
+                    ("t.php", "App.Traits.Greets.wave"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 12, 70): (
+                    "$this->area",
+                    ("h.php", "App.Mid.area"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 13, 8): (
+                    "parent::hello",
+                    ("h.php", "App.Loud.hello"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 13, 25): (
+                    "self::root",
+                    ("h.php", "App.Root.root"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 13, 39): (
+                    "static::shout",
+                    ("h.php", "App.Loud.shout"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 13, 56): ("$this->nothing", None, "not_declared_on_type"),
+                ("h.php", 13, 74): (
+                    "Leaf",
+                    ("h.php", "App.Root.__construct"),
+                    PHP_CALL_NEW,
+                ),
+                ("h.php", 16, 51): ("$this->helper", None, "base_not_resolved"),
+                ("h.php", 16, 68): ("Outside", ("h.php", "App.Outside"), PHP_CALL_NEW),
+                ("h.php", 17, 45): ("$this->x", None, "base_not_resolved"),
+                ("h.php", 18, 47): ("$this->shout", None, "multiple_declarations"),
+                ("h.php", 18, 63): (
+                    "$this->hello",
+                    ("h.php", "App.Loud.hello"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+                ("h.php", 19, 36): ("$this->loop", None, "base_not_resolved"),
+                ("h.php", 21, 77): (
+                    "$this->shout",
+                    ("h.php", "App.Loud.shout"),
+                    PHP_CALL_INHERITED_METHOD,
+                ),
+            },
+        )
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        self.assertNotIn(
+            '"qualified_name": null',
+            analyze({"a.py": "class A(B): pass\n"}, ("python",)).to_json(),
+        )
+        with self.assertRaises(ValueError):
+            dataclasses.replace(result.supertypes[0], qualified_name="")
 
     def test_php_is_opt_in(self):
         default = analyze({"a.php": SOURCE, "a.py": "x = 1\n"}, languages=None)

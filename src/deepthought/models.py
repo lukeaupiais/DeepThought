@@ -578,7 +578,7 @@ class CallSite:
             raise ValueError("Caller identity must be a nonempty string or None")
 
 
-SUPERTYPE_KINDS = frozenset({"extends", "implements"})
+SUPERTYPE_KINDS = frozenset({"extends", "implements", "uses"})
 PACKAGE_KINDS = frozenset({"package", "module"})
 
 
@@ -588,7 +588,8 @@ class Supertype:
 
     ``kind`` is the clause that names it: Python bases and TypeScript
     ``extends`` are ``extends``; a TypeScript class's ``implements`` entries are
-    ``implements``.
+    ``implements``; a trait a PHP class, trait or enum body's ``use`` names is
+    ``uses``.
     """
 
     id: str
@@ -601,6 +602,9 @@ class Supertype:
     end_line: int
     end_column: int
     coordinate_encoding: str = "utf-8"
+    # PHP: the name, dot-joined and fully qualified, that PHP's name
+    # resolution gives it. None elsewhere.
+    qualified_name: str | None = None
 
     def __post_init__(self):
         validate_location(
@@ -615,6 +619,10 @@ class Supertype:
             isinstance(v, str) and v for v in (self.id, self.owner_id, self.name)
         ):
             raise ValueError("Supertype identity, owner and name must be nonempty")
+        if self.qualified_name is not None and (
+            not isinstance(self.qualified_name, str) or not self.qualified_name
+        ):
+            raise ValueError("qualified_name must be a nonempty string")
         if self.kind not in SUPERTYPE_KINDS:
             raise ValueError("Unsupported supertype kind")
 
@@ -913,6 +921,9 @@ class AnalysisResult:
                 del item["exported_names"]
             if item["reexported_as"] is None:
                 del item["reexported_as"]
+        for item in data["supertypes"]:
+            if item["qualified_name"] is None:
+                del item["qualified_name"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]

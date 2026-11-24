@@ -64,6 +64,7 @@ PHP_CALL_FUNCTION = "tree-sitter.php-call-function"
 PHP_CALL_NEW = "tree-sitter.php-call-new"
 PHP_CALL_STATIC_METHOD = "tree-sitter.php-call-static-method"
 PHP_CALL_THIS_METHOD = "tree-sitter.php-call-this-method"
+PHP_CALL_INHERITED_METHOD = "tree-sitter.php-call-inherited-method"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1678,9 +1679,12 @@ class _RustPaths:
 class _PhpCalls:
     """PHP calls by the names PHP's name resolution gives them
     (``CallSite.qualified_names``), compared ignoring ASCII case as PHP
-    compares function, class and method names."""
+    compares function, class and method names. A method a class does not
+    declare is looked up as PHP looks it up: in the traits the class uses,
+    then in the class it extends, through the resolved bases."""
 
     def __init__(self, result, languages):
+        self.result, self.languages = result, languages
         self.functions, self.methods, self.types = (defaultdict(list) for _ in range(3))
         for d in result.definitions:
             if languages.get(d.file) != "php":
@@ -1692,36 +1696,98 @@ class _PhpCalls:
                 self.methods[name].append(d)
             elif d.kind in _PHP_TYPES:
                 self.types[name].append(d)
+        self._bases = None
+
+    @staticmethod
+    def fold(name):
+        return name.translate(_PHP_FOLD)
+
+    def bases(self):
+        """Owner id -> (the class it extends, or False when that is not
+        resolved; the traits it uses, None for one not resolved)."""
+        if self._bases is None:
+            from .inheritance import resolve_supertypes
+
+            by_id = {d.id: d for d in self.result.definitions}
+            facts = {item.id: item for item in self.result.supertypes}
+            self._bases = defaultdict(lambda: (None, []))
+            for resolution in resolve_supertypes(self.result):
+                item = facts[resolution.call_id]
+                if self.languages.get(item.file) != "php":
+                    continue
+                parent, traits = self._bases[item.owner_id]
+                target = by_id.get(resolution.target_id)
+                if item.kind == "uses":
+                    traits.append(target)
+                elif item.kind == "extends" and by_id[item.owner_id].kind == "Class":
+                    parent = target or False
+                self._bases[item.owner_id] = (parent, traits)
+        return self._bases
+
+    def member(self, owner, method, seen=frozenset()):
+        """``(declarations, reason)``: the methods named ``method`` that the
+        class-like ``owner`` has, its own first, then its traits' (every
+        trait that has one), then its parent's."""
+        if owner.id in seen:
+            return [], "base_not_resolved"
+        seen = seen | {owner.id}
+        own = [
+            d
+            for d in self.methods.get(f"{self.fold(owner.symbol)}.{method}", ())
+            if d.file == owner.file
+        ]
+        if own:
+            return own, None
+        parent, traits = self.bases()[owner.id]
+        found = []
+        for trait in traits:
+            if trait is None:
+                # A trait that is not resolved may declare it too.
+                return [], "base_not_resolved"
+            declared, reason = self.member(trait, method, seen)
+            if reason == "base_not_resolved":
+                return [], reason
+            found.extend(d for d in declared if d not in found)
+        if found:
+            # One trait reached twice gives its method once.
+            return found, None
+        if parent is False:
+            return [], "base_not_resolved"
+        if parent is None:
+            return [], "not_declared_on_type"
+        return self.member(parent, method, seen)
 
     def call(self, site):
-        names = [n.translate(_PHP_FOLD) for n in site.qualified_names or ()]
+        names = [self.fold(n) for n in site.qualified_names or ()]
         if not names:
             # `self`, `static`, `parent` or `$this` with no named class.
             return CallResolution(site.id, "unresolved", reason="receiver_type_unknown")
         if site.kind == "new":
             classes = [d for d in self.types.get(names[0], ()) if d.kind == "Class"]
             if len(classes) == 1:
-                # What the construction runs: the class's own constructor.
-                constructor = self.methods.get(f"{names[0]}.__construct", ())
+                # What the construction runs: the constructor the class
+                # declares or inherits.
+                constructor, _ = self.member(classes[0], "__construct")
                 if len(constructor) == 1:
                     classes = constructor
             return _pick(site.id, classes, PHP_CALL_NEW, "not_defined")
         if "::" in site.callee or "->" in site.callee:
-            late = site.callee.startswith("$this->") or site.callee.translate(
-                _PHP_FOLD
+            late = site.callee.startswith("$this->") or self.fold(
+                site.callee
             ).startswith("static::")
+            rule = PHP_CALL_THIS_METHOD if late else PHP_CALL_STATIC_METHOD
             found = self.methods.get(names[0], ())
-            if not found and names[0].rsplit(".", 1)[0] in self.types:
-                # Inherited, from a trait, or magic: not followed.
+            owner, method = names[0].rsplit(".", 1)
+            owners = self.types.get(owner, ())
+            if found or not owners:
+                return _pick(site.id, found, rule, "not_defined")
+            if len(owners) > 1:
                 return CallResolution(
-                    site.id, "unresolved", reason="not_declared_on_type"
+                    site.id, "ambiguous", reason="multiple_declarations"
                 )
-            return _pick(
-                site.id,
-                found,
-                PHP_CALL_THIS_METHOD if late else PHP_CALL_STATIC_METHOD,
-                "not_defined",
-            )
+            found, reason = self.member(owners[0], method)
+            # Inherited, or from a trait; magic methods are not followed.
+            return _pick(site.id, found, PHP_CALL_INHERITED_METHOD, reason)
         for name in names:
             # The namespace's function, else the global one, as PHP tries them.
             if name in self.functions:

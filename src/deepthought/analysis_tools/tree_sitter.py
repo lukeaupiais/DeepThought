@@ -494,11 +494,18 @@ CALL_RULES.update(
             "before it.",
             call_rules.PHP_CALL_NEW: "A PHP 'new C()' names the class 'C' "
             "resolves to ('self', 'static' and 'parent' read from the named "
-            "class around the call), or that class's own '__construct'.",
+            "class around the call), or the '__construct' it declares or "
+            "inherits.",
             call_rules.PHP_CALL_STATIC_METHOD: "A PHP 'C::m()', 'self::m()' or "
             "'parent::m()' names the method 'm' declared on the class 'C' "
             "resolves to, the named class around the call, or the class it "
             "extends.",
+            call_rules.PHP_CALL_INHERITED_METHOD: "A PHP 'C::m()', "
+            "'self::m()', 'parent::m()', '$this->m()' or 'static::m()' whose "
+            "class does not declare 'm' names the method PHP's lookup finds: "
+            "in the traits the class uses (every resolved trait), else in the "
+            "class it extends, and so on up; a subclass may override it for "
+            "'$this' and 'static'.",
             call_rules.PHP_CALL_THIS_METHOD: "A PHP '$this->m()' or "
             "'static::m()' in a named class-like declaration names the method "
             "'m' that declaration declares; a subclass may override it.",
@@ -530,6 +537,16 @@ BASE_RULES[base_rules.RUST_SUPERTRAIT] = register_rule(
         "A Rust trait's supertrait (a bound of the trait or of 'where Self:') "
         "names a trait, its path read from the trait's module as a use path "
         "is (after the items and uses of the function bodies around it).",
+    )
+)
+BASE_RULES[base_rules.PHP_BASE_NAME] = register_rule(
+    EvidenceRule(
+        base_rules.PHP_BASE_NAME,
+        "resolved",
+        "A PHP class's extends names a class, an implements entry or an "
+        "interface's extends names an interface, and a 'use' in a class, "
+        "trait or enum body names a trait: the one the name resolves to, read "
+        "against the namespace and the 'use' declarations before it.",
     )
 )
 BASE_RULES[base_rules.RUST_IMPL_TRAIT] = register_rule(
