@@ -833,8 +833,8 @@
     },
     {
       "file": "src/adservice/src/main/java/hipstershop/AdServiceClient.java",
-      "line": 60,
-      "reason": "developer test client inside adservice"
+      "line": null,
+      "reason": "developer test client inside adservice (any line)"
     },
     {
       "file": "src/emailservice/email_client.py",
