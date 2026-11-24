@@ -764,7 +764,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 2877 | 1 | 0.570 | 1.0 |
+| gson | 164 | 5070 | 2878 | 0 | 0.568 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -827,7 +827,12 @@ dependent on such a row counts as unjudged, not extra; 238 rows cover gson's
 proto tests, and 4 engine dependents land on them: the test methods at
 `LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, as dependents of
 `Gson.toJson(Object, Type)` and `JsonElement.newJsonStringBuilder()`.
-gson's 1 extra is a real call that the truth has no edge for: a field
-initializer, `miniGson.getAdapter(...)` at `StreamingTypeAdaptersTest.java:43`,
-which is in no method or constructor span, so the class is not a dependent in
-the truth.
+A field initializer or initializer block runs when its class is constructed
+or loaded, and is in no method or constructor span. `JavaMethodSpans.java
+--initializers` lists them, and impact_truth.py (`--initializers`) makes the
+class the caller of their calls, unless a method inside them (an anonymous
+class's) holds the call. A class is only ever a caller: never a seed or a
+target. This adds 18 dependents to gson's truth, such as `miniGson.getAdapter(...)`
+at `StreamingTypeAdaptersTest.java:43` making the class a dependent of
+`Gson.getAdapter`. The engine reads that one already, which was gson's last
+extra.
