@@ -41,7 +41,7 @@
     {
       "id": "U2", "objective": "understand", "corpus": "contracts-robot-shop", "grader": "affected-set-v1",
       "prompt": "Which services call the catalogue service's GET /product/{sku} endpoint, directly or through the web proxy? Give each client call site.",
-      "truth": "robot-shop.json links with contract GET /product/{sku}: cart/server.js:362, ratings/html/src/Service/CatalogueService.php:27, web/static/js/controller.js:243, load-gen/robot-shop.py:68"
+      "truth": "robot-shop.json links with contract GET /product/{sku}: cart/server.js:362, ratings/html/src/Service/CatalogueService.php:32, web/static/js/controller.js:243, load-gen/robot-shop.py:68"
     },
     {
       "id": "U3", "objective": "understand", "corpus": "cobra", "grader": "affected-set-v1",
@@ -79,7 +79,7 @@
       "id": "C3", "objective": "check", "corpus": "contracts-robot-shop", "grader": "change-check-v1",
       "prompt": "Review this patch, which renames catalogue's GET /product/{sku} route to GET /products/item/{sku}. Is it complete across all services? List every client it misses.",
       "fault": "Patch at the robot-shop pin changing the catalogue route and the cart/server.js:362 and web/static/js/controller.js:243 clients only.",
-      "truth": "ratings/html/src/Service/CatalogueService.php:27 and load-gen/robot-shop.py:68"
+      "truth": "ratings/html/src/Service/CatalogueService.php:32 and load-gen/robot-shop.py:68"
     },
     {
       "id": "K1", "objective": "control", "corpus": "cobra", "grader": "exact-fact-v1",
