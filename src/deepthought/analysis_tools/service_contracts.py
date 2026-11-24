@@ -9,6 +9,7 @@ callers are the tree-sitter declarations of the same files, with the same
 identities, so a revision that also contains tree-sitter output joins them.
 """
 
+from collections import Counter
 from hashlib import sha256
 import dataclasses
 from pathlib import PurePosixPath
@@ -2860,6 +2861,9 @@ class ServiceContractTool(AnalysisTool):
                 "grpc_calls": len(grpc.calls),
                 "grpc_call_resolution": dict(sorted(grpc_counts.items())),
                 "proto_files": dict(sorted(grpc.proto_files.items())),
+                "proto_readers": dict(
+                    sorted(Counter(grpc.proto_readers.values()).items())
+                ),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
                 "fetch, axios, request, Go net/http and C# HttpClient requests with "
