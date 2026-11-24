@@ -620,6 +620,9 @@ def route_regressions(report, baseline):
 
 
 TABLE_LANGUAGES = {"ruby": (".rb", "::"), "php": (".php", "\\")}
+# Mongoose models have no class: a model is ``file::Name``, the file that
+# declares it and the name it is declared under.
+MONGOOSE_LANGUAGES = ("javascript", "typescript")
 
 
 def score_tables(corpus, workspace, examples=10):
@@ -634,6 +637,8 @@ def score_tables(corpus, workspace, examples=10):
     is a model the engine maps that the labels neither list nor set aside
     under ``not_counted``. The engine runs with its defaults, file limit
     included, on the corpus's language only (``language``, Ruby by default).
+    ``language: mongoose`` scores Mongoose models (tools/mongoose_collection_oracle.cjs)
+    on JavaScript and TypeScript, each named ``file::Model``.
     """
     import asyncio
 
@@ -641,13 +646,31 @@ def score_tables(corpus, workspace, examples=10):
 
     labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
     language = corpus.get("language", "ruby")
-    suffix, separator = TABLE_LANGUAGES[language]
+    mongoose = language == "mongoose"
+    languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
+    suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze("tables", languages=[language])
+        DataContractTool(Path(workspace)).analyze("tables", languages=languages)
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     mapped = {}
     for r in output.relationships:
+        if mongoose:
+            source = nodes.get(r.source_match.get("qualified_name"))
+            target = nodes.get(r.target_match.get("qualified_name"))
+            rule = str(r.properties.get("rule_id", ""))
+            if (
+                r.type == "MAPS_TO"
+                and rule.startswith("data-contracts.mongoose")
+                and source is not None
+                and target is not None
+            ):
+                path = source.properties.get("file_path") or source.properties.get(
+                    "path"
+                )
+                name = f"{path}::{r.properties.get('model')}"
+                mapped.setdefault(name, set()).add(target.properties.get("name"))
+            continue
         source = nodes.get(r.source_match.get("qualified_name"))
         target = nodes.get(r.target_match.get("qualified_name"))
         if (
@@ -771,7 +794,9 @@ def missing_requirements(manifest, names=()):
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
     for corpus in manifest.get("tables", ()):
         if selected(corpus):
-            modules.add(LANGUAGES[corpus.get("language", "ruby")][1])
+            language = corpus.get("language", "ruby")
+            for lang in MONGOOSE_LANGUAGES if language == "mongoose" else (language,):
+                modules.add(LANGUAGES[lang][1])
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
 
 
