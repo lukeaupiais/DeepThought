@@ -159,6 +159,24 @@
         "http",
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-graphql-apollo-fullstack-tutorial",
+      "url": "https://github.com/apollographql/fullstack-tutorial",
+      "commit": "fca98dec747244a6cd08e3611f826db01617e208",
+      "labels": "../fixtures/service_contracts/graphql-apollo-fullstack-tutorial.json",
+      "kinds": [
+        "graphql"
+      ]
+    },
+    {
+      "name": "contracts-graphql-apollo-spotify-showcase",
+      "url": "https://github.com/apollographql/spotify-showcase",
+      "commit": "5a9afc5c96ef5a60f07d438dab5088bf0f6d661e",
+      "labels": "../fixtures/service_contracts/graphql-apollo-spotify-showcase.json",
+      "kinds": [
+        "graphql"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",

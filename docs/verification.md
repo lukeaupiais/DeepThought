@@ -290,10 +290,18 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | online-boutique | http | 9 / 9 / 9 | 1 / 1 / 1 |
 | robot-shop | http | 4 / 4 / 42 | 3 / 3 / 17 |
 | robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
+| apollo fullstack-tutorial | graphql | 7 / 8 / 7 | 1 / 2 / 1 |
+| apollo spotify-showcase | graphql | 46 / 46 / 46 | 2 / 2 / 2 |
 
 Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
 `AdServiceClient.java` inside adservice, which calls its own service.
+
+The two GraphQL corpora are labelled by graphql-core, not by hand
+(`tools/graphql_client_oracle.py`, see the fixtures README). A prediction is a
+REQUESTS edge to a GraphqlField, placed at the request line and at the
+field's declaration. The fullstack tutorial's wrong link joins its `start/`
+client, whose own server declares nothing, to `final/server`.
 
 ## Metamorphic checks
 
