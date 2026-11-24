@@ -53,11 +53,14 @@ from ..service_contracts.messaging import (
     stomp_prefixes,
 )
 from ..service_contracts.openapi import generated_apis
+from ..service_contracts.aspnet import extract_aspnet
+from ..service_contracts.php import extract_php
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
     extract_spring,
     java_constants,
+    java_constructions,
 )
 from ..service_contracts.script_constants import (
     ScriptCalls,
@@ -76,9 +79,53 @@ from .contracts import (
 from .evidence import EvidenceRule, register_rule
 from .registry import register_tool
 
-SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "typescript")
+SUPPORTED_LANGUAGES = (
+    "csharp",
+    "go",
+    "java",
+    "javascript",
+    "php",
+    "python",
+    "typescript",
+)
 
 ROUTE_RULES = {
+    "aspnet-controller": register_rule(
+        EvidenceRule(
+            "service-contracts.aspnet-controller-route",
+            "pattern_matched",
+            "A method of an ASP.NET Core controller (a class with "
+            "[ApiController], deriving from Controller or ControllerBase, or "
+            "named ...Controller) carries [HttpGet], [HttpPost], ... or "
+            "[Route] with a literal template, joined with the class's [Route] "
+            "templates; [controller], [action] and [area] are replaced. "
+            "Conventional routes (MapControllerRoute) are not read, and paths "
+            "are matched with the case they are written in.",
+        )
+    ),
+    "aspnet-minimal-api": register_rule(
+        EvidenceRule(
+            "service-contracts.aspnet-minimal-api-route",
+            "pattern_matched",
+            "A MapGet, MapPost, MapPut, MapDelete, MapPatch or MapMethods call "
+            "with a literal template gives this route, under the literal "
+            "prefixes of the MapGroup calls its receiver is built from; a "
+            "RouteGroupBuilder or IEndpointRouteBuilder parameter has an "
+            "unknown prefix.",
+        )
+    ),
+    "symfony": register_rule(
+        EvidenceRule(
+            "service-contracts.symfony-route",
+            "pattern_matched",
+            "A method of a PHP class carries a Route annotation (in its "
+            "docblock) or attribute, imported from Symfony's Routing "
+            "Annotation or Attribute namespace, whose literal path, joined "
+            "with the class's own Route path, and methods give this route; "
+            "routes in YAML, XML or PHP config files and the kernel's prefix "
+            "are not read.",
+        )
+    ),
     "spring-mvc": register_rule(
         EvidenceRule(
             "service-contracts.spring-route-mapping",
@@ -618,6 +665,13 @@ GRPC_SERVER_RULES = {
             grpc_contracts.JAVA_IMPL_BASE,
             "A class extending XGrpc.XImplBase declares a method named as this "
             "rpc of service X with a lowercase first letter.",
+        ),
+        (
+            grpc_contracts.CSHARP_SERVICE_BASE,
+            "A C# class deriving from X.XBase (the base class Grpc.Tools "
+            "generates inside the static class X), or a class of the same "
+            "file deriving from such a class, declares a method named as this "
+            "rpc of service X.",
         ),
         (
             grpc_contracts.NODE_ADD_SERVICE,
@@ -1263,6 +1317,15 @@ class ServiceContractTool(AnalysisTool):
                 else:
                     seen.add(qualified)
                     constants[qualified] = fields
+        # Arguments of every `new` of a Java class, for the fields its
+        # constructors set from their parameters.
+        constructions = {}
+        for coverage, content, tree in sources:
+            if coverage.language == "java" and b"new " in content:
+                for qualified, calls in java_constructions(
+                    tree, content, constants
+                ).items():
+                    constructions.setdefault(qualified, []).extend(calls)
         # Spring interfaces openapi-generator makes from specs at build time.
         # Java API classes it makes for clients, and the modules that set a
         # client's base URL at run time (ApiClient.setBasePath / setServers).
@@ -1325,7 +1388,15 @@ class ServiceContractTool(AnalysisTool):
         scripts = _script_constants(root, sources)
         calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
-            if coverage.language == "java":
+            if coverage.language == "csharp":
+                found = extract_aspnet(
+                    tree, content, repo_url, coverage.file, result.definitions
+                )
+            elif coverage.language == "php":
+                found = extract_php(
+                    tree, content, repo_url, coverage.file, result.definitions
+                )
+            elif coverage.language == "java":
                 service, context_path = config.service(coverage.file)
                 found = extract_spring(
                     tree,
@@ -1339,6 +1410,7 @@ class ServiceContractTool(AnalysisTool):
                     generated=generated,
                     clients=generated_clients,
                     client_base_fixed=_module_root(root, coverage.file) not in base_set,
+                    constructions=constructions,
                 )
             else:
                 found = extract_web(

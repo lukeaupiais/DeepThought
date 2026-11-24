@@ -1984,6 +1984,96 @@ Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
 
+#### Apache HttpClient and fields set by constructors
+
+Java code that builds a request with Apache HttpClient (`new HttpGet(url)`,
+`new HttpPost(url)`, ... from `org.apache.http.client.methods` or the 5.x
+`org.apache.hc.client5.http.classic.methods`) is a request with that
+method, placed on the `new` (`service_contracts.spring`). The URL is folded
+as for RestTemplate, and one more kind of name is folded for every Java
+client: a String field with no initializer and no annotation that only
+constructors assign, each time from one of their parameters
+(`this.baseUrl = baseUrl;`). Its values are that argument of every `new` of
+the class in the repository with as many arguments, folded in the file that
+writes it (`java_constructions`). With none, or when one `new` passes wholly unknown text, or when another assignment (a literal in a second constructor, a setter) sets the field, it is unknown: the request is unresolved rather than linked through the values the other constructions give. robot-shop's
+shipping service builds `new CartHelper(CART_URL)` with
+`String.format("http://%s/shipping/", ...)`, so `new HttpPost(baseUrl + id)`
+is `POST http://{?}/shipping/{?}` and meets the cart service's route.
+
+### PHP: Symfony routes and curl
+
+PHP files are read for routes and requests (`service_contracts.php`):
+
+- **Routes.** A method carries a `@Route` annotation in its docblock or a
+  `#[Route]` attribute, where `Route` is imported from
+  `Symfony\Component\Routing\Annotation` or `...\Attribute`. The path is
+  the first argument or `path`, joined with the class's own `Route`; the
+  methods are `methods` (any method without it). A path that is not a
+  literal is unread. Routes in YAML, XML or PHP config files, and a
+  kernel-level prefix, are not read (rule `service-contracts.symfony-route`).
+- **Requests.** `curl_init($url)` is a request placed on that call. The URL
+  is folded in its function: literals, `"...$x..."` (variables are unknown
+  text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once
+  before the use; properties are unknown. The method is GET, or what
+  `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
+  with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
+  other value makes it unknown. A handle whose URL is set with
+  `CURLOPT_URL`, Guzzle and Symfony HttpClient are not read yet.
+
+robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
+`PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
+web front end and load generator reach ratings through the nginx
+`/api/ratings/` location. Its curl call to `sprintf('%s/product/%s', ...)`
+meets the catalogue's `GET /product/:sku`. With the Java change above, the
+corpus scores 42 of 42 labelled call sites and 17 of 17 service pairs, none
+wrong (37 and 14 before).
+
+### ASP.NET Core routes
+
+C# files are read for routes (`service_contracts.aspnet`):
+
+- **Controllers** (rule `service-contracts.aspnet-controller-route`). A
+  class counts when it carries `[ApiController]`, derives from
+  `Controller`, `ControllerBase` or an Ardalis.ApiEndpoints base
+  (`EndpointBaseAsync...`), or is named `...Controller`; `[NonController]`
+  excludes it. An action is a method with `[HttpGet]`, `[HttpPost]`, ...
+  (optionally with a template) or `[Route]`. Its template is joined with
+  each of the class's `[Route]` templates unless it starts with `/` or
+  `~/`. `[controller]` is the class name without `Controller`, `[action]`
+  the method name without an `Async` suffix, `[area]` the class's `[Area]`.
+  An action with no template on either level is conventionally routed
+  (`MapControllerRoute`) and not read.
+- **Minimal APIs** (rule `service-contracts.aspnet-minimal-api-route`).
+  `MapGet/MapPost/MapPut/MapDelete/MapPatch(template, ...)` and
+  `MapMethods(template, new[] { "GET", ... }, ...)` with a literal
+  template; the methods of `MapMethods` are string literals or
+  `HttpMethods.X` constants, anything else leaves it unread
+  (`methods_not_literal`). `MapGroup(prefix)` in the receiver chain, or a local bound
+  once to one, adds its prefix; builder calls such as `WithTags` or
+  `NewVersionedApi` pass through. A receiver that is a `RouteGroupBuilder`
+  or `IEndpointRouteBuilder` parameter gets an unknown base, joined with
+  any known group prefixes after it. A template that is not a literal is
+  unread (`path_not_literal`).
+
+Constraints and defaults (`{id:int}`, `{id?}`, `{*rest}`) are read as plain
+parameters. Matching is case-sensitive, so a request to `/api/catalog` does
+not meet `[controller]` read as `Catalog`, although ASP.NET Core matches
+both.
+
+Checked by hand against a lexical count of route attributes and `Map*`
+calls: eShopOnWeb `4da8212` 33 of 33 (26 attribute routes, 7 minimal API),
+dotnet/eShop `669682e` 31 of 31 with the group prefixes it builds
+(`/api/catalog/items`, `/api/orders/cancel`), grpc-dotnet `7c1a477` 5 of 5.
+CleanArchitecture `f7f9771` maps its endpoints by reflection through its own
+`MapGet(handler, template)` overloads; all 15 are unread rather than
+guessed.
+
+online-boutique's cartservice maps `GET /` to a notice that it only speaks
+gRPC. The load generator's `l.client.get("/")` has no host, so it now meets
+both that route and the frontend's `GET /` and is ambiguous instead of
+linked; the corpus scores 8 of 9 HTTP call sites, with its one HTTP service
+pair still found.
+
 ### NestJS controllers
 
 In TypeScript files that import from `@nestjs/common`, a class decorated
@@ -2418,8 +2508,15 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-go-register-constructor` | `pb.RegisterXServer(s, f(...))` (or a name bound once to that call), where `f` is declared in one file of the same package directory and its only result is `T` or `*T` for a struct type `T` of that package; the methods of `T` as above |
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
+  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class. C# clients are not read yet |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
   | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
+
+  C# servers, against a lexical reference (classes written `: ....X.XBase`,
+  their `override` methods named as an rpc of X in the repository's protos):
+  grpc/grpc-dotnet `7c1a477` `examples` 49 of 49 handlers, none extra;
+  online-boutique's cartservice 3 of 3, which takes its labelled servers to
+  20 of 20 and service pairs to 14 of 14.
 
 - **Clients.** `service-contracts.grpc-stub-call` links the calling
   declaration (or the file) by `REQUESTS` when a method is called on a stub of
@@ -3060,7 +3157,20 @@ within a namespace. A module whose Spring configuration
 `spring.datasource.url` uses that URL as its namespace, so services that
 point at the same persistent database share its tables. Otherwise, and for
 in-memory URLs (`:mem:`, `:memory:`), which give each process its own
-database, the namespace is the nearest package. One service's private
+database, a file whose deepest enclosing Compose build context is built
+by services that name exactly one database in their `environment` uses that
+database as its namespace: a connection URL (`jdbc:` dropped) whose host is a
+service of the same Compose file running a database image (`postgres`,
+`postgis`, `timescaledb`, `mysql`, `mariadb`, `percona-server`, `mongo`,
+`cockroach`, `libsql-server`), keyed by the Compose file's directory, that
+service and the URL's database. On openstatus (3836510) this puts the Go
+`private-location` service's SQL (`DB_URL=http://libsql:8080`) on the same
+`monitor`, `private_location` and `private_location_to_monitor` tables as the
+TypeScript Drizzle schema the `server`, `dashboard` and `workflows` services
+use (`DATABASE_URL=http://libsql:8080`); before, it read tables of its own
+`go.mod`. `env_file`, interpolated values, host/port/name variables split
+across several keys and URLs fixed in code are not read. Otherwise the
+namespace is the nearest package. One service's private
 `owners` is therefore not another's. URLs written with `${...}`, profiles and
 environment variables are not resolved, and migrations kept in a separate
 package from their entities meet them only through a shared datasource URL.
