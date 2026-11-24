@@ -395,6 +395,67 @@ class DjangoTests(unittest.TestCase):
         )
 
 
+SQLALCHEMY = {
+    "pyproject.toml": '[project]\nname = "app"\n',
+    "app/models.py": "import sqlalchemy as sa\n"
+    "from sqlalchemy.orm import DeclarativeBase\n"
+    "from mylib import Table\n"
+    "class Base(DeclarativeBase):\n"
+    "    pass\n"
+    "class User(Base):\n"
+    '    __tablename__ = "users"\n'
+    "class Account(Base):\n"
+    '    __tablename__: str = "Accounts"\n'
+    'user_tags = sa.Table("user_tags", Base.metadata)\n'
+    'report = Table("not_sqlalchemy")\n',
+    "app/service.py": "from sqlalchemy import select, delete\n"
+    "from .models import User\n"
+    "def find(db):\n"
+    "    return db.session.query(User).all()\n"
+    "def ids():\n"
+    "    return select(User.id)\n"
+    "def purge():\n"
+    "    return delete(User)\n"
+    "def other(db):\n"
+    "    return db.session.query(Unknown)\n",
+    "app/plain.py": 'class Plain:\n    __tablename__ = "not_mapped"\n',
+}
+
+
+@unittest.skipUnless(PYTHON, "Provision the python grammar")
+class SqlAlchemyTests(unittest.TestCase):
+    def test_mapped_classes_tables_and_statements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, SQLALCHEMY)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("DECLARES", "app/models.py", "user_tags", "sqlalchemy-table"),
+                ("MAPS_TO", "Account", "accounts", "sqlalchemy-tablename"),
+                ("MAPS_TO", "User", "users", "sqlalchemy-tablename"),
+                ("READS", "find", "users", "sqlalchemy-session-query"),
+                ("READS", "ids", "users", "sqlalchemy-statement"),
+                ("WRITES", "purge", "users", "sqlalchemy-statement"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sqlalchemy_access_resolution"],
+            {"linked": 3, "not_a_mapped_class": 1},
+        )
+
+
 @unittest.skipUnless(
     JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
     "Provision isolated Neo4j and the java grammar",

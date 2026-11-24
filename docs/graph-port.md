@@ -1818,6 +1818,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-default-table-name` | pattern_matched | a concrete model without `db_table`: `{app_label}_{class name lower case}`, the app label being `Meta.app_label`, else the literal `label` of the app's `AppConfig` in `apps.py`, else the package holding the models module; a proxy uses its concrete base's table, an abstract model has none |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-manager-call` | pattern_matched | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, `Model` being the one model of the repository with that class name; instance `save()`/`delete()`, other managers and raw SQL are not read |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlalchemy-tablename` | pattern_matched | a class in a module importing SQLAlchemy, Flask-SQLAlchemy or SQLModel that sets `__tablename__` (plain or annotated) to a string literal |
+| File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
+| Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-statement` | pattern_matched | SQLAlchemy's `select` (READS) or `insert`, `update`, `delete` (WRITES) on a mapped class |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -1858,6 +1862,17 @@ unresolved. Over the whole repository, including Django's test apps, 1,580
 models give 1,697 tables in 33 s. 3,578 manager calls are linked, and 7,472
 are left unlinked because the class name is not a model or names several
 models.
+
+On Apache Superset's `superset/` package, outside its Alembic migrations,
+the tool maps 39 classes through `__tablename__`. `grep` for
+`__tablename__ =` finds 38; the extra one is the annotated
+`__tablename__: str = ...` of the audit coordination model. `Table()` calls
+resolve only where SQLAlchemy's `Table` is meant, so Superset's own `Table`
+dataset class is not taken for a table declaration. 151 `query()` and
+statement calls are linked to a table; 919 are left unlinked, mostly
+`.query()` calls on names that are not mapped classes. Declarative
+`__table__`, imperative mappers, `session.add`/`delete` on instances and
+textual SQL are not read.
 
 ## Commit-linked snapshots
 

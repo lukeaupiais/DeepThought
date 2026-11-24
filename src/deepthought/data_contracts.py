@@ -707,3 +707,172 @@ def resolve_django(models, labels):
                 )
             )
     return tables, m2m
+
+
+# SQLAlchemy -----------------------------------------------------------------
+
+_SQLALCHEMY = ("sqlalchemy", "flask_sqlalchemy", "sqlmodel")
+SQLALCHEMY_READS = {"select"}
+SQLALCHEMY_WRITES = {"insert", "update", "delete"}
+
+
+@dataclass(frozen=True)
+class SaMapping:
+    file: str
+    model_id: str
+    name: str
+    table: str
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class SaTable:
+    file: str
+    owner_id: str | None  # the enclosing declaration, else the file
+    table: str
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class SaAccess:
+    file: str
+    caller_id: str | None
+    model: str
+    writes: bool
+    how: str  # "query" (Session.query) or "statement" (select/insert/...)
+    line: int
+    column: int
+
+
+def _module_aliases(root, content):
+    """{local name: module} of a module's top-level ``import x [as y]``."""
+    aliases = {}
+    for node in root.named_children:
+        if node.type != "import_statement":
+            continue
+        for child in node.children_by_field_name("name"):
+            if child.type == "aliased_import":
+                module = _text(child.child_by_field_name("name"), content)
+                aliases[_text(child.child_by_field_name("alias"), content)] = module
+            else:
+                module = _text(child, content)
+                aliases[module.split(".")[0]] = module.split(".")[0]
+    return aliases
+
+
+def _from_sqlalchemy(origin):
+    return origin is not None and any(
+        origin == p or origin.startswith(p + ".") for p in _SQLALCHEMY
+    )
+
+
+def extract_sqlalchemy(tree, content, file, definitions):
+    """(mappings, tables, accesses) of one Python file that imports SQLAlchemy."""
+    root = tree.root_node
+    imports = _python_imports(root, content)
+    aliases = _module_aliases(root, content)
+    # Mappings are read only from files that import SQLAlchemy; Session.query
+    # calls are read anywhere, and count only for a mapped class's name.
+    importing = any(_from_sqlalchemy(o) for o in (*imports.values(), *aliases.values()))
+    spans = {
+        (d.line, d.column, d.end_line, d.end_column): d
+        for d in definitions
+        if d.file == file
+    }
+
+    def sqlalchemy_name(function):
+        """The SQLAlchemy callable a written function names, or None."""
+        if function.type == "identifier":
+            origin = imports.get(_text(function, content))
+            return origin.rpartition(".")[2] if _from_sqlalchemy(origin) else None
+        if function.type == "attribute":
+            target = function.child_by_field_name("object")
+            if target is not None and target.type == "identifier":
+                module = aliases.get(_text(target, content))
+                if module is not None and _from_sqlalchemy(module):
+                    return _text(function.child_by_field_name("attribute"), content)
+        return None
+
+    mappings, tables, accesses = [], [], []
+    for node in root.named_children:
+        if node.type == "decorated_definition":
+            node = node.child_by_field_name("definition")
+        if node is None or node.type != "class_definition":
+            continue
+        definition = spans.get(
+            (
+                node.start_point.row + 1,
+                node.start_point.column,
+                node.end_point.row + 1,
+                node.end_point.column,
+            )
+        )
+        values = dict(_assignments(node.child_by_field_name("body"), content))
+        name = _string(values.get("__tablename__"), content)
+        if importing and definition is not None and name:
+            mappings.append(
+                SaMapping(
+                    file,
+                    definition.id,
+                    _text(node.child_by_field_name("name"), content),
+                    name.lower(),
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type != "call":
+            continue
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if function is None or arguments is None:
+            continue
+        positional = [
+            c
+            for c in arguments.named_children
+            if c.type not in ("keyword_argument", "comment")
+        ]
+        called = sqlalchemy_name(function)
+        if called == "Table":
+            name = _string(positional[0], content) if positional else None
+            if name:
+                tables.append(
+                    SaTable(
+                        file,
+                        _innermost(definitions, file, node),
+                        name.lower(),
+                        node.start_point.row + 1,
+                        node.start_point.column,
+                    )
+                )
+            continue
+        if called in SQLALCHEMY_READS | SQLALCHEMY_WRITES:
+            how, writes = "statement", called in SQLALCHEMY_WRITES
+        elif (
+            function.type == "attribute"
+            and _text(function.child_by_field_name("attribute"), content) == "query"
+        ):
+            how, writes = "query", False
+        else:
+            continue
+        for argument in positional[:1] if writes else positional:
+            while argument.type == "attribute":
+                argument = argument.child_by_field_name("object")
+            if argument.type == "identifier":
+                accesses.append(
+                    SaAccess(
+                        file,
+                        _innermost(definitions, file, node),
+                        _text(argument, content),
+                        writes,
+                        how,
+                        node.start_point.row + 1,
+                        node.start_point.column,
+                    )
+                )
+    return mappings, tables, accesses
