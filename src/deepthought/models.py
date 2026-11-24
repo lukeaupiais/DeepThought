@@ -47,6 +47,12 @@ class Definition:
     # the last one is variable-arity (``T...``). None elsewhere.
     parameters: int | None = None
     variadic: bool = False
+    # Java methods and constructors: each parameter's type as written,
+    # without type arguments (``List``, ``int[]``, ``T``). None elsewhere.
+    parameter_types: tuple[str, ...] | None = None
+    # Java methods and constructors declared ``private``, which subtypes do
+    # not inherit: True. None elsewhere.
+    private: bool | None = None
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
@@ -77,6 +83,13 @@ class Definition:
             )
         ):
             raise ValueError("fields must be a tuple of (name, type) pairs")
+        if self.parameter_types is not None and (
+            type(self.parameter_types) is not tuple
+            or not all(isinstance(t, str) and t for t in self.parameter_types)
+        ):
+            raise ValueError("parameter_types must be a tuple of nonempty strings")
+        if self.private is not None and self.private is not True:
+            raise ValueError("private must be True or None")
         if self.overload is not None and self.overload is not True:
             raise ValueError("overload must be True or None")
         if self.macro_export is not None and type(self.macro_export) is not bool:
@@ -239,11 +252,13 @@ class CallSite:
     # or comprehension around the call (a parameter, an assignment, a loop
     # variable): True. None elsewhere.
     shadowed: bool | None = None
-    # Go calls ``x.M()`` and ``x.f.g.M()`` where ``x`` is declared in the
-    # function around the call: the type of ``x`` its declaration gives,
-    # written as for ``Definition.result_type``. Python calls ``x.m()``: the
-    # class name (``T``, ``m.T``) that the binding of ``x`` writes. None
-    # elsewhere.
+    # Java calls ``x.m()`` and ``this.x.m()`` where the declaration of the
+    # variable or field ``x`` in scope writes a class type: that type as
+    # written (``Foo``, ``Map.Entry``). Go calls ``x.M()`` and ``x.f.g.M()``
+    # where ``x`` is declared in the function around the call: the type of
+    # ``x`` its declaration gives, written as for ``Definition.result_type``.
+    # Python calls ``x.m()``: the class name (``T``, ``m.T``) that the
+    # binding of ``x`` writes. None elsewhere.
     receiver_type: str | None = None
     # Go: how the receiver's type follows from ``receiver_type``, one step
     # each: a field name ``f``, a method call ``M()`` (its first result), or
@@ -554,6 +569,10 @@ class AnalysisResult:
         for item in data["definitions"]:
             if item["parameters"] is None:
                 del item["parameters"], item["variadic"]
+            if item["parameter_types"] is None:
+                del item["parameter_types"]
+            if item["private"] is None:
+                del item["private"]
             if item["macro_export"] is None:
                 del item["macro_export"]
             if item["overload"] is None:
@@ -683,6 +702,9 @@ class AnalysisResult:
                         "fields": tuple(tuple(field) for field in item["fields"])
                         if isinstance(item.get("fields"), list)
                         else item.get("fields"),
+                        "parameter_types": tuple(item["parameter_types"])
+                        if isinstance(item.get("parameter_types"), list)
+                        else item.get("parameter_types"),
                     }
                 )
                 for item in data["definitions"]

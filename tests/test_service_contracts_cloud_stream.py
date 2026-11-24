@@ -559,3 +559,87 @@ class GradleBinderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+HELPERS = """
+package composite;
+
+import org.springframework.cloud.stream.function.StreamBridge;
+
+public class Integration {
+    private final StreamBridge streamBridge;
+    private static final String REVIEWS = "reviews-out-0";
+
+    void create() {
+        sendMessage("products-out-0", 1);
+        Mono.fromRunnable(() -> sendMessage("recommendations-out-0", 2));
+        this.sendMessage(REVIEWS, 3);
+        sendMessage("products-out-0", 4);
+    }
+
+    private void sendMessage(String bindingName, Object event) {
+        streamBridge.send(bindingName, event);
+    }
+
+    // Followed through two private helpers.
+    void audit() { outer("audit-out-0"); }
+
+    private void outer(String name) { inner(name, "x"); }
+
+    private void inner(String target, String other) {
+        streamBridge.send(target, other);
+    }
+
+    // Not read: public, reassigned, called with a value that is not
+    // literal, passed as a method reference, never called, overloaded.
+    public void open(String binding) { streamBridge.send(binding, 1); }
+
+    private void reassigned(String binding) {
+        binding = binding + "-x";
+        streamBridge.send(binding, 1);
+    }
+
+    void call(String any) {
+        reassigned("a");
+        variable(any);
+        referenced("b");
+        Runnable r = this::referenced;
+        overloaded("c");
+        overloaded("d", 1);
+    }
+
+    private void variable(String binding) { streamBridge.send(binding, 1); }
+
+    private void referenced(String binding) { streamBridge.send(binding, 1); }
+
+    private void referencedTwice(String binding) { streamBridge.send(binding, 1); }
+
+    private void overloaded(String binding) { streamBridge.send(binding, 1); }
+
+    private void overloaded(String binding, int n) { streamBridge.send(binding, n); }
+}
+"""
+
+
+@unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+class HelperBindingTests(unittest.TestCase):
+    def test_bindings_through_private_helpers(self):
+        from deepthought.service_contracts.cloud_stream import extract_stream
+        from deepthought.syntax import make_parser
+
+        content = HELPERS.encode()
+        tree = make_parser("java", ".java").parse(content)
+        sites, unread = extract_stream(tree, content, "Integration.java", [])
+        self.assertEqual(
+            [(s.line, s.binding) for s in sites],
+            [
+                (18, "products-out-0"),
+                (18, "recommendations-out-0"),
+                (18, "reviews-out-0"),
+                (27, "audit-out-0"),
+            ],
+        )
+        self.assertEqual(
+            [(u.line, u.reason) for u in unread],
+            [(n, "binding_not_literal") for n in (32, 36, 48, 50, 52, 54, 56)],
+        )

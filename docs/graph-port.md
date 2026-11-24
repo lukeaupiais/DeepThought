@@ -703,9 +703,11 @@ declare the same type. Build files (Maven, Gradle) are not read.
 
 Java calls are method invocations (`m()`, `this.m()`, `T.m()`, `a.b.T.m()`)
 and `new T()` expressions, with the number of arguments written; Java methods
-and constructors record their parameter count and whether the last parameter
-is variable-arity. Calls link by Java's name lookup, without types, so every
-link is `name_matched`:
+and constructors record their parameter count, whether the last parameter
+is variable-arity, and each parameter's type as written, without type
+arguments (`parameter_types`: `List`, `int[]`, `T`, `String...`). Calls link
+by Java's name lookup, and by a type only where a declaration writes it, so
+every link is `name_matched`:
 
 | Rule | Callee |
 |---|---|
@@ -715,6 +717,7 @@ link is `name_matched`:
 | `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
 | `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
+| `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -738,8 +741,10 @@ anonymous classes around it (`anonymous`: base, the scope its methods are
 named in, first and last line); other calls do not have the field.
 
 A type's methods named `m` are the ones it declares, then those its
-repository bases have, followed in source order (a class's superclass
-first) through every level. A nearer method with the same parameter count
+repository bases have (a `private` method is not inherited, so it counts
+only in the type that declares it; Java methods and constructors record
+`private`), followed in source order (a class's superclass
+first) through every level. A nearer method with the same parameter shape (below)
 overrides an inherited one, and a method declared in a class (the
 superclass chain) also implements a same-shaped interface method; methods of
 two interfaces with the same shape are both kept, since only types say which
@@ -748,9 +753,46 @@ read, so their methods stay unresolved.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity`. Calls on variables
-or expressions (`list.add(x)`) need types and stay unresolved
-(`attribute_call`).
+several left are ambiguous, none is `no_matching_arity`.
+
+For a call `x.m()`, the analysis looks for the declaration of `x` that is in
+scope at the call, from the innermost scope out, and records the type it
+writes as the call's `receiver_type` (`Foo`, `Map.Entry`; type arguments
+dropped). Declarations that count:
+
+- a method, constructor or record parameter, or a lambda parameter with a
+  written type (`(Foo a) -> ...`);
+- a local variable declared in an enclosing block before the call, a `for`
+  initializer, an enhanced `for` variable, a `try` resource, or a `catch`
+  parameter with a single type;
+- `var x = new Foo()`;
+- a field of an enclosing class body (`this.x` names the innermost class's
+  field only).
+
+The first declaration found decides. It gives no type, and the call stays
+`attribute_call`, when it writes none that the lookup can use: a primitive,
+an array (`Foo[] a`, `Foo a[]`, `Foo... a`), `var` without `new`, an
+inferred lambda parameter, a multi-catch, an enum constant, or a type
+parameter of an enclosing method or class. A name bound by a pattern
+(`o instanceof Foo g`, `case Foo g`) anywhere in the method also gives no
+type, because a pattern variable's scope follows control flow. A field is
+not looked for past a class body that may inherit one of the same name: an
+anonymous class, an enum constant's body, or a type with a superclass or
+superinterfaces. `T` is then looked up as a type name (above). When it names
+no repository type (`String`), the call is `receiver_type_not_declared`.
+Calls on other expressions (`a.b().c()`, `x.f.m()`) need types and stay
+unresolved (`attribute_call`).
+
+A nearer method overrides an inherited one only when parameter count,
+variable arity and each parameter type as written agree. A simple name
+agrees with a qualified one that ends in it (`Entry`, `Map.Entry`), and
+type arguments are not compared. A class's type parameter agrees only with
+another class's type parameter, and a method's own only with another
+method's own. Otherwise both methods are candidates, since only the types
+say whether the nearer one overrides or overloads: `LongRange.fit(long)`
+and `Range.fit(T)` are overloads, and so are `getOrDefault(..., String)`
+and `getOrDefault(..., T)` when `T` is bound to an enum, but
+`write(JsonElement)` overrides `write(T)` in a `TypeAdapter<JsonElement>`.
 
 Checked against javac's own parser with
 `tools/compare_java_declarations_with_javac.py`, which runs
@@ -805,30 +847,37 @@ line); a `new` binds the class it creates.
 
 | Corpus | Links confirmed | Contradicted | javac bound none | Ambiguous, javac's among candidates | Missed (unresolved, javac bound) |
 |---|---|---|---|---|---|
-| google/gson | 4,107 / 4,110 | 0 | 3 | 121 | 5,340 |
-| apache/commons-lang | 18,032 / 19,217 | 2 | 1,183 | 9,691 | 7,815 |
-| google/guava | 48,177 / 48,285 | 35 | 73 | 39,124 | 37,067 |
-| junit-team/junit5 | 18,630 / 19,306 | 8 | 668 | 9,343 | 6,233 |
+| google/gson | 7,282 / 7,285 | 0 | 3 | 2,160 | 124 |
+| apache/commons-lang | 23,855 / 25,038 | 0 | 1,183 | 11,306 | 380 |
+| google/guava | 55,814 / 55,981 | 0 | 167 | 65,144 | 3,439 |
+| junit-team/junit5 | 22,595 / 23,271 | 8 | 668 | 9,624 | 1,987 |
 
-Most missed calls are calls on variables (`attribute_call`: 5,333, 7,813 and
-36,756) and methods inherited from library types (`unbound_name`). Most of guava's
-ambiguous calls are test roots calling a type that both `guava/src` and
-`android/guava/src` declare. Five ambiguous calls (one in commons-lang, four
-in guava) leave out javac's method: an inherited overload, or a GWT
-super-source file javac binds elsewhere. javac binds none
-for 1,183 commons-lang links because those test calls pass lambdas to
+`tree-sitter.java-call-typed-receiver` accounts for 3,123, 5,057, 7,280 and
+3,649 of the confirmed links, and none of its links is contradicted. Most
+missed calls are calls on expressions or on variables whose declaration
+writes no usable type (`attribute_call`: 117, 378, 3,028 and 1,958).
+Calls through a typed variable become ambiguous where the hierarchy has
+several methods that only types can choose between, and where a type is
+declared in both `guava/src` and `android/guava/src`; most of guava's
+ambiguous calls are of that second kind. A few ambiguous calls leave out
+javac's method: an inherited overload, a GWT super-source file javac binds
+elsewhere, or a method whose own type parameter javac infers. javac binds
+none for 1,183 commons-lang links because those test calls pass lambdas to
 JUnit-typed parameters, and JUnit is not on javac's class path; the links go
-to the statically imported `LangAssertions` methods of the same name. The 37
-contradictions (two in commons-lang, 35 in guava; under 0.1% of links) are
-mostly overloads with the same arity elsewhere in the hierarchy that fit the
-argument types better (`putBytes`, `hashBytes`, `append`), which a count of
-arguments cannot tell apart. junit5's 8 contradictions are the same case
-(`ReflectionUtils.getFullyQualifiedMethodName`), and javac binds none for 657
-of its links for the same reason as in commons-lang: the statically imported
-`PreconditionAssertions` methods take lambdas typed by libraries that are
-not on javac's class path. junit5 indents with tabs; the oracle counts a tab
-as one column, as the analysis does, rather than expanding it to the next
-tab stop as javac's `LineMap.getColumnNumber` would.
+to the statically imported `LangAssertions` methods of the same name.
+junit5's 657 links to its statically imported `PreconditionAssertions`
+methods are the same case. 74 guava links of the new rule are to repository
+methods javac leaves unbound; they were sampled, not checked one by one.
+Deciding overrides by parameter types (above) removes the commons-lang
+contradictions (`Range.fit(T)` and `LongRange.fit(long)`) and 33 of
+guava's (`putBytes`, `hashBytes`, `append`); not inheriting private
+methods removes the last two (`getUninterruptibly` in `AggregateFuture`
+had linked to `AbstractFuture`'s private method instead of the statically
+imported `Uninterruptibles.getUninterruptibly`). junit5's 8 (`getFullyQualifiedMethodName`) pick a method
+by name and arity where javac picks another of the same arity by argument
+types. junit5 indents with tabs; the oracle counts a tab as one
+column, as the analysis does, rather than expanding it to the next tab stop
+as javac's `LineMap.getColumnNumber` would.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -1820,7 +1869,14 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
   resolvers. A member that is a function declared in the file
   (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
-  function, anything else to the file.
+  function, anything else to the file. A field's options object is read the
+  same way whether its `subscribe` (preferred) or `resolve` option is a
+  pair, a method (`subscribe() {...}`) or a shorthand (`{me}`), and
+  `withFilter(fn, ...)` anchors to its first argument when that is a
+  function or a name of one. A shorthand member bound to an options object
+  of the same file (`const tick = {subscribe: fn}`) is followed once. A
+  function expression passed as an argument has no definition of its own,
+  so its edge stays on the file.
 - A root key bound to a name is followed: to an object literal of the same
   file (`const Query = {...}`), or to a relative module of the repository
   bound by `require` (whole, destructured or `.Name`) or `import` (default,
@@ -2274,6 +2330,23 @@ all have the configured destination. The other 5 are unread, not wrong:
 Samples without a `spring.application.name` are not services here and give
 nothing.
 
+A `StreamBridge.send(binding, ...)` whose binding is a parameter of a
+`private` method takes the literal value of the argument that each direct
+call in the file passes (`m(...)` or `this.m(...)`, inside lambdas too). The
+send site gets one binding per distinct value, and a caller's own parameter
+is followed the same way, at most three methods deep. The binding stays
+`binding_not_literal` when the method:
+- is not private;
+- assigns the parameter, or declares a local that shadows it;
+- is used as a method reference;
+- has an overload of another arity;
+- is never called;
+- gets any argument that is not literal.
+
+On the Packt chapters this resolves product-composite's `sendMessage("products-out-0", ...)`
+helper. With the Compose identity below, `contracts-packt-chapter07` and
+`contracts-packt-chapter23` each score 3/3 labelled links with no false ones.
+
 #### Services that Compose builds
 
 A Compose service whose `build` context is a module's directory runs that
@@ -2435,6 +2508,9 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.sequelize-table-name` | pattern_matched | a Sequelize model with a fixed `tableName` option: a class whose `extends` chain reaches `Model` of `sequelize`, `@sequelize/core` or `sequelize-typescript` and that is decorated with `@Table` or initialized by `X.init(attributes, options)` in its file, or a `define('Name', attributes, options)` call in a file importing Sequelize or on a receiver named `sequelize`; the edge starts at the class, else at the declaration holding the `define` |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.sequelize-default-table-name` | name_matched | a Sequelize model without `tableName`: Sequelize 6's name, the model name (`modelName`, else the class or `define` name) pluralized by the inflection package 1.13.4 (`Person` is `People`), underscored with `underscored` (`user_profiles`) and kept with `freezeTableName`, the model's options over the `define` options of `new Sequelize` or `config/config.json`; options that are not literals, spread, or set differently in several places leave the name unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sequelize-call` | pattern_matched | a static query (`findAll`, `findOne`, `findByPk`, `count`, ...) or persistence (`create`, `bulkCreate`, `update`, `destroy`, `upsert`, ...) method, `findOrCreate` both, on a model named by a local or imported binding (`User.findAll`, `db.User.create`, `sequelize.models.user.count`): the one model with that model, class or variable name in the caller's namespace, else in the repository |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file and `Object.assign`/lodash merges. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, or `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`) |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2645,6 +2721,26 @@ finds. The `through` tables of `belongsToMany`, instance methods, and
 `beforeDefine` hooks are not read. The pluralization port gives the
 inflection package's own result for all 45 `pluralize` and `underscore`
 cases of its test suite.
+
+On HabitRPG/habitica `02edf1a` all 18 `mongoose.model` models and the 4
+`Task` discriminators are mapped, and the default names of the 7 that the
+repository's raw-driver migrations open by name (`users`, `groups`, `tasks`,
+`challenges`, `coupons`, `emailunsubscriptions`, `inboxes`) are those names.
+It links 447 calls. Of the lines a single-line `grep` finds for the model
+bindings, the 14 the tool misses are raw-driver collections bound to a
+model's name, `this.constructor` in an instance method, and archived
+migrations whose relative imports no longer resolve because the files
+moved. The extra lines it finds are calls split over
+lines and calls in statics. On builderbook/builderbook `a71c72e`, 57 models
+across the book's chapter copies map in each copy's own namespace, and the
+tool links 317 of the 318 lines `grep` finds; the other is commented out.
+On sahat/hackathon-starter `926460c` it links the 28 lines `grep` finds
+outside the tests, plus one call in a static. Mongoose's own test suite
+holds almost no pluralize cases, so the rule tables are checked against
+these names. Instance methods (`doc.save()`), query chains held in
+variables, NestJS `@InjectModel`, Typegoose and the raw MongoDB driver are
+not read yet. JavaScript and TypeScript test sources (`test/`, `tests/`,
+`__tests__/`, `spec/`, `*.test.*`, `*.spec.*`) are skipped for Mongoose.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
 they map is one its migrations create. One `Pivot` without `$table` is left

@@ -247,7 +247,25 @@
       ],
       "truth": "declarations/slim.tsv",
       "oracle": "PHP 8.3.6 token_get_all",
-      "oracle_command": "php tools/php_declaration_truth.php ."
+      "oracle_command": "php tools/php_declaration_truth.php .",
+      "imports": "imports/slim.tsv",
+      "imports_oracle": "PHP 8.3.6 token_get_all, Composer 2 class map",
+      "imports_command": "COMPOSER_VENDOR_DIR=\"$TMP/vendor\" composer dump-autoload --optimize --no-scripts --no-plugins && php tools/php_import_truth.php . \"$TMP/vendor/composer/autoload_classmap.php\""
+    },
+    {
+      "name": "laravel",
+      "url": "https://github.com/laravel/framework",
+      "commit": "817f2fc80be4c95f59f7c7f0e696ae1383899fdb",
+      "license": "MIT",
+      "languages": [
+        "php"
+      ],
+      "truth": "declarations/laravel.tsv",
+      "oracle": "PHP 8.3.6 token_get_all",
+      "oracle_command": "php tools/php_declaration_truth.php .",
+      "imports": "imports/laravel.tsv",
+      "imports_oracle": "PHP 8.3.6 token_get_all, Composer 2 class map",
+      "imports_command": "COMPOSER_VENDOR_DIR=\"$TMP/vendor\" composer dump-autoload --optimize --no-scripts --no-plugins && php tools/php_import_truth.php . \"$TMP/vendor/composer/autoload_classmap.php\""
     }
   ],
   "routes": [
