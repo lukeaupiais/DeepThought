@@ -858,6 +858,47 @@ class TypeScriptCallTests(unittest.TestCase):
         self.assertEqual(found[("gen.ts", 5, "walk")][:2], ("linked", "gen.ts::walk"))
         self.assertEqual(found[("gen.ts", 5, "plain")][:2], ("linked", "gen.ts::plain"))
 
+    def test_new_links_to_the_constructor_the_class_declares(self):
+        result = analyze(
+            {
+                "lib.ts": (
+                    "export class Ky { constructor(x: number) {} }\n"
+                    "export class Plain {}\n"
+                    "export class Sub extends Ky {}\n"
+                    "export class Over {\n"
+                    "  constructor(x: number);\n"
+                    "  constructor(x: any) {}\n"
+                    "}\n"
+                    "export function Legacy() { const o = { constructor() {} }; }\n"
+                ),
+                "main.ts": (
+                    "import { Ky, Plain, Sub, Over, Legacy } from './lib';\n"
+                    "new Ky(1); new Plain(); new Sub(2); new Over(3); new Legacy();\n"
+                    "Ky(3);\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for callee, target in (
+            ("Ky", "lib.ts::Ky.constructor"),
+            ("Plain", "lib.ts::Plain"),
+            ("Sub", "lib.ts::Sub"),
+            ("Over", "lib.ts::Over"),
+            ("Legacy", "lib.ts::Legacy"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    [
+                        v[:3]
+                        for (f, line, c), v in found.items()
+                        if (f, line, c) == ("main.ts", 2, callee)
+                    ],
+                    [("linked", target, CALL_IMPORTED_NAME)],
+                )
+        # Only a construction runs the constructor.
+        self.assertEqual(found[("main.ts", 3, "Ky")][:2], ("linked", "lib.ts::Ky"))
+
     def test_typescript_bindings_constructors_and_this_methods(self):
         result = analyze(
             {
