@@ -205,12 +205,12 @@
       "graphql": {
         "call_sites": {
           "labelled_in_scope": 7,
-          "predicted": 8,
+          "predicted": 7,
           "true_positive": 7
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 2,
+          "predicted": 1,
           "true_positive": 1
         }
       }
