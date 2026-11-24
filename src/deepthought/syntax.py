@@ -2436,6 +2436,32 @@ def _callee(node, content, rust=False):
     return None
 
 
+# The field of a member access that holds its name, by node type.
+_MEMBER_NAMES = {
+    "member_expression": "property",
+    "attribute": "attribute",
+    "selector_expression": "field",
+}
+
+
+def _callee_at(node):
+    """``CallSite.callee_at``: (line, column) where the last name of a
+    Python, JavaScript, TypeScript or Go call's callee starts, or None."""
+    target = node.child_by_field_name(
+        "constructor" if node.type == "new_expression" else "function"
+    )
+    if target is not None and target.type in _MEMBER_NAMES:
+        target = target.child_by_field_name(_MEMBER_NAMES[target.type])
+    if target is None or target.type not in {
+        "identifier",
+        "property_identifier",
+        "private_property_identifier",
+        "field_identifier",
+    }:
+        return None
+    return (target.start_point.row + 1, target.start_point.column)
+
+
 _PYTHON_COMPREHENSIONS = {
     "list_comprehension",
     "set_comprehension",
@@ -5215,6 +5241,7 @@ def extract_call_sites(
                         binding=_js_binding(node, content, callee, scopes)
                         if script
                         else None,
+                        callee_at=_callee_at(node) if script or python or go else None,
                         **(
                             _js_receiver(node, content, callee, scopes, tree.root_node)
                             if script
