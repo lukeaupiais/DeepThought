@@ -314,3 +314,21 @@ class FunctionValueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_a_dependent_in_a_file_the_oracle_did_not_index_is_unjudged(self):
+        import deepthought
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / "m.py").write_text("def base():\n    return 1\n", "utf-8")
+        (repo / "tagged.py").write_text(
+            "from m import base\n\n\ndef user():\n    return base()\n", "utf-8"
+        )
+        result = deepthought.analyze_repository(
+            repo, repository_id="t", languages=("python",)
+        )
+        truth = {("m.py", 1, "base"): {("m.py", 1, "base"): 0}}
+        plain, _ = impact_truth.score(result, truth, indexed={"m.py", "tagged.py"})
+        self.assertEqual((plain["extra"], plain["unjudged"]), (1, 0))
+        report, _ = impact_truth.score(result, truth, indexed={"m.py"})
+        self.assertEqual((report["extra"], report["unjudged"]), (0, 1))
