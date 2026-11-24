@@ -1,0 +1,9231 @@
+{
+  "repo": "https://github.com/Countly/countly-server",
+  "commit": "0da4abf59173ffb0462c209f12312342076ff4c6",
+  "labelled_by": "tools/mongodb_driver_labels.py, every label read by hand",
+  "accesses": [
+    {
+      "file": "api/api.js",
+      "line": 381,
+      "collection": "diagnostic",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/appExpire.js",
+      "line": 45,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/appExpire.js",
+      "line": 110,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/clear.js",
+      "line": 28,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/clearAutoTasks.js",
+      "line": 35,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/ipcTest.js",
+      "line": 121,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/ping.js",
+      "line": 39,
+      "collection": "plugins",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/ping.js",
+      "line": 111,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/task.js",
+      "line": 70,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/test.js",
+      "line": 65,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/test.js",
+      "line": 115,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/topEvents.js",
+      "line": 154,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/topEvents.js",
+      "line": 198,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/jobs/userMerge.js",
+      "line": 65,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/userMerge.js",
+      "line": 75,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/userMerge.js",
+      "line": 112,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/userMerge.js",
+      "line": 121,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/userMerge.js",
+      "line": 164,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/jobs/userMerge.js",
+      "line": 188,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/fetch.js",
+      "line": 590,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/fetch.js",
+      "line": 1179,
+      "collection": "event_groups",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/fetch.js",
+      "line": 2235,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/fetch.js",
+      "line": 2299,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/fetch.js",
+      "line": 2324,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/fetch.js",
+      "line": 2325,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/geoData.js",
+      "line": 32,
+      "collection": "cityCoordinates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 144,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 165,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 175,
+      "collection": "users",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 198,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 224,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 250,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 298,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/data/stats.js",
+      "line": 327,
+      "collection": "device_details",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/handle.js",
+      "line": 53,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/handle.js",
+      "line": 130,
+      "collection": "jobs",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/job.js",
+      "line": 342,
+      "collection": "jobs",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/job.js",
+      "line": 365,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/job.js",
+      "line": 385,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/job.js",
+      "line": 404,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/job.js",
+      "line": 427,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/job.js",
+      "line": 446,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/jobs/manager.js",
+      "line": 38,
+      "collection": "jobs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 439,
+      "collection": "apps",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 468,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 478,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 493,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 521,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 532,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 759,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 826,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/app_users.js",
+      "line": 893,
+      "collection": "exports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 26,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 61,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 62,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 83,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 100,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 118,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 122,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 131,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 303,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 308,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 463,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 552,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 602,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 739,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 774,
+      "collection": "groups",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 787,
+      "collection": "groups",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 794,
+      "collection": "groups",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 806,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 823,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 839,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 846,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 892,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 940,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 956,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 958,
+      "collection": "users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 959,
+      "collection": "carriers",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 960,
+      "collection": "devices",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 961,
+      "collection": "device_details",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 962,
+      "collection": "cities",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 963,
+      "collection": "top_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 964,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 970,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 972,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 974,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1013,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1067,
+      "collection": "users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1068,
+      "collection": "carriers",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1069,
+      "collection": "devices",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1070,
+      "collection": "device_details",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1071,
+      "collection": "cities",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1073,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1092,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1269,
+      "collection": "apps",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/apps.js",
+      "line": 1316,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/cms.js",
+      "line": 86,
+      "collection": "cms_cache",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/cms.js",
+      "line": 105,
+      "collection": "cms_cache",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/cms.js",
+      "line": 129,
+      "collection": "cms_cache",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/cms.js",
+      "line": 230,
+      "collection": "cms_cache",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/cms.js",
+      "line": 317,
+      "collection": "cms_cache",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/cms.js",
+      "line": 346,
+      "collection": "cms_cache",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 39,
+      "collection": "date_presets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 296,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 300,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 499,
+      "collection": "date_presets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 553,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 575,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 614,
+      "collection": "date_presets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 623,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 629,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/date_presets.js",
+      "line": 689,
+      "collection": "date_presets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/event_groups.js",
+      "line": 133,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/event_groups.js",
+      "line": 157,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/event_groups.js",
+      "line": 191,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/event_groups.js",
+      "line": 215,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/tracker.js",
+      "line": 275,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/tracker.js",
+      "line": 276,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/tracker.js",
+      "line": 278,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/tracker.js",
+      "line": 462,
+      "collection": "sdks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 62,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 93,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 106,
+      "collection": "failed_logins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 150,
+      "collection": "failed_logins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 256,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 287,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 305,
+      "collection": "password_reset",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 340,
+      "collection": "sessions_",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 357,
+      "collection": "sessions_",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 389,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 598,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 599,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 604,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 631,
+      "collection": "password_reset",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 673,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 700,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 775,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 795,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 837,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 863,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 881,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 938,
+      "collection": "notes",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1026,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1037,
+      "collection": "notes",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1048,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1077,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1096,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1206,
+      "collection": "notes",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1209,
+      "collection": "notes",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1218,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/parts/mgmt/users.js",
+      "line": 1252,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 56,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 131,
+      "collection": "auth_tokens",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 136,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 145,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 180,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 187,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 200,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 258,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 270,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 418,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 530,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 541,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 597,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/authorizer.js",
+      "line": 623,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/common.js",
+      "line": 616,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 941,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 973,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1014,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1188,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1218,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1233,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1240,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1255,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1259,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1268,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1351,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1456,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1487,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1554,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 1816,
+      "collection": "exports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 2483,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 2597,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 2660,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 2960,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 3855,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/requestProcessor.js",
+      "line": 4228,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 235,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 264,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 334,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 356,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 426,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 500,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 590,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 688,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 723,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 741,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 1021,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 1086,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 1178,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/rights.js",
+      "line": 1238,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 159,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 205,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 450,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 455,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 460,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 505,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 531,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 612,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 614,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 623,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 637,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 652,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 664,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 678,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 694,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 716,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 729,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 732,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 745,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 758,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 767,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 793,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 829,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 907,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 929,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 942,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 998,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 999,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1027,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1090,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1102,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1106,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1137,
+      "collection": "journey_task_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1139,
+      "collection": "journey_task_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1164,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1165,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1166,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1172,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1203,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1283,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1306,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "api/utils/taskmanager.js",
+      "line": 1386,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/autocomplete.js",
+      "line": 34,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/config.js",
+      "line": 29,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/config.js",
+      "line": 62,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/config.js",
+      "line": 84,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/user_mgmt.js",
+      "line": 22,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/user_mgmt.js",
+      "line": 33,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/user_mgmt.js",
+      "line": 50,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/commands/scripts/user_mgmt.js",
+      "line": 57,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/offline-geocoder/scripts/import_geonames_mongodb.js",
+      "line": 277,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/offline-geocoder/scripts/import_geonames_mongodb.js",
+      "line": 370,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/offline-geocoder/scripts/import_geonames_mongodb.js",
+      "line": 393,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/offline-geocoder/scripts/import_geonames_mongodb.js",
+      "line": 442,
+      "collection": "plugins",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/offline-geocoder/scripts/import_geonames_mongodb.js",
+      "line": 510,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/offline-geocoder/scripts/import_geonames_mongodb.js",
+      "line": 744,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/add_indexes.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/add_indexes.js",
+      "line": 43,
+      "collection": "exports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/clean_date_preset_credentials.js",
+      "line": 33,
+      "collection": "date_presets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/clean_date_preset_credentials.js",
+      "line": 49,
+      "collection": "date_presets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/continious-data-population.js",
+      "line": 186,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/continious-data-population.js",
+      "line": 188,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/delete_old_views.js",
+      "line": 93,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/delete_old_views.js",
+      "line": 161,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/delete_old_views_cleanup.js",
+      "line": 40,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_old_crashes.js",
+      "line": 119,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_old_crashes_sync.js",
+      "line": 51,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_old_crashes_sync.js",
+      "line": 70,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_old_crashes_sync.js",
+      "line": 87,
+      "collection": "drill_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_old_data.js",
+      "line": 44,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_old_flows_collections.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-cleanup/remove_unused_apms.js",
+      "line": 5,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/check_user_mismatch.js",
+      "line": 35,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/compare_drill_aggregated.js",
+      "line": 42,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/compare_drill_aggregated.js",
+      "line": 315,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/compare_drill_aggregated.js",
+      "line": 348,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 39,
+      "collection": "diagnostic",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 60,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 121,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 130,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 131,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 147,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 198,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 247,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 251,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/diagnostic_report.js",
+      "line": 255,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/drill_data_cd.js",
+      "line": 71,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/drill_data_cd.js",
+      "line": 88,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/old_scripts/drill_data_cd.js",
+      "line": 73,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/old_scripts/drill_data_cd.js",
+      "line": 86,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/old_scripts/event_list_no_data.js",
+      "line": 17,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/data-reports/old_scripts/event_list_no_data.js",
+      "line": 25,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/drill_index.js",
+      "line": 8,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/clear_timeline.js",
+      "line": 67,
+      "collection": "timelineStatus",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/clear_timeline.js",
+      "line": 141,
+      "collection": "timelineStatus",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/clear_timeline.js",
+      "line": 143,
+      "collection": "timelineStatus",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/clear_timeline.js",
+      "line": 195,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/countly_multi_app_expireData.js",
+      "line": 52,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/db_free_storage_calculation.js",
+      "line": 21,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/db_free_storage_calculation.js",
+      "line": 31,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/db_free_storage_calculation.js",
+      "line": 79,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/db_free_storage_calculation.js",
+      "line": 83,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 25,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 31,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 91,
+      "collection": "drill_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 93,
+      "collection": "drill_bookmarks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 95,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 106,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 114,
+      "collection": "timelineStatus",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 125,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events.js",
+      "line": 130,
+      "collection": "event_groups",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 27,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 35,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 53,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 116,
+      "collection": "drill_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 118,
+      "collection": "drill_bookmarks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 120,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 130,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 138,
+      "collection": "timelineStatus",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 149,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/delete_custom_events_regex.js",
+      "line": 154,
+      "collection": "event_groups",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/old_scripts/countly_single_app_expireData.js",
+      "line": 34,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/expire-data/old_scripts/countly_single_app_expireDataBatches.js",
+      "line": 260,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/app_users_anonymized_data.js",
+      "line": 34,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/count_event_datapoints.js",
+      "line": 187,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/count_event_datapoints.js",
+      "line": 347,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/drill_collections_anonymized.js",
+      "line": 36,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/drill_collections_anonymized.js",
+      "line": 76,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/drill_monthly_doc_counts.js",
+      "line": 48,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/drill_monthly_doc_counts.js",
+      "line": 176,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/getAllEventsForApp.js",
+      "line": 16,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/getAllEventsSegmentsForApp.js",
+      "line": 11,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/getAllEventsSegmentsForApp.js",
+      "line": 12,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/get_all_indexes.js",
+      "line": 158,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/get_all_indexes.js",
+      "line": 186,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/get_all_indexes.js",
+      "line": 197,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 39,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 50,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 64,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 81,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 104,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 118,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/export-data/setting_limits_and_real_values.js",
+      "line": 289,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/clear_push_duplicates.js",
+      "line": 170,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/clear_recheck_merges_flag.js",
+      "line": 19,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/clear_timeline_period.js",
+      "line": 24,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/clear_timeline_period.js",
+      "line": 55,
+      "collection": "timelineStatus",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/delete_widgets_of_deleted_dashboards.js",
+      "line": 94,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/delete_widgets_of_deleted_dashboards.js",
+      "line": 128,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/delete_widgets_of_deleted_dashboards.js",
+      "line": 145,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_drill_custom_props.js",
+      "line": 33,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_missing_custom_user_props.js",
+      "line": 46,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_missing_custom_user_props.js",
+      "line": 59,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_missing_custom_user_props.js",
+      "line": 68,
+      "collection": "drill_meta",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_missing_custom_user_props.js",
+      "line": 242,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_missing_custom_user_props.js",
+      "line": 255,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_missing_custom_user_props.js",
+      "line": 266,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/fix_null_uids.js",
+      "line": 27,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/process_merges.js",
+      "line": 45,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/process_merges.js",
+      "line": 55,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/process_merges.js",
+      "line": 92,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/process_merges.js",
+      "line": 101,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/process_merges.js",
+      "line": 144,
+      "collection": "app_user_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/process_merges.js",
+      "line": 174,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/recheck_merges.js",
+      "line": 28,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/recheck_merges.js",
+      "line": 74,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/recheck_merges_new.js",
+      "line": 30,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/recheck_merges_new.js",
+      "line": 56,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/regenerate_aggregated_data.js",
+      "line": 42,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/regenerate_aggregated_data.js",
+      "line": 59,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/regenerate_aggregated_data.js",
+      "line": 75,
+      "collection": "data_regeneration_progress",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/regenerate_aggregated_data.js",
+      "line": 96,
+      "collection": "data_regeneration_progress",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/regenerate_aggregated_data.js",
+      "line": 116,
+      "collection": "data_regeneration_progress",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/regenerate_aggregated_data.js",
+      "line": 133,
+      "collection": "data_regeneration_progress",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/reports_snapshot_flag.js",
+      "line": 14,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/reports_snapshot_flag.js",
+      "line": 30,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/user-merge.js",
+      "line": 188,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/fix-data/user-merge.js",
+      "line": 194,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 59,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 87,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 88,
+      "collection": "licenses",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 96,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 109,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 111,
+      "collection": "licenses",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 112,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 113,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 114,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/license_installer.js",
+      "line": 116,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/loadCitiesInDb.js",
+      "line": 6,
+      "collection": "cityCoordinates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/loadCitiesInDb.js",
+      "line": 13,
+      "collection": "cityCoordinates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 38,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 40,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 42,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 44,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 46,
+      "collection": "groups",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 48,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_members_with_string_id.js",
+      "line": 75,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/delete_old_members.js",
+      "line": 31,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/disable_2fa.js",
+      "line": 27,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/disable_2fa.js",
+      "line": 51,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/lock_old_members.js",
+      "line": 27,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/member-managament/lock_old_members.js",
+      "line": 39,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 23,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 25,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 27,
+      "collection": "calculated_metrics",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 29,
+      "collection": "concurrent_users_alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 31,
+      "collection": "data_migrations",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 35,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 37,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 39,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 55,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 84,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 101,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 113,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/changeOwner.js",
+      "line": 136,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/delete/delete_user_properties.js",
+      "line": 44,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/delete/delete_user_properties.js",
+      "line": 57,
+      "collection": "drill_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/list_unused_collections.js",
+      "line": 18,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/list_unused_collections.js",
+      "line": 65,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/list_unused_collections.js",
+      "line": 114,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/list_unused_collections.js",
+      "line": 145,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/omit_events.js",
+      "line": 28,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/omit_events.js",
+      "line": 33,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/omit_events.js",
+      "line": 67,
+      "collection": "events_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/resetAppUserMergeCount.js",
+      "line": 24,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/setFilteringRules.js",
+      "line": 20,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/modify-data/setFilteringRules.js",
+      "line": 26,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/performance-monitoring/apm_events_delete.js",
+      "line": 26,
+      "collection": "apm",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/performance-monitoring/apm_events_delete.js",
+      "line": 29,
+      "collection": "drill_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/testEventMergingScript.js",
+      "line": 22,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/scripts/testEventMergingScript.js",
+      "line": 102,
+      "collection": "events_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/testEventMergingScript.js",
+      "line": 210,
+      "collection": "events_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/version_marks.js",
+      "line": 113,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/scripts/version_marks.js",
+      "line": 154,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/15.03/rename_event_collections.js",
+      "line": 12,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/17.05/removeOld.js",
+      "line": 8,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/process_geo_data.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/process_source.js",
+      "line": 41,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/process_source.js",
+      "line": 55,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/process_users_meta.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/process_users_meta.js",
+      "line": 20,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/removeUnusedData.js",
+      "line": 8,
+      "collection": "sessions_",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.01/scripts/removeUnusedData.js",
+      "line": 13,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.08/scripts/tokens_fix_owner.js",
+      "line": 5,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/18.08/scripts/tokens_fix_owner.js",
+      "line": 12,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/change_alerts_schedule.js",
+      "line": 5,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/clear_jobs.js",
+      "line": 4,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/drop_sessions.js",
+      "line": 4,
+      "collection": "sessions_",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/fix_broken_ratings.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/fix_report_manager.js",
+      "line": 4,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/updateViews.js",
+      "line": 399,
+      "collection": "views",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.02/scripts/updateViews.js",
+      "line": 506,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/live_concurrent.js",
+      "line": 27,
+      "collection": "max_online_counts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/live_concurrent.js",
+      "line": 75,
+      "collection": "concurrent_users_max",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/live_concurrent.js",
+      "line": 116,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/live_concurrent.js",
+      "line": 141,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/migrate_totp.js",
+      "line": 5,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/migrate_totp.js",
+      "line": 19,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/migrate_totp.js",
+      "line": 23,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/migrate_totp.js",
+      "line": 31,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/notes_upgrade.js",
+      "line": 6,
+      "collection": "graph_notes",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/notes_upgrade.js",
+      "line": 37,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/notes_upgrade.js",
+      "line": 45,
+      "collection": "graph_notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 36,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 40,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 41,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 44,
+      "collection": "credentials",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 48,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 197,
+      "collection": "credentials",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 203,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 217,
+      "collection": "credentials",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 226,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 230,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 233,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 245,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 248,
+      "collection": "credentials",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 254,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 270,
+      "collection": "credentials",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 283,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 287,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 290,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 299,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 308,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 389,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 391,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 408,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 425,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 439,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/push.js",
+      "line": 464,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/19.08/scripts/update_crashes.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 8,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 15,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 22,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 29,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 36,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 45,
+      "collection": "auth_tokens",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/clearOldTokens.js",
+      "line": 65,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/encrypt_2fa_secrets.js",
+      "line": 5,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/encrypt_2fa_secrets.js",
+      "line": 15,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/fix_nxret.js",
+      "line": 10,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/recover_widgets.js",
+      "line": 32,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/set_additional_api_configs.js",
+      "line": 7,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/set_additional_api_configs.js",
+      "line": 25,
+      "collection": "plugins",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/upgradeReports.js",
+      "line": 7,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/upgradeReports.js",
+      "line": 14,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.04/scripts/upgradeReports.js",
+      "line": 25,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.11/scripts/cleanup_concurrent.js",
+      "line": 8,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.11/scripts/cleanup_concurrent.js",
+      "line": 38,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.11/scripts/removeUserProps.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.11/scripts/update_app_users.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.11.1/scripts/cleanup_concurrent.js",
+      "line": 8,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/20.11.1/scripts/cleanup_concurrent.js",
+      "line": 38,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/clear_old_report_data.js",
+      "line": 6,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/clear_old_report_data.js",
+      "line": 9,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/clear_old_report_data.js",
+      "line": 15,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/data_manager_settings_reset.js",
+      "line": 5,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/fix_cohorts_appID.js",
+      "line": 6,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/fix_cohorts_appID.js",
+      "line": 20,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/fix_cohorts_appID.js",
+      "line": 30,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/group_permission_generator.js",
+      "line": 57,
+      "collection": "groups",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/group_permission_generator.js",
+      "line": 219,
+      "collection": "groups",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/mark_upgraded_custom_dashboards.js",
+      "line": 8,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/member_permission_generator.js",
+      "line": 57,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/member_permission_generator.js",
+      "line": 213,
+      "collection": "members",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 18,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 27,
+      "collection": "credentials",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 28,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 29,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 50,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 51,
+      "collection": "messages_legacy",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 74,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 82,
+      "collection": "messages_legacy",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 120,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 123,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 126,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 133,
+      "collection": "creds",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 265,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 349,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/push_all_things.js",
+      "line": 350,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_app_users.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 110,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 138,
+      "collection": "drill_bookmarks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 153,
+      "collection": "drill_bookmarks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 162,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 168,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 191,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 222,
+      "collection": "calculated_metrics",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 236,
+      "collection": "calculated_metrics",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 250,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 256,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.03/scripts/update_widgets_reports.js",
+      "line": 277,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/clear_old_report_data.js",
+      "line": 6,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/clear_old_report_data.js",
+      "line": 9,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/clear_old_report_data.js",
+      "line": 15,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/data_manager_settings_reset.js",
+      "line": 5,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/fix_cohorts_appID.js",
+      "line": 6,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/fix_cohorts_appID.js",
+      "line": 20,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/fix_cohorts_appID.js",
+      "line": 30,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/group_permission_generator.js",
+      "line": 57,
+      "collection": "groups",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/group_permission_generator.js",
+      "line": 219,
+      "collection": "groups",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/member_permission_generator.js",
+      "line": 57,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/member_permission_generator.js",
+      "line": 213,
+      "collection": "members",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 18,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 27,
+      "collection": "credentials",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 28,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 29,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 50,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 51,
+      "collection": "messages_legacy",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 74,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 82,
+      "collection": "messages_legacy",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 120,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 123,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 126,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 133,
+      "collection": "creds",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 265,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 349,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/push_all_things.js",
+      "line": 350,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/reset_upgraded_custom_dashboards.js",
+      "line": 39,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/reset_upgraded_custom_dashboards.js",
+      "line": 46,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_app_users.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 110,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 138,
+      "collection": "drill_bookmarks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 153,
+      "collection": "drill_bookmarks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 162,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 168,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 191,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 222,
+      "collection": "calculated_metrics",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 236,
+      "collection": "calculated_metrics",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 250,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 256,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.06/scripts/update_widgets_reports.js",
+      "line": 277,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.08/scripts/remove_member_old_permission.js",
+      "line": 9,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.09/scripts/merge_apm_collections.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.09/scripts/merge_apm_collections.js",
+      "line": 38,
+      "collection": "apm",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.09/scripts/merge_apm_collections.js",
+      "line": 51,
+      "collection": "apm",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/22.09/scripts/upgrade_crashgroup_app_version.js",
+      "line": 14,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_cohort_creation_info.js",
+      "line": 11,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_cohort_creation_info.js",
+      "line": 25,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_cohort_creation_info.js",
+      "line": 40,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_cohort_creation_info.js",
+      "line": 51,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_funnel_creator.js",
+      "line": 11,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_funnel_creator.js",
+      "line": 25,
+      "collection": "funnels",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_funnel_creator.js",
+      "line": 40,
+      "collection": "funnels",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/add_funnel_creator.js",
+      "line": 51,
+      "collection": "funnels",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/cleanup_drill_meta.js",
+      "line": 20,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/clear_internal_up_meta.js",
+      "line": 13,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/convert_member_emails_to_lowercase.js",
+      "line": 13,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/convert_member_emails_to_lowercase.js",
+      "line": 41,
+      "collection": "notes",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/convert_member_emails_to_lowercase.js",
+      "line": 69,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/convert_member_emails_to_lowercase.js",
+      "line": 103,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/convert_member_emails_to_lowercase.js",
+      "line": 125,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/flows_update_0days_period.js",
+      "line": 18,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/push_hash.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/rebuild_member_permission.js",
+      "line": 11,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/rebuild_member_permission.js",
+      "line": 25,
+      "collection": "groups",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/rebuild_member_permission.js",
+      "line": 63,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/update_app_users.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.03/scripts/update_user_text_index.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/merge_drill_meta.js",
+      "line": 158,
+      "collection": "drill_meta",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/merge_drill_meta.js",
+      "line": 176,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/migrate_manually_created_long_tasks.js",
+      "line": 124,
+      "collection": "drill_bookmarks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/migrate_manually_created_long_tasks.js",
+      "line": 149,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/migrate_manually_created_long_tasks.js",
+      "line": 167,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/push_drop_indexes.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/rebuild_member_permission.js",
+      "line": 11,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/rebuild_member_permission.js",
+      "line": 25,
+      "collection": "groups",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.06/scripts/rebuild_member_permission.js",
+      "line": 63,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/check_app_images.js",
+      "line": 9,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/check_app_images.js",
+      "line": 25,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 7,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 13,
+      "collection": "funnels",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 45,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 51,
+      "collection": "calculated_metrics",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 86,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 94,
+      "collection": "drill_bookmarks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 103,
+      "collection": "long_tasks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/remove_deleted_recors_from_widgets.js",
+      "line": 105,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/23.11/scripts/update_timestamps_in_consent_history.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/ab_test_cohort_period_fix.js",
+      "line": 6,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/ab_test_cohort_period_fix.js",
+      "line": 36,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/generate_crashgroup_app_version_list.js",
+      "line": 13,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/merge_consent_histories.js",
+      "line": 34,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/merge_consent_histories.js",
+      "line": 35,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/merge_consent_histories.js",
+      "line": 36,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/merge_consent_histories.js",
+      "line": 37,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/push_indexes.js",
+      "line": 5,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/update_populator_templates.js",
+      "line": 6,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/24.05/scripts/update_populator_templates.js",
+      "line": 13,
+      "collection": "populator_templates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/25.03/scripts/merge_events_collections.js",
+      "line": 20,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/25.03/scripts/merge_events_collections.js",
+      "line": 75,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/25.03/scripts/merge_events_collections.js",
+      "line": 92,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/25.03/scripts/merge_events_collections.js",
+      "line": 106,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/25.03/scripts/merge_events_collections.js",
+      "line": 129,
+      "collection": "events_data",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/25.03/scripts/remove_auto_symbol_setting.js",
+      "line": 7,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/DEV/add_creation_date_for_existing_alerts.js",
+      "line": 7,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/DEV/scripts/update_content_cooldown_settings.js",
+      "line": 17,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/DEV/scripts/update_content_cooldown_settings.js",
+      "line": 27,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/DEV/scripts/update_content_cooldown_settings.js",
+      "line": 40,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "bin/upgrade/DEV/scripts/update_content_cooldown_settings.js",
+      "line": 72,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "bin/upgrade/DEV/scripts/update_journey_versions.js",
+      "line": 13,
+      "collection": "journey_versions",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 290,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 333,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 862,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 910,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1039,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1042,
+      "collection": "mycountly",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1211,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1232,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1244,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1287,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1293,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1331,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1332,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1369,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1417,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1487,
+      "collection": "password_reset",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1691,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1746,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1776,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1815,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1906,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1953,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 1982,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2013,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2079,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2084,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2094,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2101,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2112,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2113,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2116,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2117,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/app.js",
+      "line": 2118,
+      "collection": "long_tasks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/connect-mongo.js",
+      "line": 22,
+      "collection": "sessions_",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 93,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 133,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 349,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 400,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 417,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 450,
+      "collection": "sessions_",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 467,
+      "collection": "sessions_",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 527,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 583,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 658,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 675,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 739,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 786,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 811,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 843,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 848,
+      "collection": "password_reset",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 876,
+      "collection": "password_reset",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 890,
+      "collection": "members",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 893,
+      "collection": "password_reset",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 958,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 963,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 1048,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 1071,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 1098,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 1113,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 1140,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/members.js",
+      "line": 1162,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/preventBruteforce.js",
+      "line": 168,
+      "collection": "failed_logins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/preventBruteforce.js",
+      "line": 196,
+      "collection": "failed_logins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/preventBruteforce.js",
+      "line": 222,
+      "collection": "failed_logins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "frontend/express/libs/preventBruteforce.js",
+      "line": 236,
+      "collection": "failed_logins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/cohorts.js",
+      "line": 55,
+      "collection": "cohortdata",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/crashes.js",
+      "line": 150,
+      "collection": "crashdata",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/dataPoints.js",
+      "line": 55,
+      "collection": "server_stats_data_points",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/events.js",
+      "line": 100,
+      "collection": "events_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/rating.js",
+      "line": 111,
+      "collection": "events_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/sessions.js",
+      "line": 100,
+      "collection": "users",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/alertModules/users.js",
+      "line": 72,
+      "collection": "users",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 96,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 133,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 305,
+      "collection": "alerts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 318,
+      "collection": "alerts",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 340,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 397,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 471,
+      "collection": "alerts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 505,
+      "collection": "alerts",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 604,
+      "collection": "alerts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 608,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 637,
+      "collection": "alerts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 642,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/api.js",
+      "line": 643,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/jobs/monitor.js",
+      "line": 37,
+      "collection": "alerts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/jobs/monitor.js",
+      "line": 42,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/common-lib.js",
+      "line": 130,
+      "collection": "alerts_data",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/common-lib.js",
+      "line": 160,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/common-lib.js",
+      "line": 266,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/utils.js",
+      "line": 113,
+      "collection": "alerts_data",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/utils.js",
+      "line": 123,
+      "collection": "alerts_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/utils.js",
+      "line": 173,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/utils.js",
+      "line": 197,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/api/parts/utils.js",
+      "line": 239,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/alerts/install.js",
+      "line": 7,
+      "collection": "alerts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/browser/api/api.js",
+      "line": 49,
+      "collection": "browser",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/browser/api/api.js",
+      "line": 54,
+      "collection": "browser",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/browser/api/api.js",
+      "line": 59,
+      "collection": "browser",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/browser/api/api.js",
+      "line": 65,
+      "collection": "browser",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compare/api/api.js",
+      "line": 180,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 113,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 114,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 115,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 116,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 184,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 266,
+      "collection": "consent_history",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 328,
+      "collection": "consent_history",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 483,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 508,
+      "collection": "consents",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 509,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 517,
+      "collection": "consents",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 518,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 526,
+      "collection": "consents",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 527,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 536,
+      "collection": "consents",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/compliance-hub/api/api.js",
+      "line": 537,
+      "collection": "consent_history",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/api/api.js",
+      "line": 33,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/api/api.js",
+      "line": 123,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/api/api.js",
+      "line": 129,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/api/api.js",
+      "line": 137,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/install.js",
+      "line": 6,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/install.js",
+      "line": 10,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/install.js",
+      "line": 14,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/consolidate/install.js",
+      "line": 26,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1641,
+      "collection": "drill_events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1645,
+      "collection": "crash_share",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1792,
+      "collection": "crash_share",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1793,
+      "collection": "crashdata",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1802,
+      "collection": "crashdata",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1834,
+      "collection": "crash_share",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1835,
+      "collection": "crashdata",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1866,
+      "collection": "crash_share",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/api.js",
+      "line": 1867,
+      "collection": "crashdata",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/api/parts/custom_field.js",
+      "line": 52,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/crashes/install.js",
+      "line": 7,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/crashes/tests.js",
+      "line": 1359,
+      "collection": "crash_share",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/crashes/tests.js",
+      "line": 1367,
+      "collection": "crash_share",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 144,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 357,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 493,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 589,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 603,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 789,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 808,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 837,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 889,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1057,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1099,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1175,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1186,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1197,
+      "collection": "widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1205,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1303,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1316,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1320,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1397,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1419,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1457,
+      "collection": "widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1524,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1537,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1539,
+      "collection": "widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1743,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1768,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1779,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1815,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 1843,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2178,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2182,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2186,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2381,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2436,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2444,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2571,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/api.js",
+      "line": 2601,
+      "collection": "widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/jobs/refreshDashboards.js",
+      "line": 48,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/parts/dashboards.js",
+      "line": 94,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/parts/dashboards.js",
+      "line": 385,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/parts/dashboards.js",
+      "line": 679,
+      "collection": "widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/parts/dashboards.js",
+      "line": 709,
+      "collection": "dashboards",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/parts/dashboards.js",
+      "line": 711,
+      "collection": "widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/api/parts/dashboards.js",
+      "line": 914,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/tests.js",
+      "line": 571,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dashboards/tests.js",
+      "line": 645,
+      "collection": "dashboards",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 61,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 69,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 111,
+      "collection": "event_categories",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 139,
+      "collection": "event_categories",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 161,
+      "collection": "event_categories",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 198,
+      "collection": "event_categories",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 217,
+      "collection": "event_categories",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 244,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/api.js",
+      "line": 257,
+      "collection": "events",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/data-manager/api/parts/auditLogs.js",
+      "line": 8,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dbviewer/api/api.js",
+      "line": 461,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dbviewer/api/api.js",
+      "line": 742,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/dbviewer/tests.js",
+      "line": 92,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/density/api/api.js",
+      "line": 56,
+      "collection": "density",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/density/api/api.js",
+      "line": 61,
+      "collection": "density",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/density/api/api.js",
+      "line": 66,
+      "collection": "density",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/density/api/api.js",
+      "line": 72,
+      "collection": "density",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/guides/frontend/app.js",
+      "line": 17,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 118,
+      "collection": "hooks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 139,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 375,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 424,
+      "collection": "hooks",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 473,
+      "collection": "hooks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 542,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 571,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 591,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 613,
+      "collection": "alerts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 763,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 768,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 835,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 853,
+      "collection": "hooks",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 911,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/api.js",
+      "line": 925,
+      "collection": "hooks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/parts/triggers/internal_event.js",
+      "line": 46,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/hooks/api/parts/triggers/internal_event.js",
+      "line": 299,
+      "collection": "hooks",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/locale/api/api.js",
+      "line": 67,
+      "collection": "langs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/locale/api/api.js",
+      "line": 72,
+      "collection": "langs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/locale/api/api.js",
+      "line": 78,
+      "collection": "langs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/locale/api/api.js",
+      "line": 83,
+      "collection": "langs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/logger/api/api.js",
+      "line": 316,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/logger/api/jobs/clear.js",
+      "line": 29,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 181,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 212,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 263,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 289,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 696,
+      "collection": "plugins",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 730,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 751,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 824,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 839,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 849,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 1395,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 1545,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 1551,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 1566,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 1575,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 2309,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/pluginManager.js",
+      "line": 2319,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/plugins/api/api.js",
+      "line": 88,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/plugins/api/api.js",
+      "line": 90,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/plugins/api/api.js",
+      "line": 195,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/plugins/api/api.js",
+      "line": 259,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/plugins/api/api.js",
+      "line": 336,
+      "collection": "auth_tokens",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/plugins/frontend/app.js",
+      "line": 10,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 87,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 96,
+      "collection": "populator_templates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 156,
+      "collection": "populator_templates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 169,
+      "collection": "populator_environments",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 184,
+      "collection": "populator_templates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 187,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 197,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 228,
+      "collection": "populator_templates",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 276,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 291,
+      "collection": "populator_templates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 358,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 375,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 389,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 613,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 691,
+      "collection": "populator_environments",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 737,
+      "collection": "populator_environments",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 811,
+      "collection": "populator_environment_users",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 820,
+      "collection": "populator_environment_users",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 880,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 890,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 935,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 945,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 954,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 959,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 968,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 973,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 982,
+      "collection": "populator_environment_users",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 987,
+      "collection": "populator_environments",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 1000,
+      "collection": "populator_templates",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/populator/api/api.js",
+      "line": 1039,
+      "collection": "populator_templates",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-dashboard.js",
+      "line": 393,
+      "collection": "creds",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-drill.js",
+      "line": 16,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-drill.js",
+      "line": 59,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 92,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 123,
+      "collection": "geos",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 130,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 646,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 867,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 1117,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 1118,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 1119,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-message.js",
+      "line": 1121,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-push.js",
+      "line": 157,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-push.js",
+      "line": 190,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-push.js",
+      "line": 232,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-push.js",
+      "line": 272,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 14,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 15,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 16,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 18,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 25,
+      "collection": "apps",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 41,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 43,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 44,
+      "collection": "jobs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 56,
+      "collection": "push",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 96,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api-reset.js",
+      "line": 104,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/api.js",
+      "line": 230,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/clear-stats.js",
+      "line": 21,
+      "collection": "push_stats",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/clear.js",
+      "line": 33,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/clear.js",
+      "line": 42,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/clear.js",
+      "line": 53,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/clear.js",
+      "line": 63,
+      "collection": "credentials",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/util/connector.js",
+      "line": 87,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/util/connector.js",
+      "line": 126,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/util/connector.js",
+      "line": 276,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/util/connector.js",
+      "line": 277,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/util/resultor.js",
+      "line": 412,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/jobs/util/resultor.js",
+      "line": 573,
+      "collection": "push_stats",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/parts/note.js",
+      "line": 245,
+      "collection": "messages",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/parts/note.js",
+      "line": 262,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/parts/note.js",
+      "line": 280,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/parts/note.js",
+      "line": 306,
+      "collection": "messages",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/parts/note.js",
+      "line": 381,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/parts/note.js",
+      "line": 787,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/send/audience.js",
+      "line": 72,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/send/audience.js",
+      "line": 196,
+      "collection": "geos",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/send/audience.js",
+      "line": 774,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/api/send/sender.js",
+      "line": 51,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/send/sender.js",
+      "line": 140,
+      "collection": "push",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/api/send/sender.js",
+      "line": 184,
+      "collection": "push",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/frontend/app.js",
+      "line": 10,
+      "collection": "messages",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/frontend/app.js",
+      "line": 14,
+      "collection": "push",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/push/frontend/app.js",
+      "line": 18,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/push/frontend/app.js",
+      "line": 26,
+      "collection": "plugins",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 156,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 320,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 400,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 423,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 485,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 486,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 512,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 559,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 607,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 715,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 749,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/api.js",
+      "line": 779,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/generate_reports.js",
+      "line": 53,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/generate_reports.js",
+      "line": 67,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/generate_reports.js",
+      "line": 79,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/jobs/send.js",
+      "line": 46,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/jobs/send.js",
+      "line": 77,
+      "collection": "reports",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 143,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 213,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 242,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 247,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 264,
+      "collection": "event_groups",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 442,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/api/reports.js",
+      "line": 452,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/frontend/app.js",
+      "line": 72,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/frontend/app.js",
+      "line": 79,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/frontend/app.js",
+      "line": 134,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/frontend/app.js",
+      "line": 139,
+      "collection": "reports",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/frontend/app.js",
+      "line": 155,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/frontend/app.js",
+      "line": 160,
+      "collection": "reports",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/reports/tests.js",
+      "line": 1062,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/tests.js",
+      "line": 1072,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/tests.js",
+      "line": 1079,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/reports/tests.js",
+      "line": 1105,
+      "collection": "reports",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 238,
+      "collection": "sdks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 244,
+      "collection": "sdks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 249,
+      "collection": "sdk_configs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 250,
+      "collection": "sdks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 255,
+      "collection": "sdk_configs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 256,
+      "collection": "sdks",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 379,
+      "collection": "sdk_configs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sdk/api/api.js",
+      "line": 391,
+      "collection": "sdk_configs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/server-stats/api/jobs/stats.js",
+      "line": 173,
+      "collection": "plugins",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/server-stats/api/jobs/stats.js",
+      "line": 227,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/server-stats/api/parts/stats.js",
+      "line": 245,
+      "collection": "server_stats_data_points",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/server-stats/api/parts/stats.js",
+      "line": 434,
+      "collection": "server_stats_data_points",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/server-stats/scripts/dp.js",
+      "line": 40,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/server-stats/scripts/top.js",
+      "line": 12,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/sources/api/api.js",
+      "line": 221,
+      "collection": "sources",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sources/api/api.js",
+      "line": 226,
+      "collection": "sources",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sources/api/api.js",
+      "line": 231,
+      "collection": "sources",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/sources/api/api.js",
+      "line": 237,
+      "collection": "sources",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 363,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 661,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 771,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 779,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 913,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 925,
+      "collection": "cohorts",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 939,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 962,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1021,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1154,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1212,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1771,
+      "collection": "events_data",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1826,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1876,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 1965,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 2007,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 2175,
+      "collection": "cohorts",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 2178,
+      "collection": "cohorts",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/api.js",
+      "line": 2179,
+      "collection": "cohortdata",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/api/assistantJob.js",
+      "line": 21,
+      "collection": "events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/install.js",
+      "line": 5,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/install.js",
+      "line": 11,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 255,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 308,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 324,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 450,
+      "collection": "feedback_widgets",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 470,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 474,
+      "collection": "feedback_widgets",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/star-rating/tests.js",
+      "line": 659,
+      "collection": "app_user_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/system-utility/api/system.utility.js",
+      "line": 397,
+      "collection": "plugins",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 126,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 128,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 178,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 179,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 451,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 455,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 459,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 474,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 481,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 485,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/api/api.js",
+      "line": 490,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/frontend/app.js",
+      "line": 215,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/frontend/app.js",
+      "line": 226,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/frontend/app.js",
+      "line": 233,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/frontend/app.js",
+      "line": 237,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/frontend/app.js",
+      "line": 242,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/install.js",
+      "line": 19,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/install.js",
+      "line": 25,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/install.js",
+      "line": 26,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/install.js",
+      "line": 27,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/install.js",
+      "line": 28,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/install.js",
+      "line": 29,
+      "collection": "systemlogs",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/systemlogs/scripts/export.js",
+      "line": 24,
+      "collection": "systemlogs",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/times-of-day/api/api.js",
+      "line": 260,
+      "collection": "times_of_day",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/times-of-day/api/api.js",
+      "line": 265,
+      "collection": "times_of_day",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/times-of-day/api/api.js",
+      "line": 270,
+      "collection": "times_of_day",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/api/api.js",
+      "line": 62,
+      "collection": "members",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/api/api.js",
+      "line": 101,
+      "collection": "members",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/api/api.js",
+      "line": 131,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/api/api.js",
+      "line": 156,
+      "collection": "members",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 25,
+      "collection": "password_reset",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 36,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 55,
+      "collection": "password_reset",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 64,
+      "collection": "password_reset",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 87,
+      "collection": "password_reset",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 93,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/two-factor-auth/frontend/app.js",
+      "line": 181,
+      "collection": "members",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 135,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 1376,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 1624,
+      "collection": "drill_events",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 1666,
+      "collection": "members",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2440,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2455,
+      "collection": "views",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2466,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2479,
+      "collection": "views",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2498,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2540,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/api.js",
+      "line": 2552,
+      "collection": "views",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/api/jobs/cleanupMeta.js",
+      "line": 42,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/jobs/cleanupMeta.js",
+      "line": 49,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/api/parts/viewsUtils.js",
+      "line": 56,
+      "collection": "views",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/install.js",
+      "line": 5,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/fixViews.js",
+      "line": 137,
+      "collection": "app_viewsmeta_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/fixViews.js",
+      "line": 180,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/fixViews.js",
+      "line": 240,
+      "collection": "app_viewsmeta_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/fixViews.js",
+      "line": 253,
+      "collection": "app_viewsmeta_merges",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/fixViews.js",
+      "line": 276,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/omitViewSegments.js",
+      "line": 70,
+      "collection": "views",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/omitViewSegments.js",
+      "line": 116,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/omitViewSegments.js",
+      "line": 167,
+      "collection": "apps",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 123,
+      "collection": "app_viewsmeta_renames",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 134,
+      "collection": "app_viewsmeta_renames",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 150,
+      "collection": "views",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 175,
+      "collection": "app_viewsmeta_renames",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 194,
+      "collection": "app_viewsmeta_merges",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 201,
+      "collection": "app_viewsmeta_renames",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/views/scripts/renameViews.js",
+      "line": 211,
+      "collection": "app_viewsmeta_renames",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/vue-example/api/api.js",
+      "line": 37,
+      "collection": "vue_example",
+      "access": [
+        "READS"
+      ]
+    },
+    {
+      "file": "plugins/vue-example/api/api.js",
+      "line": 99,
+      "collection": "vue_example",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/vue-example/api/api.js",
+      "line": 106,
+      "collection": "vue_example",
+      "access": [
+        "READS",
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/vue-example/api/api.js",
+      "line": 132,
+      "collection": "vue_example",
+      "access": [
+        "WRITES"
+      ]
+    },
+    {
+      "file": "plugins/vue-example/api/api.js",
+      "line": 146,
+      "collection": "vue_example",
+      "access": [
+        "WRITES"
+      ]
+    }
+  ]
+}

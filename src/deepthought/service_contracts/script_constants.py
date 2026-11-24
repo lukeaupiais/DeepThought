@@ -237,6 +237,45 @@ def function_name(function):
     return name
 
 
+def method_name(function):
+    """The name of a class method (not static, not an accessor) that calls
+    of ``this.name(...)`` in its class reach; None otherwise."""
+    if function.type != "method_definition":
+        return None
+    parent = function.parent
+    if parent is None or parent.type != "class_body":
+        return None
+    if any(c.type in ("static", "get", "set") for c in function.children):
+        return None
+    name = function.child_by_field_name("name")
+    if name is None or name.type != "property_identifier":
+        return None
+    return name
+
+
+_THIS_BREAKERS = (
+    "function_declaration",
+    "function_expression",
+    "function",
+    "generator_function",
+    "generator_function_declaration",
+    "class_body",
+)
+
+
+def _this_is_class(node, body):
+    """``this`` at ``node`` is an instance of the class whose body is
+    ``body``: no ordinary function or other class lies in between."""
+    current = node.parent
+    while current is not None:
+        if current.id == body.id:
+            return True
+        if current.type in _THIS_BREAKERS:
+            return False
+        current = current.parent
+    return False
+
+
 class ScriptCalls:
     """The values that calls of a module-level function pass to its
     parameters: calls in the function's own module, and in modules that
@@ -283,10 +322,13 @@ class ScriptCalls:
                                 )
         return self._importers
 
-    def calls(self, file, name):
+    def calls(self, file, name, method=None):
         """[({index: value}, "file:line")] for each call of the module-level
-        function ``name`` of ``file``: the arguments folded in the calling
-        module (none from a spread argument on)."""
+        function ``name`` of ``file``, or, with ``method`` (a class method
+        node), of ``this.name(...)`` in the method's class: the arguments
+        folded in the calling module (none from a spread argument on)."""
+        if method is not None:
+            return self._method_calls(file, name, method)
         imports = self._imports()
         callers = (
             [(file, name, True)]
@@ -330,25 +372,57 @@ class ScriptCalls:
                         continue
                 elif folder._bound(function):
                     continue  # shadowed by a local name
-                arguments = node.child_by_field_name("arguments")
-                if arguments is None or arguments.type != "arguments":
-                    continue
-                positional = [
-                    c for c in arguments.named_children if c.type != "comment"
-                ]
-                values = {}
-                for index, argument in enumerate(positional):
-                    if argument.type == "spread_element":
-                        break
-                    values[index] = folder.argument(argument)
-                found.append((values, f"{caller}:{node.start_point.row + 1}"))
+                call = _call(folder, node, caller)
+                if call is not None:
+                    found.append(call)
         return found
+
+    def _method_calls(self, file, name, method):
+        tree, content, language = self.constants.sources[file]
+        folder = Folder(
+            language, tree.root_node, content, self.constants.externals(file)
+        )
+        body = method.parent
+        found = []
+        stack = [body]
+        while stack:
+            node = stack.pop()
+            stack.extend(node.named_children)
+            if node.type != "call_expression":
+                continue
+            function = node.child_by_field_name("function")
+            if function.type != "member_expression":
+                continue
+            owner = function.child_by_field_name("object")
+            if owner.type != "this" or text(function, content) != f"this.{name}":
+                continue
+            if not _this_is_class(node, body):
+                continue
+            call = _call(folder, node, file)
+            if call is not None:
+                found.append(call)
+        return found
+
+
+def _call(folder, node, caller):
+    """({index: value}, "file:line") of a call, or None."""
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None or arguments.type != "arguments":
+        return None
+    positional = [c for c in arguments.named_children if c.type != "comment"]
+    values = {}
+    for index, argument in enumerate(positional):
+        if argument.type == "spread_element":
+            break
+        values[index] = folder.argument(argument)
+    return values, f"{caller}:{node.start_point.row + 1}"
 
 
 def fold_through_calls(folder, compute, calls_of, unknown=None):
     """[(value, calls)] for the text ``compute(folder)`` gives. When it has
-    unknown text from parameters of exactly one module-level function, and
-    ``calls_of(name)`` finds calls of that function, each call gives the
+    unknown text from parameters of exactly one module-level function or
+    class method, and ``calls_of(name)`` (``calls_of(name, method)`` for a
+    method) finds calls of it, each call gives the
     value with its arguments in place of the parameters; ``calls`` lists the
     calls ("file:line") that give each value. ``unknown(value)`` tells
     whether a value is not fixed (by default: it has unknown text)."""
@@ -365,7 +439,13 @@ def fold_through_calls(folder, compute, calls_of, unknown=None):
         return [(value, ())]
     function = next(iter(folder.parameters_seen.values()))
     name = function_name(function)
-    found = calls_of(text(name, folder.content)) if name is not None else None
+    if name is not None:
+        found = calls_of(text(name, folder.content))
+    else:
+        name = method_name(function)
+        found = (
+            calls_of(text(name, folder.content), function) if name is not None else None
+        )
     if not found:
         return [(value, ())]
     values = {}

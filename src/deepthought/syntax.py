@@ -2342,6 +2342,18 @@ _JAVA_LITERALS = {
     "class_literal": "Class",
 }
 _JAVA_PRIMITIVES = {"integral_type", "floating_point_type", "boolean_type"}
+_JAVA_INTEGRAL = {"byte", "short", "char", "int", "long"}
+_JAVA_NUMERIC = _JAVA_INTEGRAL | {"float", "double"}
+_JAVA_COMPARISONS = {"==", "!=", "<", ">", "<=", ">=", "&&", "||"}
+
+
+def _java_promoted(*types):
+    """The type numeric promotion gives operands of primitive numeric types
+    (JLS 5.6)."""
+    for wide in ("double", "float", "long"):
+        if wide in types:
+            return wide
+    return "int"
 
 
 def _java_argument_type(node, content, cache):
@@ -2364,16 +2376,55 @@ def _java_argument_type(node, content, cache):
     if kind == "object_creation_expression":
         return _java_type_name(node.child_by_field_name("type"), content)
     if kind == "binary_expression" and node.child_by_field_name("operator") is not None:
-        if _text(node.child_by_field_name("operator"), content) == "+" and any(
-            _java_argument_type(side, content, cache) == "String"
+        operator = _text(node.child_by_field_name("operator"), content)
+        sides = [
+            _java_argument_type(side, content, cache)
             for side in (
                 node.child_by_field_name("left"),
                 node.child_by_field_name("right"),
             )
             if side is not None
-        ):
+        ]
+        if operator == "+" and "String" in sides:
             # String concatenation (JLS 15.18.1).
             return "String"
+        if operator in _JAVA_COMPARISONS:
+            return "boolean"  # JLS 15.20, 15.21, 15.23, 15.24
+        if not all(t in _JAVA_NUMERIC for t in sides):
+            if operator in {"&", "|", "^"} and sides == ["boolean", "boolean"]:
+                return "boolean"  # JLS 15.22.2
+            return None
+        if operator in {"<<", ">>", ">>>"}:
+            return _java_promoted(sides[0])  # JLS 15.19
+        if operator in {"&", "|", "^"} and not set(sides) <= _JAVA_INTEGRAL:
+            return None
+        return _java_promoted(*sides)  # JLS 15.17, 15.18.2, 15.22.1
+    if kind == "unary_expression" and node.child_by_field_name("operator") is not None:
+        operator = _text(node.child_by_field_name("operator"), content)
+        if operator == "!":
+            return "boolean"  # JLS 15.15.6
+        operand = node.child_by_field_name("operand")
+        typed = (
+            _java_argument_type(operand, content, cache)
+            if operand is not None
+            else None
+        )
+        if typed not in _JAVA_NUMERIC or (
+            operator == "~" and typed not in _JAVA_INTEGRAL
+        ):
+            return None
+        return _java_promoted(typed)  # JLS 15.15.3-15.15.5
+    if kind == "instanceof_expression":
+        return "boolean"  # JLS 15.20.2
+    if kind == "ternary_expression":
+        branches = {
+            _java_argument_type(node.child_by_field_name(field), content, cache)
+            for field in ("consequence", "alternative")
+            if node.child_by_field_name(field) is not None
+        }
+        if len(branches) == 1 and None not in branches and "null" not in branches:
+            # Both operands of one type: the conditional's type (JLS 15.25).
+            return branches.pop()
         return None
     if kind == "cast_expression":
         written = node.child_by_field_name("type")
