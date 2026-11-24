@@ -10,6 +10,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 """
 
 from hashlib import sha256
+from pathlib import PurePosixPath
 import importlib.util
 import re
 import time
@@ -33,7 +34,7 @@ from ..service_contracts.spring import (
     extract_spring,
     java_constants,
 )
-from ..service_contracts.web import extract_web
+from ..service_contracts.web import extract_web, nest_settings
 from ..syntax import identifier, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -85,6 +86,18 @@ ROUTE_RULES = {
             "A method call (get, post, ..., all) on an Express app or Router bound "
             "once in the file from the express module declares this path; a "
             "prefix given to app.use is not read.",
+        )
+    ),
+    "nestjs": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-route",
+            "pattern_matched",
+            "A method of a class decorated @Controller(path) carries a route "
+            "decorator (@Get, @Post, ..., @All) imported from @nestjs/common; "
+            "the literal controller and method paths are joined under the "
+            "package's single literal setGlobalPrefix, if any. Versioned "
+            "routes, RouterModule paths and prefixes with exclusions are not "
+            "read.",
         )
     ),
     "go-net-http": register_rule(
@@ -400,6 +413,46 @@ def _is_test_source(path):
     )
 
 
+def _node_package(root, file):
+    """The nearest directory above ``file`` with a package.json, or None."""
+    path = PurePosixPath(file).parent
+    while True:
+        if (root / path / "package.json").is_file():
+            return path.as_posix()
+        if path == path.parent:
+            return None
+        path = path.parent
+
+
+def _nest_applications(root, sources):
+    """(global prefix, unread reason) of each Node package's NestJS
+    application, from the setGlobalPrefix, enableVersioning and RouterModule
+    calls of its TypeScript files: one literal prefix applies to every route
+    of the package; anything else makes its routes unread."""
+    settings = {}
+    for coverage, content, tree in sources:
+        if coverage.language != "typescript" or not any(
+            needle in content
+            for needle in (b"setGlobalPrefix", b"enableVersioning", b"RouterModule")
+        ):
+            continue
+        package = _node_package(root, coverage.file)
+        settings.setdefault(package, []).extend(
+            nest_settings(tree, content, coverage.language)
+        )
+    found = {}
+    for package, facts in settings.items():
+        reasons = sorted({v for k, v in facts if k == "unread"})
+        prefixes = {v for k, v in facts if k == "prefix"}
+        if reasons:
+            found[package] = (None, reasons[0])
+        elif len(prefixes) > 1:
+            found[package] = (None, "global_prefix_ambiguous")
+        else:
+            found[package] = (next(iter(prefixes), None), None)
+    return found
+
+
 def _go_packages(definitions):
     """Go directory -> (functions, methods) by name, for handler anchoring."""
     packages = {}
@@ -531,6 +584,7 @@ class ServiceContractTool(AnalysisTool):
                 return configured[0]
             return None
 
+        nest = _nest_applications(root, sources)
         for coverage, content, tree in sources:
             if coverage.language == "java":
                 service, context_path = config.service(coverage.file)
@@ -554,6 +608,7 @@ class ServiceContractTool(AnalysisTool):
                     result.definitions,
                     coverage.language,
                     package=packages.get(coverage.file.rpartition("/")[0]),
+                    nest=nest.get(_node_package(root, coverage.file)),
                 )
             routes.extend(found[0])
             requests.extend(found[1])

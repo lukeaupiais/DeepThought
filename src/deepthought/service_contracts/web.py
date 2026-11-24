@@ -384,9 +384,13 @@ def _js_object(node, content):
     return found
 
 
-def extract_javascript(context):
+def extract_javascript(context, nest=None):
     content, root = context.content, context.root
     modules = _js_modules(root, content)
+    if context.language == "typescript" and any(
+        m.startswith(_NEST + ".") for m in modules.values()
+    ):
+        extract_nest(context, modules, nest or (None, None))
     express_names = {n for n, m in modules.items() if m == "express"}
     router_constructors = {n for n, m in modules.items() if m == "express.Router"}
 
@@ -484,6 +488,172 @@ def extract_javascript(context):
             else:
                 method, url = "GET", context.folder.evaluate(positional[0])
             context.request(node, method, url, modules[written])
+
+
+# -- NestJS -------------------------------------------------------------------
+
+_NEST = "@nestjs/common"
+_NEST_VERBS = {
+    "Get": "GET",
+    "Post": "POST",
+    "Put": "PUT",
+    "Delete": "DELETE",
+    "Patch": "PATCH",
+    "Options": "OPTIONS",
+    "Head": "HEAD",
+    "All": ANY_METHOD,
+}
+
+
+def _nest_path(path):
+    """A Nest route path (Express style) in route template form: ``:id`` is a
+    variable and a segment starting with ``*`` matches the rest."""
+    path = re.sub(r"(?<=/)\*[A-Za-z0-9_]*$", "{*rest}", path)
+    return _express_path(path)
+
+
+def _nest_decorator(node, modules, content):
+    """(name, argument nodes) of a decorator imported from @nestjs/common."""
+    call = node.named_children[0] if node.named_children else None
+    if call is None or call.type != "call_expression":
+        return None, []
+    function = call.child_by_field_name("function")
+    if function is None or function.type != "identifier":
+        return None, []
+    origin = modules.get(text(function, content), "")
+    if not origin.startswith(_NEST + "."):
+        return None, []
+    arguments = call.child_by_field_name("arguments")
+    found = [] if arguments is None else arguments.named_children
+    return origin.rpartition(".")[2], [c for c in found if c.type != "comment"]
+
+
+def _nest_paths(context, node):
+    """Literal paths of a Nest path argument: a string or an array of them;
+    an absent argument is the empty path."""
+    if node is None:
+        return [""]
+    if node.type == "array":
+        items = [c for c in node.named_children if c.type != "comment"]
+        return [context.folder.evaluate(item) for item in items] or [""]
+    return [context.folder.evaluate(node)]
+
+
+def nest_settings(tree, content, language):
+    """Application-wide NestJS settings a file makes: ("prefix", text) for
+    ``x.setGlobalPrefix("text")``, and ("unread", reason) for a prefix that
+    is not one literal argument, ``enableVersioning`` or ``RouterModule``."""
+    folder = Folder(language, tree.root_node, content)
+    found = []
+    for node in _walk(tree.root_node):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "member_expression":
+            continue
+        name = text(function.child_by_field_name("property"), content)
+        owner = text(function.child_by_field_name("object"), content)
+        arguments = node.child_by_field_name("arguments")
+        positional = (
+            []
+            if arguments is None
+            else [c for c in arguments.named_children if c.type != "comment"]
+        )
+        if name == "setGlobalPrefix":
+            value = folder.evaluate(positional[0]) if positional else PLACEHOLDER
+            if len(positional) != 1:
+                found.append(("unread", "global_prefix_options"))
+            elif PLACEHOLDER in value:
+                found.append(("unread", "global_prefix_not_literal"))
+            else:
+                found.append(("prefix", value))
+        elif name == "enableVersioning":
+            found.append(("unread", "versioning"))
+        elif owner == "RouterModule":
+            found.append(("unread", "router_module"))
+    return found
+
+
+def extract_nest(context, modules, nest):
+    """Routes of NestJS controllers: a class decorated ``@Controller(path)``
+    whose methods carry ``@Get(path)`` and the like, all from
+    @nestjs/common; ``nest`` is (global prefix, unread reason) of the
+    application this file belongs to."""
+    content = context.content
+    prefix, reason = nest
+    for node in _walk(context.root):
+        if node.type != "class_declaration":
+            continue
+        decorators = [c for c in node.named_children if c.type == "decorator"]
+        if node.parent is not None and node.parent.type == "export_statement":
+            decorators += [
+                c for c in node.parent.named_children if c.type == "decorator"
+            ]
+        controller = None
+        for decorator in decorators:
+            name, arguments = _nest_decorator(decorator, modules, content)
+            if name == "Controller":
+                controller = (decorator, arguments)
+        if controller is None:
+            continue
+        decorator, arguments = controller
+        line = decorator.start_point.row + 1
+        first = arguments[0] if arguments else None
+        if first is not None and first.type == "object":
+            options = _js_object(first, content)
+            if "version" in options:
+                context.unread.append(Unread(context.file, line, "route", "version"))
+                continue
+            first = options.get("path")
+        bases = _nest_paths(context, first)
+        body = node.child_by_field_name("body")
+        class_name = text(node.child_by_field_name("name"), content)
+        pending = []
+        for member in [] if body is None else body.named_children:
+            if member.type == "decorator":
+                pending.append(member)
+                continue
+            if member.type != "method_definition":
+                pending = []
+                continue
+            decorators, pending = pending, []
+            method_name = text(member.child_by_field_name("name"), content)
+            handler = context.definition_of(member) or context.named_function(
+                f"{class_name}.{method_name}"
+            )
+            for item in decorators:
+                name, args = _nest_decorator(item, modules, content)
+                if name == "Version":
+                    context.unread.append(
+                        Unread(
+                            context.file, item.start_point.row + 1, "route", "version"
+                        )
+                    )
+                    break
+            else:
+                for item in decorators:
+                    name, args = _nest_decorator(item, modules, content)
+                    if name not in _NEST_VERBS:
+                        continue
+                    if reason is not None:
+                        context.unread.append(
+                            Unread(
+                                context.file, item.start_point.row + 1, "route", reason
+                            )
+                        )
+                        continue
+                    for base in bases:
+                        for path in _nest_paths(context, args[0] if args else None):
+                            full = _nest_path(join_paths(prefix or "", base, path))
+                            if PLACEHOLDER in base or PLACEHOLDER in path:
+                                full = PLACEHOLDER
+                            context.route(
+                                item,
+                                [_NEST_VERBS[name]],
+                                full,
+                                "nestjs",
+                                handler,
+                            )
 
 
 # -- Go -----------------------------------------------------------------------
@@ -602,14 +772,25 @@ def extract_go(context, package):
 
 
 def extract_web(
-    tree, content, repository_id, file, definitions, language, *, package=None
+    tree,
+    content,
+    repository_id,
+    file,
+    definitions,
+    language,
+    *,
+    package=None,
+    nest=None,
 ):
-    """Routes, requests and unread facts of one non-Java source file."""
+    """Routes, requests and unread facts of one non-Java source file.
+
+    ``nest`` is the (global prefix, unread reason) of the NestJS application
+    a TypeScript file belongs to."""
     context = _Context(tree, content, repository_id, file, definitions, language)
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
-        extract_javascript(context)
+        extract_javascript(context, nest)
     elif language == "go":
         extract_go(context, package or ({}, {}))
     return context.routes, context.requests, context.unread
