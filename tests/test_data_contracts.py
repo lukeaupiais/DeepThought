@@ -1723,6 +1723,17 @@ async function checkout(sequelize) {
 }
 module.exports = { checkout };
 """,
+    # Test sources are skipped by every script reader.
+    "server/routes/orders.test.js": """\
+const { User } = require("../models");
+
+it("finds", async () => { await User.findAll(); });
+""",
+    "server/__tests__/factories.ts": """\
+import { User } from "../models";
+
+export const buildUser = () => User.create({});
+""",
 }
 
 

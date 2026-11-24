@@ -2809,7 +2809,8 @@ introspection queries (`pg_class`, `sqlite_master`, `user_constraints`,
 ...).
 
 On prisma/prisma-examples, outside `node_modules`, the tool reads all 147
-`model` blocks of its 83 schemas. It links 548 client calls to their
+`model` blocks of its 83 schemas. It links 490 client calls outside the
+test sources (548 with them) to their
 example's own model and leaves 6 whose name several models of the repository
 share outside the caller's package. Against a `grep` for
 `x.model.method(` it finds 554 calls to grep's 525: the extra ones are
@@ -2896,12 +2897,12 @@ are mapped. Their superclasses (`ParanoidModel`, `IdModel`, and a local
 the `@server/*` alias of `tsconfig.json`; a second `ParanoidModel` in the
 frontend is never taken. The 41 tables (`Document` and `Template` share
 `documents`) are all created by the baseline `schema.sql` or a
-`createTable` migration. The tool links 1,862 static calls. A single-line
-`grep` for the mapped class names followed by a Sequelize method finds 1,854
-lines, and the tool links all of them but one, a model taken from a
-dynamic `await import(...)`. Its 9 extra lines are calls with type
-arguments (`Import.findAll<Import<any>>(`). The 133 calls not linked are on
-other classes (`TextSelection.create`, `Metrics.count`, ...). On
+`createTable` migration. A single-line `grep` for the mapped class names
+followed by a Sequelize method finds 1,854 lines, 821 of them outside the
+test sources, and the tool links all 821; it links 837 calls in all, the
+others split over lines or written with type arguments
+(`Import.findAll<Import<any>>(`). The 96 calls not linked are on other
+classes (`TextSelection.create`, `Metrics.count`, ...). On
 TonyMckes/conduit-realworld-example-app `5e127d8` the 4 `Model.init` models
 get their default names (`Users`, `Articles`, ...), and each is one its
 migrations create; its 23 calls are the lines `grep` finds. In
@@ -2983,8 +2984,16 @@ repositories. On novuhq/novu `d688aea` all 44 models resolve, several
 through schema options imported from a shared file. Its calls go through a
 `BaseRepository` that holds the model in a field set by a subclass, so
 none are linked yet. When several files declare a model of the same name
-for the same collection, as NestJS feature modules do, it is one model. JavaScript and TypeScript test sources (`test/`, `tests/`,
-`__tests__/`, `spec/`, `*.test.*`, `*.spec.*`) are skipped for Mongoose.
+for the same collection, as NestJS feature modules do, it is one model.
+
+JavaScript and TypeScript test sources (`test/`, `tests/`, `__tests__/`,
+`spec/`, `*.test.*`, `*.spec.*`) are skipped by every script reader
+(Prisma, TypeORM, Sequelize, Drizzle and Mongoose), as Ruby, PHP
+and Go tests are. A test's fixture calls are not the application's data
+access, and on outline/outline `fd66b5e` they were 1,047 of the 1,887
+Sequelize call edges. On outline and prisma/prisma-examples every edge that
+goes away comes from a test source, and on ten other JavaScript and
+TypeScript corpora nothing changes.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
 they map is one its migrations create. One `Pivot` without `$table` is left
