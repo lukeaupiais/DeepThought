@@ -356,6 +356,10 @@ _CALL_RULE_TEXT = {
     call_rules.CALL_PACKAGE_NAME: "A bare callee name equals a function declared "
     "at top level by another file in the same directory with the same package "
     "clause; build constraints are not evaluated.",
+    call_rules.GO_CALL_CONVERSION: "A Go call 'T(x)' whose bare callee names no "
+    "function of the package but one named type declared at top level by a file "
+    "of the same directory and package clause is a conversion to that type; build "
+    "constraints are not evaluated.",
     call_rules.JAVA_ENCLOSING_METHOD: "A bare Java method name is declared by "
     "the innermost enclosing type that declares or inherits a method of that "
     "name; argument types are not checked.",
@@ -410,7 +414,9 @@ CALL_RULES.update(
             "followed from what is written: a variable's declaration, a "
             "struct field's declared type, the first declared result of a "
             "method or of a function 'F()' or 'pkg.F()', the element of a "
-            "slice or array, a type assertion; a "
+            "slice or array (of a named slice type too), a type assertion, a "
+            "conversion 'T(e)', the first result of a function literal bound to a "
+            "local; a "
             "step that names nothing, or more than one declaration, leaves the "
             "call unresolved. Promoted methods of embedded fields are not "
             "followed.",
