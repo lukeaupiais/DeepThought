@@ -511,6 +511,26 @@
       "labels": "tables/librechat.json",
       "oracle": "TypeScript 5.6.3 parser; pluralize rules read from the pinned mongoose source (mongoose 8.24.9, the lockfile's version)",
       "oracle_command": "node tools/mongoose_collection_oracle.cjs . node_modules/typescript node_modules/mongoose/lib/helpers/pluralize.js 8.24.9 OUT.json"
+    },
+    {
+      "name": "tables-nodebb-mongodb",
+      "url": "https://github.com/NodeBB/NodeBB",
+      "commit": "02180152d8928b779f06065ac19fa948666120d9",
+      "license": "GPL-3.0",
+      "language": "mongodb",
+      "labels": "tables/nodebb-mongodb.json",
+      "oracle": "hand-read driver accesses (tools/mongodb_driver_labels.py)",
+      "oracle_command": "python tools/mongodb_driver_labels.py . nodebb-mongodb.json --repo https://github.com/NodeBB/NodeBB"
+    },
+    {
+      "name": "tables-countly-mongodb",
+      "url": "https://github.com/Countly/countly-server",
+      "commit": "0da4abf59173ffb0462c209f12312342076ff4c6",
+      "license": "AGPL-3.0",
+      "language": "mongodb",
+      "labels": "tables/countly-mongodb.json",
+      "oracle": "hand-read driver accesses (tools/mongodb_driver_labels.py)",
+      "oracle_command": "python tools/mongodb_driver_labels.py . countly-mongodb.json --repo https://github.com/Countly/countly-server --override api/parts/jobs/manager.js:38=READS --override frontend/express/libs/connect-mongo.js:22=READS,WRITES"
     }
   ]
 }
