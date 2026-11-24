@@ -40,9 +40,10 @@ LANGUAGES = {
         "language",
     ),
     "ruby": ((".rb",), "tree_sitter_ruby", "language"),
+    "php": ((".php",), "tree_sitter_php", "language_php"),
 }
-# Languages analyzed when none are selected. JavaScript, Go, Java, Rust, C, C++
-# and Ruby are opt-in so that existing Python/TypeScript analyses keep their
+# Languages analyzed when none are selected. JavaScript, Go, Java, Rust, C, C++,
+# Ruby and PHP are opt-in so that existing Python/TypeScript analyses keep their
 # output and do not need their grammars; select them with languages=("go", ...)
 # or --language.
 DEFAULT_LANGUAGES = ("python", "typescript")
@@ -847,6 +848,89 @@ def extract_ruby(
                 symbol = ".".join((*scope, text))
                 add(node, name, symbol, "Method" if in_type else "Function")
             # A def in a method body is defined when the method runs.
+            continue
+        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+    return found
+
+
+_PHP_TYPES = {
+    "class_declaration": "Class",
+    "interface_declaration": "Interface",
+    "trait_declaration": "Trait",
+    "enum_declaration": "Enum",
+}
+# Bodies run later, so what they declare is declared when they run. (An
+# arrow function's body is an expression, which declares nothing outside
+# these.)
+_PHP_BODIES = {"anonymous_function", "anonymous_class"}
+
+
+def extract_php(
+    tree, content: bytes, repository_id: str, file: str, *, nodes=None
+) -> list[Definition]:
+    """PHP classes, interfaces, traits, enums, functions and methods, in
+    source order.
+
+    Symbols join the namespace (``namespace A\\B;`` up to the next
+    namespace statement, or a braced ``namespace A\\B { }``) and the
+    enclosing class-like declaration with ``.``. Declarations in a
+    conditional block (``if (!function_exists('f')) { function f() {} }``)
+    are recorded; those in a function or method body, a closure or an
+    anonymous class are not, since PHP declares them only when that code
+    runs. ``nodes`` receives id -> (node, name).
+    """
+    found, ordinals = [], {}
+
+    def add(node, name_node, symbol, kind):
+        ordinal = ordinals.get((symbol, kind), 0)
+        ordinals[(symbol, kind)] = ordinal + 1
+        definition = Definition(
+            id=identifier(repository_id, file, symbol, kind, ordinal),
+            file=file,
+            symbol=symbol,
+            kind=kind,
+            line=node.start_point.row + 1,
+            column=node.start_point.column,
+            end_line=node.end_point.row + 1,
+            end_column=node.end_point.column,
+        )
+        found.append(definition)
+        if nodes is not None:
+            nodes[definition.id] = (node, name_node)
+
+    def children(node, scope):
+        """Each named child with its scope: a namespace statement scopes
+        the statements after it."""
+        items = []
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                names = tuple(_text(name, content).split("\\")) if name else ()
+                if child.child_by_field_name("body") is None:
+                    scope = names
+                    continue
+                items.append((child, names, False))
+                continue
+            items.append((child, scope, False))
+        return items
+
+    # (node, scope, inside a class-like body)
+    stack = list(reversed(children(tree.root_node, ())))
+    while stack:
+        node, scope, in_type = stack.pop()
+        kind = _PHP_TYPES.get(node.type)
+        if kind is not None:
+            name = node.child_by_field_name("name")
+            inner = (*scope, _text(name, content))
+            add(node, name, ".".join(inner), kind)
+            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            continue
+        if node.type in {"function_definition", "method_declaration"}:
+            name = node.child_by_field_name("name")
+            symbol = ".".join((*scope, _text(name, content)))
+            add(node, name, symbol, "Method" if in_type else "Function")
+            continue
+        if node.type in _PHP_BODIES:
             continue
         stack.extend((c, scope, in_type) for c in reversed(node.named_children))
     return found
@@ -2167,6 +2251,8 @@ def declaration_sources(
         extract_cpp(tree, content, repository_id, file, nodes=nodes)
     elif language == "ruby":
         extract_ruby(tree, content, repository_id, file, nodes=nodes)
+    elif language == "php":
+        extract_php(tree, content, repository_id, file, nodes=nodes)
     else:
         extract(tree, content, repository_id, file, nodes=nodes, expander=expander)
     lines = content.split(b"\n")
