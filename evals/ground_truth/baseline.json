@@ -1236,8 +1236,8 @@
     "tables-librechat": {
       "expected": 69,
       "extra": 0,
-      "found": 0,
-      "missed": 69,
+      "found": 69,
+      "missed": 0,
       "wrong": 0
     },
     "tables-lobsters": {
@@ -1257,8 +1257,8 @@
     "tables-node-express-boilerplate": {
       "expected": 2,
       "extra": 0,
-      "found": 0,
-      "missed": 2,
+      "found": 2,
+      "missed": 0,
       "wrong": 0
     },
     "tables-partdb": {
