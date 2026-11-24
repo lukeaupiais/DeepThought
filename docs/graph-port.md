@@ -1848,6 +1848,54 @@ type keywords with comments and strings removed:
 | jasontaylordev/CleanArchitecture `f7f9771` | 110 | 357 | 0 | 124 / 124 (2 files have grammar errors) |
 | GoogleCloudPlatform/microservices-demo `src/cartservice` | 9 | 40 | 0 | 8 / 8 |
 
+## SCIP indexers
+
+SCIP indexes are the engine's primary source of symbol facts for Python,
+TypeScript, JavaScript and Go. Each language has one pinned indexer, and the
+indexers are required dependencies, not optional tools:
+
+| Languages | Indexer | Version | Override | Columns |
+|---|---|---|---|---|
+| Python | scip-python | 0.6.8 | `DEEPTHOUGHT_SCIP_PYTHON` | UTF-16 |
+| TypeScript, JavaScript | scip-typescript | 0.6.2 | `DEEPTHOUGHT_SCIP_TYPESCRIPT` | UTF-16 |
+| Go | scip-go | 0.1.26 | `DEEPTHOUGHT_SCIP_GO` | UTF-8 |
+
+`deepthought indexers` lists them and whether each is installed (on `PATH`, or
+at the override path); it installs nothing. `deepthought index-scip WORKSPACE
+--output-dir DIR` runs each indexer the workspace's languages need and writes
+`DIR/<indexer>.scip` with a `.sources.json` receipt (profile `<indexer>-v2`):
+the index digest, the sha256 of every source and configuration input, the
+producer and version, the indexer executable's digest and the arguments
+without paths. `deepthought.indexers.validate_receipt` rejects an index whose
+bytes or inputs changed. Run settings keep symbols stable: scip-python gets
+`--project-version 0` and the workspace and `src` on `PYTHONPATH` (so a
+src-layout package resolves without being installed), scip-go gets
+`--module-version 0`, and scip-typescript gets `--pnpm-workspaces`,
+`--yarn-workspaces` or `--infer-tsconfig` from the workspace's manifests.
+Indexes are rewritten in a canonical order (documents, occurrences, symbols
+and relationships sorted), since scip-go emits the same facts in a different
+order from run to run.
+
+The command reports every Python, TypeScript, JavaScript and Go source file
+(outside `node_modules` and virtual environments) as `covered` or `uncovered`
+with a reason:
+
+| Reason | Meaning |
+|---|---|
+| `indexer_not_installed` | The pinned indexer is not on `PATH` or at its override |
+| `indexer_failed`, `indexer_timeout` | The indexer exited non-zero, wrote nothing or ran past `--timeout` |
+| `indexer_version_mismatch` | The index names another indexer version than the pin |
+| `inputs_changed_during_indexing` | Inputs differed before and after the run |
+| `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
+| `not_in_index` | The indexer ran but has no document for the file, e.g. a file outside every tsconfig |
+
+It exits 3 when any file is uncovered (`--allow-uncovered` exits 0), so a
+missing or failing indexer is never read as a file without references. On the
+pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
+the indexes give the committed call truth again: equal for cobra, and a
+superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
+(external targets the earlier environment left unresolved).
+
 ## SCIP references
 
 The `scip` AnalysisTool stores compiler-backed references from a
