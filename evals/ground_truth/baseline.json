@@ -449,17 +449,21 @@
     }
   },
   "gson": {
-    "ambiguous_includes": 138,
+    "ambiguous_excludes": 2,
+    "ambiguous_includes": 2209,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
       },
+      "tree-sitter.java-call-typed-receiver": {
+        "confirmed": 3349
+      },
       "tree-sitter.java-enclosing-type-method": {
-        "confirmed": 1529,
+        "confirmed": 1530,
         "unjudged": 3
       },
       "tree-sitter.java-inherited-method": {
-        "confirmed": 19
+        "confirmed": 71
       },
       "tree-sitter.java-static-import": {
         "confirmed": 8
@@ -472,30 +476,30 @@
         "unjudged": 379
       }
     },
-    "confirmed": 4332,
+    "confirmed": 7734,
     "contradicted": 0,
     "expected": 11139,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 91,
+          "confirmed": 575,
           "expected": 809
         },
         "2": {
-          "confirmed": 51,
+          "confirmed": 1031,
           "expected": 2119
         },
         "3": {
-          "confirmed": 10,
+          "confirmed": 1006,
           "expected": 2198
         }
       },
-      "confirmed": 152,
+      "confirmed": 2612,
       "expected": 5126,
       "extra": 0,
-      "missed": 4974,
+      "missed": 2514,
       "precision": 1.0,
-      "recall": 0.0297,
+      "recall": 0.5096,
       "seeds": 164,
       "seeds_undeclared": 0
     },
@@ -508,17 +512,17 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 6879,
+    "missed": 3499,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 134,
+      "ambiguous:multiple_declarations": 2199,
       "no_call_site": 1169,
-      "unresolved:attribute_call": 5569,
+      "unresolved:attribute_call": 124,
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.3824,
+    "recall": 0.6859,
     "unjudged": 382,
-    "unresolved_expected": 5606,
+    "unresolved_expected": 131,
     "unresolved_unjudged": 8032
   },
   "ky": {
