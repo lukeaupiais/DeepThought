@@ -234,7 +234,13 @@ class ScipImplementationCommandTests(unittest.TestCase):
             )
             self.assertIn("file_path document scope", refused)
             tree = command(
-                "index", str(root), "--tool", "tree-sitter", "--repository-id", repo
+                "index",
+                str(root),
+                "--allow-uncovered",
+                "--tool",
+                "tree-sitter",
+                "--repository-id",
+                repo,
             )
             refused = command(
                 "implementations",
