@@ -197,8 +197,18 @@ class Import:
     # one), which bind names in that block only: the block's (line, column,
     # end line, end column). None elsewhere.
     block: tuple[int, int, int, int] | None = None
+    # JavaScript and TypeScript re-exports (``export { a as b } from``): the
+    # name each of ``names`` is exported under (aliases applied; ``*`` for
+    # ``export *``, the namespace for ``export * as ns``). None elsewhere.
+    exported_names: tuple[str, ...] | None = None
 
     def __post_init__(self):
+        if self.exported_names is not None and (
+            type(self.exported_names) is not tuple
+            or len(self.exported_names) != len(self.names)
+            or not all(isinstance(n, str) and n for n in self.exported_names)
+        ):
+            raise ValueError("exported_names must name each re-exported name")
         if self.block is not None and (
             type(self.block) is not tuple
             or len(self.block) != 4
@@ -612,6 +622,8 @@ class AnalysisResult:
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
+            if item["exported_names"] is None:
+                del item["exported_names"]
         if not self.supertypes and "supertypes" not in self.capabilities:
             # Artifacts without supertype facts keep their serialized identity.
             del data["supertypes"]
@@ -670,6 +682,11 @@ class AnalysisResult:
                         **(
                             {"block": tuple(item["block"])}
                             if isinstance(item.get("block"), list)
+                            else {}
+                        ),
+                        **(
+                            {"exported_names": tuple(item["exported_names"])}
+                            if isinstance(item.get("exported_names"), list)
                             else {}
                         ),
                     }
