@@ -68,6 +68,7 @@ def parser():
             "go",
             "java",
             "javascript",
+            "php",
             "python",
             "ruby",
             "rust",

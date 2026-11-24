@@ -60,6 +60,7 @@ def main(argv=None) -> int:
             "go",
             "java",
             "javascript",
+            "php",
             "python",
             "ruby",
             "rust",

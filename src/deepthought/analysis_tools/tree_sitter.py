@@ -385,6 +385,7 @@ class TreeSitterTool(AnalysisTool):
                 "go",
                 "java",
                 "javascript",
+                "php",
                 "python",
                 "ruby",
                 "rust",
