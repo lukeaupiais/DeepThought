@@ -320,8 +320,24 @@ the chat model. The port answers from stored edges only:
   later.
 - `get_file_impact(path)` (`deepthought-graph file-impact --file`, MCP
   getFileImpact): dependent files backwards over IMPORTS and DEPENDS_ON.
+- `get_contract_impact(qualified_name)` (`deepthought-graph contract-impact
+  --contract`, MCP getContractImpact) starts from a contract instead: an HTTP
+  route, gRPC method, GraphQL field, message destination or database table.
+  The change set is the contract and its providers, the declarations or files
+  that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
+  lists under `providers` (at most 10, `providers_truncated` when more).
+  Dependents are then found as for `get_impact`: the code that REQUESTS,
+  CONSUMES or READS the contract (direct), and the callers of that code, also
+  through other contracts it handles (transitive). Providers and dependents
+  share the byte budget, which must be at least 2048 here. Contract nodes are
+  not declarations, so `search_contracts(query)` (`deepthought-graph
+  contracts --query [--kind]`, MCP searchContracts) finds them: contracts
+  whose name (`GET /api/x`), display name, path or qualified name contains
+  the query, case-insensitively, optionally of one kind (`HttpRoute`,
+  `GrpcMethod`, `GraphqlField`, `MessageDestination`, `DbTable`), each with
+  its provider and client counts.
 
-Both take `--max-depth` (1 to 5, default 3) and an optional evidence filter
+All three take `--max-depth` (1 to 5, default 3) and an optional evidence filter
 that limits which edges may be crossed. Each dependent is listed once, with
 the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
