@@ -644,7 +644,10 @@ variable, so a variable whose initializer is a function counts as a callable.
 `check` runs the same reverse search over the engine's linked CALLS edges at
 the pin. An engine dependent the oracle also reaches is *confirmed*; one it
 does not reach is *extra* (a wrong link, or a caller reached through one).
-The gate fails on fewer confirmed, more extra, or changed seeds.
+The gate fails on fewer confirmed, more extra, or changed seeds. TypeScript
+and JavaScript truths also list every oracle callable (`# node` rows): an
+engine dependent that is none of them, a declaration the index does not name,
+is *unjudged* rather than extra, and the search still goes through it.
 
 Engine declarations are matched to oracle nodes by name and span. The truth
 file lists only seeds and their dependents, so a declaration with no node
@@ -657,7 +660,7 @@ declaration already spans: a function `run` is not merged with a method
 |---|---|---|---|---|---|---|
 | click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 139 | 0 | 0.794 | 1.0 |
-| hono | 39 | 105 | 93 | 49 | 0.886 | 0.655 |
+| hono | 40 | 108 | 96 | 0 | 0.889 | 1.0 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
@@ -689,12 +692,14 @@ type parameters (`export const hc = <T extends Hono<any, any, any>>(`), and
 counts a tagged template (`html\`...\``) as a call of its tag. hono showed
 all three. The ky and preact truths derive unchanged.
 
-hono's 49 extra dependents are declarations the index does not name:
+hono's 46 unjudged dependents are declarations the index does not name:
 functions local to an anonymous test callback (`const anotherApp = ...`
-inside `describe(...)`, 37 of the 43 distinct declarations), methods of an
-object literal (`websocket.open`, 3), the class `ClientRequestImpl`, and
-two functions whose type parameters nest deeper than the oracle reads. Its 23 call contradictions are the
-sibling-scope binding fixed by #159.
+inside `describe(...)`), methods of an object literal (`websocket.open`) and
+the class `ClientRequestImpl`. Before the `# node` rows they counted as 49
+extra. A type annotation or type parameter list is read with its brackets
+balanced, so `export const validator = <..., VF extends (v) => any = ...>(`
+and `export const form: FC<...> = (...) =>` are callables. Its 23 call
+contradictions are the sibling-scope binding fixed by #159.
 A decorator call runs where the decorated function is declared, not in its
 body. scip-python's range for a function starts at its first decorator, so
 the lines from there to the `def` line belong to the enclosing function: a

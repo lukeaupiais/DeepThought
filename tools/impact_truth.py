@@ -56,6 +56,58 @@ _FUNCTION_VALUE = re.compile(
     r"\s*(?::[^=]*)?=\s*(?:async\s+)?"
     r"(?:function\b|(?:<(?:[^<>]|<[^<>]*>)*>\s*)?\(|[A-Za-z_$][\w$]*\s*=>)"
 )
+_CLOSE = {"(": ")", "[": "]", "{": "}", "<": ">"}
+
+
+def _skip_balanced(text, i):
+    """The index after the bracket group opening at ``text[i]``; an arrow's
+    ``=>`` is not a closing ``>``. len(text) when it does not close."""
+    stack = []
+    while i < len(text):
+        c = text[i]
+        if c == ">" and text[i - 1 : i] == "=":
+            pass
+        elif c in _CLOSE:
+            stack.append(_CLOSE[c])
+        elif stack and c == stack[-1]:
+            stack.pop()
+            if not stack:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def holds_function(after):
+    """Whether the text after a variable's name assigns it a function:
+    ``= function``, ``= (...) =>``, ``= x =>`` or ``= <T, ...>(...) =>``,
+    optionally typed and async; a type annotation or type parameters may
+    nest and span lines."""
+    if _FUNCTION_VALUE.match(after):
+        return True
+    i = len(after) - len(after.lstrip())
+    if after[i : i + 1] == ":":
+        # Skip the annotation to its top-level `=` (not an arrow's `=>`).
+        i += 1
+        while i < len(after):
+            c = after[i]
+            if c in _CLOSE:
+                i = _skip_balanced(after, i)
+                continue
+            if c == "=" and after[i + 1 : i + 2] != ">":
+                break
+            i += 1
+    rest = after[i:]
+    if not rest.startswith("="):
+        return False
+    rest = rest[1:].lstrip()
+    if rest.startswith("async"):
+        rest = rest[5:].lstrip()
+    if rest.startswith("<"):
+        rest = rest[_skip_balanced(rest, 0) :].lstrip()
+        return rest.startswith("(")
+    return bool(_FUNCTION_VALUE.match(" = " + rest))
+
+
 _SCRIPTS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # Names the engine writes differently: TypeScript constructors.
 _RENAMED = {"<constructor>": "constructor"}
@@ -132,9 +184,9 @@ def callables(index, source=None, spans=None):
                 # The initializer can start on a later line (`const f =`
                 # then the arrow, or type parameters split across lines).
                 after = "\n".join(
-                    [after.decode("utf-8", "replace"), *texts[file][line : line + 10]]
+                    [after.decode("utf-8", "replace"), *texts[file][line : line + 60]]
                 )
-                if not _FUNCTION_VALUE.match(after):
+                if not holds_function(after):
                     continue
             if not occurrence.symbol_roles & 1:
                 overloads.append((document.relative_path, line, occurrence, symbol))
@@ -309,11 +361,16 @@ def derive(
             rows.append(
                 (*seed, nodes[seed][0], file, line, nodes[(file, line)][0], depth)
             )
-    return rows, aliases
+    return rows, aliases, nodes
 
 
-def write(rows, stream, aliases=None):
+def write(rows, stream, aliases=None, nodes=None):
     print(HEADER, file=stream)
+    # Every oracle callable, so the scorer can tell a declaration the index
+    # does not name (no node can judge it) from one the truth just does not
+    # list.
+    for (file, line), (name, _, _) in sorted((nodes or {}).items()):
+        print(f"# node\t{file}\t{line}\t{name}", file=stream)
     # A def the index gives another's symbol: an overload, or a redefinition
     # of the same name in one scope. The scorer counts the engine's
     # declaration there as the node it is folded into.
@@ -336,6 +393,16 @@ def read_aliases(path):
     return aliases
 
 
+def read_nodes(path):
+    """{(file, line): name} from a truth file's ``# node`` rows, or None."""
+    nodes = {}
+    for text in Path(path).read_text("utf-8").splitlines():
+        if text.startswith("# node\t"):
+            _, file, line, name = text.split("\t")
+            nodes[(file, int(line))] = name
+    return nodes or None
+
+
 def read(path):
     """{(seed_file, seed_line, seed_name): {(file, line, name): depth}}."""
     truth = defaultdict(dict)
@@ -346,7 +413,15 @@ def read(path):
     return dict(truth)
 
 
-def score(result, truth, max_depth=3, examples=10, aliases=None, fold_nested=False):
+def score(
+    result,
+    truth,
+    max_depth=3,
+    examples=10,
+    aliases=None,
+    fold_nested=False,
+    nodes=None,
+):
     """Engine dependents of each seed against the oracle's.
 
     *confirmed*: an engine dependent the oracle also reaches; *extra*: one
@@ -360,10 +435,16 @@ def score(result, truth, max_depth=3, examples=10, aliases=None, fold_nested=Fal
     that matches no oracle node and lies inside another engine declaration
     is then read as the innermost one that encloses it, when that one is a
     node of the truth.
+
+    ``nodes``: every oracle callable (the truth's ``# node`` rows). An engine
+    dependent that is none of them, such as a function scip-typescript makes
+    local inside an anonymous callback, cannot be judged: it is *unjudged*,
+    not extra, and the search still goes through it.
     """
     from deepthought.calls import resolve_calls
 
     known = {}
+    known.update(nodes or {})
     for (sf, sl, sn), dependents in truth.items():
         known[(sf, sl)] = sn
         for f, ln, n in dependents:
@@ -443,7 +524,7 @@ def score(result, truth, max_depth=3, examples=10, aliases=None, fold_nested=Fal
                 incoming[target].add(source)
     engine_nodes = set(node_of.values())
     totals = {"seeds": len(truth), "seeds_undeclared": 0}
-    counts = {"expected": 0, "confirmed": 0, "missed": 0, "extra": 0}
+    counts = {"expected": 0, "confirmed": 0, "missed": 0, "extra": 0, "unjudged": 0}
     by_depth = defaultdict(lambda: {"expected": 0, "confirmed": 0})
     samples = {"missed": [], "extra": [], "seeds_undeclared": []}
     for seed in sorted(truth):
@@ -464,7 +545,9 @@ def score(result, truth, max_depth=3, examples=10, aliases=None, fold_nested=Fal
                 counts["missed"] += 1
                 samples["missed"].append([*seed[:2], *node[:2], node[2], depth])
         for node, depth in sorted(reached.items()):
-            if node not in expected:
+            if node not in expected and nodes and node[:2] not in nodes:
+                counts["unjudged"] += 1
+            elif node not in expected:
                 counts["extra"] += 1
                 samples["extra"].append([*seed[:2], *node[:2], node[2], depth])
     reported = counts["confirmed"] + counts["extra"]
@@ -502,7 +585,7 @@ def main(argv=None):
         help="more edges in the call-truth format (Java constructor chains)",
     )
     args = parser.parse_args(argv)
-    rows, aliases = derive(
+    rows, aliases, nodes = derive(
         None if args.index == "-" else Path(args.index),
         args.calls,
         args.history,
@@ -513,7 +596,10 @@ def main(argv=None):
         read_spans(args.spans) if args.spans else None,
         args.extra_calls,
     )
-    write(rows, sys.stdout, aliases)
+    # scip-typescript gives a function inside another a local symbol, so
+    # the truth lists every node to tell those apart from unlisted ones.
+    scripts = args.language in {"typescript", "javascript"}
+    write(rows, sys.stdout, aliases, nodes if scripts else None)
     return 0
 
 

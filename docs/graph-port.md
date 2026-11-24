@@ -2345,13 +2345,16 @@ a traced value, and consumer groups, brokers and clusters are not checked.
 | kafka-python | `send(topic, ...)` on a name bound once to `KafkaProducer(...)` | `KafkaConsumer(topic, ...)` |
 | pika | `basic_publish(exchange, routing_key)` | `basic_consume(queue)` |
 | Go `amqp` (streadway, amqp091-go) | `Publish(exchange, key, ...)` | `Consume(queue, ...)` |
+| kafkajs | `send({topic})` or `sendBatch({topicMessages: [{topic}]})` on a name every assignment binds to `producer()` of a kafkajs `Kafka` | `subscribe({topic})` or `subscribe({topics: [...]})` on a `consumer()` of one |
+| amqplib (promise and callback APIs) | `publish(exchange, key, ...)` or `sendToQueue(queue, ...)` on a channel | `consume(queue, ...)` on a channel |
 
 Each publish rule is `service-contracts.<client>-send`/`-publish` and each
 consume rule `-listener`/`-consumer`/`-consume`; all are pattern_matched.
 
 An AMQP destination is `exchange/routing-key`. A consumed queue `q` receives
 `/q` (every broker binds each queue to the default exchange by its name) and
-`x/k` for each `queue_bind`/`QueueBind(q, k, x)` in the same file; a Go
+`x/k` for each `queue_bind`/`QueueBind(q, k, x)`/`bindQueue(q, x, k)` in
+the same file; a Go
 queue may be named by `q.Name` of a `q, err := ch.QueueDeclare("q", ...)`.
 Binding keys with `*` or `#` (topic exchange patterns) are counted as unread,
 not matched. A Spring template given only a routing key sends to
@@ -2365,6 +2368,27 @@ when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
 destination with unknown text is counted as unread.
+
+In Node, the `Kafka` class must be imported from `kafkajs`, by `import` or
+by a `require` (destructured too). An amqplib channel is a name, in a file
+that imports `amqplib` or `amqplib/callback_api`, of one of these kinds:
+
+- a name that every assignment binds to `createChannel()` or
+  `createConfirmChannel()`, awaited or not;
+- the channel parameter of the callback of either call;
+- the parameter of its `.then`.
+
+A channel passed in from another file is not read. A kafkajs topic given as
+a regular expression is `consume:topic_pattern`.
+
+| Repository | Literal sites | Outcome |
+|---|---|---|
+| rabbitmq/rabbitmq-tutorials `6deb41d` `javascript-nodejs` (callback API) | 14 publish and consume calls | 8 read, and `hello`, `task_queue` and `rpc_queue` meet. The 6 unread take the routing key from arguments, reply to `msg.properties.replyTo`, or consume a server-named queue (`q.queue`) |
+| redpanda-data/redpanda-labs `77f0ca6` | 3 sends, 2 subscribes | The chat-room producers and consumers (docker and cloud variants) meet on `chat-room`, and the OIDC client's send is found. The 2 sites with a topic variable are unread |
+| n8n-io/n8n `9254759` Kafka and RabbitMQ nodes | topics and channels from node parameters | Nothing linked, which is correct |
+| tulios/kafkajs `55b0b41` `examples` | | Not read: they import the library from `../index` |
+
+No edge is wrong. On the corpora, nothing changes.
 
 ### STOMP destinations
 
