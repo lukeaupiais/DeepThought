@@ -1265,11 +1265,11 @@
       "wrong": 0
     },
     "tables-backstage-knex": {
-      "expected": 399,
+      "expected": 396,
       "extra": 0,
-      "found": 367,
+      "found": 365,
       "missed": 31,
-      "wrong": 1
+      "wrong": 0
     },
     "tables-countly-mongodb": {
       "expected": 1148,
