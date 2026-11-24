@@ -1,0 +1,324 @@
+{
+ "repository": "https://github.com/rubygems/rubygems.org",
+ "commit": "6f51e324634a0820c54be2fc28533b721abadc95",
+ "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+ "models": [
+  {
+   "class": "Admin::GitHubUser",
+   "files": [
+    "app/models/admin/github_user.rb"
+   ],
+   "table": "admin_github_users"
+  },
+  {
+   "class": "Advisory",
+   "files": [
+    "app/models/advisory.rb"
+   ],
+   "table": "advisories"
+  },
+  {
+   "class": "Advisory::OSV",
+   "files": [
+    "app/models/advisory/osv.rb",
+    "app/models/advisory/osv/affected_range.rb"
+   ],
+   "table": "advisories"
+  },
+  {
+   "class": "ApiKey",
+   "files": [
+    "app/models/api_key.rb"
+   ],
+   "table": "api_keys"
+  },
+  {
+   "class": "ApiKeyRubygemScope",
+   "files": [
+    "app/models/api_key_rubygem_scope.rb"
+   ],
+   "table": "api_key_rubygem_scopes"
+  },
+  {
+   "class": "Attestation",
+   "files": [
+    "app/models/attestation.rb"
+   ],
+   "table": "attestations"
+  },
+  {
+   "class": "Audit",
+   "files": [
+    "app/models/audit.rb"
+   ],
+   "table": "audits"
+  },
+  {
+   "class": "BlockedEmailDomain",
+   "files": [
+    "app/models/blocked_email_domain.rb"
+   ],
+   "table": "blocked_email_domains"
+  },
+  {
+   "class": "Deletion",
+   "files": [
+    "app/models/deletion.rb"
+   ],
+   "table": "deletions"
+  },
+  {
+   "class": "Dependency",
+   "files": [
+    "app/models/dependency.rb"
+   ],
+   "table": "dependencies"
+  },
+  {
+   "class": "EmailDomainAllowlist",
+   "files": [
+    "app/models/email_domain_allowlist.rb"
+   ],
+   "table": "email_domain_allowlists"
+  },
+  {
+   "class": "Events::OrganizationEvent",
+   "files": [
+    "app/models/events/organization_event.rb"
+   ],
+   "table": "events_organization_events"
+  },
+  {
+   "class": "Events::RubygemEvent",
+   "files": [
+    "app/models/events/rubygem_event.rb"
+   ],
+   "table": "events_rubygem_events"
+  },
+  {
+   "class": "Events::UserEvent",
+   "files": [
+    "app/models/events/user_event.rb"
+   ],
+   "table": "events_user_events"
+  },
+  {
+   "class": "GemDownload",
+   "files": [
+    "app/models/gem_download.rb"
+   ],
+   "table": "gem_downloads"
+  },
+  {
+   "class": "GemNameReservation",
+   "files": [
+    "app/models/gem_name_reservation.rb"
+   ],
+   "table": "gem_name_reservations"
+  },
+  {
+   "class": "GemTypoException",
+   "files": [
+    "app/models/gem_typo_exception.rb"
+   ],
+   "table": "gem_typo_exceptions"
+  },
+  {
+   "class": "GeoipInfo",
+   "files": [
+    "app/models/geoip_info.rb"
+   ],
+   "table": "geoip_infos"
+  },
+  {
+   "class": "IpAddress",
+   "files": [
+    "app/models/ip_address.rb"
+   ],
+   "table": "ip_addresses"
+  },
+  {
+   "class": "LinkVerification",
+   "files": [
+    "app/models/link_verification.rb"
+   ],
+   "table": "link_verifications"
+  },
+  {
+   "class": "Linkset",
+   "files": [
+    "app/models/linkset.rb"
+   ],
+   "table": "linksets"
+  },
+  {
+   "class": "LogTicket",
+   "files": [
+    "app/models/log_ticket.rb"
+   ],
+   "table": "log_tickets"
+  },
+  {
+   "class": "Membership",
+   "files": [
+    "app/models/membership.rb"
+   ],
+   "table": "memberships"
+  },
+  {
+   "class": "OIDC::ApiKeyRole",
+   "files": [
+    "app/models/oidc/api_key_role.rb"
+   ],
+   "table": "oidc_api_key_roles"
+  },
+  {
+   "class": "OIDC::IdToken",
+   "files": [
+    "app/models/oidc/id_token.rb"
+   ],
+   "table": "oidc_id_tokens"
+  },
+  {
+   "class": "OIDC::PendingTrustedPublisher",
+   "files": [
+    "app/models/oidc/pending_trusted_publisher.rb"
+   ],
+   "table": "oidc_pending_trusted_publishers"
+  },
+  {
+   "class": "OIDC::Provider",
+   "files": [
+    "app/models/oidc/provider.rb"
+   ],
+   "table": "oidc_providers"
+  },
+  {
+   "class": "OIDC::RubygemTrustedPublisher",
+   "files": [
+    "app/models/oidc/rubygem_trusted_publisher.rb"
+   ],
+   "table": "oidc_rubygem_trusted_publishers"
+  },
+  {
+   "class": "OIDC::TrustedPublisher::GitHubAction",
+   "files": [
+    "app/models/oidc/trusted_publisher/github_action.rb"
+   ],
+   "table": "oidc_trusted_publisher_github_actions"
+  },
+  {
+   "class": "OIDC::TrustedPublisher::IdToken",
+   "files": [
+    "app/models/oidc/trusted_publisher/id_token.rb"
+   ],
+   "table": "oidc_trusted_publisher_id_tokens"
+  },
+  {
+   "class": "Organization",
+   "files": [
+    "app/models/organization.rb"
+   ],
+   "table": "organizations"
+  },
+  {
+   "class": "OrganizationInvite",
+   "files": [
+    "app/models/organization_invite.rb"
+   ],
+   "table": "organization_invites"
+  },
+  {
+   "class": "OrganizationOnboarding",
+   "files": [
+    "app/models/organization_onboarding.rb"
+   ],
+   "table": "organization_onboardings"
+  },
+  {
+   "class": "Ownership",
+   "files": [
+    "app/models/ownership.rb"
+   ],
+   "table": "ownerships"
+  },
+  {
+   "class": "PrefixReservation",
+   "files": [
+    "app/models/prefix_reservation.rb"
+   ],
+   "table": "prefix_reservations"
+  },
+  {
+   "class": "Rubygem",
+   "files": [
+    "app/models/rubygem.rb"
+   ],
+   "table": "rubygems"
+  },
+  {
+   "class": "RubygemTransfer",
+   "files": [
+    "app/models/rubygem_transfer.rb"
+   ],
+   "table": "rubygem_transfers"
+  },
+  {
+   "class": "SendgridEvent",
+   "files": [
+    "app/models/sendgrid_event.rb"
+   ],
+   "table": "sendgrid_events"
+  },
+  {
+   "class": "Subscription",
+   "files": [
+    "app/models/subscription.rb"
+   ],
+   "table": "subscriptions"
+  },
+  {
+   "class": "User",
+   "files": [
+    "app/models/user.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "User::WithPrivateFields",
+   "files": [
+    "app/models/user/with_private_fields.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Version",
+   "files": [
+    "app/models/version.rb"
+   ],
+   "table": "versions"
+  },
+  {
+   "class": "WebHook",
+   "files": [
+    "app/models/web_hook.rb"
+   ],
+   "table": "web_hooks"
+  },
+  {
+   "class": "WebauthnCredential",
+   "files": [
+    "app/models/webauthn_credential.rb"
+   ],
+   "table": "webauthn_credentials"
+  },
+  {
+   "class": "WebauthnVerification",
+   "files": [
+    "app/models/webauthn_verification.rb"
+   ],
+   "table": "webauthn_verifications"
+  }
+ ],
+ "not_counted": []
+}

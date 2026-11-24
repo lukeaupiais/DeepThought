@@ -1,0 +1,1940 @@
+{
+ "repository": "https://github.com/mastodon/mastodon",
+ "commit": "fe9d1508663a3394ef28ad60afe80cc7fb04ac71",
+ "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
+ "models": [
+  {
+   "class": "Account",
+   "files": [
+    "app/models/account.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "AccountAlias",
+   "files": [
+    "app/models/account_alias.rb"
+   ],
+   "table": "account_aliases"
+  },
+  {
+   "class": "AccountConversation",
+   "files": [
+    "app/models/account_conversation.rb"
+   ],
+   "table": "account_conversations"
+  },
+  {
+   "class": "AccountDeletionRequest",
+   "files": [
+    "app/models/account_deletion_request.rb"
+   ],
+   "table": "account_deletion_requests"
+  },
+  {
+   "class": "AccountDomainBlock",
+   "files": [
+    "app/models/account_domain_block.rb"
+   ],
+   "table": "account_domain_blocks"
+  },
+  {
+   "class": "AccountMigration",
+   "files": [
+    "app/models/account_migration.rb"
+   ],
+   "table": "account_migrations"
+  },
+  {
+   "class": "AccountModerationNote",
+   "files": [
+    "app/models/account_moderation_note.rb"
+   ],
+   "table": "account_moderation_notes"
+  },
+  {
+   "class": "AccountNote",
+   "files": [
+    "app/models/account_note.rb"
+   ],
+   "table": "account_notes"
+  },
+  {
+   "class": "AccountPin",
+   "files": [
+    "app/models/account_pin.rb"
+   ],
+   "table": "account_pins"
+  },
+  {
+   "class": "AccountReachFilter",
+   "files": [
+    "app/models/account_reach_filter.rb"
+   ],
+   "table": "account_reach_filters"
+  },
+  {
+   "class": "AccountRelationshipSeveranceEvent",
+   "files": [
+    "app/models/account_relationship_severance_event.rb"
+   ],
+   "table": "account_relationship_severance_events"
+  },
+  {
+   "class": "AccountStat",
+   "files": [
+    "app/models/account_stat.rb"
+   ],
+   "table": "account_stats"
+  },
+  {
+   "class": "AccountStatusesCleanupPolicy",
+   "files": [
+    "app/models/account_statuses_cleanup_policy.rb"
+   ],
+   "table": "account_statuses_cleanup_policies"
+  },
+  {
+   "class": "AccountSummary",
+   "files": [
+    "app/models/account_summary.rb"
+   ],
+   "table": "account_summaries"
+  },
+  {
+   "class": "AccountWarning",
+   "files": [
+    "app/models/account_warning.rb"
+   ],
+   "table": "account_warnings"
+  },
+  {
+   "class": "AccountWarningPreset",
+   "files": [
+    "app/models/account_warning_preset.rb"
+   ],
+   "table": "account_warning_presets"
+  },
+  {
+   "class": "AddInstanceActor::Account",
+   "files": [
+    "db/migrate/20190715164535_add_instance_actor.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "AddInviteApprovalBypassPermission::UserRole",
+   "files": [
+    "db/migrate/20260318144837_add_invite_approval_bypass_permission.rb"
+   ],
+   "table": "user_roles"
+  },
+  {
+   "class": "AddShortcodeToMediaAttachments::MigrationMediaAttachment",
+   "files": [
+    "db/migrate/20170105224407_add_shortcode_to_media_attachments.rb"
+   ],
+   "table": "media_attachments"
+  },
+  {
+   "class": "AddSilencedAtSuspendedAtToAccounts::Account",
+   "files": [
+    "db/migrate/20190511134027_add_silenced_at_suspended_at_to_accounts.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "AddSilencedAtSuspendedAtToAccounts::DomainBlock",
+   "files": [
+    "db/migrate/20190511134027_add_silenced_at_suspended_at_to_accounts.rb"
+   ],
+   "table": "domain_blocks"
+  },
+  {
+   "class": "AddTypeToMediaAttachments::MigrationMediaAttachment",
+   "files": [
+    "db/migrate/20170304202101_add_type_to_media_attachments.rb"
+   ],
+   "table": "media_attachments"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Account",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::AccountDeletionRequest",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "account_deletion_requests"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::AccountModerationNote",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "account_moderation_notes"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::AccountNote",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "account_notes"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::AccountPin",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "account_pins"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::AccountStat",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "account_stats"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Appeal",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "appeals"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Block",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "blocks"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::CanonicalEmailBlock",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "canonical_email_blocks"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Collection",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "collections"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::CollectionItem",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "collection_items"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Favourite",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "favourites"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Follow",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "follows"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::FollowRecommendationSuppression",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "follow_recommendation_suppressions"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::FollowRequest",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "follow_requests"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::ListAccount",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "list_accounts"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::MediaAttachment",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "media_attachments"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Mention",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Mute",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "mutes"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Notification",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::NotificationPermission",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "notification_permissions"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::NotificationRequest",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "notification_requests"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Poll",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "polls"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::PollVote",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "poll_votes"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Quote",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "quotes"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Report",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "reports"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::SeveredRelationship",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "severed_relationships"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Status",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::StatusPin",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "status_pins"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::TagFollow",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "tag_follows"
+  },
+  {
+   "class": "AddUniqueIndexOnAccountsUri::Tombstone",
+   "files": [
+    "db/post_migrate/20260720104058_add_unique_index_on_accounts_uri.rb"
+   ],
+   "table": "tombstones"
+  },
+  {
+   "class": "Admin::ActionLog",
+   "files": [
+    "app/models/admin/action_log.rb"
+   ],
+   "table": "admin_action_logs"
+  },
+  {
+   "class": "Admin::ServerCheck",
+   "files": [
+    "app/models/admin/server_check.rb"
+   ],
+   "table": "admin_server_checks"
+  },
+  {
+   "class": "Announcement",
+   "files": [
+    "app/models/announcement.rb"
+   ],
+   "table": "announcements"
+  },
+  {
+   "class": "AnnouncementMute",
+   "files": [
+    "app/models/announcement_mute.rb"
+   ],
+   "table": "announcement_mutes"
+  },
+  {
+   "class": "AnnouncementReaction",
+   "files": [
+    "app/models/announcement_reaction.rb"
+   ],
+   "table": "announcement_reactions"
+  },
+  {
+   "class": "Appeal",
+   "files": [
+    "app/models/appeal.rb"
+   ],
+   "table": "appeals"
+  },
+  {
+   "class": "BackfillAdminActionLogs::Account",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "BackfillAdminActionLogs::AccountWarning",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "account_warnings"
+  },
+  {
+   "class": "BackfillAdminActionLogs::AdminActionLog",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "admin_action_logs"
+  },
+  {
+   "class": "BackfillAdminActionLogs::Announcement",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "announcements"
+  },
+  {
+   "class": "BackfillAdminActionLogs::Appeal",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "appeals"
+  },
+  {
+   "class": "BackfillAdminActionLogs::CanonicalEmailBlock",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "canonical_email_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogs::CustomEmoji",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "custom_emojis"
+  },
+  {
+   "class": "BackfillAdminActionLogs::DomainAllow",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "domain_allows"
+  },
+  {
+   "class": "BackfillAdminActionLogs::DomainBlock",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "domain_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogs::EmailDomainBlock",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "email_domain_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogs::IpBlock",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "ip_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogs::Status",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "BackfillAdminActionLogs::UnavailableDomain",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "unavailable_domains"
+  },
+  {
+   "class": "BackfillAdminActionLogs::User",
+   "files": [
+    "db/post_migrate/20221101190723_backfill_admin_action_logs.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::Account",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::AccountWarning",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "account_warnings"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::AdminActionLog",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "admin_action_logs"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::Announcement",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "announcements"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::Appeal",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "appeals"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::CanonicalEmailBlock",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "canonical_email_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::CustomEmoji",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "custom_emojis"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::DomainAllow",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "domain_allows"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::DomainBlock",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "domain_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::EmailDomainBlock",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "email_domain_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::IpBlock",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "ip_blocks"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::Status",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::UnavailableDomain",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "unavailable_domains"
+  },
+  {
+   "class": "BackfillAdminActionLogsAgain::User",
+   "files": [
+    "db/post_migrate/20221206114142_backfill_admin_action_logs_again.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Backup",
+   "files": [
+    "app/models/backup.rb"
+   ],
+   "table": "backups"
+  },
+  {
+   "class": "Block",
+   "files": [
+    "app/models/block.rb"
+   ],
+   "table": "blocks"
+  },
+  {
+   "class": "Bookmark",
+   "files": [
+    "app/models/bookmark.rb"
+   ],
+   "table": "bookmarks"
+  },
+  {
+   "class": "BulkImport",
+   "files": [
+    "app/models/bulk_import.rb"
+   ],
+   "table": "bulk_imports"
+  },
+  {
+   "class": "BulkImportRow",
+   "files": [
+    "app/models/bulk_import_row.rb"
+   ],
+   "table": "bulk_import_rows"
+  },
+  {
+   "class": "CanonicalEmailBlock",
+   "files": [
+    "app/models/canonical_email_block.rb"
+   ],
+   "table": "canonical_email_blocks"
+  },
+  {
+   "class": "ChangeAccountUriNullable::Account",
+   "files": [
+    "db/migrate/20260720090737_change_account_uri_nullable.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "CleanUpInvalidAccounts::Account",
+   "files": [
+    "db/post_migrate/20260720124731_clean_up_invalid_accounts.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "ClearEmailDomainBlocks::EmailDomainBlock",
+   "files": [
+    "db/post_migrate/20220429101850_clear_email_domain_blocks.rb"
+   ],
+   "table": "email_domain_blocks"
+  },
+  {
+   "class": "ClearOrphanedAccountNotes::Account",
+   "files": [
+    "db/post_migrate/20210808071221_clear_orphaned_account_notes.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "ClearOrphanedAccountNotes::AccountNote",
+   "files": [
+    "db/post_migrate/20210808071221_clear_orphaned_account_notes.rb"
+   ],
+   "table": "account_notes"
+  },
+  {
+   "class": "Collection",
+   "files": [
+    "app/models/collection.rb"
+   ],
+   "table": "collections"
+  },
+  {
+   "class": "CollectionItem",
+   "files": [
+    "app/models/collection_item.rb"
+   ],
+   "table": "collection_items"
+  },
+  {
+   "class": "CollectionReport",
+   "files": [
+    "app/models/collection_report.rb"
+   ],
+   "table": "collection_reports"
+  },
+  {
+   "class": "Conversation",
+   "files": [
+    "app/models/conversation.rb"
+   ],
+   "table": "conversations"
+  },
+  {
+   "class": "ConversationMute",
+   "files": [
+    "app/models/conversation_mute.rb"
+   ],
+   "table": "conversation_mutes"
+  },
+  {
+   "class": "CopyAccountStats::MigrationAccount",
+   "files": [
+    "db/migrate/20181116173541_copy_account_stats.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "CustomEmoji",
+   "files": [
+    "app/models/custom_emoji.rb"
+   ],
+   "table": "custom_emojis"
+  },
+  {
+   "class": "CustomEmojiCategory",
+   "files": [
+    "app/models/custom_emoji_category.rb"
+   ],
+   "table": "custom_emoji_categories"
+  },
+  {
+   "class": "CustomFilter",
+   "files": [
+    "app/models/custom_filter.rb"
+   ],
+   "table": "custom_filters"
+  },
+  {
+   "class": "CustomFilterKeyword",
+   "files": [
+    "app/models/custom_filter_keyword.rb"
+   ],
+   "table": "custom_filter_keywords"
+  },
+  {
+   "class": "CustomFilterStatus",
+   "files": [
+    "app/models/custom_filter_status.rb"
+   ],
+   "table": "custom_filter_statuses"
+  },
+  {
+   "class": "DomainAllow",
+   "files": [
+    "app/models/domain_allow.rb"
+   ],
+   "table": "domain_allows"
+  },
+  {
+   "class": "DomainBlock",
+   "files": [
+    "app/models/domain_block.rb"
+   ],
+   "table": "domain_blocks"
+  },
+  {
+   "class": "EmailDomainBlock",
+   "files": [
+    "app/models/email_domain_block.rb"
+   ],
+   "table": "email_domain_blocks"
+  },
+  {
+   "class": "EmailSubscription",
+   "files": [
+    "app/models/email_subscription.rb"
+   ],
+   "table": "email_subscriptions"
+  },
+  {
+   "class": "Fasp::BackfillRequest",
+   "files": [
+    "app/models/fasp/backfill_request.rb"
+   ],
+   "table": "fasp_backfill_requests"
+  },
+  {
+   "class": "Fasp::Capability",
+   "files": [
+    "app/models/fasp/capability.rb"
+   ],
+   "table": "fasp_capabilities"
+  },
+  {
+   "class": "Fasp::DebugCallback",
+   "files": [
+    "app/models/fasp/debug_callback.rb"
+   ],
+   "table": "fasp_debug_callbacks"
+  },
+  {
+   "class": "Fasp::FollowRecommendation",
+   "files": [
+    "app/models/fasp/follow_recommendation.rb"
+   ],
+   "table": "fasp_follow_recommendations"
+  },
+  {
+   "class": "Fasp::Provider",
+   "files": [
+    "app/models/fasp/provider.rb"
+   ],
+   "table": "fasp_providers"
+  },
+  {
+   "class": "Fasp::Subscription",
+   "files": [
+    "app/models/fasp/subscription.rb"
+   ],
+   "table": "fasp_subscriptions"
+  },
+  {
+   "class": "Favourite",
+   "files": [
+    "app/models/favourite.rb"
+   ],
+   "table": "favourites"
+  },
+  {
+   "class": "FeaturedTag",
+   "files": [
+    "app/models/featured_tag.rb"
+   ],
+   "table": "featured_tags"
+  },
+  {
+   "class": "FillAccountSuspensionOrigin::MigrationAccount",
+   "files": [
+    "db/post_migrate/20201017234926_fill_account_suspension_origin.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "FillDefaultQuotePolicySetting::User",
+   "files": [
+    "db/migrate/20250911163952_fill_default_quote_policy_setting.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "FixAccountsUniqueIndex::Account",
+   "files": [
+    "db/migrate/20180528141303_fix_accounts_unique_index.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "FixAccountsUniqueIndex::Mention",
+   "files": [
+    "db/migrate/20180528141303_fix_accounts_unique_index.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "FixAccountsUniqueIndex::Status",
+   "files": [
+    "db/migrate/20180528141303_fix_accounts_unique_index.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "FixAccountsUniqueIndex::StatusPin",
+   "files": [
+    "db/migrate/20180528141303_fix_accounts_unique_index.rb"
+   ],
+   "table": "status_pins"
+  },
+  {
+   "class": "FixAccountsUniqueIndex::StreamEntry",
+   "files": [
+    "db/migrate/20180528141303_fix_accounts_unique_index.rb"
+   ],
+   "table": "stream_entries"
+  },
+  {
+   "class": "FixBlankAccountUri::Account",
+   "files": [
+    "db/post_migrate/20260720100326_fix_blank_account_uri.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "FixCanadianFrenchLocale::User",
+   "files": [
+    "db/migrate/20240109103012_fix_canadian_french_locale.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "FixKmrLocaleSettings::MigrationUser",
+   "files": [
+    "db/post_migrate/20230904134623_fix_kmr_locale_settings.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Follow",
+   "files": [
+    "app/models/follow.rb"
+   ],
+   "table": "follows"
+  },
+  {
+   "class": "FollowRecommendation",
+   "files": [
+    "app/models/follow_recommendation.rb"
+   ],
+   "table": "global_follow_recommendations"
+  },
+  {
+   "class": "FollowRecommendationMute",
+   "files": [
+    "app/models/follow_recommendation_mute.rb"
+   ],
+   "table": "follow_recommendation_mutes"
+  },
+  {
+   "class": "FollowRecommendationSuppression",
+   "files": [
+    "app/models/follow_recommendation_suppression.rb"
+   ],
+   "table": "follow_recommendation_suppressions"
+  },
+  {
+   "class": "FollowRequest",
+   "files": [
+    "app/models/follow_request.rb"
+   ],
+   "table": "follow_requests"
+  },
+  {
+   "class": "GeneratedAnnualReport",
+   "files": [
+    "app/models/generated_annual_report.rb"
+   ],
+   "table": "generated_annual_reports"
+  },
+  {
+   "class": "Identity",
+   "files": [
+    "app/models/identity.rb"
+   ],
+   "table": "identities"
+  },
+  {
+   "class": "Instance",
+   "files": [
+    "app/models/instance.rb"
+   ],
+   "table": "instances"
+  },
+  {
+   "class": "InstanceModerationNote",
+   "files": [
+    "app/models/instance_moderation_note.rb"
+   ],
+   "table": "instance_moderation_notes"
+  },
+  {
+   "class": "Invite",
+   "files": [
+    "app/models/invite.rb"
+   ],
+   "table": "invites"
+  },
+  {
+   "class": "IpBlock",
+   "files": [
+    "app/models/ip_block.rb"
+   ],
+   "table": "ip_blocks"
+  },
+  {
+   "class": "Keypair",
+   "files": [
+    "app/models/keypair.rb"
+   ],
+   "table": "keypairs"
+  },
+  {
+   "class": "List",
+   "files": [
+    "app/models/list.rb"
+   ],
+   "table": "lists"
+  },
+  {
+   "class": "ListAccount",
+   "files": [
+    "app/models/list_account.rb"
+   ],
+   "table": "list_accounts"
+  },
+  {
+   "class": "LoginActivity",
+   "files": [
+    "app/models/login_activity.rb"
+   ],
+   "table": "login_activities"
+  },
+  {
+   "class": "Marker",
+   "files": [
+    "app/models/marker.rb"
+   ],
+   "table": "markers"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Account",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::AccountDomainBlock",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "account_domain_blocks"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::AccountIdentityProof",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "account_identity_proofs"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::AccountModerationNote",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "account_moderation_notes"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::AccountPin",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "account_pins"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::AccountStat",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "account_stats"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::AnnouncementReaction",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "announcement_reactions"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Appeal",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "appeals"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Block",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "blocks"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Bookmark",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "bookmarks"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::BulkImport",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "bulk_imports"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::CanonicalEmailBlock",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "canonical_email_blocks"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::CustomEmoji",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "custom_emojis"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::CustomEmojiCategory",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "custom_emoji_categories"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::DomainBlock",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "domain_blocks"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Favourite",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "favourites"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::FeaturedTag",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "featured_tags"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Follow",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "follows"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::FollowRecommendationSuppression",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "follow_recommendation_suppressions"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::FollowRequest",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "follow_requests"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::ListAccount",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "list_accounts"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::MediaAttachment",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "media_attachments"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Mention",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Mute",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "mutes"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Notification",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::NotificationPermission",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "notification_permissions"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::NotificationRequest",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "notification_requests"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Poll",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "polls"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::PollVote",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "poll_votes"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::PreviewCard",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "preview_cards"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Report",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "reports"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::SeveredRelationship",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "severed_relationships"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::SoftwareUpdate",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "software_updates"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Status",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::StatusPin",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "status_pins"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::TagFollow",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "tag_follows"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Tombstone",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "tombstones"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::User",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::WebauthnCredential",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "webauthn_credentials"
+  },
+  {
+   "class": "Mastodon::CLI::Maintenance::Webhook",
+   "files": [
+    "lib/mastodon/cli/maintenance.rb"
+   ],
+   "table": "webhooks"
+  },
+  {
+   "class": "Mastodon::MigrationHelpers::Grant",
+   "files": [
+    "lib/mastodon/migration_helpers.rb"
+   ],
+   "table": "information_schema.role_table_grants"
+  },
+  {
+   "class": "MediaAttachment",
+   "files": [
+    "app/models/media_attachment.rb"
+   ],
+   "table": "media_attachments"
+  },
+  {
+   "class": "Mention",
+   "files": [
+    "app/models/mention.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "MigrateAccountConversations::MigrationAccount",
+   "files": [
+    "db/migrate/20181024224956_migrate_account_conversations.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "MigrateAccountConversations::MigrationAccountConversation",
+   "files": [
+    "db/migrate/20181024224956_migrate_account_conversations.rb"
+   ],
+   "table": "account_conversations"
+  },
+  {
+   "class": "MigrateAccountConversations::MigrationConversation",
+   "files": [
+    "db/migrate/20181024224956_migrate_account_conversations.rb"
+   ],
+   "table": "conversations"
+  },
+  {
+   "class": "MigrateAccountConversations::MigrationMention",
+   "files": [
+    "db/migrate/20181024224956_migrate_account_conversations.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "MigrateAccountConversations::MigrationNotification",
+   "files": [
+    "db/migrate/20181024224956_migrate_account_conversations.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "MigrateAccountConversations::MigrationStatus",
+   "files": [
+    "db/migrate/20181024224956_migrate_account_conversations.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "MigrateDefaultThemeSetting::Setting",
+   "files": [
+    "db/migrate/20260209142402_migrate_default_theme_setting.rb"
+   ],
+   "table": "settings"
+  },
+  {
+   "class": "MigrateDeviseTwoFactorSecrets::MigrationUser",
+   "files": [
+    "db/post_migrate/20240307180905_migrate_devise_two_factor_secrets.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "MigrateHideNetworkPreference::Account",
+   "files": [
+    "db/migrate/20220304195405_migrate_hide_network_preference.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "MigrateHideNetworkPreference::Setting",
+   "files": [
+    "db/migrate/20220304195405_migrate_hide_network_preference.rb"
+   ],
+   "table": "settings"
+  },
+  {
+   "class": "MigrateHideNetworkPreference::User",
+   "files": [
+    "db/migrate/20220304195405_migrate_hide_network_preference.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "MigrateInteractionSettingsToPolicy::NotificationPolicy",
+   "files": [
+    "db/migrate/20240304090449_migrate_interaction_settings_to_policy.rb"
+   ],
+   "table": "notification_policies"
+  },
+  {
+   "class": "MigrateInteractionSettingsToPolicy::User",
+   "files": [
+    "db/migrate/20240304090449_migrate_interaction_settings_to_policy.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "MigrateInteractionSettingsToPolicyAgain::NotificationPolicy",
+   "files": [
+    "db/post_migrate/20240321160706_migrate_interaction_settings_to_policy_again.rb"
+   ],
+   "table": "notification_policies"
+  },
+  {
+   "class": "MigrateInteractionSettingsToPolicyAgain::User",
+   "files": [
+    "db/post_migrate/20240321160706_migrate_interaction_settings_to_policy_again.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "MigrateLandingPageSetting::Setting",
+   "files": [
+    "db/migrate/20251023210145_migrate_landing_page_setting.rb"
+   ],
+   "table": "settings"
+  },
+  {
+   "class": "MigrateLocalAccountKeypairs::Account",
+   "files": [
+    "db/post_migrate/20260702144128_migrate_local_account_keypairs.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "MigrateLocalAccountKeypairs::Keypair",
+   "files": [
+    "db/post_migrate/20260702144128_migrate_local_account_keypairs.rb"
+   ],
+   "table": "keypairs"
+  },
+  {
+   "class": "MigrateNotificationsPolicyV2::NotificationPolicy",
+   "files": [
+    "db/migrate/20240808124338_migrate_notifications_policy_v2.rb"
+   ],
+   "table": "notification_policies"
+  },
+  {
+   "class": "MigrateRoles::User",
+   "files": [
+    "db/post_migrate/20220617202502_migrate_roles.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "MigrateRoles::UserRole",
+   "files": [
+    "db/post_migrate/20220617202502_migrate_roles.rb"
+   ],
+   "table": "user_roles"
+  },
+  {
+   "class": "MigrateSettingsToUserRoles::UserRole",
+   "files": [
+    "db/post_migrate/20220704024901_migrate_settings_to_user_roles.rb"
+   ],
+   "table": "user_roles"
+  },
+  {
+   "class": "MigrateTimelinePreviewSetting::Setting",
+   "files": [
+    "db/migrate/20251002140103_migrate_timeline_preview_setting.rb"
+   ],
+   "table": "settings"
+  },
+  {
+   "class": "MigrateUserTheme::User",
+   "files": [
+    "db/migrate/20260209143308_migrate_user_theme.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "ModerationSubscription",
+   "files": [
+    "app/models/moderation_subscription.rb"
+   ],
+   "table": "moderation_subscriptions"
+  },
+  {
+   "class": "ModerationSubscriptionAdvisory",
+   "files": [
+    "app/models/moderation_subscription_advisory.rb"
+   ],
+   "table": "moderation_subscription_advisories"
+  },
+  {
+   "class": "ModerationSuggestion",
+   "files": [
+    "app/models/moderation_suggestion.rb"
+   ],
+   "table": "moderation_suggestions"
+  },
+  {
+   "class": "MoveUserSettings::LegacySetting",
+   "files": [
+    "db/migrate/20230215074423_move_user_settings.rb"
+   ],
+   "table": "settings"
+  },
+  {
+   "class": "MoveUserSettings::User",
+   "files": [
+    "db/migrate/20230215074423_move_user_settings.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "Mute",
+   "files": [
+    "app/models/mute.rb"
+   ],
+   "table": "mutes"
+  },
+  {
+   "class": "Notification",
+   "files": [
+    "app/models/notification.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "NotificationPermission",
+   "files": [
+    "app/models/notification_permission.rb"
+   ],
+   "table": "notification_permissions"
+  },
+  {
+   "class": "NotificationPolicy",
+   "files": [
+    "app/models/notification_policy.rb"
+   ],
+   "table": "notification_policies"
+  },
+  {
+   "class": "NotificationRequest",
+   "files": [
+    "app/models/notification_request.rb"
+   ],
+   "table": "notification_requests"
+  },
+  {
+   "class": "Poll",
+   "files": [
+    "app/models/poll.rb"
+   ],
+   "table": "polls"
+  },
+  {
+   "class": "PollVote",
+   "files": [
+    "app/models/poll_vote.rb"
+   ],
+   "table": "poll_votes"
+  },
+  {
+   "class": "PostDeploymentMigrateNotificationsPolicyV2::NotificationPolicy",
+   "files": [
+    "db/post_migrate/20240808124339_post_deployment_migrate_notifications_policy_v2.rb"
+   ],
+   "table": "notification_policies"
+  },
+  {
+   "class": "PreviewCard",
+   "files": [
+    "app/models/preview_card.rb"
+   ],
+   "table": "preview_cards"
+  },
+  {
+   "class": "PreviewCardProvider",
+   "files": [
+    "app/models/preview_card_provider.rb"
+   ],
+   "table": "preview_card_providers"
+  },
+  {
+   "class": "PreviewCardTrend",
+   "files": [
+    "app/models/preview_card_trend.rb"
+   ],
+   "table": "preview_card_trends"
+  },
+  {
+   "class": "PreviewCardsStatus",
+   "files": [
+    "app/models/preview_cards_status.rb"
+   ],
+   "table": "preview_cards_statuses"
+  },
+  {
+   "class": "Quote",
+   "files": [
+    "app/models/quote.rb"
+   ],
+   "table": "quotes"
+  },
+  {
+   "class": "RelationshipSeveranceEvent",
+   "files": [
+    "app/models/relationship_severance_event.rb"
+   ],
+   "table": "relationship_severance_events"
+  },
+  {
+   "class": "Relay",
+   "files": [
+    "app/models/relay.rb"
+   ],
+   "table": "relays"
+  },
+  {
+   "class": "RemoveFauxRemoteAccountDuplicates::Account",
+   "files": [
+    "db/migrate/20181026034033_remove_faux_remote_account_duplicates.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "RemoveFauxRemoteAccountDuplicates::Favourite",
+   "files": [
+    "db/migrate/20181026034033_remove_faux_remote_account_duplicates.rb"
+   ],
+   "table": "favourites"
+  },
+  {
+   "class": "RemoveFauxRemoteAccountDuplicates::Mention",
+   "files": [
+    "db/migrate/20181026034033_remove_faux_remote_account_duplicates.rb"
+   ],
+   "table": "mentions"
+  },
+  {
+   "class": "RemoveFauxRemoteAccountDuplicates::Notification",
+   "files": [
+    "db/migrate/20181026034033_remove_faux_remote_account_duplicates.rb"
+   ],
+   "table": "notifications"
+  },
+  {
+   "class": "RemoveFauxRemoteAccountDuplicates::Status",
+   "files": [
+    "db/migrate/20181026034033_remove_faux_remote_account_duplicates.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "RemoveFauxRemoteAccountDuplicates::StreamEntry",
+   "files": [
+    "db/migrate/20181026034033_remove_faux_remote_account_duplicates.rb"
+   ],
+   "table": "stream_entries"
+  },
+  {
+   "class": "RemoveSuspendedSilencedAccountFields::Account",
+   "files": [
+    "db/post_migrate/20190511152737_remove_suspended_silenced_account_fields.rb"
+   ],
+   "table": "accounts"
+  },
+  {
+   "class": "RemoveSuspendedSilencedAccountFields::DomainBlock",
+   "files": [
+    "db/post_migrate/20190511152737_remove_suspended_silenced_account_fields.rb"
+   ],
+   "table": "domain_blocks"
+  },
+  {
+   "class": "Report",
+   "files": [
+    "app/models/report.rb"
+   ],
+   "table": "reports"
+  },
+  {
+   "class": "ReportNote",
+   "files": [
+    "app/models/report_note.rb"
+   ],
+   "table": "report_notes"
+  },
+  {
+   "class": "Rule",
+   "files": [
+    "app/models/rule.rb"
+   ],
+   "table": "rules"
+  },
+  {
+   "class": "RuleTranslation",
+   "files": [
+    "app/models/rule_translation.rb"
+   ],
+   "table": "rule_translations"
+  },
+  {
+   "class": "ScheduledStatus",
+   "files": [
+    "app/models/scheduled_status.rb"
+   ],
+   "table": "scheduled_statuses"
+  },
+  {
+   "class": "SessionActivation",
+   "files": [
+    "app/models/session_activation.rb"
+   ],
+   "table": "session_activations"
+  },
+  {
+   "class": "Setting",
+   "files": [
+    "app/models/setting.rb"
+   ],
+   "table": "settings"
+  },
+  {
+   "class": "SeveredRelationship",
+   "files": [
+    "app/models/severed_relationship.rb"
+   ],
+   "table": "severed_relationships"
+  },
+  {
+   "class": "SiteUpload",
+   "files": [
+    "app/models/site_upload.rb"
+   ],
+   "table": "site_uploads"
+  },
+  {
+   "class": "SoftwareDeprecation",
+   "files": [
+    "app/models/software_deprecation.rb"
+   ],
+   "table": "software_deprecations"
+  },
+  {
+   "class": "SoftwareUpdate",
+   "files": [
+    "app/models/software_update.rb"
+   ],
+   "table": "software_updates"
+  },
+  {
+   "class": "Status",
+   "files": [
+    "app/models/status.rb"
+   ],
+   "table": "statuses"
+  },
+  {
+   "class": "StatusEdit",
+   "files": [
+    "app/models/status_edit.rb"
+   ],
+   "table": "status_edits"
+  },
+  {
+   "class": "StatusPin",
+   "files": [
+    "app/models/status_pin.rb"
+   ],
+   "table": "status_pins"
+  },
+  {
+   "class": "StatusStat",
+   "files": [
+    "app/models/status_stat.rb"
+   ],
+   "table": "status_stats"
+  },
+  {
+   "class": "StatusTrend",
+   "files": [
+    "app/models/status_trend.rb"
+   ],
+   "table": "status_trends"
+  },
+  {
+   "class": "Tag",
+   "files": [
+    "app/models/tag.rb"
+   ],
+   "table": "tags"
+  },
+  {
+   "class": "TagFollow",
+   "files": [
+    "app/models/tag_follow.rb"
+   ],
+   "table": "tag_follows"
+  },
+  {
+   "class": "TagTrend",
+   "files": [
+    "app/models/tag_trend.rb"
+   ],
+   "table": "tag_trends"
+  },
+  {
+   "class": "TaggedObject",
+   "files": [
+    "app/models/tagged_object.rb"
+   ],
+   "table": "tagged_objects"
+  },
+  {
+   "class": "TermsOfService",
+   "files": [
+    "app/models/terms_of_service.rb"
+   ],
+   "table": "terms_of_services"
+  },
+  {
+   "class": "Tombstone",
+   "files": [
+    "app/models/tombstone.rb"
+   ],
+   "table": "tombstones"
+  },
+  {
+   "class": "UnavailableDomain",
+   "files": [
+    "app/models/unavailable_domain.rb"
+   ],
+   "table": "unavailable_domains"
+  },
+  {
+   "class": "UpdateKurdishLocales::User",
+   "files": [
+    "db/migrate/20220316233212_update_kurdish_locales.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "UpdatePtLocales::User",
+   "files": [
+    "db/migrate/20191007013357_update_pt_locales.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "User",
+   "files": [
+    "app/models/user.rb"
+   ],
+   "table": "users"
+  },
+  {
+   "class": "UserInviteRequest",
+   "files": [
+    "app/models/user_invite_request.rb"
+   ],
+   "table": "user_invite_requests"
+  },
+  {
+   "class": "UserIp",
+   "files": [
+    "app/models/user_ip.rb"
+   ],
+   "table": "user_ips"
+  },
+  {
+   "class": "UserRole",
+   "files": [
+    "app/models/user_role.rb"
+   ],
+   "table": "user_roles"
+  },
+  {
+   "class": "UsernameBlock",
+   "files": [
+    "app/models/username_block.rb"
+   ],
+   "table": "username_blocks"
+  },
+  {
+   "class": "Web::PushSubscription",
+   "files": [
+    "app/models/web/push_subscription.rb"
+   ],
+   "table": "web_push_subscriptions"
+  },
+  {
+   "class": "Web::Setting",
+   "files": [
+    "app/models/web/setting.rb"
+   ],
+   "table": "web_settings"
+  },
+  {
+   "class": "WebauthnCredential",
+   "files": [
+    "app/models/webauthn_credential.rb"
+   ],
+   "table": "webauthn_credentials"
+  },
+  {
+   "class": "Webhook",
+   "files": [
+    "app/models/webhook.rb"
+   ],
+   "table": "webhooks"
+  }
+ ],
+ "not_counted": []
+}
