@@ -1542,6 +1542,22 @@ def _java_imports(node, content):
         yield name, "import", (), (name.rsplit(".", 1)[-1],)
 
 
+def _c_imports(node, content):
+    """A C ``#include "path"`` in any preprocessor branch: the path as
+    written, kind ``include``. ``#include <path>`` and computed includes are
+    not read."""
+    # Only an include has a path.
+    path = node.child_by_field_name("path")
+    if path is None:
+        return
+    # `<path>` and a macro hold no string content.
+    text = "".join(
+        _text(c, content) for c in path.named_children if c.type == "string_content"
+    )
+    if text:
+        yield text, "include", (), ()
+
+
 def _php_imports(node, content):
     """Yield one import per clause of a PHP ``use`` declaration.
 
@@ -1918,6 +1934,7 @@ def extract_imports(
         "go": _go_imports,
         "java": _java_imports,
         "php": _php_imports,
+        "c": _c_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
     exports = (

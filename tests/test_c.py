@@ -8,6 +8,7 @@ import unittest
 
 from deepthought import analyze_repository
 from deepthought.calls import C_CALL_EXTERNAL, C_CALL_STATIC, resolve_calls
+from deepthought.imports import C_INCLUDE_RELATIVE, resolve_imports
 from deepthought.models import AnalysisResult
 from deepthought.syntax import declaration_sources, make_parser
 
@@ -283,3 +284,83 @@ class CCallTests(unittest.TestCase):
         self.assertNotIn('"prototype": null', result.to_json())
         with self.assertRaises(ValueError):
             dataclasses.replace(result.definitions[0], prototype=False)
+
+    def test_includes_bring_static_functions_into_the_unit(self):
+        result = analyze(
+            {
+                "lib/core.c": (
+                    "static int hidden(void) { return 0; }\n"
+                    "int pub(void) { return hidden(); }\n"
+                ),
+                "tests/common.h": (
+                    '#include "../lib/core.c"\n'
+                    "#include <stdio.h>\n"
+                    '#include "missing.h"\n'
+                    "#ifdef X\n"
+                    '#include "../lib/./core.c"\n'
+                    "#endif\n"
+                    '#include "common.h"\n'
+                ),
+                "tests/t.c": (
+                    '#include "common.h"\nint main(void) { return hidden() + pub(); }\n'
+                ),
+                "other.c": "int main2(void) { return hidden(); }\n",
+            }
+        )
+        resolved = {r.import_id: r for r in resolve_imports(result)}
+        self.assertEqual(
+            [
+                (
+                    i.file,
+                    i.line,
+                    i.specifier,
+                    i.kind,
+                    [link.target_file for link in resolved[i.id].links],
+                    resolved[i.id].reason,
+                )
+                for i in sorted(result.imports, key=lambda i: (i.file, i.line))
+            ],
+            [
+                ("tests/common.h", 1, "../lib/core.c", "include", ["lib/core.c"], None),
+                ("tests/common.h", 3, "missing.h", "include", [], "not_in_repository"),
+                (
+                    "tests/common.h",
+                    5,
+                    "../lib/./core.c",
+                    "include",
+                    ["lib/core.c"],
+                    None,
+                ),
+                # A cycle of includes.
+                ("tests/common.h", 7, "common.h", "include", ["tests/common.h"], None),
+                ("tests/t.c", 1, "common.h", "include", ["tests/common.h"], None),
+            ],
+        )
+        self.assertEqual(
+            {
+                resolved[i.id].links[0].rule_id
+                for i in result.imports
+                if resolved[i.id].links
+            },
+            {C_INCLUDE_RELATIVE},
+        )
+        names = {d.id: (d.file, d.symbol) for d in result.definitions}
+        sites = {c.id: c for c in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].column): (
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual(
+            found,
+            {
+                ("lib/core.c", 23): (("lib/core.c", "hidden"), C_CALL_STATIC),
+                # The unit `tests/t.c` starts includes `lib/core.c`, through
+                # `tests/common.h`.
+                ("tests/t.c", 24): (("lib/core.c", "hidden"), C_CALL_STATIC),
+                ("tests/t.c", 35): (("lib/core.c", "pub"), C_CALL_EXTERNAL),
+                ("other.c", 25): (None, "not_defined"),
+            },
+        )

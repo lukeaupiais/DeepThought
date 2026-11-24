@@ -1487,8 +1487,21 @@ macro holds for the rest of the file). Names are not qualified. Variables,
 enumerators, fields, forward declarations, unnamed types and types and
 prototypes declared in a function body are not declarations. A function
 declared `static` records `Definition.static`, and a prototype (a function
-declared without a body) records `Definition.prototype`. Imports and other
-facts are not recorded for C yet.
+declared without a body) records `Definition.prototype`. Other facts than
+declarations, includes and calls are not recorded for C yet.
+
+### C includes
+
+Each `#include "path"`, in every preprocessor branch, is an import of kind
+`include` whose specifier is the path as written. `#include <path>` and an
+include computed from a macro are not recorded, since the compiler finds them
+on the include path the build gives it. A compiler looks for a quoted path
+first in the directory of the file that writes it, and that is the one place
+resolution looks: the include links the file there with rule
+`tree-sitter.c-include-relative` (`resolved`), and is unresolved
+(`not_in_repository`) when no analyzed file is there. Include paths given to
+the compiler (`-I`) are not known, so a header found only through one is
+unresolved.
 
 ### C calls
 
@@ -1500,9 +1513,10 @@ declarations in its body declare the name (a pointer to a function, or a
 prototype written in the body), or when a declaration at file scope declares
 it as a variable. A call is resolved as the linker binds it:
 
-- `tree-sitter.c-call-static` when the calling file declares a function `f`
-  `static` (a prototype or a definition): the definition of `f` in that file,
-  since a later definition without `static` has internal linkage too;
+- `tree-sitter.c-call-static` when the calling file's translation unit
+  declares a function `f` `static` (a prototype or a definition): the
+  definition of `f` in that unit, since a later definition without `static`
+  has internal linkage too;
 - `tree-sitter.c-call-external` otherwise: the one definition of `f` without
   `static` among the repository's C files.
 
@@ -1510,9 +1524,13 @@ Both are `resolved`. Two definitions (one per program, such as a test's
 `setUp`, or one per platform) are `ambiguous` (`multiple_declarations`), and
 none (a C library function) is `not_defined`. A shadowed name is
 `local_binding`, and a name any C file defines as a macro is `macro`, since
-the macro may expand the call away. Includes are not read: a `static inline`
-function defined in a header and called from a file that includes it is
-`not_defined`.
+the macro may expand the call away.
+
+A file's translation unit is the file and every file its resolved includes
+reach, followed transitively, so a `static inline` function in an included
+header or a `static` function in an included `.c` file binds there. A
+definition in a file that declares its name `static` is never offered to
+another unit, and an include that does not resolve adds nothing to the unit.
 
 Four shapes the grammar gives to code it does not fully read are read
 deterministically. A function declared after a macro the grammar does not

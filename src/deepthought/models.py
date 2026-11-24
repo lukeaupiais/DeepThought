@@ -226,7 +226,8 @@ class Reference:
 # "use", "use_glob" and "extern_crate": a Rust use declaration's leaf, glob
 # or an extern crate. "script_config", "path_alias" and "package_entry": a
 # tsconfig.json or jsconfig.json and its ``paths`` entries, and the entry
-# files a package.json names; module resolution reads them.
+# files a package.json names; module resolution reads them. "include": a C
+# `#include "path"`.
 IMPORT_KINDS = frozenset(
     {
         "import",
@@ -244,6 +245,7 @@ IMPORT_KINDS = frozenset(
         "script_config",
         "path_alias",
         "package_entry",
+        "include",
     }
 )
 

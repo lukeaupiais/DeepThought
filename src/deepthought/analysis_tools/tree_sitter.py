@@ -240,6 +240,16 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.C_INCLUDE_RELATIVE,
+                "resolved",
+                "A C '#include \"path\"' names the analyzed file at that path "
+                "relative to the directory of the including file, which the "
+                "compiler searches first. Include paths given to the compiler "
+                "are not read.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.PHP_USE_NAMESPACE,
                 "resolved",
                 "A PHP 'use' names no declared class-like type but a namespace "

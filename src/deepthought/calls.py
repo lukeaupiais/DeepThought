@@ -19,6 +19,7 @@ from .imports import (
     PYTHON_FROM_IMPORT_SUBMODULE,
     _java_index,
     _RustIndex,
+    c_include_target,
     resolve_imports,
 )
 from .models import AnalysisResult, Definition
@@ -1664,6 +1665,15 @@ class _CCalls:
     external linkage among the repository's C files."""
 
     def __init__(self, result, languages):
+        files = {f for f, language in languages.items() if language == "c"}
+        # Files each C file includes by a path relative to its directory.
+        self.includes = defaultdict(set)
+        for item in result.imports:
+            if item.kind == "include":
+                target = c_include_target(item, files)
+                if target is not None:
+                    self.includes[item.file].add(target)
+        self.units = {}
         self.macros = set()
         self.internal = defaultdict(list)
         self.static_names = defaultdict(set)
@@ -1682,6 +1692,18 @@ class _CCalls:
             if name not in self.static_names[file]:
                 self.external[name].extend(found)
 
+    def unit(self, file):
+        """The file and every file it includes, through includes."""
+        if file not in self.units:
+            seen, stack = set(), [file]
+            while stack:
+                current = stack.pop()
+                if current not in seen:
+                    seen.add(current)
+                    stack.extend(sorted(self.includes[current]))
+            self.units[file] = seen
+        return self.units[file]
+
     def call(self, site):
         name = site.callee
         if site.shadowed:
@@ -1690,11 +1712,13 @@ class _CCalls:
         if name in self.macros:
             # A macro of that name may expand the call away.
             return CallResolution(site.id, "unresolved", reason="macro")
-        if name in self.static_names[site.file]:
-            # Internal linkage: a later definition without `static` has it too.
+        unit = sorted(self.unit(site.file))
+        if any(name in self.static_names[file] for file in unit):
+            # Internal linkage in the translation unit the file starts: a
+            # later definition without `static` has it too.
             return _pick(
                 site.id,
-                self.internal.get((site.file, name), ()),
+                [d for file in unit for d in self.internal.get((file, name), ())],
                 C_CALL_STATIC,
                 "not_defined",
             )
