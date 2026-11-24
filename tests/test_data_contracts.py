@@ -2151,7 +2151,101 @@ User.deleteMany({});
 }
 
 
+NEST_MONGOOSE = {
+    "package.json": '{"dependencies": {"mongoose": "^8.0.0"}}',
+    "src/schema.options.ts": "export const base = { timestamps: true, collection: 'audit' };\n",
+    "src/cats/cat.schema.ts": """\
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+@Schema({ timestamps: true })
+export class Cat {
+  @Prop() name: string;
+}
+export const CatSchema = SchemaFactory.createForClass(Cat);
+""",
+    "src/dogs/dog.schema.ts": """\
+import { Schema, SchemaFactory } from '@nestjs/mongoose';
+@Schema({ collection: 'canines' })
+export class Dog {}
+export const DogSchema = SchemaFactory.createForClass(Dog);
+""",
+    "src/audit/entry.schema.ts": """\
+import { Schema } from 'mongoose';
+import { base } from '../schema.options';
+export const entrySchema = new Schema({}, base);
+""",
+    "src/cats/cats.module.ts": """\
+import { MongooseModule } from '@nestjs/mongoose';
+import { Cat, CatSchema } from './cat.schema';
+import { Dog, DogSchema } from '../dogs/dog.schema';
+import { entrySchema } from '../audit/entry.schema';
+export const imports = [
+  MongooseModule.forFeature([
+    { name: Cat.name, schema: CatSchema },
+    { name: Dog.name, schema: DogSchema },
+    { name: 'Entry', schema: entrySchema },
+  ]),
+];
+""",
+    "src/dogs/dogs.module.ts": """\
+import { MongooseModule } from '@nestjs/mongoose';
+import { Cat, CatSchema } from '../cats/cat.schema';
+export const imports = [MongooseModule.forFeature([{ name: Cat.name, schema: CatSchema }])];
+""",
+    "src/cats/cats.service.ts": """\
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Cat } from './cat.schema';
+export class CatsService {
+  constructor(
+    @InjectModel(Cat.name) private readonly catModel: Model<Cat>,
+    @InjectModel('Dog') private dogs: Model<unknown>,
+    private readonly other: OtherService,
+  ) {}
+  async all() {
+    await this.catModel.find().exec();
+    await this.dogs.updateOne({}, {});
+    await this.other.find();
+  }
+}
+""",
+}
+
+
 class MongooseTests(unittest.TestCase):
+    def test_nest_models_injected_models_and_imported_options(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, NEST_MONGOOSE)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+                r.properties.get("model"),
+                r.source_match["qualified_name"].split("::")[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        cats = "src/cats/cats.module.ts"
+        self.assertEqual(
+            rows,
+            [
+                ("MAPS_TO", "audit", "mongoose-collection", "Entry", cats),
+                ("MAPS_TO", "canines", "mongoose-collection", "Dog", cats),
+                ("MAPS_TO", "cats", "mongoose-default-collection", "Cat", cats),
+                ("MAPS_TO", "cats", "mongoose-default-collection", "Cat", "src/dogs/dogs.module.ts"),
+                ("READS", "cats", "mongoose-call", "Cat", "src/cats/cats.service.ts"),
+                ("WRITES", "canines", "mongoose-call", "Dog", "src/cats/cats.service.ts"),
+            ],
+        )  # fmt: skip
+        self.assertEqual(
+            output.metadata.custom_metrics["mongoose_access_resolution"],
+            {"linked": 2, "unresolved_model": 0},
+        )
+
     def test_default_names_match_mongoose(self):
         cases = {
             "User": "users", "UserHistory": "userhistories", "Person": "people",
@@ -2344,8 +2438,16 @@ class PostController
         $employee = new Employee();
         $this->em->remove($employee);
         $qb->update(Oauth2Client::class, 'o')->getQuery()->execute();
+        $dql = 'SELECT p FROM ' . Person::class . ' p JOIN p.manager m';
+        $this->em->createQuery($dql . ' WHERE p.id IN (SELECT c.id FROM AppBundle:Comment c)');
+        $this->em->createQuery('DELETE FROM App\\\\Entity\\\\Invoice i');
     }
 }
+""",
+    "src/AppBundle.php": """\
+<?php
+namespace App;
+class AppBundle {}
 """,
     "tests/PostTest.php": """\
 <?php
@@ -2425,9 +2527,12 @@ class DoctrineTests(unittest.TestCase):
                 ("READS", "blog_post", "doctrine-call", "BlogPost", post, 15),
                 ("READS", "blog_post", "doctrine-call", "BlogPost", repository, 13),
                 ("READS", "blog_post", "doctrine-call", "BlogPost", repository, 17),
+                ("READS", "comments", "doctrine-dql", "Comment", post, 28),
                 ("READS", "invoices", "doctrine-call", "Invoice", post, 18),
                 ("READS", "people", "doctrine-call", "Person", post, 17),
+                ("READS", "people", "doctrine-dql", "Person", post, 28),
                 ("WRITES", "comments", "doctrine-call", "Comment", post, 23),
+                ("WRITES", "invoices", "doctrine-dql", "Invoice", post, 29),
                 ("WRITES", "oauth2client", "doctrine-call", "Oauth2Client", post, 26),
                 ("WRITES", "people", "doctrine-call", "Employee", post, 25),
             ],
@@ -2437,7 +2542,7 @@ class DoctrineTests(unittest.TestCase):
         self.assertEqual(metrics["doctrine_unresolved"], {})
         self.assertEqual(
             metrics["doctrine_access_resolution"],
-            {"linked": 8, "not_an_entity": 0, "unresolved_entity": 0},
+            {"linked": 11, "not_an_entity": 0, "unresolved_entity": 0},
         )
 
     def test_metadata_listener_leaves_tables_unresolved(self):
@@ -2460,7 +2565,7 @@ class Prefix
         self.assertFalse([r for r in output.relationships if r.type != "CONTAINS"])
         metrics = output.metadata.custom_metrics
         self.assertEqual(metrics["doctrine_unresolved"], {"metadata_listener": 6})
-        self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 8)
+        self.assertEqual(metrics["doctrine_access_resolution"]["unresolved_entity"], 11)
 
 
 if __name__ == "__main__":

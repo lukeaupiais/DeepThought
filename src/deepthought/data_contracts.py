@@ -4663,12 +4663,18 @@ def _php_assignments(variable, content):
     ]
 
 
-def _php_sql_text(node, content, depth=0):
+def _php_sql_text(node, content, depth=0, classes=None):
     """The text of a PHP string expression: literals, heredocs and nowdocs,
     ``.`` joins, ``sprintf`` templates and local variables built from them;
     what the code does not fix becomes PLACEHOLDER. None when the
-    expression is not text."""
+    expression is not text. ``classes(written)``, when given, resolves the
+    class an ``X::class`` part names, for DQL."""
     if node is None or depth > 4:
+        return None
+    if node.type == "class_constant_access_expression" and classes is not None:
+        parts = node.named_children
+        if len(parts) == 2 and _text(parts[1], content) == "class":
+            return classes(_text(parts[0], content))
         return None
     if node.type in ("string", "encapsed_string", "heredoc", "nowdoc"):
         parts = []
@@ -4688,13 +4694,13 @@ def _php_sql_text(node, content, depth=0):
                 parts.append(PLACEHOLDER)
         return "".join(parts)
     if node.type == "parenthesized_expression" and node.named_children:
-        return _php_sql_text(node.named_children[0], content, depth)
+        return _php_sql_text(node.named_children[0], content, depth, classes)
     if node.type == "binary_expression":
         operator = node.child_by_field_name("operator")
         if operator is None or _text(operator, content) != ".":
             return None
         sides = [
-            _php_sql_text(node.child_by_field_name(side), content, depth)
+            _php_sql_text(node.child_by_field_name(side), content, depth, classes)
             for side in ("left", "right")
         ]
         return "".join(PLACEHOLDER if p is None else p for p in sides)
@@ -4702,7 +4708,7 @@ def _php_sql_text(node, content, depth=0):
         name = _text(node.child_by_field_name("function"), content).lstrip("\\")
         arguments = _php_arguments(node)
         if name.lower() == "sprintf" and arguments:
-            template = _php_sql_text(arguments[0], content, depth)
+            template = _php_sql_text(arguments[0], content, depth, classes)
             if template is not None:
                 return re.sub(
                     r"%(?:\d+\$)?[-+ 0]*(?:'.)?\d*(?:\.\d+)?[bcdeEfFgGosuxX]",
@@ -4713,7 +4719,7 @@ def _php_sql_text(node, content, depth=0):
     if node.type == "variable_name":
         texts = []
         for values in _php_assignments(node, content) or ():
-            parts = [_php_sql_text(v, content, depth + 1) for v in values]
+            parts = [_php_sql_text(v, content, depth + 1, classes) for v in values]
             if parts[0] is None:
                 return None
             texts.append("".join(PLACEHOLDER if p is None else p for p in parts))
@@ -5769,7 +5775,11 @@ def extract_mongoose(tree, content, file, definitions):
             found.discard(None)
             return found.pop() if len(found) == 1 else (UNKNOWN if found else None)
         if node.type == "identifier":
-            values = constants.get(_text(node, content), [])
+            text = _text(node, content)
+            values = constants.get(text, [])
+            if not values and text in bindings and bindings[text][0] != "mongoose":
+                # Options imported from another file, resolved across files.
+                return ("option", *bindings[text])
             if len(values) != 1:
                 return UNKNOWN
             return collection_in(values[0], depth + 1)
@@ -5837,6 +5847,70 @@ def extract_mongoose(tree, content, file, definitions):
             name = _text(target, content)
             schema_nodes[name] = _unwrap(value)
             schemas[name] = collection_option(_unwrap(value))
+    # @nestjs/mongoose: @Schema(options) classes, SchemaFactory.createForClass.
+    nest = {
+        local: name
+        for local, (source, name) in bindings.items()
+        if source == "@nestjs/mongoose"
+    }
+    decorated = {}
+    if nest:
+        for node in _descendants(root, "class_declaration"):
+            name_node = node.child_by_field_name("name")
+            decorators = [c for c in node.named_children if c.type == "decorator"]
+            if node.parent is not None and node.parent.type == "export_statement":
+                decorators += [
+                    c for c in node.parent.named_children if c.type == "decorator"
+                ]
+            for decorator in decorators:
+                call = decorator.named_children[0] if decorator.named_children else None
+                if call is None or name_node is None:
+                    continue
+                if (
+                    call.type == "identifier"
+                    and nest.get(_text(call, content)) == "Schema"
+                ):
+                    decorated[_text(name_node, content)] = None
+                elif call.type == "call_expression":
+                    callee, receiver, args = _call_parts(call, content)
+                    if receiver is None and nest.get(callee) == "Schema":
+                        decorated[_text(name_node, content)] = (
+                            collection_in(args[0]) if args else None
+                        )
+        for declarator in _descendants(root, "variable_declarator"):
+            target = declarator.child_by_field_name("name")
+            value = _unwrap(declarator.child_by_field_name("value"))
+            if target is None or target.type != "identifier" or value is None:
+                continue
+            if value.type != "call_expression":
+                continue
+            method, receiver, args = _call_parts(value, content)
+            if (
+                method == "createForClass"
+                and receiver is not None
+                and nest.get(_text(receiver, content)) == "SchemaFactory"
+                and len(args) == 1
+            ):
+                written = _text(args[0], content)
+                schemas[_text(target, content)] = decorated.get(written, UNKNOWN)
+
+    def nest_name(node):
+        """A Nest model name: a string, or ``X.name`` of a class."""
+        node = _unwrap(node)
+        text = _script_string(node, content)
+        if text:
+            return text
+        if (
+            node is not None
+            and node.type == "member_expression"
+            and _text(node.child_by_field_name("property"), content) == "name"
+        ):
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "identifier":
+                written = _text(target, content)
+                imported = bindings.get(written, (None, "default"))[1]
+                return written if imported in ("default", "*") else imported
+        return None
 
     models, local_models, model_nodes = [], {}, {}
     pluralize = None
@@ -5927,6 +6001,20 @@ def extract_mongoose(tree, content, file, definitions):
                 return ("model", local_models[text])
             if text in bindings and bindings[text][0] != "mongoose":
                 return ("import", *bindings[text])
+        elif (
+            node.type == "member_expression"
+            and _text(node.child_by_field_name("object"), content) == "this"
+            and injected
+        ):
+            owner = node
+            while owner is not None and owner.type not in (
+                "class_declaration",
+                "class",
+            ):
+                owner = owner.parent
+            prop = _text(node.child_by_field_name("property"), content)
+            name = injected.get(owner.id if owner is not None else None, {}).get(prop)
+            return ("name", name) if name else None
         elif node.type == "member_expression":
             # A member of a namespace import or a required module object.
             target = node.child_by_field_name("object")
@@ -5953,6 +6041,71 @@ def extract_mongoose(tree, content, file, definitions):
             found = as_model(declarator.child_by_field_name("value"))
             if found is not None:
                 local_models.setdefault(_text(target, content), found)
+    injected = {}  # {class node id: {property: model name}}
+    if nest:
+        for call in _descendants(root, "call_expression"):
+            method, receiver, args = _call_parts(call, content)
+            if (
+                method in ("forFeature", "forFeatureAsync")
+                and receiver is not None
+                and nest.get(_text(receiver, content)) == "MongooseModule"
+                and args
+                and args[0].type == "array"
+            ):
+                for entry in args[0].named_children:
+                    if entry.type != "object":
+                        continue
+                    fields = {}
+                    for pair in entry.named_children:
+                        if pair.type == "pair":
+                            key = _script_key(pair.child_by_field_name("key"), content)
+                            fields[key] = pair.child_by_field_name("value")
+                    name = nest_name(fields.get("name"))
+                    if not name or "schema" not in fields:
+                        continue
+                    collection = None
+                    if "collection" in fields:
+                        collection = (
+                            _script_string(fields["collection"], content) or UNKNOWN
+                        )
+                    models.append(
+                        MongooseModel(
+                            file,
+                            name,
+                            _innermost(definitions, file, entry),
+                            collection,
+                            schema_ref(fields["schema"]),
+                            None,
+                            entry.start_point.row + 1,
+                            entry.start_point.column,
+                        )
+                    )
+        for decorator in _descendants(root, "decorator"):
+            call = decorator.named_children[0] if decorator.named_children else None
+            if call is None or call.type != "call_expression":
+                continue
+            callee, receiver, args = _call_parts(call, content)
+            if receiver is not None or nest.get(callee) != "InjectModel" or not args:
+                continue
+            name = nest_name(args[0])
+            holder = decorator.parent
+            prop = None
+            if holder is not None and holder.type in (
+                "required_parameter",
+                "optional_parameter",
+            ):
+                pattern = holder.child_by_field_name("pattern")
+                prop = _text(pattern, content) if pattern is not None else None
+            elif holder is not None and holder.type == "public_field_definition":
+                prop = _text(holder.child_by_field_name("name"), content)
+            owner = holder
+            while owner is not None and owner.type not in (
+                "class_declaration",
+                "class",
+            ):
+                owner = owner.parent
+            if name and prop and owner is not None:
+                injected.setdefault(owner.id, {})[prop] = name
 
     exports = {}
 
@@ -5969,10 +6122,14 @@ def extract_mongoose(tree, content, file, definitions):
                 exports[name] = ("model", local_models[text])
             elif text in schemas:
                 exports[name] = ("schema", text)
+            elif text in constants:
+                exports[name] = ("options", collection_in(node))
             elif text in bindings:
                 exports[name] = ("import", *bindings[text])
         elif is_schema(node):
             exports[name] = ("schema-inline", collection_option(node))
+        elif node.type == "object":
+            exports[name] = ("options", collection_in(node))
         elif node.type == "call_expression":
             method, receiver, args = _call_parts(node, content)
             if method == "require" and receiver is None and len(args) == 1:
@@ -6011,6 +6168,11 @@ def extract_mongoose(tree, content, file, definitions):
                                 _text(target, content),
                                 declarator.child_by_field_name("value"),
                             )
+                            if _text(target, content) in schemas:
+                                exports.setdefault(
+                                    _text(target, content),
+                                    ("schema", _text(target, content)),
+                                )
                 elif child.type == "export_clause":
                     for spec in child.named_children:
                         if spec.type != "export_specifier":
@@ -6226,6 +6388,12 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
             keys = by_name.get(ref[1], [])
             own = [k for k in keys if scope(k[0]) == scope(file)]
             keys = own or keys
+            if len(keys) > 1:
+                # One model registered in several places (Nest's forFeature
+                # in each module) is one model when they name one collection.
+                found = {(collection(k) or (None,))[0] for k in keys}
+                if len(found) == 1 and None not in found:
+                    return keys[0]
             return (
                 keys[0] if len(keys) == 1 else ("ambiguous" if keys else "not_a_model")
             )
@@ -6237,22 +6405,32 @@ def resolve_mongoose(files, majors=None, resolve=None, scope=None):
             return "not_a_model"
         return (value[0], value[1][1])
 
+    def option(file, value, depth=0):
+        """A collection option, following options imported from a file."""
+        if not isinstance(value, tuple):
+            return value
+        target = resolve(file, value[1])
+        found = None if target is None or depth > 8 else export(target, value[2])
+        if found is None or found[1][0] != "options":
+            return UNKNOWN
+        return option(found[0], found[1][1], depth + 1)
+
     def schema_collection(file, ref, depth=0):
         if ref is UNKNOWN or depth > 8:
             return UNKNOWN
         if ref[0] == "inline":
-            return ref[1]
+            return option(file, ref[1])
         if ref[0] == "local":
-            return files[file].schemas.get(ref[1], UNKNOWN)
+            return option(file, files[file].schemas.get(ref[1], UNKNOWN))
         target = resolve(file, ref[1])
         value = None if target is None else export(target, ref[2])
         if value is None:
             return UNKNOWN
         where, (kind, *rest) = value
         if kind == "schema":
-            return files[where].schemas.get(rest[0], UNKNOWN)
+            return option(where, files[where].schemas.get(rest[0], UNKNOWN))
         if kind == "schema-inline":
-            return rest[0]
+            return option(where, rest[0])
         return UNKNOWN
 
     tables, unresolved = {}, {}
@@ -6364,6 +6542,7 @@ class DoctrineUse:
     line: int
     column: int
     finder: str | None = None
+    how: str = "call"  # "call", or "dql" when ``entity`` is as DQL writes it
 
 
 def _doc_annotations(text):
@@ -6751,7 +6930,7 @@ def extract_php_doctrine(tree, content, file, definitions):
                 return properties.get(_text(node.child_by_field_name("name"), content))
         return None
 
-    def use(call, entity, repository, reads, writes, finder=None):
+    def use(call, entity, repository, reads, writes, finder=None, how="call"):
         where = call.child_by_field_name("name") or call
         uses.append(
             DoctrineUse(
@@ -6764,6 +6943,7 @@ def extract_php_doctrine(tree, content, file, definitions):
                 where.start_point.row + 1,
                 where.start_point.column,
                 finder,
+                how,
             )
         )
 
@@ -6784,6 +6964,20 @@ def extract_php_doctrine(tree, content, file, definitions):
             arguments = _php_arguments(call)
             if name in ("setPrimaryTable", "setTableName"):
                 renames = True
+            elif name in ("createQuery", "setDQL") and len(arguments) == 1:
+                text = _php_sql_text(arguments[0], content, classes=resolve)
+                if text is not None:
+                    reads, writes = dql_entities(text)
+                    for entity in sorted(set(reads) | set(writes)):
+                        use(
+                            call,
+                            entity,
+                            None,
+                            entity in reads,
+                            entity in writes,
+                            None,
+                            "dql",
+                        )
             elif name == "getRepository" and arguments:
                 entity = class_of(arguments[0])
                 following = chain(call)
@@ -7009,3 +7203,33 @@ def resolve_doctrine(classes, strategies, renames=False):
         else:
             tables[path] = (c, table_key(found[0]), found[1])
     return tables, unresolved, repositories
+
+
+def dql_entities(text):
+    """(reads, writes) of a DQL statement: the entity names (fully
+    qualified, or ``Bundle:Entity`` aliases) its FROM, JOIN, UPDATE and
+    DELETE clauses name. Association paths (``JOIN p.tags t``) are not
+    entities, and names holding text the code does not fix are dropped."""
+    text = re.sub(r"'(?:[^']|'')*'", "''", text)
+    reads, writes = [], []
+    for statement in text.split(" ;\n"):
+        verb = (re.match(r"\s*(\w+)", statement) or [None, ""])[1].upper()
+        refs = re.finditer(
+            r"\b(FROM|JOIN|UPDATE|DELETE)\s+(?!FROM\b)"
+            r"([A-Za-z_\\][\w\\]*(?::[\w\\]+)?[^\s,()]*)",
+            statement,
+            re.I,
+        )
+        for match in refs:
+            keyword, name = match.group(1).upper(), match.group(2)
+            if "." in name or PLACEHOLDER in name:
+                continue
+            name = name.lstrip("\\")
+            written = (verb == "UPDATE" and keyword == "UPDATE") or (
+                verb == "DELETE"
+                and keyword in ("DELETE", "FROM")
+                and not reads
+                and not writes
+            )
+            (writes if written else reads).append(name)
+    return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes))

@@ -1154,15 +1154,25 @@ def _typescript_imports(node, content):
         return
     clause = next((c for c in node.named_children if c.type == "export_clause"), None)
     if clause is None:
+        namespace = next(
+            (c for c in node.named_children if c.type == "namespace_export"), None
+        )
         names = ("*",)
+        exported = (
+            ("*",)
+            if namespace is None or not namespace.named_children
+            else (_text(namespace.named_children[0], content),)
+        )
     else:
-        names = tuple(
-            _bound(c, content)[0]
+        pairs = [
+            _bound(c, content)
             for c in clause.named_children
             if c.type == "export_specifier"
-        )
+        ]
+        names = tuple(name for name, _ in pairs)
+        exported = tuple(alias for _, alias in pairs)
     # A re-export binds no local name in the exporting module.
-    yield _text(fragments[0], content), "export_from", names, ()
+    yield _text(fragments[0], content), "export_from", names, (), exported
 
 
 def _go_imports(node, content):
@@ -1531,7 +1541,7 @@ def extract_imports(
             if node.type in {"use_declaration", "extern_crate_declaration"}
             else None
         )
-        for specifier, kind, names, local_names in found:
+        for specifier, kind, names, local_names, *exported in found:
             ordinal = ordinals.get(specifier, 0)
             ordinals[specifier] = ordinal + 1
             imports.append(
@@ -1547,6 +1557,7 @@ def extract_imports(
                     names=names,
                     local_names=local_names,
                     block=block,
+                    exported_names=exported[0] if exported else None,
                 )
             )
         stack.extend(reversed(children(node)))
@@ -2091,6 +2102,67 @@ def _java_private(node, content):
     )
 
 
+_JAVA_LITERALS = {
+    "string_literal": "String",
+    "text_block": "String",
+    "character_literal": "char",
+    "true": "boolean",
+    "false": "boolean",
+    "null_literal": "null",
+    "class_literal": "Class",
+}
+_JAVA_PRIMITIVES = {"integral_type", "floating_point_type", "boolean_type"}
+
+
+def _java_argument_type(node, content, cache):
+    """The static type a Java expression writes: see
+    ``CallSite.argument_types``; None for any other expression."""
+    while node.type == "parenthesized_expression" and node.named_children:
+        node = node.named_children[0]
+    kind = node.type
+    if kind in _JAVA_LITERALS:
+        return _JAVA_LITERALS[kind]
+    if kind in {
+        "decimal_integer_literal",
+        "hex_integer_literal",
+        "octal_integer_literal",
+        "binary_integer_literal",
+    }:
+        return "long" if _text(node, content)[-1] in "lL" else "int"
+    if kind in {"decimal_floating_point_literal", "hex_floating_point_literal"}:
+        return "float" if _text(node, content)[-1] in "fF" else "double"
+    if kind == "object_creation_expression":
+        return _java_type_name(node.child_by_field_name("type"), content)
+    if kind == "cast_expression":
+        written = node.child_by_field_name("type")
+        if written is not None and written.type in _JAVA_PRIMITIVES:
+            return _text(written, content)
+        typed = _java_type_name(written, content)
+        if typed is not None and typed.split(".")[0] in _java_type_variables(
+            node, content
+        ):
+            return None
+        return typed
+    if kind == "identifier":
+        return _java_receiver_type(node, content, f"{_text(node, content)}.m", cache)
+    return None
+
+
+def _java_argument_types(node, content, cache):
+    """``CallSite.argument_types`` of a Java call or ``new``."""
+    if node.type not in {"method_invocation", "object_creation_expression"}:
+        return None
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    found = tuple(
+        _java_argument_type(c, content, cache)
+        for c in arguments.named_children
+        if c.type not in {"line_comment", "block_comment"}
+    )
+    return found if any(t is not None for t in found) else None
+
+
 def _java_type_variables(node, content, depth=None):
     """Names of the type parameters declared by ``node`` and the
     declarations around it (``<T>`` of a method or class), or only by the
@@ -2100,7 +2172,7 @@ def _java_type_variables(node, content, depth=None):
         depth = None if depth is None else depth - 1
         parameters = node.child_by_field_name("type_parameters")
         for child in parameters.named_children if parameters else ():
-            # Comments are named children too.
+            # A comment between the brackets is a named child too.
             if child.type == "type_parameter" and child.named_children:
                 names.add(_text(child.named_children[0], content))
         node = node.parent
@@ -2785,6 +2857,9 @@ def extract_call_sites(
                         end_column=end[1],
                         caller_id=caller,
                         arguments=_java_arguments(node),
+                        argument_types=_java_argument_types(node, content, receivers)
+                        if java
+                        else None,
                         anonymous=_java_anonymous(node, content, spans, symbols),
                         shadowed=_python_shadowed(node, content, callee, bindings)
                         if python

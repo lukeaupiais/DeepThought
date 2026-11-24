@@ -153,6 +153,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
+| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. `default`, `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
@@ -753,7 +754,26 @@ read, so their methods stay unresolved.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity`.
+none is `no_matching_arity`. When several are left, the argument types the
+call writes choose among them as javac does (JLS 15.12.2). An argument's type
+is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
+`long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
+`(T) e`, or a variable whose declaration writes its type (as for
+`receiver_type` below); `CallSite.argument_types` records them. The phases
+are tried in order: without boxing, with boxing, then variable arity. In the
+first phase where some method applies, the most specific one is linked:
+each of its parameter types is a subtype of the other's. Subtypes are known
+for repository types through their declared bases, for primitives by
+widening, and for the `java.lang` types a literal or boxing gives (`String`,
+`Class`, the box types), which are listed with every supertype. A type outside
+the repository has no other known supertype than `Object`, and a type
+parameter has no known bound, so a check against either is unknown. An
+unknown argument or check makes a method possibly applicable, and the call is
+linked only when the choice holds for every outcome of the unknown checks:
+one method possible from that phase on, or a method that applies and is more
+specific than every other possible one. A `private` method is not a
+candidate outside the top-level class that declares it. Otherwise the call
+stays ambiguous among the arity candidates.
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
@@ -2315,6 +2335,50 @@ file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
 destination with unknown text is counted as unread.
 
+### STOMP destinations
+
+STOMP over WebSocket is read as messaging with broker `stomp`. A destination
+is the full STOMP destination a client names, and publishers and consumers
+meet at the `MessageDestination` of the same name:
+
+- **Consumers (Spring).** A method with `@MessageMapping` (from
+  `org.springframework.messaging.handler.annotation`) consumes each literal
+  path. The path is joined with the class's `@MessageMapping` path as
+  `AntPathMatcher.combine` joins slash paths, then put under each prefix that
+  the module's `MessageBrokerRegistry.setApplicationDestinationPrefixes`
+  sets (rule `service-contracts.spring-stomp-message-mapping`). A module that
+  sets no prefix uses the path itself. When the prefixes are not literal or
+  are set in more than one file, the mapping is `consume:application_prefix`.
+  A path that does not start with a slash is `consume:destination_not_literal`.
+- **Publishers (Spring).** `@SendTo` destinations, `@SubscribeMapping`
+  methods (they answer a subscription to the prefixed path), and
+  `convertAndSend(destination, ...)` on a name declared only as
+  `SimpMessagingTemplate`, `SimpMessageSendingOperations` or
+  `SimpMessageOperations` (rule `service-contracts.spring-stomp-send`).
+  `@SendToUser` and `convertAndSendToUser` are `publish:user_destination`. A
+  `@MessageMapping` method's default reply destination, used without
+  `@SendTo`, is not read.
+- **Clients (JavaScript/TypeScript).** These calls name a destination: `send`
+  and `subscribe` with a destination first, and `publish({destination})`.
+  The call must be on a name that every assignment in the file binds to
+  `Stomp.over`, `Stomp.client`, `webstomp.over`/`webstomp.client` or a
+  `@stomp/stompjs` `Client`, or on AngularJS ngStomp's `$stomp` (rules
+  `service-contracts.stompjs-send` and `stompjs-subscribe`).
+
+Destination patterns with `{variables}` are kept as written. A client
+destination with unknown text is not read, so it never meets them.
+
+| Repository | Literal STOMP sites | Outcome |
+|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 14 server mappings (2 prefixes), 10 client sends and subscribes | 9 of the 10 client sites meet their handler or publisher. The 10th subscribes to `/user/queue/chesslobby`, whose publisher is a `convertAndSendToUser` (unread). The 7 client sites built from variables are unread |
+| ben-rampel/Poker `025a147` | 1 mapping, 1 ngStomp send | Linked. The topic is built from a variable on both sides, so it is unread |
+| leansd/cotrip, ygunayer/realtime-messaging | 1 mapping + 1 `@SendTo` each | Found; the clients are in HTML |
+| ocinpp/springboot-sockjs-stomp-vue-sample | 2 `convertAndSend` | Found; the client is in HTML |
+| apssouza22/java-microservice (corpus) | 1 mapping, 1 `@SendTo`, 1 `convertAndSend` | Found; its messaging ground-truth score is unchanged |
+
+No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
+change.
+
 ### Spring Cloud Stream
 
 Spring Cloud Stream code names a binding and each service's configuration
@@ -2589,9 +2653,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.doctrine-table` | pattern_matched | a Doctrine entity (`#[ORM\Entity]` attribute, `@ORM\Entity` docblock annotation, or `<entity>` of a `.orm.xml` mapping, which takes precedence over the class) with a fixed `Table` name; a subclass in a `SINGLE_TABLE` hierarchy takes its root entity's table, a `JOINED` subclass its own, and mapped superclasses and embeddables give none. Also a fixed `JoinTable` name on a property. Names resolve through `namespace` and `use` statements |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.doctrine-default-table` | name_matched | a Doctrine entity without a `Table` name: its short class name under the configured naming strategy, read from the `naming_strategy` of the Symfony `doctrine` configuration or a bootstrap's `setNamingStrategy(new UnderscoreNamingStrategy(...))`. The default strategy keeps the name (`BlogPost`), `underscore` snake-cases it (`blog_post`), number aware (`oauth2_client`) with `underscore_number_aware` or from ORM 3, whose version comes from `composer.lock`, else `composer.json`. A custom strategy, or a `loadClassMetadata` listener that calls `setPrimaryTable`/`setTableName`, leaves the repository's Doctrine tables unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-call` | pattern_matched | READS: a repository's own `createQueryBuilder` and finders (the repository's entity from `parent::__construct($registry, X::class)` or the entity's `repositoryClass`), finders (`find`, `findBy`, `findOneBy`, `findAll`, `count`, `matching`, magic `findByX`) on a property or parameter typed with the repository class, unless the repository declares that method, `getRepository(X::class)` finders, `find(X::class, ...)` and query builder `from(X::class, ...)`. WRITES: `update(X::class, ...)`, `delete(X::class, ...)`, and `persist`/`remove` of a variable typed with the entity (a parameter, a property, or `new X()` in the method) |
-| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file and `Object.assign`/lodash merges. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.doctrine-dql` | pattern_matched | DQL passed to `createQuery` or `setDQL`, read as PHP text is (literals, heredocs, `.` joins, local variables) with `X::class` parts resolved: the entities its FROM and JOIN clauses name are read, the target of UPDATE or DELETE is written. Names are fully qualified or `Bundle:Entity` aliases, which resolve through the bundle class of that name in the repository (`AppBundle:Post` is `App\Entity\Post` when `AppBundle` is in `App`); association joins (`JOIN p.tags t`) are not followed |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file or imported from a repository file, and `Object.assign`/lodash merges. NestJS models are read too: `MongooseModule.forFeature([{name, schema, collection}])` declares a model, and a schema made by `SchemaFactory.createForClass(C)` takes the `collection` of `C`'s `@Schema(options)`. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, or `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`) |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2629,7 +2694,7 @@ the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
 Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
-`tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
+`tests/`, `Tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
 The tool reads at most 10,000 source files by default (`graph index --tool
 data-contracts --max-files N` raises it). When a file count or byte limit
 stops the walk, the run is `partial`, the `source_limits` metric names the
@@ -2815,9 +2880,12 @@ the 4 tables its migrations alter (`Part`, `PartKeeprUser`, `PartParameter`,
 table in a `loadClassMetadata` subscriber, so its 16 entities are left
 unresolved instead of named without the prefix. Sylius declares its models
 as mapped superclasses that its resource bundle turns into entities at
-run time; only their join tables are read. DQL text (`createQuery`),
-entities whose type is not declared where they are persisted, PHP and YAML
-mapping drivers and custom repository base classes are not read yet.
+run time; only their join tables are read. On PartKeepr the tool reads
+the DQL of all 37 `createQuery` calls outside its tests, most of them
+through `PartKeeprPartBundle:Part`-style aliases. Entities whose type is not
+declared where they are persisted, PHP and YAML mapping drivers and custom
+repository base classes are not read yet. Symfony's `Tests/` directories
+are skipped with the other PHP test trees.
 
 On HabitRPG/habitica `02edf1a` all 18 `mongoose.model` models and the 4
 `Task` discriminators are mapped, and the default names of the 7 that the
@@ -2835,8 +2903,18 @@ On sahat/hackathon-starter `926460c` it links the 28 lines `grep` finds
 outside the tests, plus one call in a static. Mongoose's own test suite
 holds almost no pluralize cases, so the rule tables are checked against
 these names. Instance methods (`doc.save()`), query chains held in
-variables, NestJS `@InjectModel`, Typegoose and the raw MongoDB driver are
-not read yet. JavaScript and TypeScript test sources (`test/`, `tests/`,
+variables, Typegoose and the raw MongoDB driver are not read yet.
+
+On brocoders/nestjs-boilerplate `9620f15` the 4 NestJS models are declared
+by `forFeature`, without collections, so they take default names such as
+`userschemaclasses`, and the tool links 19 calls. Every line a single-line
+`grep` finds for `this.<injected model>.` is one of them; the other lines
+`grep` finds for those method names are on services or TypeORM
+repositories. On novuhq/novu `d688aea` all 44 models resolve, several
+through schema options imported from a shared file. Its calls go through a
+`BaseRepository` that holds the model in a field set by a subclass, so
+none are linked yet. When several files declare a model of the same name
+for the same collection, as NestJS feature modules do, it is one model. JavaScript and TypeScript test sources (`test/`, `tests/`,
 `__tests__/`, `spec/`, `*.test.*`, `*.spec.*`) are skipped for Mongoose.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
