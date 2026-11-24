@@ -59,6 +59,7 @@ RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
 RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
 RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
 RUST_CALL_RESULT_RECEIVER = "tree-sitter.rust-call-result-receiver"
+RUST_CALL_ENUM_VARIANT = "tree-sitter.rust-call-enum-variant"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
 RUST_IMPL_TRAIT = "tree-sitter.rust-impl-trait"
 # Rust declarations an impl can be written for.
@@ -1484,7 +1485,7 @@ class _RustPaths:
             kind = self.impl_type(item) if item is not None else None
             if kind is None or kind.status != "linked":
                 return CallResolution(site.id, "unresolved", reason="associated_item")
-            return self._associated(
+            return self._variant(site, kind.target_id, segments[1]) or self._associated(
                 site, [kind.target_id], segments[1], RUST_CALL_ASSOCIATED
             )
         resolution = self.resolve(
@@ -1508,9 +1509,21 @@ class _RustPaths:
         )
         if owner.status != "linked":
             return resolution
-        return self._associated(
+        return self._variant(site, owner.target_id, segments[-1]) or self._associated(
             site, [owner.target_id], segments[-1], RUST_CALL_ASSOCIATED
         )
+
+    def _variant(self, site, owner_id, name):
+        """``E::V(...)``: the tuple variant ``V`` an enum ``E`` declares,
+        which a path names ahead of an associated function; None for any
+        other type or name."""
+        owner = self._definitions[owner_id]
+        found = [
+            d
+            for d in self.by_symbol.get((owner.file, f"{owner.symbol}.{name}"), ())
+            if d.kind == "EnumVariant"
+        ]
+        return _pick(site.id, found, RUST_CALL_ENUM_VARIANT, "") if found else None
 
     def _typed_method(self, site, name):
         """``x.m()`` where the declaration of ``x`` writes a type: ``m`` as

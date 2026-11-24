@@ -83,6 +83,7 @@ KINDS = {
     "function_signature_item": "Function",
     "struct_item": "Struct",
     "enum_item": "Enum",
+    "enum_variant": "EnumVariant",
     "union_item": "Union",
     "trait_item": "Trait",
     "type_item": "TypeAlias",

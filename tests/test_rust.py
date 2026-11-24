@@ -21,6 +21,7 @@ from deepthought.imports import (
 from deepthought.analysis_tools import TreeSitterTool
 from deepthought.calls import (
     RUST_CALL_ASSOCIATED,
+    RUST_CALL_ENUM_VARIANT,
     RUST_CALL_LOCAL_ITEM,
     RUST_CALL_PATH,
     RUST_CALL_SELF_METHOD,
@@ -92,6 +93,9 @@ class RustTests(unittest.TestCase):
                 (1, "outer", "Module"),
                 (2, "outer.Point", "Struct"),
                 (3, "outer.Shape", "Enum"),
+                # Each variant of an enum, by its enum.
+                (3, "outer.Shape.A", "EnumVariant"),
+                (3, "outer.Shape.B", "EnumVariant"),
                 (4, "outer.U", "Union"),
                 (5, "outer.Draw", "Trait"),
                 (6, "outer.Draw.draw", "Method"),
@@ -1244,7 +1248,14 @@ class RustTests(unittest.TestCase):
                     ("app/src/a.rs", "helper"),
                     path,
                 ),
-                ("app/src/b.rs", 9, "KK::A", "unresolved", None, "associated_item"),
+                (
+                    "app/src/b.rs",
+                    9,
+                    "KK::A",
+                    "linked",
+                    ("util/src/shapes.rs", "K.A"),
+                    RUST_CALL_ENUM_VARIANT,
+                ),
                 (
                     "app/src/b.rs",
                     10,
@@ -1356,8 +1367,16 @@ class RustTests(unittest.TestCase):
                     ("util/src/shapes.rs", "P"),
                     path,
                 ),
-                # A variant and an associated function: names inside a type.
-                ("app/src/lib.rs", 16, "K::A", "unresolved", None, "associated_item"),
+                # A tuple variant and an associated function: names inside a
+                # type.
+                (
+                    "app/src/lib.rs",
+                    16,
+                    "K::A",
+                    "linked",
+                    ("util/src/shapes.rs", "K.A"),
+                    RUST_CALL_ENUM_VARIANT,
+                ),
                 (
                     "app/src/lib.rs",
                     17,
@@ -1934,6 +1953,62 @@ class RustTests(unittest.TestCase):
             with self.subTest(receiver_call=bad), self.assertRaises(ValueError):
                 dataclasses.replace(site, receiver_call=bad)
 
+    def test_tuple_variants_are_called_by_their_enum(self):
+        result = analyze(
+            {
+                "Cargo.toml": '[package]\nname = "x"\n',
+                "src/lib.rs": (
+                    "pub enum E { A(i32), B { x: i32 }, C }\n"
+                    "impl E {\n"
+                    "    #[allow(non_snake_case)]\n"
+                    "    pub fn A(x: i32) -> Self { Self::A(x) }\n"
+                    "    pub fn c() -> Self { Self::C }\n"  # 5
+                    "}\n"
+                    "pub struct S;\n"
+                    "impl S { pub fn A() {} }\n"
+                    "mod m { pub enum K { Io(u8) } }\n"
+                    "pub fn run() {\n"  # 10
+                    "    E::A(1); m::K::Io(2); crate::m::K::Io(3); S::A();\n"
+                    "    let _ = E::B { x: 1 }; E::D(1);\n"
+                    "    use E::*; A(4);\n"
+                    "}\n"
+                ),
+            }
+        )
+        sites = {c.id: c for c in result.call_sites}
+        names = {d.id: d.symbol for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].column, sites[r.call_id].callee): (
+                names.get(r.target_id),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+        variant = RUST_CALL_ENUM_VARIANT
+        self.assertEqual(
+            found,
+            {
+                # A variant is named ahead of a function of the same name.
+                (4, 31, "Self::A"): ("E.A", variant),
+                (11, 4, "E::A"): ("E.A", variant),
+                (11, 13, "m::K::Io"): ("m.K.Io", variant),
+                (11, 26, "crate::m::K::Io"): ("m.K.Io", variant),
+                # A struct has no variants.
+                (11, 46, "S::A"): ("S.A", RUST_CALL_ASSOCIATED),
+                (12, 27, "E::D"): (None, "associated_item"),
+                # A glob through an enum is not read.
+                (13, 14, "A"): (None, "unbound_name"),
+            },
+        )
+        self.assertEqual(
+            [
+                (d.symbol, d.line, d.column)
+                for d in result.definitions
+                if d.kind == "EnumVariant"
+            ],
+            [("E.A", 1, 13), ("E.B", 1, 21), ("E.C", 1, 35), ("m.K.Io", 9, 21)],
+        )
+
     def test_methods_and_associated_functions_resolve_through_impls(self):
         result = analyze(
             {
@@ -2031,12 +2106,12 @@ class RustTests(unittest.TestCase):
                     "multiple_declarations",
                     [("shapes.P.both", 7), ("shapes.P.both", 8)],
                 ),
-                # An enum variant is not a function.
-                (24, 4, "K::A", None, "associated_item", []),
+                # A tuple variant of an enum.
+                (24, 4, "K::A", ("shapes.K.A", 3), RUST_CALL_ENUM_VARIANT, []),
                 (25, 4, "K::hush", ("shapes.K.hush", 10), assoc, []),
-                (25, 13, "K::A", None, "associated_item", []),
+                (25, 13, "K::A", ("shapes.K.A", 3), RUST_CALL_ENUM_VARIANT, []),
                 (26, 4, "K::talk", ("shapes.Speak.talk", 4), assoc, []),
-                (26, 13, "K::A", None, "associated_item", []),
+                (26, 13, "K::A", ("shapes.K.A", 3), RUST_CALL_ENUM_VARIANT, []),
                 (27, 4, "K::missing", None, "associated_item", []),
                 # The aliased type is not read; a name an impl for an alias
                 # declares is not taken from a trait.
