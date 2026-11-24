@@ -166,7 +166,8 @@ arbitrary object gets no edge.
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-super` | Python: `super().m()` written directly in a method of class `C` (not in a function nested in it) to the `m` that `C`'s declared bases declare or inherit, in the method resolution order after `C`; a class reached twice or a base that names no repository class leaves it unresolved (`diamond`, `base_not_resolved`) |
 | `tree-sitter.python-call-self-inherited` | Python: `self.m()` where the class around it declares no `m`, to the `m` its declared bases declare or inherit, in the same order and with the same stops as `tree-sitter.python-call-typed-receiver`; a subclass's override is not followed |
-| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
+| `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose bindings in the function are all `x = T(...)` or `x: T = ...` for the same `T`, apart from assignments of `None`. The function must bind `x` in no other way and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
+| `tree-sitter.python-call-result-receiver` | Python: `x.m()` where the local `x`'s one binding in the function is `x = f(...)`, under the same conditions as `tree-sitter.python-call-typed-receiver`, and the call `f(...)` links to a function or method whose return annotation names one repository class `T` (as a parameter annotation does, looked up where that function is defined): `m` declared on `T` or inherited, with the same order and stops. Repeated while links are added, so `f(...)` may itself be such a call. On click this and allowing several same-class assignments confirmed 24 more calls (3,028), none contradicted, and raised impact from 742 to 750 of 1,080 |
 | `tree-sitter.js-call-static-method` | JavaScript/TypeScript: `C.m()` to the method `m` that the class `C` declares `static` (`Definition.static`), as ky's `Ky.create(...)` and `NonError.wrap(...)`. `C` is the class declared where the call's scopes see `C` (`CallSite.binding` records that declaration for `x.m` calls too), or the one class a named or default import binds to `C`, followed as for `call-imported-name`. A static method `C` inherits is not followed (`static_not_declared`), and a name a scope binds to anything else (a parameter, `const C = other`) leaves the call `attribute_call` |
 | `tree-sitter.js-call-typed-receiver` | JavaScript/TypeScript: `x.m()` where the declaration of `x` the call sees (`CallSite.binding`) is a variable or parameter annotated `x: C` or `x: C<...>`, or a variable initialized with `new C(...)`. `C` is found as for `js-call-static-method`, from where `x` is declared (`CallSite.receiver_type` and `receiver_binding`), and must be one class that no interface or namespace merges with. It links to the instance method `m` that `C` declares, or that it inherits through `extends`, class by class. An instance field or constructor parameter property named `m` on the way hides the method (`field_not_method`, `Definition.properties`), and a base that names no repository class stops the lookup (`base_not_resolved`), since it may declare `m`. A file that declares an interface, type alias or type parameter named `C` anywhere is not read, since that name may be the type. Member chains and `this` follow `js-call-member-chain`. Receivers typed any other way (a function's result, a callback parameter typed by its context), interfaces, private names `x.#m` and methods named on an object type stay `attribute_call` |
 | `tree-sitter.js-call-member-chain` | JavaScript/TypeScript: `x.a.b.m()` where `x` is typed as for `js-call-typed-receiver`, or is `this` in an instance method or field of a class declaration (through arrow functions); and `y.m()` where `y` is declared from such a chain (`const y = x.a`) or destructured from it (`const { a } = x`, `const { a: y } = this`). `CallSite.receiver_type` holds the class (or `"this"`, the innermost class around the call) and `CallSite.receiver_steps` the property names. Each step reads `Definition.fields`: an instance field annotated with a class or initialized with `new` of one, a constructor parameter property annotated with one, or a getter whose return type is one, declared on the class or inherited through `extends`. The written name is the class's own scopes' declaration, or else what the file's import of it names, and must be one class that no interface or namespace merges with. It links to the instance method `m` of the last class, as `js-call-typed-receiver` does. A step that is untyped, a method, external, an interface, an enum or a type parameter of the file leaves the call unresolved (`receiver_type_unknown`). Private names, computed or quoted keys, annotated patterns, static fields, `super`, a plain alias `const y = x` and the `this` of a function, a static method or a class expression are not followed |
@@ -306,8 +307,21 @@ the declaration or file it reaches in the change set, its depth, the edges of
 its path (type, edge ID, evidence type, rule ID) and the path's evidence,
 which is its weakest edge. When several paths reach a dependent, the one with
 the strongest evidence wins, then the shortest, then the first by edge IDs, so
-the answer is the same on every run. Results are ordered by depth, evidence
-and name; a response that exceeds its byte budget or its limit drops whole
+the answer is the same on every run.
+
+Each dependent also says what the change asks of it. `impact` is `direct`
+when any one-hop path reaches it (it names the changed declaration or file
+itself, so a signature change may need an edit there, even when its
+strongest path is longer) and `transitive` otherwise (its behaviour may
+change, so it needs re-testing). `source_roles` lists `test` and `example`
+by path (`deepthought.source_roles`: directories such as `tests/`,
+`__tests__/`, `spec/`, `testdata/`, .NET `*.Tests/` projects,
+`examples/`, `samples/`, Go's ignored `_examples/`, Maven's `src/test/`, and
+test file names such as `*_test.go`, `test_*.py`, `FooTest.java`,
+`FooTests.cs`, `*.spec.ts`; other directories such as `benchmarks/` stay
+unclassified); `exclude_roles` (`--exclude-role`, repeatable) leaves those
+dependents out in the query itself, before paging. Direct dependents come
+first, then by depth, evidence and name; a response that exceeds its byte budget or its limit drops whole
 items, says it was truncated and gives `next_offset`, where the next page
 starts (`--offset`, MCP `offset`; a snapshot does not change, so pages do not
 overlap or skip). Component impact pages the same way. The answer is a lower bound: dynamic dispatch, reflection,
@@ -1048,8 +1062,9 @@ Rust sources (`.rs`) are analyzed when `rust` is selected (`--language rust`)
 and the `rust` extra is installed; like JavaScript, Go and Java, the language
 is opt-in. Declarations are functions, structs (`Struct`), enums, unions
 (`Union`), traits (`Trait`), type aliases and associated types (`TypeAlias`),
-modules (`Module`, both `mod name { ... }` and `mod name;`) and `macro_rules!`
-macros (`Macro`). A function in an `impl` or trait body is a `Method`; other
+modules (`Module`, both `mod name { ... }` and `mod name;`), `macro_rules!`
+macros (`Macro`) and enum variants (`EnumVariant`, named by their enum:
+`Shape.A`). A function in an `impl` or trait body is a `Method`; other
 functions, including foreign functions in an `extern` block and functions
 inside function bodies, are `Function`s. Names are lexical: items are
 qualified by the inline modules, traits and functions around them, and an
@@ -1367,7 +1382,14 @@ Calls of functions declared in impls read the impl facts (see "Rust impls"):
   kind (`T::new()?`, a struct expression) leave the call
   `receiver_type_unknown` or `method_call`.
 
-All six are `resolved`: Rust has no overloading, so a path names one
+- `tree-sitter.rust-call-enum-variant` when a path `E::V(...)` or
+  `Self::V(...)` names an enum (read as for `Type::f`; `Self` is the type of
+  the impl around the call) that declares the variant `V`: the call builds
+  that tuple variant. A variant is named ahead of an associated function of
+  the same name, as in Rust. A variant brought in by `use E::*` or `use E::V`
+  is not read.
+
+All seven are `resolved`: Rust has no overloading, so a path names one
 declaration in each configuration. A function declared once per `#[cfg]`, or
 by two trait impls, is `ambiguous` (`multiple_declarations`). Impls for a type
 alias are keyed by the alias, since the aliased type is not read: a call
@@ -1375,7 +1397,7 @@ through an alias is `type_alias`, and so is a call that would otherwise take
 a trait's function when an impl for some alias declares the same name. Other
 outcomes: `method_call` (a receiver other than `self` whose declaration
 writes no type: receiver types are not inferred), `associated_item` (a name inside a type that no impl declares, such
-as an enum variant or a derived method), `unbound_name` (a single
+as a derived method), `unbound_name` (a single
 name with no declaration or use in scope: the prelude, such as `Some`, or a
 local closure), `external_crate` (the first name is not in scope and names no
 workspace crate: a crate outside the repository, a standard type or a type
@@ -2269,9 +2291,10 @@ PHP files are read for routes and requests (`service_contracts.php`):
   views and redirects hang off the route file. `{id?}` is `{id}`. A path
   that is not literal is unread.
 - **Requests.** `curl_init($url)` is a request placed on that call. The URL
-  is folded in its function: literals, `"...$x..."` (variables are unknown
-  text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once
-  before the use; properties are unknown. The method is GET, or what
+  is folded in its function: literals, `"...$x..."` and `"...{$x}..."`
+  (each variable folded as below; other interpolations are unknown text),
+  `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once before
+  the use; properties are unknown. The method is GET, or what
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
@@ -2290,8 +2313,8 @@ PHP files are read for routes and requests (`service_contracts.php`):
   a chain (`Http::withToken(...)->get(...)`), on the facade imported from
   `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
   a literal `baseUrl(...)` in the chain is prepended. A method that is not
-  a literal is unknown; a dynamic method name (`->$method(...)`) is not
-  read.
+  a literal is unknown; a dynamic method name (`->$method(...)`) is read
+  when it folds to one of the verbs, else the call is not read.
 - **Symfony HttpClient requests** (client `symfony-http`).
   `request($method, $url)`, its only request method, on a client that is a
   parameter, property or promoted constructor parameter typed
@@ -2310,6 +2333,24 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `services.yaml` bindings are not read. For Guzzle and Symfony clients
   alike, a `$this->x` property assigned once from a typed parameter is that
   parameter's client.
+- **Values passed to a wrapper method.** Gateways often send every request
+  through one method that takes the method and URL as parameters
+  (`performRequest($method, $requestUrl)`, often in a trait), so they are
+  fixed only where it is called. When a Guzzle, Symfony or Laravel client
+  site's method or URL changes with the parameters of the method or
+  function around it, which nothing there assigns again, the site takes,
+  instead, each value a call of it passes, folded in the calling file. Calls
+  are `$this->m(...)` in a class that declares `m` or uses a trait that
+  does, and `$this->p->m(...)` where `p` is a property typed with a class
+  (a typed property, a promoted constructor parameter, or a property
+  assigned once from a typed parameter) that declares `m` or uses a trait
+  that does. A class or trait name declared more than once in the
+  repository is not followed. Arguments bind by position, named arguments
+  by name, a left-out argument takes the parameter's default, and
+  arguments from a spread on are unknown. One request is added per
+  distinct method and URL, with `argument_from` listing the calls
+  (`file:line`) that pass it. Parent classes, static calls and a value
+  passed through two wrappers are not followed.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the

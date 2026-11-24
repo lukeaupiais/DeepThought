@@ -39,6 +39,7 @@ CALL_JS_TYPED_RECEIVER = "tree-sitter.js-call-typed-receiver"
 CALL_JS_MEMBER_CHAIN = "tree-sitter.js-call-member-chain"
 CALL_PYTHON_TYPED_RECEIVER = "tree-sitter.python-call-typed-receiver"
 PYTHON_CALL_SUPER = "tree-sitter.python-call-super"
+PYTHON_CALL_RESULT_RECEIVER = "tree-sitter.python-call-result-receiver"
 PYTHON_CALL_SELF_INHERITED = "tree-sitter.python-call-self-inherited"
 
 JAVA_ENCLOSING_METHOD = "tree-sitter.java-enclosing-type-method"
@@ -58,6 +59,7 @@ RUST_CALL_ASSOCIATED = "tree-sitter.rust-call-associated"
 RUST_CALL_SELF_METHOD = "tree-sitter.rust-call-self-method"
 RUST_CALL_TYPED_RECEIVER = "tree-sitter.rust-call-typed-receiver"
 RUST_CALL_RESULT_RECEIVER = "tree-sitter.rust-call-result-receiver"
+RUST_CALL_ENUM_VARIANT = "tree-sitter.rust-call-enum-variant"
 C_CALL_STATIC = "tree-sitter.c-call-static"
 C_CALL_EXTERNAL = "tree-sitter.c-call-external"
 RUST_IMPL_TYPE = "tree-sitter.rust-impl-type"
@@ -1485,7 +1487,7 @@ class _RustPaths:
             kind = self.impl_type(item) if item is not None else None
             if kind is None or kind.status != "linked":
                 return CallResolution(site.id, "unresolved", reason="associated_item")
-            return self._associated(
+            return self._variant(site, kind.target_id, segments[1]) or self._associated(
                 site, [kind.target_id], segments[1], RUST_CALL_ASSOCIATED
             )
         resolution = self.resolve(
@@ -1509,9 +1511,21 @@ class _RustPaths:
         )
         if owner.status != "linked":
             return resolution
-        return self._associated(
+        return self._variant(site, owner.target_id, segments[-1]) or self._associated(
             site, [owner.target_id], segments[-1], RUST_CALL_ASSOCIATED
         )
+
+    def _variant(self, site, owner_id, name):
+        """``E::V(...)``: the tuple variant ``V`` an enum ``E`` declares,
+        which a path names ahead of an associated function; None for any
+        other type or name."""
+        owner = self._definitions[owner_id]
+        found = [
+            d
+            for d in self.by_symbol.get((owner.file, f"{owner.symbol}.{name}"), ())
+            if d.kind == "EnumVariant"
+        ]
+        return _pick(site.id, found, RUST_CALL_ENUM_VARIANT, "") if found else None
 
     def _typed_method(self, site, name):
         """``x.m()`` where the declaration of ``x`` writes a type: ``m`` as
@@ -2470,6 +2484,50 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             resolutions.append(
                 CallResolution(site.id, "unresolved", reason="attribute_call")
             )
+    # Python `x = f(...); x.m()`: once `f(...)` links, the class its return
+    # annotation names. A receiver call may itself be such a call, so this
+    # repeats while links are added.
+    python_spans = {
+        (s.file, s.line, s.column, s.end_line, s.end_column): s
+        for s in result.call_sites
+        if languages.get(s.file) == "python"
+    }
+    position = {r.call_id: i for i, r in enumerate(resolutions)}
+    changed = True
+    while changed:
+        changed = False
+        for site in sorted(result.call_sites, key=lambda value: value.id):
+            if (
+                site.receiver_call is None
+                or languages.get(site.file) != "python"
+                or resolutions[position[site.id]].status != "unresolved"
+            ):
+                continue
+            receiver = python_spans.get((site.file, *site.receiver_call))
+            linked = (
+                resolutions[position[receiver.id]] if receiver is not None else None
+            )
+            target = (
+                by_id.get(linked.target_id)
+                if linked is not None and linked.status == "linked"
+                else None
+            )
+            if (
+                target is None
+                or target.kind not in _METHOD
+                or target.result_type is None
+            ):
+                continue
+            classes = python_class(
+                target.file, target.symbol.split(".")[:-1], target.result_type
+            )
+            if len(classes) != 1:
+                continue
+            methods, reason = python_method(classes[0], site.callee.split(".")[-1])
+            resolution = _pick(site.id, methods, PYTHON_CALL_RESULT_RECEIVER, reason)
+            if resolution != resolutions[position[site.id]]:
+                resolutions[position[site.id]] = resolution
+                changed = resolution.status == "linked" or changed
     return tuple(_constructors(resolutions, result, by_id, by_symbol, languages))
 
 

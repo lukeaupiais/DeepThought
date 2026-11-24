@@ -79,7 +79,9 @@ class Definition:
     # through pointers and type arguments. Java methods: the return type as
     # written without type arguments (``Foo``, ``Map.Entry``, ``int``). None
     # elsewhere, or when that type is of another kind (``void``, an array, a
-    # type parameter). Rust functions and methods with a body: the type path
+    # type parameter). Python functions and methods: the class the return
+    # annotation names, as a parameter annotation's (``T``, ``m.T``,
+    # ``Optional[T]``). Rust functions and methods with a body: the type path
     # the return type writes, joined by ``::``, through references and
     # without type arguments (``T``, ``m::T``, ``Self``), unless it names a
     # type parameter; None for any other return type.
@@ -415,7 +417,8 @@ class CallSite:
     argument_fields: tuple[tuple[str, str] | None, ...] | None = None
     # Java calls ``e.m()`` whose receiver ``e`` is itself a method call or a
     # ``new`` (``a.b().m()``, ``new T().m()``): the span (line, column, end
-    # line, end column) of ``e``. Rust calls ``x.m()`` whose receiver is the
+    # line, end column) of ``e``. Python calls ``x.m()`` on a local whose one
+    # binding is ``x = f(...)``: the span of that call. Rust calls ``x.m()`` whose receiver is the
     # result of a call: the span of that call, either the receiver itself
     # (``T::new().m()``, ``x.a().m()``) or the value of the ``let`` that is
     # the innermost declaration of the local ``x`` and binds it alone without

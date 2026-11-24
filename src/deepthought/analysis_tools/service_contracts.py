@@ -73,7 +73,11 @@ from ..service_contracts.csharp_http import (
     typed_client_registrations,
 )
 from ..service_contracts.laravel import extract_laravel, route_loaders
-from ..service_contracts.php import extract_php, symfony_argument_name
+from ..service_contracts.php import (
+    extract_php,
+    php_wrapper_facts,
+    symfony_argument_name,
+)
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
@@ -1386,6 +1390,49 @@ def _symfony_scoped_clients(root, project, cache):
     return found
 
 
+def _php_wrapper_calls(sources):
+    """{file: {method start byte: [("file:line", positional, named)]}}: the
+    calls of PHP methods, through ``$this->m(...)`` in the class or a trait
+    it uses, or through ``$this->property->m(...)`` on a typed property."""
+    classes, calls = {}, []
+    for coverage, content, tree in sources:
+        if coverage.language != "php" or b"->" not in content:
+            continue
+        found_classes, found_calls = php_wrapper_facts(tree, content, coverage.file)
+        for name, traits, methods, properties in found_classes:
+            # A name declared twice is ambiguous: neither is followed.
+            classes.setdefault(name, []).append(
+                (coverage.file, traits, methods, properties)
+            )
+        calls.extend(found_calls)
+
+    def declared(name, method, depth=0):
+        """(file, start byte) of ``method`` in class ``name`` or its traits."""
+        entries = classes.get(name, [])
+        if len(entries) != 1 or depth > 4:
+            return None
+        file, traits, methods, _ = entries[0]
+        if method in methods:
+            return file, methods[method]
+        found = {declared(t, method, depth + 1) for t in traits} - {None}
+        return found.pop() if len(found) == 1 else None
+
+    wrapped = {}
+    for cls, prop, method, reference, positional, named in calls:
+        owner = cls
+        if prop is not None:
+            entries = classes.get(cls, [])
+            if len(entries) != 1 or prop not in entries[0][3]:
+                continue
+            owner = entries[0][3][prop]
+        target = declared(owner, method)
+        if target is not None:
+            wrapped.setdefault(target[0], {}).setdefault(target[1], []).append(
+                (reference, positional, named)
+            )
+    return wrapped
+
+
 def _laravel_route_prefixes(root, sources, composer):
     """{route file: sorted (prefix, controller namespace)} that the PHP
     code of Laravel and Lumen projects loads route files with."""
@@ -1669,6 +1716,7 @@ class ServiceContractTool(AnalysisTool):
         python_mounts = _python_mounts(sources)
         composer = {}
         symfony_clients = {}
+        php_wrappers = _php_wrapper_calls(sources)
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
@@ -1717,6 +1765,7 @@ class ServiceContractTool(AnalysisTool):
                         _composer_framework(root, coverage.file, composer)[1],
                         symfony_clients,
                     ),
+                    wrapper_calls=php_wrappers.get(coverage.file),
                 )
                 framework, project = _composer_framework(root, coverage.file, composer)
                 if framework is not None:

@@ -170,6 +170,58 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(strict["status"], "unsupported_or_unobserved")
         self.assertIn("Absence does not prove", strict["semantics"])
 
+    async def test_direct_and_transitive_dependents_with_source_roles(self):
+        files = dict(SOURCES)
+        files["tests/test_base.py"] = (
+            "from base import helper\n\ndef test_helper():\n    assert helper()\n"
+        )
+        files["examples/demo.py"] = "from app import top\n\ndef demo():\n    top()\n"
+        repo, snapshot, names = await self.write(TreeSitterTool, files, "tree-sitter")
+        impact = await self.service.get_impact(
+            names["helper"], repo, snapshot_id=snapshot
+        )
+
+        def roles(response):
+            return [
+                (
+                    item["element"]["name"] or item["element"]["path"],
+                    item["impact"],
+                    item["source_roles"],
+                )
+                for item in response["items"]
+            ]
+
+        self.assertNotIn("exclude_roles", impact)
+        self.assertIn("transitive: re-test", impact["semantics"])
+        rows = roles(impact)
+        self.assertIn(("test_helper", "direct", ["test"]), rows)
+        self.assertIn(("use", "direct", []), rows)
+        self.assertIn(("top", "transitive", []), rows)
+        self.assertIn(("demo", "transitive", ["example"]), rows)
+        # Direct dependents come first, so a short page holds the edits.
+        kinds = [row[1] for row in rows]
+        self.assertEqual(kinds, sorted(kinds))
+        kept = await self.service.get_impact(
+            names["helper"],
+            repo,
+            snapshot_id=snapshot,
+            exclude_roles=["test", "example"],
+        )
+        self.assertEqual(kept["exclude_roles"], ["example", "test"])
+        self.assertEqual([row for row in rows if not row[2]], roles(kept))
+        no_tests = await self.service.get_file_impact(
+            "base.py", repo, snapshot_id=snapshot, exclude_roles=["test"]
+        )
+        self.assertEqual(
+            [(i["element"]["path"], i["impact"]) for i in no_tests["items"]],
+            [("app.py", "direct"), ("examples/demo.py", "transitive")],
+        )
+        for bad in ([], ["docs"], "test"):
+            with self.assertRaises(ValueError):
+                await self.service.get_impact(
+                    names["helper"], repo, snapshot_id=snapshot, exclude_roles=bad
+                )
+
     async def test_change_set_includes_members_and_subtypes_count(self):
         repo, snapshot, names = await self.write(TreeSitterTool, SOURCES, "tree-sitter")
         impact = await self.service.get_impact(
@@ -260,6 +312,9 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             ],
             [("pkg/b.py", 1, "resolved"), ("pkg/c.py", 2, "resolved")],
         )
+        # c.py also imports a.py in one hop, so it is a direct dependent
+        # although its strongest path is two hops long.
+        self.assertEqual([i["impact"] for i in impact["items"]], ["direct", "direct"])
         direct = await self.service.get_file_impact(
             "pkg/a.py", repo, snapshot_id=snapshot, max_depth=1
         )

@@ -406,6 +406,13 @@ _CALL_RULE_TEXT = {
     "type T (written where that method is declared) denotes a type by Java's "
     "lookup order; for 'new T(...).name', T as written. T declares or inherits "
     "the method, chosen among overloads as other Java calls are.",
+    call_rules.PYTHON_CALL_RESULT_RECEIVER: "In a Python call 'x.name' where "
+    "the one binding of the local x in its function is 'x = f(...)' (x is no "
+    "parameter and the function imports nothing), the call f(...) links to a "
+    "function or method whose return annotation names one repository class "
+    "(T, m.T, Optional[T], T | None), looked up where that function is "
+    "defined; that class declares or inherits the method through its "
+    "declared bases.",
     call_rules.JAVA_STATIC_FIELD_RECEIVER: "In a Java call 'T.F.name' where no "
     "variable or field named by the first name of T can be in scope (none "
     "declared around the call, and no type around it may inherit one), T "
@@ -492,6 +499,10 @@ CALL_RULES.update(
             "links to a function whose return type writes a type 'A', '&A', "
             "'m::A<T>' or 'Self' names 'm' as 'A::m' does, 'A' read where the "
             "function is declared.",
+            call_rules.RUST_CALL_ENUM_VARIANT: "A Rust 'E::V(...)' or "
+            "'Self::V(...)' where 'E' (read as a call's path is) or the type of "
+            "the impl around the call is an enum that declares the variant "
+            "'V' names that variant, ahead of any associated function.",
             call_rules.C_CALL_STATIC: "A C call 'f(...)' in a file whose "
             "translation unit (the file and the files its quoted includes "
             "reach) declares a function 'f' 'static' names the unit's "
