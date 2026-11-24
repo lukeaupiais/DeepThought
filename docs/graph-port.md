@@ -2338,6 +2338,9 @@ a traced value, and consumer groups, brokers and clusters are not checked.
 | Go `amqp` (streadway, amqp091-go) | `Publish(exchange, key, ...)` | `Consume(queue, ...)` |
 | kafkajs | `send({topic})` or `sendBatch({topicMessages: [{topic}]})` on a name every assignment binds to `producer()` of a kafkajs `Kafka` | `subscribe({topic})` or `subscribe({topics: [...]})` on a `consumer()` of one |
 | amqplib (promise and callback APIs) | `publish(exchange, key, ...)` or `sendToQueue(queue, ...)` on a channel | `consume(queue, ...)` on a channel |
+| segmentio/kafka-go | a `Writer`, `WriterConfig` or `Message` literal with `Topic` | a `ReaderConfig` literal with `Topic` or `GroupTopics` |
+| sarama (IBM, Shopify) | a `ProducerMessage` literal with `Topic` | `ConsumePartition(topic, ...)`, or a group's `Consume(ctx, []string{...}, handler)` |
+| confluent-kafka-go | a `TopicPartition` literal with `Topic` (`&name` is read as `name`) | `Subscribe(topic, ...)`, `SubscribeTopics([]string{...}, ...)` |
 
 Each publish rule is `service-contracts.<client>-send`/`-publish` and each
 consume rule `-listener`/`-consumer`/`-consume`; all are pattern_matched.
@@ -2372,6 +2375,14 @@ that imports `amqplib` or `amqplib/callback_api`, of one of these kinds:
 A channel passed in from another file is not read. A kafkajs topic given as
 a regular expression is `consume:topic_pattern`.
 
+The Go Kafka clients are read in files that import them. A producer or
+consumer is placed where the literal or call is written, which is not always
+where messages are sent: a kafka-go `Writer` built in a constructor publishes
+from that constructor. A confluent-kafka-go topic that starts with `^` is a
+pattern (`consume:topic_pattern`). Kafka has no empty topic, so a topic that
+folds to `""` (a package variable that a flag sets at run time, say) is
+`empty_topic` for every client.
+
 | Repository | Literal sites | Outcome |
 |---|---|---|
 | rabbitmq/rabbitmq-tutorials `6deb41d` `javascript-nodejs` (callback API) | 14 publish and consume calls | 8 read, and `hello`, `task_queue` and `rpc_queue` meet. The 6 unread take the routing key from arguments, reply to `msg.properties.replyTo`, or consume a server-named queue (`q.queue`) |
@@ -2380,6 +2391,14 @@ a regular expression is `consume:topic_pattern`.
 | tulios/kafkajs `55b0b41` `examples` | | Not read: they import the library from `../index` |
 
 No edge is wrong. On the corpora, nothing changes.
+
+| Go repository (`examples/`) | Outcome |
+|---|---|
+| segmentio/kafka-go `2e0b396` | 4 sites, all with topics from environment variables, so unread |
+| IBM/sarama `66eb733` | 2 `ProducerMessage` topics read, both correct. 2 flag-set topics are `empty_topic` and 6 are not literal |
+| confluentinc/confluent-kafka-go `eb0eb14` | 6 sites read (5 produces, 1 subscribe), all correct. 40 take their topic from arguments or flags and are unread |
+
+No Go edge is wrong. On the corpora, nothing changes.
 
 ### STOMP destinations
 
