@@ -386,6 +386,7 @@ class TreeSitterTool(AnalysisTool):
                 "java",
                 "javascript",
                 "python",
+                "ruby",
                 "rust",
                 "typescript",
             },

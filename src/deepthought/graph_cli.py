@@ -69,6 +69,7 @@ def parser():
             "java",
             "javascript",
             "python",
+            "ruby",
             "rust",
             "typescript",
         ),

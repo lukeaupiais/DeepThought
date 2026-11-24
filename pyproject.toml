@@ -22,6 +22,7 @@ go = ["tree-sitter==0.25.2", "tree-sitter-go==0.25.0"]
 java = ["tree-sitter==0.25.2", "tree-sitter-java==0.23.5"]
 c = ["tree-sitter==0.25.2", "tree-sitter-c==0.24.1"]
 cpp = ["tree-sitter==0.25.2", "tree-sitter-cpp==0.23.4"]
+ruby = ["tree-sitter==0.25.2", "tree-sitter-ruby==0.23.1"]
 rust = [
   "tree-sitter==0.25.2",
   "tree-sitter-rust==0.24.2",
@@ -38,6 +39,7 @@ languages = [
   "tree-sitter-rust==0.24.2",
   "tree-sitter-c==0.24.1",
   "tree-sitter-cpp==0.23.4",
+  "tree-sitter-ruby==0.23.1",
   "tomli==2.2.1; python_version < '3.11'",
   # Manifest formats the components tool reads.
   "pyyaml==6.0.3",
