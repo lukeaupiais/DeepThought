@@ -151,6 +151,7 @@ Baseline (calls):
 | ky | typescript | 143 | 322 | 0 | 1.0 | 0.9371 |
 | cobra | go | 2,197 | 1,986 | 0 | 1.0 | 0.9026 |
 | chi | go | 1,223 | 949 | 0 | 1.0 | 0.6868 |
+| preact | javascript | 3,884 | 2,031 | 6 | 0.9971 | 0.2634 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
 | gson | java | 11,050 | 7,726 | 0 | 1.0 | 0.6907 |
@@ -164,6 +165,9 @@ missed groups are:
   (`module_attribute_not_declared`); 541 method calls on values.
 - cobra: 1,115 method calls on values (`attribute_call`).
 - ky: 97 calls with no extracted call site, mostly `this.#private()` methods.
+- preact: 2,812 calls of a name imported from a file that only re-exports it
+  (`export { render } from './render'`) or through a package alias
+  (`import { render } from 'preact'`), `imported_name_not_declared`.
 - ripgrep and anyhow: calls with no extracted call site (5,944 and 154),
   mostly method chains and calls inside macro invocations such as
   `assert_eq!(...)`, and 2,152 and 65 method calls on values.
@@ -172,6 +176,24 @@ The one contradiction is a real defect: in `examples/imagepipe/imagepipe.py`
 line 35, `processor(stream)` calls the loop variable of
 `for processor in processors`, and the engine links it to the module-level
 function `processor` defined on line 42.
+
+preact's 6 contradictions are one defect: a call binds to a `let` or `const`
+of the same name declared in a sibling function scope. In
+`test/browser/events.test.jsx` line 418, `click(1)` calls the `click`
+declared on line 415 in the same `it(...)` callback, and the engine links it
+to the `click` declared on line 35 in another one.
+
+preact is a JavaScript project with hand-written TypeScript declarations
+beside its sources (`src/index.d.ts`). Indexed as it is, TypeScript binds a
+call through `src/index` to the declaration in the typings, not to the
+function that runs. The oracle command deletes the 19 `.d.ts` files first,
+writes a tsconfig.json from jsconfig.json with `allowJs`
+(`tools/javascript_tsconfig.py`), and maps `preact`, `preact/hooks` and the
+other entry points to their `src/index.js`, as the repository's
+vitest.config.mjs aliases them for its tests. The `.ts` and `.tsx` test files
+are dropped from the truth, since the corpus analyzes JavaScript only.
+scip-typescript names the constructor of a class declared in a function
+without defining it; `derive` binds such a construction to the class.
 
 `check` refuses to score (exit status 2) when a grammar or the YAML reader a
 selected corpus needs is not installed. Without them the engine reports files
@@ -198,9 +220,12 @@ outside the repository. Recall is over import lines with a repository target.
 | ky | 98 | 98 | 0 | 1.0 | 1.0 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
+| preact | 442 | 195 | 0 | 1.0 | 0.4412 |
 
 Every external import is left unresolved (click 320, ky 1, cobra 174). ky's
 tests are outside its TypeScript project, so the index does not cover them.
+preact's missed imports are package aliases (`'preact'`, `'preact/hooks'`),
+which the engine does not read.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 
@@ -558,6 +583,10 @@ recalls more co-edited files than text search on cobra, chi and gson, at
 lower precision on chi and gson. Entries recorded before a corpus was pinned
 leave it out; the latest entry covers every corpus.
 
+The third entry ("JavaScript corpus preact, 2026-11-24") adds preact: 58
+cases, impact 0.099 recall at 0.343 precision (1.16 files per case) against
+search 0.150 at 0.055 (10.98 files per case).
+
 ### Impact ground truth
 
 The replay scores impact against co-edits, which also measures whether
@@ -594,6 +623,7 @@ declaration already spans: a function `run` is not merged with a method
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
+| preact | 28 | 73 | 42 | 3 | 0.575 | 0.933 |
 | gson | 164 | 5052 | 2612 | 0 | 0.517 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
@@ -607,6 +637,12 @@ holds decorators and default values, so a Python one-line body is not judged.
 chi is pinned with `_examples/` excluded, since the Go toolchain and scip-go
 ignore directories that start with `_`. Without the exclusion, the engine's
 callers there would count as extra with nothing to judge them by.
+preact's 3 extra dependents are functions declared inside another function
+(`const onSuspensionComplete = () => ...` in a method of
+`compat/src/suspense.js`, a `function Context` in `createContext`): the
+index makes them local symbols, so the oracle counts their calls as the
+enclosing function's and has no node for them. Reading them as the enclosing
+function would judge them; until then they count against the engine.
 A decorator call runs where the decorated function is declared, not in its
 body. scip-python's range for a function starts at its first decorator, so
 the lines from there to the `def` line belong to the enclosing function: a
