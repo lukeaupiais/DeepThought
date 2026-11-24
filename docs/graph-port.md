@@ -2139,7 +2139,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Flask `<id>`, Express
+  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  package whose `package.json` depends on `next`: `pages/api/**` (or
+  `src/pages/api/**`) is one route for any method, handled by the default
+  export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
+  `src/app`) is one route per HTTP verb the module exports (a function, a
+  `const`, or `export { local as VERB }`), handled by that definition. Route
+  groups `(name)` and parallel slots `@name` add no segment; `_private`
+  directories and intercepting routes `(.)name` are not routes; `[x]` is a
+  route variable and `[...x]`/`[[...x]]` match the rest of the path. A
+  single literal `basePath` in `next.config.{js,mjs,cjs,ts}` prefixes every
+  route; rewrites and middleware are not read. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no
