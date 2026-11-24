@@ -2429,7 +2429,7 @@ link to their mutations, and `subscribeWebPush` is
 
 Browser and load-test code usually calls a gateway, not the service:
 robot-shop's pages call `/api/cart/...`, which nginx forwards to the cart
-service as `/...`. The tool reads two kinds of gateway route
+service as `/...`. The tool reads three kinds of gateway route
 (`deepthought.service_contracts.gateways`):
 
 - **Spring Cloud Gateway.** `spring.cloud.gateway.routes` (or
@@ -2444,6 +2444,18 @@ service as `/...`. The tool reads two kinds of gateway route
   prefix starts the route's `Path=` prefix. A route with another rewrite
   (`RewritePath`, `SetPath`), a path pattern with wildcards before `/**`, or a
   `StripPrefix` longer than the prefix is counted as unread.
+- **YARP.** The `ReverseProxy` section of `appsettings.json` (JSON with
+  comments and trailing commas) in a .NET project with analyzed C# sources.
+  A route's `Match.Path` must be literal segments followed by a catch-all
+  (`/catalog-service/{**catch-all}`). Its path transforms apply in order:
+  `PathRemovePrefix` (which must remove a prefix of the path so far),
+  `PathPrefix`, and a `PathPattern` of literal segments followed by the same
+  catch-all. Every destination of the route's cluster must have a literal
+  `Address` with the same path, which YARP prepends; their host is the
+  target when they share one. `PathSet`, other route values and other
+  patterns leave the route unread. Environment overlays
+  (`appsettings.Development.json`, ...) are not read, as with Spring
+  profiles.
 - **nginx.** `location /prefix/ { proxy_pass http://host[:port][/uri]; }` in
   `*.conf` and `*.conf.template` files outside hidden, `node_modules` and
   `vendor` folders. A `proxy_pass` with a URI replaces the prefix with it, as

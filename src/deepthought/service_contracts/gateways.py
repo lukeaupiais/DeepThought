@@ -6,9 +6,10 @@ webflux.routes``) with ``Path=`` predicates ending in ``/**``, ``uri`` of
 ``lb://service`` or ``http(s)://host``, and ``StripPrefix``/``PrefixPath``
 filters or a ``RewritePath`` that replaces a literal path prefix; and nginx
 ``location /prefix/ { proxy_pass ...; }`` blocks in ``*.conf`` and
-``*.conf.template`` files. A route with any other filter that changes the
-path (another ``RewritePath``, ``SetPath``, a regex location) is recorded as
-unread rather than guessed.
+``*.conf.template`` files; and YARP ``ReverseProxy`` routes in .NET JSON
+configuration (``yarp_routes``). A route with any other filter that changes
+the path (another ``RewritePath``, ``SetPath``, a regex location) is
+recorded as unread rather than guessed.
 """
 
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ class GatewayRoute:
 
     file: str
     line: int
-    kind: str  # spring-cloud-gateway | nginx
+    kind: str  # spring-cloud-gateway | nginx | yarp
     prefix: tuple[str, ...]
     replacement: tuple[str, ...]
     target: str | None
@@ -247,3 +248,121 @@ def forward(gateways, segments):
         elif size == length:
             best.append(route)
     return best
+
+
+def _json_with_comments(text):
+    """``text`` parsed as JSON that may hold ``//`` and ``/* */`` comments
+    and trailing commas (as .NET configuration allows), or None."""
+    import json
+
+    out, index, size = [], 0, len(text)
+    while index < size:
+        char = text[index]
+        if char == '"':
+            end = index + 1
+            while end < size and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            out.append(text[index : end + 1])
+            index = end + 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = size if newline < 0 else newline
+        elif text.startswith("/*", index):
+            close = text.find("*/", index + 2)
+            index = size if close < 0 else close + 2
+        else:
+            out.append(char)
+            index += 1
+    cleaned = re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+    try:
+        return json.loads(cleaned.lstrip("﻿"))
+    except ValueError:
+        return None
+
+
+# A YARP match path: literal segments, then a catch-all route parameter.
+_YARP_PATH = re.compile(r"(?P<prefix>(?:/[^/{}*?]+)*)/?\{\*\*?(?P<name>[\w-]+)\}")
+
+
+def _yarp_destination(cluster):
+    """(target host or None, path segments) of a cluster's destinations:
+    the host when every destination names the same literal one, and the
+    path they share (None when they differ or one is not literal)."""
+    destinations = (cluster or {}).get("Destinations") or {}
+    found = set()
+    for destination in destinations.values():
+        address = (
+            (destination or {}).get("Address")
+            if isinstance(destination, dict)
+            else None
+        )
+        match = re.match(
+            r"(?i)^https?://([^/:${}]+)(?::\d+)?(/[^?#]*)?$", str(address or "")
+        )
+        if match is None:
+            return None, None
+        found.add((match.group(1).lower(), _segments(match.group(2) or "")))
+    if len(found) != 1:
+        paths = {p for _, p in found}
+        return None, (next(iter(paths)) if len(paths) == 1 else None)
+    return next(iter(found))
+
+
+def yarp_routes(text, file):
+    """Routes and unread routes of a YARP ``ReverseProxy`` section in one
+    .NET JSON configuration file.
+
+    A route's ``Match.Path`` must be literal segments followed by a
+    catch-all (``/prefix/{**rest}``). Its path transforms are applied in
+    order: ``PathRemovePrefix`` (a prefix of the path so far),
+    ``PathPrefix``, and ``PathPattern`` made of literal segments followed by
+    the same catch-all. Any other path transform (``PathSet``, query or
+    ``PathPattern`` with other values) leaves the route unread. The
+    destination's path, the same for every destination of the cluster, is
+    prepended, as YARP does."""
+    data = _json_with_comments(text)
+    proxy = data.get("ReverseProxy") if isinstance(data, dict) else None
+    if not isinstance(proxy, dict):
+        return [], ([GatewayUnread(file, 1, "json_not_parsed")] if data is None else [])
+    clusters = proxy.get("Clusters") or {}
+    routes, unread = [], []
+    for route_id, route in (proxy.get("Routes") or {}).items():
+        if not isinstance(route, dict):
+            continue
+        line = _line_of(text, f'"{route_id}"')
+        match = _YARP_PATH.fullmatch(str((route.get("Match") or {}).get("Path", "")))
+        if match is None:
+            unread.append(GatewayUnread(file, line, "path_pattern"))
+            continue
+        prefix = _segments(match["prefix"])
+        path, readable = prefix, True
+        for transform in route.get("Transforms") or []:
+            if not isinstance(transform, dict):
+                continue
+            if "PathRemovePrefix" in transform:
+                removed = _segments(str(transform["PathRemovePrefix"]))
+                if path[: len(removed)] != removed:
+                    readable = False
+                path = path[len(removed) :]
+            elif "PathPrefix" in transform:
+                path = _segments(str(transform["PathPrefix"])) + path
+            elif "PathPattern" in transform:
+                pattern = re.fullmatch(
+                    r"(?P<prefix>(?:/[^/{}*?]+)*)/?\{\*\*?(?P<name>[\w-]+)\}",
+                    str(transform["PathPattern"]),
+                )
+                if pattern is None or pattern["name"] != match["name"]:
+                    readable = False
+                else:
+                    path = _segments(pattern["prefix"])
+            elif any(key.startswith("Path") for key in transform):
+                readable = False
+        if not readable:
+            unread.append(GatewayUnread(file, line, "path_rewritten"))
+            continue
+        target, base = _yarp_destination(clusters.get(route.get("ClusterId")))
+        if base is None:
+            unread.append(GatewayUnread(file, line, "destination_not_literal"))
+            continue
+        routes.append(GatewayRoute(file, line, "yarp", prefix, base + path, target))
+    return routes, unread

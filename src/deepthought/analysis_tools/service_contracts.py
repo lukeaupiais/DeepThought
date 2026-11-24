@@ -36,7 +36,11 @@ from ..service_contracts.deployed import (
     deployed_units,
     locust_host,
 )
-from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
+from ..service_contracts.gateways import (
+    nginx_routes,
+    spring_gateway_routes,
+    yarp_routes,
+)
 from ..service_contracts.graphql import (
     CLIENTS as GRAPHQL_CLIENTS,
     SERVERS as GRAPHQL_SERVERS,
@@ -1054,8 +1058,9 @@ def _deployed(root, deployments, routes, requests):
 
 def _gateways(root, config, sources):
     """Gateway routes: Spring Cloud Gateway routes in the configuration of
-    the analyzed Java files' modules, and nginx proxy locations in ``*.conf``
-    and ``*.conf.template`` files outside hidden and dependency folders."""
+    the analyzed Java files' modules, nginx proxy locations in ``*.conf``
+    and ``*.conf.template`` files outside hidden and dependency folders, and
+    YARP routes in the ``appsettings*.json`` of analyzed C# projects."""
     routes, unread, seen = [], [], set()
     for coverage, _, _ in sources:
         if coverage.language != "java":
@@ -1093,6 +1098,27 @@ def _gateways(root, config, sources):
         found = nginx_routes(text, relative.as_posix())
         routes.extend(found[0])
         unread.extend(found[1])
+    # YARP: the ReverseProxy section of the base .NET configuration
+    # (appsettings.json) of a project with analyzed C# sources. Environment
+    # files (appsettings.Development.json, ...) are overlays for one
+    # environment and are not read, as Spring profile documents are not.
+    projects = {
+        PurePosixPath(c.file).parent for c, _, _ in sources if c.language == "csharp"
+    }
+    for relative in _config_paths(root, {"appsettings.json"}):
+        if not any(PurePosixPath(relative).parent in (p, *p.parents) for p in projects):
+            continue
+        if any(part in ("bin", "obj") for part in PurePosixPath(relative).parts):
+            continue
+        try:
+            text = (root / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "ReverseProxy" not in text:
+            continue
+        found = yarp_routes(text, relative)
+        routes.extend(found[0])
+        unread.extend(found[1])
     return routes, unread
 
 
@@ -1121,7 +1147,7 @@ def _config_paths(root, names):
             if not f.startswith(".") and f not in ("node_modules", "vendor")
         )
         for name in sorted(files):
-            if name in names:
+            if names(name) if callable(names) else name in names:
                 found.append(
                     (PurePosixPath(directory) / name).relative_to(root).as_posix()
                 )
