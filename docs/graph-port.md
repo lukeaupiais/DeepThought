@@ -151,7 +151,8 @@ enclosing declaration. Calls on other expressions (`f()()`, `x[0]()`, optional
 chains) are not recorded. `deepthought.calls.resolve_calls` matches names only,
 so every CALLS edge it yields is `name_matched`; shadowing at runtime, rebinding,
 inheritance and dynamic dispatch are not checked. Calls in files a SCIP index
-covers take their targets from the index instead (below). The original builder's `confidence` floats and its `resolved_method` label
+covers take their targets from the index instead (below); the original's SCIP
+tool did not write CALLS. The original builder's `confidence` floats and its `resolved_method` label
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 

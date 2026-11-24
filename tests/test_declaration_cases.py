@@ -116,6 +116,92 @@ class DeclarationTests(unittest.TestCase):
                     ["helpers" if language == "python" else "./helpers"],
                 )
 
+    def test_generic_call_signatures_without_separators_parse(self):
+        # The grammar reads `<K ...>(...)` after a member that ends without
+        # a separator as part of that member's type.
+        interface = (
+            "export interface Getter {\n"
+            "  <K extends string>(key: K): K\n"
+            "  <K extends number>(key: K): K\n"
+            "  (key: boolean): boolean\n"
+            "}\n"
+            "export class After { run() {} }\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for name, text in (
+                ("getter.ts", interface),
+                ("view.tsx", interface),
+                ("bad.ts", "export function Bad( {\n  <T>(x: T): T\n"),
+            ):
+                (Path(directory) / name).write_text(text)
+            result = analyze_repository(
+                directory, repository_id="fixture", languages=("typescript",)
+            )
+        self.assertEqual(
+            {c.file: c.status for c in result.coverage},
+            {"getter.ts": "analyzed", "view.tsx": "partial", "bad.ts": "partial"},
+        )
+        self.assertIn(
+            ("Getter", "Interface", 1, 5, 7, 1),
+            {
+                (d.symbol, d.kind, d.line, d.end_line, d.column, d.end_column)
+                for d in result.definitions
+                if d.file == "getter.ts"
+            },
+        )
+        self.assertIn(
+            ("After.run", 6),
+            {(d.symbol, d.line) for d in result.definitions if d.file == "getter.ts"},
+        )
+
+    def test_signature_recovery_reads_only_blanks_before_errors(self):
+        from deepthought.syntax import _error_rows, make_parser, parse_source
+
+        parser = make_parser("typescript", ".ts")
+        for text, errors in (
+            # Each `<` line after a member without a separator, also after a
+            # method or a signature over several lines, and in a type literal.
+            ("interface G {\n  (a: string): string\n  <K>(k: K): K\n}\n", 0),
+            ("interface G {\n  get(a: string): string\n  <K>(k: K): K\n}\n", 0),
+            (
+                "interface G {\n  (a: string): string\n  <K>(k: K): K\n"
+                "  <J>(k: J): J\n  <L>(k: L): L\n}\n",
+                0,
+            ),
+            (
+                "interface G {\n  (a: string): Promise<\n    string\n  >\n"
+                "  <K>(k: K): K\n  <J>(\n    k: J\n  ): J\n  <L>(k: L): L\n}\n",
+                0,
+            ),
+            ("type G = {\n  (a: string): string\n  <K>(k: K): K\n}\n", 0),
+            # Signatures over several lines, where the error ends on the
+            # line before the `<`.
+            (
+                "interface G {\n  <\n    P extends string,\n  >(\n    handler: P\n"
+                "  ): Base<\n    P\n  >\n\n  // comment\n  <\n    Q extends string,\n"
+                "  >(\n    q: Q\n  ): Base<Q>\n  <R>(r: R): R\n}\n",
+                0,
+            ),
+            # A `<` that continues an expression is read as written.
+            (
+                "interface G {\n  (a: string): string\n  <K>(k: K): K\n}\n"
+                "let y = 1\n  < 2\n",
+                0,
+            ),
+            # A `;` would not help: the tree is the one parsed as written.
+            ("let y = [1\n  < 2\nfunction f() {}\n", 2),
+            # Without a blank before `<`, nothing is read differently.
+            ("interface G {\n  (a: string): string\n<K>(k: K): K\n}\n", 2),
+        ):
+            with self.subTest(text=text):
+                content = text.encode()
+                tree = parse_source(parser, "typescript", ".ts", content)
+                self.assertEqual(_error_rows(tree)[0], errors)
+                if errors:
+                    self.assertEqual(
+                        str(tree.root_node), str(parser.parse(content).root_node)
+                    )
+
     def test_malformed_tsx_has_explicit_partial_coverage(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "good.tsx").write_text(

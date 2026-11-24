@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "licenses/*"]
-dependencies = []
+# SCIP indexes are the primary source of symbol facts, so reading them is not optional.
+dependencies = ["protobuf==7.35.1"]
 
 [project.optional-dependencies]
 neo4j = ["neo4j==5.28.8"]
@@ -50,6 +51,7 @@ languages = [
 ]
 # Build and deployment manifests: TOML on Python 3.10, and Compose YAML.
 components = ["tomli==2.2.1; python_version < '3.11'", "pyyaml==6.0.3"]
+# Kept so existing `[scip]` installs keep working; protobuf is now a core dependency.
 scip = ["protobuf==7.35.1"]
 
 [project.scripts]
