@@ -3309,21 +3309,22 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   kinds and the lines of the rpc names come from the descriptor. protoc
   needs the files a proto imports, under include roots the repository does
   not name: an import `a/b.proto` is matched against the repository's
-  `.proto` paths, and what is left in front of it is a root. A file that
+  `.proto` paths, and what is left in front of it is a root; the roots the
+  imported files' own imports need are added too, since protoc opens
+  them as well (Envoy and xDS protos vendored in grpc-java import across
+  five roots). A file that
   another file imports takes that importer's root as its own, else its
   directory; the well-known types come from `grpcio-tools`. Files under the
   same root compile in one run, split in halves when it fails, so a broken
-  file costs only itself. A file protoc does not compile (an import the
-  repository does not hold, such as an unvendored
-  `google/api/annotations.proto`, or a syntax error), and every file when
-  `grpcio-tools` is not installed, is read by the fallback reader: `rpc`
-  statements of top-level `service` blocks, comments removed and strings
-  kept. It gets no new features. The `proto_readers` metric counts the files
-  each reader read. On 639 `.proto` files across the validation
-  repositories, protoc compiled 615 and gave the same rpcs, lines and
-  streaming kinds as the fallback reader on every one; the rest import
-  protos the repositories do not vendor or are deliberately broken test
-  inputs.
+  file costs only itself. protoc is the only reader of `.proto` files:
+  `grpcio-tools` and `protobuf` are required, and without them the
+  analysis fails with `ProtocMissing` instead of reading nothing. A file
+  protoc does not compile (an import the repository and the include
+  directories do not hold, or a syntax error) declares nothing and is
+  counted as `grpc_proto:not_compiled`. The `proto_readers` metric counts
+  compiled and rejected files. On 639 `.proto` files across the validation
+  repositories, protoc compiled 615; the rest import protos the
+  repositories do not vendor or are deliberately broken test inputs.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),

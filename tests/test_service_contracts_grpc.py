@@ -18,7 +18,6 @@ from deepthought.service_contracts.grpc import (
     STUB_CALL,
     ProtoIndex,
     ProtoMethod,
-    read_proto,
 )
 
 READY = all(
@@ -31,11 +30,14 @@ READY = all(
         "tree_sitter_python",
     )
 )
+PROTOC = importlib.util.find_spec("grpc_tools") and importlib.util.find_spec(
+    "google.protobuf"
+)
 
 PROTO = """\
 syntax = "proto3";
 // service Fake { rpc Nope (A) returns (B) {} }
-package shop;
+package shop; import "google/api/annotations.proto";
 option go_package = "x/y;pb"; /* service Hidden { rpc No(A) returns (B); } */
 
 service CartService {
@@ -54,12 +56,24 @@ service CurrencyService {
 
 service EmailService { rpc SendOrderConfirmation(Req) returns (Empty) {} }
 service AdService { rpc GetAds(AdRequest) returns (AdResponse) {} }
+
+message AddItemRequest {}
+message GetCartRequest {}
+message Cart {}
+message Currencies {}
+message ConversionRequest {}
+message Money {}
+message Req {}
+message AdRequest {}
+message AdResponse {}
 """
 
 OTHER_PROTO = """\
 package other;
 service CartService { rpc GetCart(A) returns (B); }
 service PingService { rpc Ping(A) returns (B); }
+message A {}
+message B {}
 """
 
 GO_SERVER = """\
@@ -182,6 +196,19 @@ def _write(root, files):
         path.write_text(text, encoding="utf-8")
 
 
+def read_proto(text, path):
+    """(package, [ProtoMethod]) of one .proto file, as protoc reads it."""
+    from deepthought.service_contracts.protoc import read_protos
+
+    with tempfile.TemporaryDirectory() as directory:
+        target = Path(directory) / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        found = read_protos(Path(directory), [path], {path: text})
+    return found[path][:2]
+
+
+@unittest.skipUnless(PROTOC, "grpcio-tools is not installed")
 class ProtoReaderTests(unittest.TestCase):
     def test_services_and_rpcs_with_lines(self):
         package, methods = read_proto(PROTO, "demo.proto")
@@ -196,12 +223,6 @@ class ProtoReaderTests(unittest.TestCase):
                 ("shop.EmailService/SendOrderConfirmation", 20),
                 ("shop.AdService/GetAds", 21),
             ],
-        )
-
-    def test_comment_markers_inside_strings_are_kept(self):
-        text = 'package a;\noption x = "//no";\nservice S { rpc M(A) returns (B); }\n'
-        self.assertEqual(
-            [m.full_name for m in read_proto(text, "a.proto")[1]], ["a.S/M"]
         )
 
     def test_index_needs_one_package_per_simple_name(self):
@@ -459,6 +480,11 @@ service Guide {
   rpc Record(stream Point) returns (Summary) {}
   rpc Chat ( stream Note ) returns ( stream .route.Note ) {}
 }
+message Point {}
+message Feature {}
+message Rect {}
+message Summary {}
+message Note {}
 """
 
 # A copy that disagrees about Get: the kind is left out.
