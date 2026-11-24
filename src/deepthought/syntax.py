@@ -260,6 +260,14 @@ def extract(
                 }
                 if _java_private(node, content):
                     arity["private"] = True
+                body = node.parent
+                if (
+                    body is not None
+                    and body.type == "class_body"
+                    and body.parent is not None
+                    and body.parent.type == "enum_constant"
+                ):
+                    arity["constant_body"] = True
                 if node.type == "method_declaration":
                     returned = _java_declared_type(
                         node.child_by_field_name("type"), None, content
@@ -275,6 +283,9 @@ def extract(
                 statics = _java_static_fields(node, content)
                 if statics:
                     arity = {"fields": statics}
+                declared = _java_field_names(node, content)
+                if declared:
+                    arity = {**(arity or {}), "properties": declared}
             elif node.type == "annotation_type_element_declaration":
                 arity = {"parameters": 0}
             elif node.type == "macro_definition":
@@ -1793,6 +1804,11 @@ def extract_imports(
         "php": _php_imports,
     }.get(language, _typescript_imports)
     imports, ordinals = [], {}
+    exports = (
+        _js_local_exports(tree.root_node, content)
+        if visit is _typescript_imports and language != "rust"
+        else {}
+    )
     stack = [tree.root_node]
     while stack:
         node = stack.pop()
@@ -1823,10 +1839,44 @@ def extract_imports(
                     local_names=local_names,
                     block=block,
                     exported_names=exported[0] if exported else None,
+                    reexported_as=_js_reexported(local_names, exports),
                 )
             )
         stack.extend(reversed(children(node)))
     return imports
+
+
+def _js_local_exports(root, content):
+    """{local: exported names} for each ``export { local as name }`` (no
+    ``from``) of a JavaScript or TypeScript module, ``export { local }``,
+    ``default`` and ``export default local`` included."""
+    found = {}
+    for child in root.named_children:
+        if child.type != "export_statement" or child.child_by_field_name("source"):
+            continue
+        value = child.child_by_field_name("value")
+        if value is not None:
+            # `export default name`; other values match no local name.
+            found.setdefault(_text(value, content), []).append("default")
+        for clause in child.named_children:
+            for specifier in clause.named_children:
+                if specifier.type != "export_specifier":
+                    continue
+                name = specifier.child_by_field_name("name")
+                alias = specifier.child_by_field_name("alias") or name
+                found.setdefault(_text(name, content), []).append(_text(alias, content))
+    return found
+
+
+def _js_reexported(local_names, exports):
+    """``Import.reexported_as`` of a JavaScript or TypeScript import that
+    binds ``local_names``, or None."""
+    pairs = tuple(
+        dict.fromkeys(
+            (local, name) for local in local_names for name in exports.get(local, ())
+        )
+    )
+    return pairs or None
 
 
 def _rust_block(node):
@@ -1896,6 +1946,55 @@ def _java_dotted(node, content):
             return None
         return ".".join(names)
     return None
+
+
+def _java_unparenthesized(node):
+    while (
+        node is not None
+        and node.type == "parenthesized_expression"
+        and node.named_children
+    ):
+        node = node.named_children[0]
+    return node
+
+
+def _java_chain(node, content):
+    """Callee text of a Java receiver that is a call chain: ``a.b().c()``,
+    ``new T().m()`` (arguments dropped); None for any other shape."""
+    node = _java_unparenthesized(node)
+    if node is None:
+        return None
+    if node.type == "method_invocation":
+        name = node.child_by_field_name("name")
+        receiver = node.child_by_field_name("object")
+        head = None if receiver is None else _java_chain(receiver, content)
+        if name is None or (receiver is not None and head is None):
+            return None
+        return (f"{head}." if head else "") + _text(name, content) + "()"
+    if node.type == "object_creation_expression":
+        written = node.child_by_field_name("type")
+        typed = None if written is None else _java_dotted(written, content)
+        return None if typed is None else f"new {typed}()"
+    return _java_dotted(node, content)
+
+
+def _java_receiver_call(node):
+    """``CallSite.receiver_call`` of a Java call whose receiver is itself a
+    method call or ``new``: that expression's span."""
+    if node.type != "method_invocation":
+        return None
+    receiver = _java_unparenthesized(node.child_by_field_name("object"))
+    if receiver is None or receiver.type not in {
+        "method_invocation",
+        "object_creation_expression",
+    }:
+        return None
+    return (
+        receiver.start_point.row + 1,
+        receiver.start_point.column,
+        receiver.end_point.row + 1,
+        receiver.end_point.column,
+    )
 
 
 def _java_arguments(node):
@@ -3188,6 +3287,35 @@ def _java_argument_type(node, content, cache):
     return None
 
 
+def _java_field_names(node, content):
+    """Names of every field a Java type declaration declares: its fields and
+    constants (static, private or not), enum constants and record
+    components. None when there is none."""
+    found = []
+    parameters = node.child_by_field_name("parameters")
+    if node.type == "record_declaration" and parameters is not None:
+        for component in parameters.named_children:
+            name = component.child_by_field_name("name")
+            if name is not None:
+                found.append(_text(name, content))
+    body = node.child_by_field_name("body")
+    members = list(body.named_children) if body is not None else []
+    for member in list(members):
+        if member.type == "enum_body_declarations":
+            members.extend(member.named_children)
+    for member in members:
+        if member.type == "enum_constant":
+            name = member.child_by_field_name("name")
+            if name is not None:
+                found.append(_text(name, content))
+        elif member.type in {"field_declaration", "constant_declaration"}:
+            for declarator in member.children_by_field_name("declarator"):
+                name = declarator.child_by_field_name("name")
+                if name is not None:
+                    found.append(_text(name, content))
+    return tuple(dict.fromkeys(found)) or None
+
+
 def _java_static_fields(node, content):
     """(name, type) for each static field of a Java type declaration whose
     type ``_java_declared_type`` writes (an interface's fields are static,
@@ -3543,6 +3671,47 @@ def _java_may_inherit_fields(owner):
     ) or any(c.type == "extends_interfaces" for c in owner.named_children)
 
 
+def _java_receiver(node, content, callee, cache):
+    """``receiver_type`` of a Java call, and ``receiver_inherits`` when the
+    variable's declaration is outside a type around the call that may
+    inherit a field of that name."""
+    written = _java_receiver_type(node, content, callee, cache)
+    if written is not None:
+        return {"receiver_type": written}
+    crossed = []
+    written = _java_receiver_type(node, content, callee, cache, crossed=crossed)
+    if written is None or not crossed:
+        return {"receiver_type": None}
+    return {"receiver_type": written, "receiver_inherits": True}
+
+
+def _java_names_no_variable(node, content, callee):
+    """For a Java call ``X.f.m()``: True when no variable or field named
+    ``X`` can be in scope at the call, so that ``X`` names a type or
+    package (JLS 6.5.2); None for any other callee or when one may be: a
+    declaration of ``X`` around the call, or a type around it that may
+    inherit a field ``X``."""
+    parts = callee.split(".")
+    if len(parts) < 3 or parts[0] in {"this", "super"}:
+        return None
+    name = parts[0]
+    end = (float("inf"), float("inf"))
+    ancestor = node.parent
+    while ancestor is not None:
+        if _java_declared_here(ancestor, name, content, end):
+            return None
+        if ancestor.type in _JAVA_CLASS_BODIES and _java_may_inherit_fields(
+            ancestor.parent
+        ):
+            return None
+        if ancestor.type in _JAVA_METHODS and _java_binds_pattern(
+            ancestor, name, content
+        ):
+            return None
+        ancestor = ancestor.parent
+    return True
+
+
 def _java_binds_pattern(node, name, content):
     """Whether a pattern (``o instanceof Foo x``, ``case Foo x``) in ``node``
     binds ``name``: such a variable's scope depends on control flow."""
@@ -3562,12 +3731,14 @@ def _java_binds_pattern(node, name, content):
     return False
 
 
-def _java_receiver_type(node, content, callee, cache, primitives=False):
+def _java_receiver_type(node, content, callee, cache, primitives=False, crossed=None):
     """For a Java call ``x.m()`` or ``this.x.m()``, the type that the
     declaration of the variable or field ``x`` in scope writes (``Foo``,
     ``Map.Entry``); None when no such declaration is in scope or it writes
     no class type (``var`` without ``new``, a lambda's inferred parameter,
-    an array, a primitive, a type parameter)."""
+    an array, a primitive, a type parameter). A type between the call and
+    that declaration that may inherit a field ``x`` gives None, unless
+    ``crossed`` is a list: then each such type's body is appended to it."""
     parts = callee.split(".")
     if len(parts) == 2:
         name, fields_only = parts[0], False
@@ -3577,28 +3748,42 @@ def _java_receiver_type(node, content, callee, cache, primitives=False):
         return None
     before = (node.start_point.row, node.start_point.column)
     found, method = None, None
+    # Methods around the call inside the types it crosses: a pattern there
+    # may bind the name too.
+    outer = []
     ancestor = node.parent
     while ancestor is not None:
         body = ancestor.type in _JAVA_CLASS_BODIES
+        if (
+            found is None
+            and crossed
+            and ancestor.type in _JAVA_METHODS
+            and ancestor is not method
+        ):
+            outer.append(ancestor)
         if found is None and (body or not fields_only):
             here = _java_declared_here(ancestor, name, content, before)
             if here:
                 found = here
             elif body:
                 owner = ancestor.parent
-                if fields_only or _java_may_inherit_fields(owner):
-                    # `this.x` names a field of the innermost class; and a
-                    # field a type inherits may be the one named.
+                if fields_only:
+                    # `this.x` names a field of the innermost class.
                     return None
+                if _java_may_inherit_fields(owner):
+                    # A field a type inherits may be the one named.
+                    if crossed is None:
+                        return None
+                    crossed.append(ancestor)
         if ancestor.type in _JAVA_METHODS and method is None:
             method = ancestor
         ancestor = ancestor.parent
     if not found or found[0] is None:
         return None
-    if method is not None:
-        key = ("patterns", method.id, name)
+    for around in [method, *outer] if method is not None else outer:
+        key = ("patterns", around.id, name)
         if key not in cache:
-            cache[key] = _java_binds_pattern(method, name, content)
+            cache[key] = _java_binds_pattern(around, name, content)
         if cache[key]:
             return None
     written = found[0]
@@ -4279,6 +4464,18 @@ def extract_call_sites(
             callee = None if target is None else _go_chain_callee(target, content)
             if callee is not None:
                 found, chained = (callee, found[1]), True
+        if java and found is not None and found[0] is None:
+            # `a.b().c()`, `new T().m()`: a method of the receiver call's
+            # result.
+            span = _java_receiver_call(node)
+            name = node.child_by_field_name("name")
+            head = (
+                None
+                if span is None or name is None
+                else _java_chain(node.child_by_field_name("object"), content)
+            )
+            if head is not None:
+                found = (f"{head}.{_text(name, content)}", found[1])
         if python and found is not None and found[0] is None:
             # `super().m()`: a method of the enclosing class's bases.
             target = node.child_by_field_name("function")
@@ -4347,9 +4544,11 @@ def extract_call_sites(
                         ),
                         **(
                             {
-                                "receiver_type": _java_receiver_type(
-                                    node, content, callee, receivers
-                                )
+                                **_java_receiver(node, content, callee, receivers),
+                                "receiver_call": _java_receiver_call(node),
+                                "type_qualified": _java_names_no_variable(
+                                    node, content, callee
+                                ),
                             }
                             if java
                             else {

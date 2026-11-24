@@ -158,11 +158,11 @@ arbitrary object gets no edge.
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
-| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous, and an imported name exported again this way is not followed |
+| `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file. In JavaScript and TypeScript a default import (`import delay from './delay'`) names the function or class that module exports as `default`: written `export default function f`, `export default class C`, or a module-level declaration named by `export default f` or `export { f as default }` (`Definition.default_export`). An anonymous default (`export default () => {}`) declares no name and gets no edge. A module-level declaration that a local `export { f as g }` (no `from`) exports also counts as the module's top-level `g` (`Definition.export_aliases`), for imports, `mod.g`, re-exports and bases alike; a module that also declares `g` makes the name ambiguous. An imported name exported again this way follows `js-call-reexport` |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`); Python `import a.b.c` also binds `a` and `a.b` to the `__init__.py` of each package on the path |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call or, when nothing in the function declares it, by exactly one top-level `var` of the package (a name declared twice, also in two files for different platforms, or a `var` with neither type nor value, gives no type). A variable of another file is named by `CallSite.receiver_variable`, and each Go file's `PackageClause.variables` lists its package-level variables with the type their declaration writes or a value `T{...}`, `&T{...}`, `new(T)`, `F()` or `pkg.F()` gives. `pkg.V.M()` follows the variable `V` of the package the file imports as `pkg`. The receiver may also be a call or index chain, `a.F().M()`, `a.f[i].M()` or `F().M()`: the call is then named after the chain (`CallSite.callee` `a.F().M`, `a.f[].M`) and each call or index is one receiver step. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `F()` or `pkg.F()` (the first declared result of the one function `F` of the caller's package, or of the package the file imports as `pkg`, when no variable in the function is named `F` or `pkg`; `CallSite.receiver_function` names it), `e[i]` and `for _, x := range e` (the element of a slice or array, or of a named slice type: `Definition.underlying_type` holds `[]T` for `type S []T`), `T(e)` (a conversion to the one non-alias type `T` of the package), `f()` where `f := func() T {...}` (the literal's first result). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
-| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. `export * as ns from`, cycles and an imported name exported by a separate `export { f }` are not followed |
+| `tree-sitter.js-call-reexport` | JavaScript/TypeScript: `f()` or `mod.f()` where the imported module does not declare `f` but re-exports it, as preact's `src/index.js` does with `export { render } from './render'`. A named `export { f } from` (aliases applied) is followed first, then every `export * from`; each step goes to the module that declares `f`. A name two star exports give is ambiguous, as in the language. A default re-exported by name (`export { default } from`, `export { f as default } from`) is followed like any name, and `export *` never gives `default`. An imported name exported again by a separate `export { f }`, `export { f as g }` or `export default f` (`Import.reexported_as`) is followed as the `export { ... } from` it amounts to, as preact's `compat/src/index.js` does with `import { render } from './render'` and `export { render }`. `export * as ns from`, a namespace import exported again, and cycles are not followed |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-super` | Python: `super().m()` written directly in a method of class `C` (not in a function nested in it) to the `m` that `C`'s declared bases declare or inherit, in the method resolution order after `C`; a class reached twice or a base that names no repository class leaves it unresolved (`diamond`, `base_not_resolved`) |
 | `tree-sitter.python-call-self-inherited` | Python: `self.m()` where the class around it declares no `m`, to the `m` its declared bases declare or inherit, in the same order and with the same stops as `tree-sitter.python-call-typed-receiver`; a subclass's override is not followed |
@@ -768,6 +768,8 @@ every link is `name_matched`:
 | `tree-sitter.java-type-name` | `new T()`: the constructor of the type `T` names, by the same lookup, that the arguments select (overloads chosen as for methods, below). When `T` declares no constructor, or the arguments leave none or more than one, the link is to the type |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
+| `tree-sitter.java-call-chained-receiver` | `e.m()` where `e` is itself a call (`a.b().m()`, `T.f().m()`, `f().m()`) whose link reaches a method declaring a class return type `T`, or `new T(...)`: `m` declared on `T` or inherited through its declared bases, overloads chosen as for other Java calls; a type-parameter or primitive return leaves it unresolved |
+| `tree-sitter.java-call-static-field-receiver` | `T.F.m()` where no variable or field named like `T`'s first name can be in scope (none declared around the call, no type around it that may inherit one) and the type `T` declares the static field or enum constant `F` with a written class type `U`: `m` declared on `U` or inherited through its declared bases |
 
 A type name is looked up as Java does, without types: member types of each
 enclosing type from the innermost out, declared or inherited through the
@@ -850,6 +852,31 @@ one method possible from that phase on, or a method that applies and is more
 specific than every other possible one. A `private` method is not a
 candidate outside the top-level class that declares it. Otherwise the call
 stays ambiguous among the arity candidates.
+
+When the overloads are still not told apart, the JDK's own supertypes are
+used: `src/deepthought/java_platform.json` lists every public type of 21 JDK
+packages (`java.lang`, `java.io`, `java.util` and its subpackages,
+`java.time`, `java.nio.file`, `java.sql` and others) with the simple names of
+all its supertypes, taken from the JDK 21 classes themselves by
+`java tools/JavaPlatformTypes.java > src/deepthought/java_platform.json`. A
+type name that no repository type in scope denotes is looked up there when a
+single-type import names it, when it is a canonical `java.` name, or when
+`java.lang` and the file's on-demand imports, all in listed packages, give it
+exactly once; a static import of the name, or an on-demand import of any
+other package, leaves it unknown. A repository enum or record then also has
+the supertypes of `java.lang.Enum` or `java.lang.Record`, and a type whose
+bases are all repository or listed JDK types has a complete set. A link only
+this decides carries `tree-sitter.java-overload-jdk-supertypes`: on gson it
+confirmed 331 links (10,904 of 11,050 in all), none contradicted, and impact
+rose from 3,955 to 4,421 of 5,070.
+
+A method declared in an enum constant's body (`ONE { int read() {...} }`) is
+named as the enum's members are, but `Definition.constant_body` marks it and
+it is no member of the enum type: a call through the enum
+(`Policy.ONE.read()`, `p.read()`) binds the method the enum declares or
+inherits, as javac does, and only a call inside that body reaches it. On gson
+this removed the 6 ambiguous calls whose candidates were constant-body
+methods and left out javac's, and confirmed 32 more links (10,936).
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
@@ -974,6 +1001,25 @@ by name and arity where javac picks another of the same arity by argument
 types. junit5 indents with tabs; the oracle counts a tab as one
 column, as the analysis does, rather than expanding it to the next tab stop
 as javac's `LineMap.getColumnNumber` would.
+
+Calls on a call's result (`new GsonBuilder().setPrettyPrinting().create()`)
+follow the linked method's declared return type
+(`tree-sitter.java-call-chained-receiver`). On the gson call corpus this
+raised confirmed links from 9,342 to 10,457 of 11,050 with none
+contradicted; 22 of its links land where javac bound no call, mostly in the
+proto tests, whose receivers involve classes built from `.proto` files.
+Calls on a type's static field or enum constant
+(`DefaultDateTypeAdapter.DateType.DATE.createAdapterFactory(...)`,
+`JsonElementTypeAdapter.ADAPTER.read(...)`) follow the field's written type
+(`tree-sitter.java-call-static-field-receiver`): 50 more confirmed links on
+gson (10,517 of 11,050), none contradicted.
+A variable an anonymous class, an enum constant's body or a class with bases
+captures from around it (`longAdapter.read(in)` inside `new TypeAdapter<>() {...}`)
+binds its declaration only when no base of those types may give them a field
+of that name: every base is a repository type, none declares one, and the same
+holds for its own bases (`Definition.properties` lists a Java type's fields).
+Otherwise the call is left unresolved (`receiver_may_be_inherited_field`).
+This confirmed 44 more gson links (10,561), none contradicted.
 
 Each base in a class, interface, enum or record declaration (`extends`,
 `implements`, and an interface's `extends`) is a `supertypes` fact with that
@@ -1946,8 +1992,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   is a name bound once in its file, found through the file's imports
   (relative to its package, else under the nearest enclosing directory that
   holds the module, following re-exports). A router mounted twice gets a
-  route per mount; one never mounted keeps its own prefix. Express `app.use`
-  prefixes are not read.
+  route per mount; one never mounted keeps its own prefix. Express mounts
+  compose the same way: `parent.use([path,] ...routers)` joins the parent's
+  prefixes with the path (each path of an array; a name bound to a string
+  counts as a path). A mounted router is a name bound once to `express()`,
+  `express.Router()` or an imported `Router()`, given directly, through
+  `require(...)` or an import of a module's default (`module.exports = r`,
+  `export default r`) or named (`exports.n = r`, `export const n = ...`)
+  export. A path that is not literal is matched as if it added no segments,
+  and the route records `base_unknown`. A destructured `require`
+  (`const { Router } = require('express')`) binds each name to the module's
+  export.
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
   `request(method, url)`), the same calls on a client object (a
   `requests.Session`, `httpx.Client`/`AsyncClient` or `aiohttp.ClientSession`
@@ -2148,6 +2203,27 @@ PHP files are read for routes and requests (`service_contracts.php`):
   methods are `methods` (any method without it). A path that is not a
   literal is unread. Routes in YAML, XML or PHP config files, and a
   kernel-level prefix, are not read (rule `service-contracts.symfony-route`).
+- **Laravel and Lumen routes** (`service_contracts.laravel`, rule
+  `service-contracts.laravel-route`), in projects whose nearest
+  composer.json requires `laravel/framework` or `laravel/lumen-framework`.
+  Calls on the `Route` facade (imported from `Illuminate\Support\Facades`,
+  or unqualified in a Laravel project) or, in Lumen, on `$router`: `get`,
+  `post`, `put`, `patch`, `delete`, `options`, `any`, `match`, `view` and
+  `redirect` with a literal path, and the actions of `resource` /
+  `apiResource` (and the array forms), with `only`/`except` and dotted
+  nested names (parameters are `{var}`). Groups nest: `prefix(...)`,
+  `group(['prefix' => ...], fn)`, `controller(C::class)` and `namespace`.
+  A route file's own prefix and controller namespace come from the code
+  that loads it: `Route::prefix('api')->namespace(...)->group(base_path(...))`
+  (a `$this->namespace` property default is read), `withRouting(api: ...,
+  apiPrefix: ...)` (`api` by default), a Lumen `$app->router->group([...],
+  function () { require ...; })`, or `loadRoutesFrom`. A file no loader
+  names has no prefix. The handler is the controller method an action
+  names (`[C::class, 'm']`, `'C@m'`, invokable `C::class`, a name in a
+  `controller` group, `['uses' => ...]`), found in the same composer
+  project by its qualified name or else its unique short name; closures,
+  views and redirects hang off the route file. `{id?}` is `{id}`. A path
+  that is not literal is unread.
 - **Requests.** `curl_init($url)` is a request placed on that call. The URL
   is folded in its function: literals, `"...$x..."` (variables are unknown
   text), `.`, `sprintf` with `%s`/`%d`, and a local variable assigned once
@@ -2155,7 +2231,32 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `curl_setopt`/`curl_setopt_array` in the same function sets on the handle
   with a literal `CURLOPT_CUSTOMREQUEST` (POST for `CURLOPT_POST`); any
   other value makes it unknown. A handle whose URL is set with
-  `CURLOPT_URL`, Guzzle and Symfony HttpClient are not read yet.
+  `CURLOPT_URL` is not read yet.
+- **Guzzle and Laravel HTTP client requests** (clients `guzzle`,
+  `laravel-http`). Guzzle: `get`, `post`, `put`, `patch`, `delete`, `head`,
+  `options` (and their `...Async` forms) and `request($method, $url)` on a
+  `GuzzleHttp\Client`, where the receiver is a local variable assigned
+  once in its function to `new Client([...])`, a `$this->x` property
+  assigned once in its class to one, or a parameter, property or promoted
+  constructor parameter typed `Client` or `ClientInterface`. A literal
+  `base_uri` is resolved as Guzzle does (RFC 3986: a rooted path replaces
+  the base path, a relative one joins the base's directory); an absolute
+  URL, or a base that is not literal, leaves the URL as written. Laravel:
+  `Http::get(...)`, ... and `Http::send($method, $url)`, also at the end of
+  a chain (`Http::withToken(...)->get(...)`), on the facade imported from
+  `Illuminate\Support\Facades\Http` or unqualified in a Laravel project;
+  a literal `baseUrl(...)` in the chain is prepended. A method that is not
+  a literal is unknown; a dynamic method name (`->$method(...)`) is not
+  read.
+- **Symfony HttpClient requests** (client `symfony-http`).
+  `request($method, $url)`, its only request method, on a client that is a
+  parameter, property or promoted constructor parameter typed
+  `Symfony\Contracts\HttpClient\HttpClientInterface`, or a local variable
+  or `$this->x` property assigned once to `HttpClient::create([...])` or
+  `HttpClient::createForBaseUri($base)`. A literal base (`base_uri`, or the
+  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). Scoped
+  clients configured in `framework.yaml` are not read: they reach code as an
+  injected interface, so their URLs stay as written.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the

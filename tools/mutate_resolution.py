@@ -11,9 +11,15 @@ apart: read it).
 
 Usage:
   python tools/mutate_resolution.py [--module calls] [--limit N] [--cache DIR]
+      [--corpus NAME ...] [--lines A-B ...] [--reanalyze]
 
-The corpus checkouts are fetched as by ``ground_truth.py check``; analyses
-are computed once and cached, since mutants only change resolution.
+The corpus checkouts are fetched as by ``ground_truth.py check``. By default
+analyses are computed once and cached, since mutants of a resolution module
+only change resolution. ``--reanalyze`` runs each mutant on a copy of the
+package and analyzes the corpora again, for modules such as ``syntax`` whose
+facts are read during analysis. ``--corpus`` limits the corpora and
+``--lines`` the mutants (by the line of the mutated expression), so a run can
+target the code one change added.
 """
 
 import argparse
@@ -134,6 +140,34 @@ def killed_by_corpus(reference, mutated):
     return None
 
 
+def mutated_package(module, tree, scratch):
+    """A copy of the package with ``module`` replaced by ``tree``."""
+    import deepthought
+
+    package = Path(deepthought.__file__).parent
+    copy_root = Path(scratch, "deepthought")
+    shutil.copytree(package, copy_root, ignore=shutil.ignore_patterns("__pycache__"))
+    (copy_root / f"{module}.py").write_text(ast.unparse(tree), "utf-8")
+    return scratch
+
+
+def reanalyze_worker(cache):
+    """Score corpora analyzed by the package on ``sys.path`` (a mutant copy)."""
+    with open(cache, "rb") as stream:
+        corpora, reference = pickle.load(stream)
+    analyses = {
+        corpus["name"]: (
+            ground_truth.analyze(
+                workspace, corpus["languages"], corpus.get("exclude", ())
+            ),
+            truth,
+        )
+        for corpus, workspace, truth in corpora
+    }
+    killer = killed_by_corpus(reference, scores(analyses))
+    print(json.dumps({"killed_by": killer}))
+
+
 def worker(module, index, cache):
     import deepthought
 
@@ -153,15 +187,8 @@ def worker(module, index, cache):
 
 
 def unit_tests_kill(module, tree, timeout):
-    import deepthought
-
-    package = Path(deepthought.__file__).parent
     with tempfile.TemporaryDirectory() as scratch:
-        copy_root = Path(scratch, "deepthought")
-        shutil.copytree(
-            package, copy_root, ignore=shutil.ignore_patterns("__pycache__")
-        )
-        (copy_root / f"{module}.py").write_text(ast.unparse(tree), "utf-8")
+        mutated_package(module, tree, scratch)
         try:
             completed = subprocess.run(
                 [sys.executable, "-m", "unittest", *UNIT_TESTS],
@@ -175,15 +202,29 @@ def unit_tests_kill(module, tree, timeout):
     return completed.returncode != 0
 
 
+def line_range(text):
+    first, _, last = text.partition("-")
+    return int(first), int(last or first)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--module", default="calls")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--corpus", action="append", default=[])
+    parser.add_argument("--lines", action="append", default=[], type=line_range)
+    parser.add_argument("--reanalyze", action="store_true")
     parser.add_argument("--worker", type=int, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--reanalyze-worker", action="store_true", help=argparse.SUPPRESS
+    )
     parser.add_argument("--analyses", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.reanalyze_worker:
+        reanalyze_worker(args.analyses)
+        return 0
     if args.worker is not None:
         worker(args.module, args.worker, args.analyses)
         return 0
@@ -191,47 +232,83 @@ def main(argv=None):
     import deepthought
 
     source = Path(deepthought.__file__).with_name(f"{args.module}.py").read_text()
-    count = len(sites(ast.parse(source)))
-    indices = range(count if args.limit is None else min(count, args.limit))
+    found = sites(ast.parse(source))
+    indices = [
+        index
+        for index, (node, _, _) in enumerate(found)
+        if not args.lines or any(a <= node.lineno <= b for a, b in args.lines)
+    ]
+    if args.limit is not None:
+        indices = indices[: args.limit]
     manifest = json.loads((ground_truth.CORPUS / "manifest.json").read_text())
+    corpora = [
+        c for c in manifest["corpora"] if not args.corpus or c["name"] in args.corpus
+    ]
+    unknown = set(args.corpus) - {c["name"] for c in corpora}
+    if unknown:
+        parser.error(f"unknown corpus: {', '.join(sorted(unknown))}")
     analyses = {}
-    for corpus in manifest["corpora"]:
+    fetched = []
+    for corpus in corpora:
         workspace = ground_truth.fetch(corpus, args.cache)
+        truth = ground_truth.read_truth(ground_truth.CORPUS / corpus["truth"])
+        fetched.append((corpus, str(workspace), truth))
         analyses[corpus["name"]] = (
             ground_truth.analyze(
                 workspace, corpus["languages"], corpus.get("exclude", ())
             ),
-            ground_truth.read_truth(ground_truth.CORPUS / corpus["truth"]),
+            truth,
         )
     reference = scores(analyses)
     results = []
     with tempfile.TemporaryDirectory() as scratch:
         cache = Path(scratch, "analyses.pickle")
         with open(cache, "wb") as stream:
-            pickle.dump((analyses, reference), stream)
+            pickle.dump(
+                (fetched, reference) if args.reanalyze else (analyses, reference),
+                stream,
+            )
         for index in indices:
             tree, description = mutant(source, index)
-            command = [
-                sys.executable,
-                str(Path(__file__).resolve()),
-                "--module",
-                args.module,
-                "--worker",
-                str(index),
-                "--analyses",
-                str(cache),
-            ]
-            try:
-                completed = subprocess.run(
-                    command, capture_output=True, text=True, timeout=args.timeout
-                )
-                if completed.returncode:
-                    outcome = "killed_by_error"
+            with tempfile.TemporaryDirectory() as package:
+                if args.reanalyze:
+                    mutated_package(args.module, tree, package)
+                    command = [
+                        sys.executable,
+                        str(Path(__file__).resolve()),
+                        "--reanalyze-worker",
+                        "--analyses",
+                        str(cache),
+                    ]
+                    env = {**os.environ, "PYTHONPATH": package}
                 else:
-                    killer = json.loads(completed.stdout.splitlines()[-1])["killed_by"]
-                    outcome = f"killed_by_corpus:{killer}" if killer else None
-            except subprocess.TimeoutExpired:
-                outcome = "killed_by_timeout"
+                    command = [
+                        sys.executable,
+                        str(Path(__file__).resolve()),
+                        "--module",
+                        args.module,
+                        "--worker",
+                        str(index),
+                        "--analyses",
+                        str(cache),
+                    ]
+                    env = None
+                try:
+                    completed = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=args.timeout,
+                        env=env,
+                    )
+                    if completed.returncode:
+                        outcome = "killed_by_error"
+                    else:
+                        last = completed.stdout.splitlines()[-1]
+                        killer = json.loads(last)["killed_by"]
+                        outcome = f"killed_by_corpus:{killer}" if killer else None
+                except subprocess.TimeoutExpired:
+                    outcome = "killed_by_timeout"
             if outcome is None:
                 outcome = (
                     "killed_by_unit_tests"
