@@ -1913,8 +1913,9 @@ Python, JavaScript/TypeScript and Go sources are read too
   `require(...)` or an import of a module's default (`module.exports = r`,
   `export default r`) or named (`exports.n = r`, `export const n = ...`)
   export. A path that is not literal is matched as if it added no segments,
-  and the route records `base_unknown`. Routers taken from a destructured
-  `require` are not read.
+  and the route records `base_unknown`. A destructured `require`
+  (`const { Router } = require('express')`) binds each name to the module's
+  export.
 - **Requests.** Python `requests` and `httpx` module calls (`get`, ...,
   `request(method, url)`), the same calls on a client object (a
   `requests.Session`, `httpx.Client`/`AsyncClient` or `aiohttp.ClientSession`

@@ -46,8 +46,8 @@ router.get('/:id', (req, res) => res.json({}));
 module.exports = router;
 """,
     "api/routes/health.js": """
-const express = require('express');
-const router = express.Router();
+const { Router: makeRouter } = require('express');
+const router = makeRouter();
 
 router.get('/live', (req, res) => res.send('up'));
 module.exports = router;

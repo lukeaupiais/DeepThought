@@ -663,14 +663,29 @@ def _js_modules(root, content):
             )
             if (
                 name is not None
-                and name.type == "identifier"
+                and name.type in ("identifier", "object_pattern")
                 and value is not None
                 and value.type == "call_expression"
                 and text(value.child_by_field_name("function"), content) == "require"
             ):
                 arguments = value.child_by_field_name("arguments").named_children
-                if arguments and arguments[0].type == "string":
-                    names[text(name, content)] = text(arguments[0], content)[1:-1]
+                if not arguments or arguments[0].type != "string":
+                    continue
+                module = text(arguments[0], content)[1:-1]
+                if name.type == "identifier":
+                    names[text(name, content)] = module
+                    continue
+                # const { Router, json: parse } = require('express')
+                for item in name.named_children:
+                    if item.type == "shorthand_property_identifier_pattern":
+                        names[text(item, content)] = f"{module}.{text(item, content)}"
+                    elif item.type == "pair_pattern":
+                        key = item.child_by_field_name("key")
+                        local = item.child_by_field_name("value")
+                        if local is not None and local.type == "identifier":
+                            names[text(local, content)] = (
+                                f"{module}.{text(key, content)}"
+                            )
         elif node.type == "import_statement":
             source = node.child_by_field_name("source")
             module = text(source, content)[1:-1] if source is not None else None
