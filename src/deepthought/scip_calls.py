@@ -9,7 +9,7 @@ shadow over covered files so that the two can be compared.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .calls import CallResolution, resolve_calls
@@ -78,18 +78,23 @@ class CallBinding:
     resolutions: tuple[CallResolution, ...]
     producers: dict
     disagreements: tuple[Disagreement, ...]
-    # Calls in covered files whose index target was suspect, so the
-    # parser's link was kept.
-    parser_kept: frozenset = frozenset()
+    # Calls in covered files that kept the parser's link, by why: the index
+    # target was suspect (SUSPECT) or the index has no occurrence there
+    # (NO_OCCURRENCE).
+    parser_kept: dict = field(default_factory=dict)
 
     def resolver(self, call_id) -> str:
-        """Who decided a call: ``scip``, ``scip_suspect_parser`` (a covered
-        call whose parser link was kept) or ``tree-sitter`` (a file no index
-        covers)."""
+        """Who decided a call: ``scip``; ``scip_suspect_parser`` or
+        ``scip_no_occurrence_parser`` (a covered call whose parser link was
+        kept over a suspect index target, or where the index has no
+        occurrence); or ``tree-sitter`` (a file no index covers)."""
         if call_id in self.producers:
             return "scip"
-        if call_id in self.parser_kept:
+        reason = self.parser_kept.get(call_id)
+        if reason == SUSPECT:
             return "scip_suspect_parser"
+        if reason == NO_OCCURRENCE:
+            return "scip_no_occurrence_parser"
         return "tree-sitter"
 
 
@@ -135,7 +140,7 @@ def bind_calls(
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
     bases = _Bases(result, definitions)
-    resolutions, producers, disagreements, kept = [], {}, [], set()
+    resolutions, producers, disagreements, kept = [], {}, [], {}
     for resolution in parsed:
         site = sites[resolution.call_id]
         view = covering.get(site.file)
@@ -154,19 +159,22 @@ def bind_calls(
         ):
             bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
         chosen = bound
-        if bound.reason == SUSPECT and by_call[site.id].status == "linked":
-            # A target the index may have wrong: the parser's stands.
+        if bound.reason in {SUSPECT, NO_OCCURRENCE} and (
+            by_call[site.id].status == "linked"
+        ):
+            # A target the index may have wrong, or no occurrence where the
+            # index made no decision (pyright emits none in code it deems
+            # unreachable, such as after a `with` block that raises inside
+            # a context manager that suppresses it): the parser's stands.
             chosen = by_call[site.id]
-            kept.add(site.id)
+            kept[site.id] = bound.reason
         else:
             producers[site.id] = (view.tool, view.receipt)
         resolutions.append(chosen)
         disagreement = _compare(site, bound, by_call[site.id], definitions)
         if disagreement is not None:
             disagreements.append(disagreement)
-    return CallBinding(
-        tuple(resolutions), producers, tuple(disagreements), frozenset(kept)
-    )
+    return CallBinding(tuple(resolutions), producers, tuple(disagreements), kept)
 
 
 class _Lines:

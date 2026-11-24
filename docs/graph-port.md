@@ -202,7 +202,11 @@ the producer and receipt, and a reason: `scip_no_occurrence` (no reference at
 the name), `scip_external` (a symbol defined outside the index),
 `scip_target_not_declaration` (a definition no parsed declaration names, such
 as a variable) or `multiple_declarations` (more than one target, with the
-candidates). The parser's rules are not used for it. Two scip-python 0.6.8
+candidates). The parser's rules are not used for it, except where the index
+has no reference at the name at all: there it made no decision (pyright
+records none in code it deems unreachable, such as after a `with` block whose
+context manager suppresses an exception raised inside), so a parser link
+stands. Two scip-python 0.6.8
 faults are guarded: in a Python file, a target whose name is not the name
 written at the call, unless an import binds that name to it (the index may
 follow a star re-export to the wrong function), and an external target for
@@ -215,8 +219,9 @@ the covered call sites where the two targets differ (file, line, callee, SCIP
 target file and line, parser target file and line, reason, rule). The
 tool's `call_resolution_by_resolver` metric counts call outcomes separately for
 `scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
-(the parser's link kept over a suspect index target) and `tree-sitter` (files
-no index covers).
+(the parser's link kept over a suspect index target),
+`scip_no_occurrence_parser` (the parser's link kept where the index has no
+reference) and `tree-sitter` (files no index covers).
 
 | Rule | Links |
 |---|---|

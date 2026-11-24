@@ -56,6 +56,7 @@ PY = (
     "        def inner():\n"
     "            self.x()\n"
     "        inner()\n"
+    "missing()\n"
 )
 BUILTIN = "scip-python python builtins 3 "
 EXTERNAL = "scip-typescript npm typescript 5 lib/Console#log()."
@@ -192,9 +193,16 @@ class ScipCallTests(unittest.TestCase):
                         scip_calls.SCIP_CALL_OCCURRENCE,
                         tool,
                     ),
-                    # A covered call with no occurrence is not given the
-                    # parser's target.
-                    ("a.ts", "helper", "unresolved", "scip_no_occurrence", None, tool),
+                    # Where the index has no occurrence, the parser's
+                    # link stands.
+                    (
+                        "a.ts",
+                        "helper",
+                        "linked",
+                        ("helper", 2),
+                        "tree-sitter.call-lexical-name",
+                        None,
+                    ),
                     (
                         "a.ts",
                         "over",
@@ -277,7 +285,7 @@ class ScipCallTests(unittest.TestCase):
         report = json.loads(out.getvalue())
         self.assertEqual(
             (report["confirmed"], report["by_rule"]["scip.call-occurrence"]),
-            (1, {"confirmed": 1, "not_indexed": 1}),
+            (2, {"confirmed": 1, "not_indexed": 1}),
         )
         self.assertEqual(
             written.read_text().splitlines(),
@@ -529,6 +537,10 @@ class ScipCallTests(unittest.TestCase):
         self.assertEqual(rows[("len", "unresolved")][3], "scip_external")
         self.assertEqual(rows[("self.z", "unresolved")][3], "scip_external")
         self.assertEqual(rows[("obj.x", "unresolved")][3], "scip_external")
+        # No occurrence and no parser link: unlinked, decided by the index.
+        self.assertEqual(
+            rows[("missing", "unresolved")][3:], ("scip_no_occurrence", None, tool)
+        )
         self.assertEqual(
             rows[("here", "linked")][3:],
             (("here", 12), scip_calls.SCIP_CALL_OCCURRENCE, tool),
@@ -538,10 +550,11 @@ class ScipCallTests(unittest.TestCase):
             sorted(
                 (sites[r.call_id].callee, binding.resolver(r.call_id))
                 for r in binding.resolutions
-                if sites[r.call_id].callee in {"thing", "here", "len"}
+                if sites[r.call_id].callee in {"thing", "here", "len", "inner"}
             ),
             [
                 ("here", "scip"),
+                ("inner", "scip_no_occurrence_parser"),
                 ("len", "scip"),
                 ("thing", "scip_suspect_parser"),
             ],
@@ -699,7 +712,7 @@ class ScipCallTests(unittest.TestCase):
             [row[2:] for row in found],
             [
                 ("linked", "K.constructor", constructor, ()),
-                ("unresolved", None, None, ()),
+                ("linked", "f", "tree-sitter.call-lexical-name", ()),
                 ("ambiguous", None, None, ("f", "g")),
                 ("linked", "K", occurrence, ()),
                 ("ambiguous", None, None, ("K", "K.constructor", "g")),
@@ -777,6 +790,13 @@ class ScipCallTests(unittest.TestCase):
                     None,
                 ),
                 (
+                    "helper",
+                    "tree-sitter.call-lexical-name",
+                    "name_matched",
+                    None,
+                    None,
+                ),
+                (
                     "inner",
                     "scip.call-local-symbol",
                     "resolved",
@@ -798,9 +818,9 @@ class ScipCallTests(unittest.TestCase):
                 "scip": {
                     "linked": 5,
                     "unresolved:scip_external": 1,
-                    "unresolved:scip_no_occurrence": 1,
                     "unresolved:scip_target_not_declaration": 1,
                 },
+                "scip_no_occurrence_parser": {"linked": 1},
                 "tree-sitter": {"linked": 1},
             },
         )
@@ -818,7 +838,6 @@ class ScipCallTests(unittest.TestCase):
             unresolved,
             [
                 ("console.log", "scip", "scip_external", "scip-typescript@1.0"),
-                ("helper", "scip", "scip_no_occurrence", "scip-typescript@1.0"),
                 (
                     "hh",
                     "scip",
