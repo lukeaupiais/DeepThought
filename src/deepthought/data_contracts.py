@@ -2438,6 +2438,11 @@ def extract_ruby_models(tree, content, file, definitions):
                                 table = _ruby_literal(right, content) or PLACEHOLDER
                             elif setting == "abstract_class":
                                 abstract = _text(right, content) == "true"
+                            elif (
+                                setting == "table_name_prefix"
+                                and _ruby_literal(right, content) is not None
+                            ):
+                                prefixes[path] = _ruby_literal(right, content)
                             elif setting in NAMING_SETTINGS:
                                 naming = True
                     elif (
@@ -2470,8 +2475,8 @@ def extract_ruby_models(tree, content, file, definitions):
                 walk(child, nesting)
 
     def visit(node, nesting):
-        if node.type != "call":
-            return
+        if node.type != "call" or node.child_by_field_name("method") is None:
+            return  # ``x.(args)`` calls ``call`` and names no method.
         method = _text(node.child_by_field_name("method"), content)
         receiver = node.child_by_field_name("receiver")
         if schema and receiver is None and method in ("create_table", "create_view"):
@@ -2590,6 +2595,12 @@ def resolve_active_record(classes, prefixes, overridden=False, inflections=None)
     def is_model(path):
         return path in single and chain(path) is not None
 
+    def class_prefix(path):
+        """A model's table_name_prefix: its own or the nearest
+        superclass's (a class attribute, or a ``self.table_name_prefix``
+        method), else none."""
+        return next((prefixes[a] for a in chain(path) if a in prefixes), "")
+
     tables, skipped = {}, []
     for path, c in sorted(single.items()):
         ancestors = chain(path)
@@ -2623,17 +2634,22 @@ def resolve_active_record(classes, prefixes, overridden=False, inflections=None)
         if module and is_model(outer) and not single[outer].abstract:
             tables[path] = ((outer, name), "nested")
             continue
-        # full_table_name_prefix: the innermost enclosing module that
-        # defines table_name_prefix; an enclosing ActiveRecord class has none.
-        prefix = ""
+        # full_table_name_prefix: the table_name_prefix of the innermost
+        # enclosing module or class that responds to it (a module defining
+        # it, or an ActiveRecord class), else the class's own, which a
+        # class inherits from its superclasses.
+        prefix = None
         while module:
             enclosing = "::".join(module)
+            if is_model(enclosing):
+                prefix = class_prefix(enclosing)
+                break
             if enclosing in prefixes:
                 prefix = prefixes[enclosing]
                 break
-            if is_model(enclosing):
-                break
             module.pop()
+        if prefix is None:
+            prefix = class_prefix(path)
         tables[path] = (table_key(prefix + name), "default")
     # Inherited and nested names refer to other models' tables.
     resolved = {}

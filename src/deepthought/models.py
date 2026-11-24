@@ -50,8 +50,12 @@ class Definition:
     # Rust ``macro_rules!``: whether ``#[macro_export]`` places the macro at
     # its crate's root. None elsewhere.
     macro_export: bool | None = None
+    # Python: True for a ``typing.overload`` signature. None elsewhere.
+    overload: bool | None = None
 
     def __post_init__(self):
+        if self.overload is not None and self.overload is not True:
+            raise ValueError("overload must be True or None")
         if self.macro_export is not None and type(self.macro_export) is not bool:
             raise ValueError("macro_export must be a boolean or None")
         if self.parameters is not None and (
@@ -212,8 +216,16 @@ class CallSite:
     # or comprehension around the call (a parameter, an assignment, a loop
     # variable): True. None elsewhere.
     shadowed: bool | None = None
+    # Go calls ``x.M()`` where ``x`` is declared in the function around the
+    # call: the type that declaration writes (``T`` or ``pkg.T``). None
+    # elsewhere.
+    receiver_type: str | None = None
 
     def __post_init__(self):
+        if self.receiver_type is not None and (
+            not isinstance(self.receiver_type, str) or not self.receiver_type
+        ):
+            raise ValueError("receiver_type must be a nonempty string or None")
         if self.shadowed not in (None, True):
             raise ValueError("shadowed must be True or None")
         if self.arguments is not None and (
@@ -508,6 +520,8 @@ class AnalysisResult:
                 del item["parameters"], item["variadic"]
             if item["macro_export"] is None:
                 del item["macro_export"]
+            if item["overload"] is None:
+                del item["overload"]
         for item in data["call_sites"]:
             if item["arguments"] is None:
                 del item["arguments"]
@@ -515,6 +529,8 @@ class AnalysisResult:
                 del item["anonymous"]
             if item["shadowed"] is None:
                 del item["shadowed"]
+            if item["receiver_type"] is None:
+                del item["receiver_type"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]

@@ -24,6 +24,8 @@ the others let a link at that position be judged right or wrong.
 
 Subcommands:
   derive WORKSPACE INDEX                   write expected calls (TSV) to stdout
+  derive-imports WORKSPACE INDEX --language L [--directory]
+                                           expected import targets (TSV)
   derive-java WORKSPACE                    the same from javac's attribution
                                            (tools/JavaCallTruth.java)
   score WORKSPACE TRUTH --language L       score the engine against a TSV
@@ -31,8 +33,12 @@ Subcommands:
                                            and compare with the baseline; the
                                            manifest's ``contracts`` corpora
                                            (labelled cross-service links) and
-                                           ``declarations`` corpora (C and C++
-                                           declarations from clang) too
+                                           ``declarations`` corpora (C, C++,
+                                           Ruby and PHP declarations from
+                                           each language's own parser) and
+                                           ``routes`` corpora (HTTP routes
+                                           and GraphQL fields labelled from
+                                           a spec) too
 
 Scores (calls):
   confirmed     linked, and the target is one the oracle names
@@ -46,6 +52,7 @@ Scores (calls):
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -110,23 +117,42 @@ def derive(workspace, index):
         elif d.native_id:
             kind = "callable" if _callable(d.native_id) else "value"
             defined.setdefault(d.native_id, set()).add((d.file, d.line, kind))
+    lines = {}
+
+    def text_of(file):
+        if file not in lines:
+            try:
+                lines[file] = (workspace / file).read_text("utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                lines[file] = []
+        return lines[file]
+
+    # scip-python gives the other declarations of an @overload group (the
+    # implementation too), and a redefinition in the same scope, the first
+    # one's symbol as a reference on a `def` line. Each is a declaration of
+    # that symbol, so a call to it may link to any of them.
+    for r in source.references:
+        locations = defined.get(r.native_id)
+        if not locations or r.line != r.end_line or not _callable(r.native_id):
+            continue
+        if not r.native_id.startswith("scip-python "):
+            continue
+        text = text_of(r.file)
+        if r.line <= len(text) and _DECLARES.search(
+            _slice(text[r.line - 1], 0, r.column, r.coordinate_encoding)
+        ):
+            locations.add((r.file, r.line, "callable"))
     for native, locations in list(defined.items()):
         if native.endswith("`<constructor>`()."):
             owner = native[: -len("`<constructor>`().")]
             locations |= {
                 (file, line, "callable") for file, line, _ in defined.get(owner, ())
             }
-    lines = {}
     expected = {}
     for r in source.references:
         if r.line != r.end_line:
             continue
-        if r.file not in lines:
-            try:
-                lines[r.file] = (workspace / r.file).read_text("utf-8").splitlines()
-            except (OSError, UnicodeDecodeError):
-                lines[r.file] = []
-        text = lines[r.file]
+        text = text_of(r.file)
         if r.line > len(text):
             continue
         line = text[r.line - 1]
@@ -166,9 +192,10 @@ def java_source_roots(workspace):
     return sorted(roots)
 
 
-def derive_java(workspace, java="java", bases=False):
-    """Expected calls (or, with ``bases``, declared supertypes) from javac,
-    attributing one source root at a time."""
+def derive_java(workspace, java="java", bases=False, chains=False):
+    """Expected calls (or, with ``bases``, declared supertypes; with
+    ``chains``, explicit constructor invocations) from javac, attributing one
+    source root at a time."""
     workspace = Path(workspace).resolve()
     roots = java_source_roots(workspace)
     oracle = Path(__file__).with_name("JavaCallTruth.java")
@@ -186,6 +213,7 @@ def derive_java(workspace, java="java", bases=False):
                 "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
                 str(oracle),
                 *(["--bases"] if bases else []),
+                *(["--chains"] if chains else []),
                 str(workspace),
                 root,
                 *others,
@@ -319,7 +347,8 @@ def score(result, truth, examples=10):
     near = {}
     for resolution in resolve_calls(result):
         site = sites[resolution.call_id]
-        name = re.split(r"::|\.", site.callee)[-1]
+        # TypeScript private names: the index names `#m` as `m`.
+        name = re.split(r"::|\.", site.callee)[-1].lstrip("#")
         keys = [
             (site.file, line, name)
             for line in range(site.line, site.end_line + 1)
@@ -453,6 +482,25 @@ def regressions(report, baseline):
     return problems
 
 
+def impact_regressions(report, baseline):
+    """Fewer oracle dependents reached, more wrong ones, or a changed truth."""
+    problems = []
+    if report["confirmed"] < baseline["confirmed"]:
+        problems.append(f"confirmed {baseline['confirmed']} -> {report['confirmed']}")
+    if report["extra"] > baseline["extra"]:
+        problems.append(f"extra {baseline['extra']} -> {report['extra']}")
+    if (report["seeds"], report["expected"]) != (
+        baseline["seeds"],
+        baseline["expected"],
+    ):
+        problems.append(
+            f"seeds/expected {baseline['seeds']}/{baseline['expected']} -> "
+            f"{report['seeds']}/{report['expected']} "
+            "(the truth file changed; update the baseline in the same commit)"
+        )
+    return problems
+
+
 CONTRACT_COUNTS = ("true_positive", "predicted", "labelled_in_scope")
 
 
@@ -480,6 +528,81 @@ def score_contracts(corpus, workspace):
             for level in ("call_sites", "service_pairs")
         }
     return report, samples
+
+
+def score_routes(corpus, workspace, examples=10):
+    """The routes and GraphQL root fields the engine reads, against labels
+    taken from a source the code does not produce (an API spec, a committed
+    generated schema).
+
+    HTTP routes match on method and path (``{var}`` for any parameter); a
+    GraphQL field is found only when a resolver ``HANDLES`` it. *extra* is
+    what the engine reads that the labels do not list, apart from
+    ``neutral_http`` entries (real routes beyond the spec).
+    """
+    import asyncio
+
+    from deepthought.analysis_tools import ServiceContractTool
+
+    labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    tool = ServiceContractTool(Path(workspace))
+    output = asyncio.run(tool.analyze("routes"))
+    _, routes, _, _, _ = tool.last_facts
+    read_http = {(m, r.path) for r in routes for m in r.methods}
+    fields = {
+        n.properties["qualified_name"]: n.properties["name"]
+        for n in output.nodes
+        if "GraphqlField" in n.labels
+    }
+    handled = {
+        fields[r.target_match["qualified_name"]]
+        for r in output.relationships
+        if r.type == "HANDLES" and r.target_match.get("qualified_name") in fields
+    }
+    report, samples = {}, {}
+    for kind, expected, read, neutral in (
+        (
+            "http",
+            {tuple(x) for x in labels.get("http", ())},
+            read_http,
+            {tuple(x) for x in labels.get("neutral_http", ())},
+        ),
+        ("graphql", set(labels.get("graphql", ())), handled, set()),
+    ):
+        if not expected:
+            continue
+        extra = read - expected - neutral
+        report[kind] = {
+            "expected": len(expected),
+            "found": len(expected & read),
+            "extra": len(extra),
+        }
+        samples[kind] = {
+            "missed": sorted(expected - read)[:examples],
+            "extra": sorted(extra)[:examples],
+        }
+    return report, samples
+
+
+def route_regressions(report, baseline):
+    """Fewer labelled routes or fields read, more unlabelled ones, or
+    changed labels, per kind."""
+    problems = []
+    for kind, before in sorted(baseline.items()):
+        after = report.get(kind)
+        if after is None:
+            problems.append(f"{kind}: no longer scored")
+            continue
+        if after["found"] < before["found"]:
+            problems.append(f"{kind} found {before['found']} -> {after['found']}")
+        if after["extra"] > before["extra"]:
+            problems.append(f"{kind} extra {before['extra']} -> {after['extra']}")
+        if after["expected"] != before["expected"]:
+            problems.append(
+                f"{kind} expected {before['expected']} -> {after['expected']} "
+                "(the labels changed; update the baseline in the same commit)"
+            )
+    return problems
 
 
 def contract_regressions(report, baseline):
@@ -534,7 +657,10 @@ def missing_requirements(manifest, names=()):
     for corpus in manifest["corpora"] + manifest.get("declarations", []):
         if selected(corpus):
             modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
-    if any(selected(c) for c in manifest.get("contracts", ())):
+    if any(
+        selected(c)
+        for c in [*manifest.get("contracts", ()), *manifest.get("routes", ())]
+    ):
         modules.update(CONTRACT_MODULES)
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
@@ -594,6 +720,39 @@ def check(names, cache, update=False, examples=10):
                     "inherits: " + p
                     for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
                 ]
+        if "imports" in corpus:
+            imported, import_samples = score_imports(
+                result,
+                read_truth(CORPUS / corpus["imports"]),
+                corpus.get("imports_granularity") == "directory",
+                examples,
+            )
+            report["imports"] = imported
+            samples["imports"] = import_samples
+            if not update and "imports" in baseline.get(corpus["name"], {}):
+                problems += [
+                    "imports: " + p
+                    for p in regressions(imported, baseline[corpus["name"]]["imports"])
+                ]
+        if "impact" in corpus:
+            import impact_truth
+
+            path = CORPUS / corpus["impact"]
+            impact, impact_samples = impact_truth.score(
+                result,
+                impact_truth.read(path),
+                examples=examples,
+                aliases=impact_truth.read_aliases(path),
+            )
+            report["impact"] = impact
+            samples["impact"] = impact_samples
+            if not update and "impact" in baseline.get(corpus["name"], {}):
+                problems += [
+                    "impact: " + p
+                    for p in impact_regressions(
+                        impact, baseline[corpus["name"]]["impact"]
+                    )
+                ]
         failed |= bool(problems)
         reports[corpus["name"]] = {
             "commit": corpus["commit"],
@@ -647,9 +806,204 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             contracts[corpus["name"]] = report
+    routed = baseline.setdefault("routes", {})
+    for corpus in manifest.get("routes", ()):
+        if names and corpus["name"] not in names:
+            continue
+        report, samples = score_routes(corpus, fetch(corpus, cache), examples)
+        problems = (
+            route_regressions(report, routed[corpus["name"]])
+            if (corpus["name"] in routed and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "routes": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            routed[corpus["name"]] = report
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
+
+
+# Lines that can hold an import's module: a module named elsewhere (a
+# Python `click.echo(...)`) is a use, not an import.
+_IMPORT_LINE = {
+    "python": re.compile(r"^\s*(?:from|import)\s"),
+    "typescript": re.compile(r"\b(?:from|import|require)\b"),
+    "javascript": re.compile(r"\b(?:from|import|require)\b"),
+    "go": re.compile(r"^\s*(?:import\s+)?(?:[\w.]+\s+)?\"[^\"]*\"\s*(?://.*)?$"),
+}
+_RELATIVE_IMPORT = re.compile(r"^\s*from\s+(\.+)([\w.]*)\s+import\b")
+
+
+def _without_version(symbol):
+    """A SCIP symbol without backticks or its package version: an indexer can
+    name one package with two versions (scip-python: the installed version
+    for some references, the commit for definitions)."""
+    parts = symbol.replace("`", "").split(" ", 4)
+    if len(parts) == 5:
+        del parts[3]
+    return " ".join(parts)
+
+
+def derive_imports(workspace, index, language, directory=False):
+    """Expected import targets from an index's module references.
+
+    On each line holding a reference to a module or package symbol, the
+    rightmost such reference (the innermost module of a dotted path) names
+    what the import statement imports: the files that define that symbol
+    (their directories when ``directory``, as for Go packages), or
+    ``external`` when the repository defines none. scip-python names a
+    relative import's module without its package, so for Python the module
+    is rebuilt from the leading dots and the importing module's own name.
+
+    Returns calls-format truth keyed by ``(file, line, "import")``.
+    """
+    from deepthought._scip import scip_pb2
+
+    workspace = Path(workspace)
+    index_data = scip_pb2.Index()
+    index_data.ParseFromString(Path(index).read_bytes())
+    defined, own = {}, {}
+    for document in index_data.documents:
+        for occurrence in document.occurrences:
+            if occurrence.symbol_roles & 1:
+                symbol = _without_version(occurrence.symbol)
+                defined.setdefault(symbol, set()).add(document.relative_path)
+                if symbol.endswith("/__init__:"):
+                    own.setdefault(document.relative_path, symbol)
+
+    def module(symbol):
+        return not symbol.startswith("local ") and symbol.endswith(("/", ":"))
+
+    def absolute(symbol, file, text):
+        match = _RELATIVE_IMPORT.match(text)
+        if not match or file not in own:
+            return symbol
+        head, tail = own[file].rsplit(" ", 1)
+        package = tail[: -len("/__init__:")].split(".")
+        if not file.endswith("__init__.py"):
+            package = package[:-1]
+        package = package[: len(package) - (len(match.group(1)) - 1)]
+        name = ".".join(package + ([match.group(2)] if match.group(2) else []))
+        return f"{head} {name}/__init__:"
+
+    statement = _IMPORT_LINE[language]
+    expected = {}
+    for document in index_data.documents:
+        file = document.relative_path
+        if file.startswith("../"):
+            continue  # Generated outside the repository (scip-go's build cache).
+        rightmost = {}
+        for occurrence in document.occurrences:
+            if occurrence.symbol_roles & 1 or not module(occurrence.symbol):
+                continue
+            line = occurrence.range[0] + 1
+            column = occurrence.range[1]
+            if line not in rightmost or column > rightmost[line][0]:
+                rightmost[line] = (column, occurrence.symbol)
+        if not rightmost:
+            continue
+        try:
+            text = (workspace / file).read_text("utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            text = []
+        for line, (_, symbol) in rightmost.items():
+            if line > len(text) or not statement.search(text[line - 1]):
+                continue  # A module named in code, not in an import.
+            symbol = _without_version(symbol)
+            if language == "python" and line <= len(text):
+                symbol = absolute(symbol, file, text[line - 1])
+            targets = defined.get(symbol, set())
+            if directory:
+                targets = {Path(t).parent.as_posix() for t in targets}
+            expected[(file, line, "import")] = (
+                {(t, 0, "module") for t in targets}
+                if targets
+                else {("-", 0, "external")}
+            )
+    indexed = {
+        document.relative_path
+        for document in index_data.documents
+        if not document.relative_path.startswith("../")
+    }
+    return expected, indexed
+
+
+def score_imports(result, truth, directory=False, examples=10):
+    """Import resolutions judged against module-reference truth.
+
+    An import statement is judged by the truth lines it spans. It is
+    *confirmed* when it links to an expected target, *contradicted* when it
+    links only elsewhere while the truth names a repository target,
+    *linked_external* when it links but the oracle says the module is
+    outside the repository. Recall is over truth lines with a repository
+    target: found when an import spanning the line links to one of them.
+    """
+    from deepthought.imports import resolve_imports
+
+    expected, indexed = truth
+    imports = {i.id: i for i in result.imports}
+    counts = Counter()
+    found = set()
+    samples = {"contradicted": [], "linked_external": [], "missed": []}
+    for resolution in resolve_imports(result):
+        item = imports[resolution.import_id]
+        if item.file not in indexed:
+            counts["not_indexed"] += 1
+            continue
+        keys = [
+            (item.file, n, "import")
+            for n in range(item.line, item.end_line + 1)
+            if (item.file, n, "import") in expected
+        ]
+        if not keys:
+            counts[f"{resolution.status}_unjudged"] += 1
+            continue
+        want = {t[0] for key in keys for t in expected[key] if t[2] == "module"}
+        got = {link.target_file for link in resolution.links}
+        if directory:
+            got = {Path(t).parent.as_posix() for t in got}
+        if resolution.status != "linked":
+            counts[f"{resolution.status}_{'expected' if want else 'external'}"] += 1
+        elif not want:
+            counts["linked_external"] += 1
+            samples["linked_external"].append([item.file, item.line, item.specifier])
+        elif got & want:
+            counts["confirmed"] += 1
+            found.update(k for k in keys if {t[0] for t in expected[k]} & got)
+        else:
+            counts["contradicted"] += 1
+            samples["contradicted"].append(
+                [item.file, item.line, item.specifier, sorted(got), sorted(want)]
+            )
+    repository = {
+        key
+        for key, targets in expected.items()
+        if any(t[2] == "module" for t in targets)
+    }
+    samples["missed"] = [list(k[:2]) for k in sorted(repository - found)]
+    for name in samples:
+        samples[name] = samples[name][:examples]
+    judged = counts["confirmed"] + counts["contradicted"] + counts["linked_external"]
+    report = {
+        "expected": len(repository),
+        "confirmed": counts["confirmed"],
+        "contradicted": counts["contradicted"] + counts["linked_external"],
+        **{
+            k: v
+            for k, v in sorted(counts.items())
+            if k not in {"confirmed", "contradicted"}
+        },
+        "precision": round(counts["confirmed"] / judged, 4) if judged else None,
+        "recall": round(len(found) / len(repository), 4) if repository else None,
+    }
+    return report, samples
 
 
 def score_inherits(result, truth, examples=10):
@@ -790,6 +1144,95 @@ def rule_coverage(reports):
     }
 
 
+# Per layer, the counts a PR summary shows: (metric, higher is better).
+SUMMARY_METRICS = {
+    "calls": (("confirmed", True), ("contradicted", False), ("recall", True)),
+    "inherits": (("confirmed", True), ("contradicted", False)),
+    "imports": (("confirmed", True), ("contradicted", False)),
+    "impact": (
+        ("confirmed", True),
+        ("extra", False),
+        ("recall", True),
+        ("precision", True),
+    ),
+    "declarations": (("found", True), ("kind_mismatch", False), ("extra", False)),
+    "contracts": (("true_positive", True), ("false_positive", False)),
+    "routes": (("found", True), ("extra", False), ("expected", True)),
+}
+
+
+def _contract_totals(report):
+    """Call-site links summed over link kinds: (true positives, false ones)."""
+    true = predicted = 0
+    for levels in report.values():
+        counts = levels.get("call_sites", {})
+        true += counts.get("true_positive", 0)
+        predicted += counts.get("predicted", 0)
+    return {"true_positive": true, "false_positive": predicted - true}
+
+
+def summary(reports, baseline):
+    """A Markdown table of every layer's scores against the baseline.
+
+    ``check`` writes it to ``$GITHUB_STEP_SUMMARY`` when that is set, so each
+    PR's run shows how call, impact and other scores moved, not only whether
+    the gate passed. A changed value is shown with its difference in bold.
+    """
+
+    def layers(name, report, base):
+        if "declarations" in report:
+            yield (
+                "declarations",
+                report["declarations"],
+                base.get("declarations", {}).get(name),
+            )
+        elif "routes" in report:
+            before = base.get("routes", {}).get(name, {})
+            for kind, counts in sorted(report["routes"].items()):
+                yield f"routes ({kind})", counts, before.get(kind)
+        elif "contracts" in report:
+            before = base.get("contracts", {}).get(name)
+            yield (
+                "contracts",
+                _contract_totals(report["contracts"]),
+                _contract_totals(before) if before else None,
+            )
+        else:
+            yield "calls", report, base.get(name)
+            for layer in ("inherits", "imports", "impact"):
+                if layer in report:
+                    yield layer, report[layer], base.get(name, {}).get(layer)
+
+    def cell(now, before):
+        if now is None:
+            return "–"
+        if before is None or now == before:
+            return f"{now}"
+        delta = round(now - before, 4)
+        return f"{now} (**{delta:+}**)"
+
+    lines = [
+        "### Ground truth against the baseline",
+        "",
+        "| Corpus | Layer | Scores |",
+        "|---|---|---|",
+    ]
+    for name, report in reports.items():
+        for layer, now, before in layers(name, report, baseline):
+            values = ", ".join(
+                f"{metric} {cell(now.get(metric), (before or {}).get(metric))}"
+                for metric, _ in SUMMARY_METRICS[layer.split(" ")[0]]
+            )
+            lines.append(f"| {name} | {layer} | {values} |")
+        if report.get("regressions"):
+            lines.append(
+                f"| {name} | **regressions** | "
+                + "; ".join(report["regressions"])
+                + " |"
+            )
+    return "\n".join(lines) + "\n"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -799,10 +1242,18 @@ def main(argv=None):
     i = sub.add_parser("derive-inherits")
     i.add_argument("workspace", type=Path)
     i.add_argument("index", type=Path)
+    m = sub.add_parser("derive-imports")
+    m.add_argument("workspace", type=Path)
+    m.add_argument("index", type=Path)
+    m.add_argument("--language", required=True)
+    m.add_argument("--directory", action="store_true", help="targets are packages")
     j = sub.add_parser("derive-java")
     j.add_argument("workspace", type=Path)
     j.add_argument("--java", default="java")
     j.add_argument("--bases", action="store_true")
+    j.add_argument(
+        "--chains", action="store_true", help="this(...) and super(...) only"
+    )
     s = sub.add_parser("score")
     s.add_argument("workspace", type=Path)
     s.add_argument("truth", type=Path)
@@ -821,8 +1272,17 @@ def main(argv=None):
     if args.command == "derive-inherits":
         write_truth(*derive_inherits(args.workspace, args.index), sys.stdout)
         return 0
+    if args.command == "derive-imports":
+        write_truth(
+            *derive_imports(args.workspace, args.index, args.language, args.directory),
+            sys.stdout,
+        )
+        return 0
     if args.command == "derive-java":
-        write_truth(*derive_java(args.workspace, args.java, args.bases), sys.stdout)
+        write_truth(
+            *derive_java(args.workspace, args.java, args.bases, args.chains),
+            sys.stdout,
+        )
         return 0
     if args.command == "score":
         report, samples = score(
@@ -832,6 +1292,7 @@ def main(argv=None):
         )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0
+    baseline = json.loads((CORPUS / "baseline.json").read_text("utf-8"))
     try:
         reports, failed = check(
             set(args.corpus), args.cache, args.update_baseline, args.examples
@@ -841,6 +1302,9 @@ def main(argv=None):
         return 2
     coverage = rule_coverage(reports)
     print(json.dumps({"corpora": reports, "rule_coverage": coverage}, indent=2))
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+            out.write(summary(reports, baseline))
     return 1 if failed else 0
 
 

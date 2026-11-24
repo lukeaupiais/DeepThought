@@ -9,7 +9,12 @@ import unittest
 import deepthought
 from deepthought import analyze_repository
 from deepthought.analysis_tools.evidence import registered_rules
-from deepthought.calls import CALL_IMPORTED_NAME, CALL_SELF_METHOD, resolve_calls
+from deepthought.calls import (
+    CALL_IMPORTED_NAME,
+    CALL_PRIVATE_NAME,
+    CALL_SELF_METHOD,
+    resolve_calls,
+)
 from deepthought.imports import (
     JAVASCRIPT_EXTENSIONLESS_MODULE,
     JAVASCRIPT_RELATIVE_FILE,
@@ -258,6 +263,34 @@ class JavaScriptCallTests(unittest.TestCase):
             {
                 "this.store": ("linked", "Shelf.store", CALL_SELF_METHOD),
                 "build": ("linked", "make", CALL_IMPORTED_NAME),
+            },
+        )
+
+    def test_private_names_link_to_the_enclosing_class(self):
+        result = analyze(
+            {
+                "main.js": (
+                    "class Shelf {\n"
+                    "  #store() {}\n"
+                    "  add(other) { this.#store(); other.#store(); }\n"
+                    "}\n"
+                ),
+            }
+        )
+        sites = {site.id: site for site in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                definitions[r.target_id].symbol if r.target_id else None,
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual(
+            found,
+            {
+                "this.#store": ("Shelf.#store", CALL_SELF_METHOD),
+                "other.#store": ("Shelf.#store", CALL_PRIVATE_NAME),
             },
         )
 

@@ -567,9 +567,12 @@ def _is_test_source(path):
 
 
 def _is_ruby_test(path):
-    """Rails and Laravel test trees: test/, tests/, spec/ and their nested
-    copies."""
-    return any(part in ("test", "tests", "spec") for part in path.split("/")[:-1])
+    """Rails and Laravel test trees (test/, tests/, spec/ and their nested
+    copies) and vendored third-party code (vendor/, where Bundler caches
+    gems and Composer installs packages)."""
+    return any(
+        part in ("test", "tests", "spec", "vendor") for part in path.split("/")[:-1]
+    )
 
 
 def table_name(repo_url, scope, name):
