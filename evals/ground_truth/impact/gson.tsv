@@ -307,6 +307,8 @@ gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/c
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/MixedStreamTest.java	185	testWriteHtmlSafeWithEscaping	2
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/MixedStreamTest.java	196	testWriteHtmlSafeWithoutEscaping	2
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/MixedStreamTest.java	206	testWriteLenient	2
+gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/ObjectTypeAdapterParameterizedTest.java	30	ObjectTypeAdapterParameterizedTest	2
+gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/ObjectTypeAdapterTest.java	31	ObjectTypeAdapterTest	2
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/DelegateTypeAdapterTest.java	79	create	2
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/InheritanceTest.java	127	testBaseSerializedAsBaseWhenSpecifiedWithExplicitType	3
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/InheritanceTest.java	143	testBaseSerializedAsSubWhenSpecifiedWithExplicitType	3
@@ -346,6 +348,7 @@ gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/c
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/PrimitiveTest.java	166	testToJsonTreePreservesIntegralType	3
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/ReflectionAccessTest.java	55	testRestrictiveSecurityManager	2
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	164	create	2
+gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	42	StreamingTypeAdaptersTest	1
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	101	testSerializeWithCustomTypeAdapter	3
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	110	testDeserializeWithCustomTypeAdapter	3
 gson/src/main/java/com/google/gson/Gson.java	340	getAdapter	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	119	usePersonNameAdapter	2
@@ -1623,13 +1626,16 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	extras/s
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	163	testSerializeMissingSubtype	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	179	testSerializeCollidingTypeFieldName	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	extras/src/test/java/com/google/gson/typeadapters/RuntimeTypeAdapterFactoryTest.java	196	testSerializeWrappedNullValue	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	extras/src/test/java/com/google/gson/typeadapters/UtcDateTypeAdapterTest.java	33	UtcDateTypeAdapterTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	extras/src/test/java/com/google/gson/typeadapters/UtcDateTypeAdapterTest.java	62	testUtcDatesOnJdkBefore1_7	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/main/java/com/google/gson/Gson.java	243	Gson	2
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/main/java/com/google/gson/Gson.java	247	Gson	1
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/main/java/com/google/gson/GsonBuilder.java	93	GsonBuilder	1
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/main/java/com/google/gson/GsonBuilder.java	922	create	2
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	0
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/CommentsTest.java	34	testParseComments	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/DefaultInetAddressTypeAdapterTest.java	35	setUp	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/DefaultMapJsonSerializerTest.java	33	DefaultMapJsonSerializerTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/DefaultMapJsonSerializerTest.java	57	testNonEmptyMapSerialization	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/GsonBuilderTest.java	54	testCreatingMoreThanOnce	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/GsonBuilderTest.java	73	testModificationAfterCreate	3
@@ -1659,6 +1665,7 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/GsonTest.java	548	testNewBuilderModification	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	39	setUp	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/GsonTypeAdapterTest.java	149	assertSerialized	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/JavaSerializationTest.java	37	JavaSerializationTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/JsonParserTest.java	153	testReadWriteTwoObjects	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/LongSerializationPolicyTest.java	43	testDefaultLongSerializationIntegration	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/LongSerializationPolicyTest.java	51	testDefaultLongSerializationNull	3
@@ -1677,6 +1684,8 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/MixedStreamTest.java	185	testWriteHtmlSafeWithEscaping	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/MixedStreamTest.java	196	testWriteHtmlSafeWithoutEscaping	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/MixedStreamTest.java	206	testWriteLenient	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/ObjectTypeAdapterParameterizedTest.java	30	ObjectTypeAdapterParameterizedTest	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/ObjectTypeAdapterTest.java	31	ObjectTypeAdapterTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/OverrideCoreTypeAdaptersTest.java	61	testOverrideWrapperBooleanAdapter	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/OverrideCoreTypeAdaptersTest.java	71	testOverridePrimitiveBooleanAdapter	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/OverrideCoreTypeAdaptersTest.java	81	testOverrideStringAdapter	3
@@ -1772,6 +1781,7 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/InstanceCreatorTest.java	96	testInstanceCreatorForParametrizedType	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/InterfaceTest.java	38	setUp	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/InternationalizationTest.java	34	setUp	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/Java17RecordTest.java	47	Java17RecordTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/Java17RecordTest.java	107	testFieldNamingStrategy	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/Java17RecordTest.java	253	testPrimitiveAdapterNullValue	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/Java17RecordTest.java	309	testStaticFieldSerialization	3
@@ -1788,6 +1798,7 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JavaUtilConcurrentAtomicTest.java	71	testAtomicLongWithStringSerializationPolicy	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JavaUtilConcurrentAtomicTest.java	103	testAtomicLongArrayWithStringSerializationPolicy	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JavaUtilTest.java	32	setUp	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java	40	JdkOptionalTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java	55	testEmptyOptionalSerializeNulls	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java	99	testOptionalFieldSerialization_serializeNulls	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/JdkOptionalTest.java	155	testOptionalDouble	3
@@ -1955,11 +1966,14 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/ReflectionAccessTest.java	114	assertInaccessibleException	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/ReflectionAccessTest.java	145	testSerializeInternalImplementationObject	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/ReusedTypeVariablesFullyResolveTest.java	39	setUp	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/RuntimeTypeAdapterFactoryFunctionalTest.java	39	RuntimeTypeAdapterFactoryFunctionalTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/SecurityTest.java	44	testNonExecutableJsonSerialization	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/SecurityTest.java	54	testNonExecutableJsonDeserialization	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/SecurityTest.java	62	testJsonWithNonExecutableTokenSerialization	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/SecurityTest.java	73	testJsonWithNonExecutableTokenWithRegularGsonDeserialization	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/SecurityTest.java	88	testJsonWithNonExecutableTokenWithConfiguredGsonDeserialization	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/SerializedNameTest.java	24	SerializedNameTest	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	42	StreamingTypeAdaptersTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	119	usePersonNameAdapter	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/StreamingTypeAdaptersTest.java	182	testNullSafe	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/functional/StringTest.java	35	setUp	3
@@ -2010,9 +2024,12 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	gson/src/test/java/com/google/gson/metrics/PerformanceTest.java	284	testLargeGsonMapRoundTrip	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	metrics/src/main/java/com/google/gson/metrics/BagOfPrimitivesDeserializationBenchmark.java	42	setUp	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	metrics/src/main/java/com/google/gson/metrics/CollectionsDeserializationBenchmark.java	47	setUp	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	metrics/src/main/java/com/google/gson/metrics/ParseBenchmark.java	279	GsonBindParser	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	metrics/src/main/java/com/google/gson/metrics/SerializationBenchmark.java	41	setUp	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	59	LegacyProtoTypeAdapterFactoryTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	405	customStringAdapter	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	proto/src/test/java/com/google/gson/protobuf/functional/LegacyProtoTypeAdapterFactoryTest.java	440	applyFieldNamingPolicy	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	proto/src/test/java/com/google/gson/protobuf/functional/StructTypeAdapterTest.java	36	StructTypeAdapterTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	34	testPublicRecord	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	44	testPrivateRecord	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	51	testLocalRecord	3
@@ -2023,6 +2040,7 @@ gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-gra
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	123	testCustomClassAdapter	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	147	testCustomFieldAdapter	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/Java17RecordReflectionTest.java	158	testCustomAdapter	3
+gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/JavaTimeTest.java	28	JavaTimeTest	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java	40	testDefaultConstructor	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java	56	testCustomDefaultConstructor	3
 gson/src/main/java/com/google/gson/GsonBuilder.java	926	createFactories	test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java	85	testClassWithoutDefaultConstructor	3

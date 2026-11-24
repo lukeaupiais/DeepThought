@@ -183,6 +183,31 @@ class NameLineTests(unittest.TestCase):
         self.assertEqual(impact_truth.call_graph(nodes, calls), {})
 
 
+class InitializerTests(unittest.TestCase):
+    def test_a_field_initializer_call_belongs_to_its_class(self):
+        # class T at 1-9: a field initializer at 2 and one at 3-5 holding an
+        # anonymous class whose method run() spans 4-4; a method m at 7-8.
+        nodes = {
+            ("T.java", 4): ("run", 4, 4),
+            ("T.java", 7): ("m", 7, 8),
+            ("L.java", 1): ("get", 1, 2),
+        }
+        regions = [("T.java", 1, 2, 2), ("T.java", 1, 3, 5)]
+        calls = {
+            ("T.java", 2, "get"): {("L.java", 1, "callable")},
+            ("T.java", 4, "get"): {("L.java", 1, "callable")},
+            ("T.java", 8, "get"): {("L.java", 1, "callable")},
+        }
+        incoming = impact_truth.call_graph(nodes, calls, None, True, regions)
+        self.assertEqual(
+            incoming[("L.java", 1)], {("T.java", 1), ("T.java", 4), ("T.java", 7)}
+        )
+        self.assertEqual(
+            impact_truth.call_graph(nodes, calls, None, True)[("L.java", 1)],
+            {("T.java", 4), ("T.java", 7)},
+        )
+
+
 class SameNameTests(unittest.TestCase):
     def test_a_function_is_not_folded_onto_a_method_of_the_same_name(self):
         import deepthought
