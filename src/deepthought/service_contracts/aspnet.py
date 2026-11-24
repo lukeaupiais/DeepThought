@@ -249,6 +249,7 @@ def extract_aspnet(tree, content, repository_id, file, definitions):
                 path=full,
                 framework=framework,
                 base_unknown=base_unknown,
+                case_insensitive=True,
             )
         )
 

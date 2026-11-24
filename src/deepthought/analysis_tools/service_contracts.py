@@ -60,6 +60,12 @@ from ..service_contracts.messaging import (
 )
 from ..service_contracts.openapi import generated_apis
 from ..service_contracts.aspnet import extract_aspnet
+from ..service_contracts.csharp_http import (
+    extract_csharp_requests,
+    global_usings,
+    typed_client_bases,
+    typed_client_registrations,
+)
 from ..service_contracts.php import extract_php
 from ..service_contracts.spring import (
     SpringConfig,
@@ -1393,6 +1399,21 @@ class ServiceContractTool(AnalysisTool):
                     tree, content, constants
                 ).items():
                     constructions.setdefault(qualified, []).extend(calls)
+        # Base addresses of C# typed HttpClients.
+        csharp = [
+            (coverage.file, tree, content)
+            for coverage, content, tree in sources
+            if coverage.language == "csharp"
+        ]
+        client_bases = typed_client_bases(
+            typed_client_registrations(c for c in csharp if b"AddHttpClient" in c[2]),
+            [
+                d.symbol
+                for d in result.definitions
+                if d.kind in ("Class", "Struct", "Record") and d.file.endswith(".cs")
+            ],
+            global_usings(root, (c for c in csharp if b"global using" in c[2])),
+        )
         # Spring interfaces openapi-generator makes from specs at build time.
         # Java API classes it makes for clients, and the modules that set a
         # client's base URL at run time (ApiClient.setBasePath / setServers).
@@ -1456,8 +1477,20 @@ class ServiceContractTool(AnalysisTool):
         calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
             if coverage.language == "csharp":
-                found = extract_aspnet(
+                routes_found, _, unread_found = extract_aspnet(
                     tree, content, repo_url, coverage.file, result.definitions
+                )
+                found = (
+                    routes_found,
+                    extract_csharp_requests(
+                        tree,
+                        content,
+                        repo_url,
+                        coverage.file,
+                        result.definitions,
+                        client_bases,
+                    ),
+                    unread_found,
                 )
             elif coverage.language == "php":
                 found = extract_php(
@@ -2274,10 +2307,10 @@ class ServiceContractTool(AnalysisTool):
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
-                "fetch, axios, request and Go net/http requests with folded URLs, "
-                "outside test source sets; services named by their Compose or "
-                "Skaffold-built Kubernetes deployments, Locust --host read from "
-                "them; requests linked to routes by service "
+                "fetch, axios, request, Go net/http and C# HttpClient requests with "
+                "folded URLs, outside test source sets; services named by their "
+                "Compose or Skaffold-built Kubernetes deployments, Locust --host "
+                "read from them; requests linked to routes by service "
                 "name and path template, never by traced values; gRPC "
                 "methods from .proto files, their Go, Python, Java, Node and C# "
                 "servers and stub calls, matched by proto service and rpc name",

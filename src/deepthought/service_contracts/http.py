@@ -189,16 +189,22 @@ def method_compatible(request_method: str | None, route_methods) -> bool:
 def best_routes(request_method, request_segments, routes):
     """The routes tied for the most specific compatible match.
 
-    ``routes`` are (key, methods, segments). The ranks are compared segment by
+    ``routes`` are (key, methods, segments), or (key, methods, segments,
+    case_insensitive) where a true flag compares the request's segments
+    lowercased (the route's literals are then lowercase). The ranks are
+    compared segment by
     segment from the left, so a literal at the first differing segment beats
     a variable, as in Spring's own route ordering; an exact method beats a
     route that accepts any method. Returns the tied keys, sorted.
     """
     scored = []
-    for key, methods, segments in routes:
+    lowered = tuple(s.lower() for s in request_segments)
+    for key, methods, segments, *folded in routes:
         if not method_compatible(request_method, methods):
             continue
-        rank = match_rank(request_segments, segments)
+        rank = match_rank(
+            lowered if folded and folded[0] else request_segments, segments
+        )
         if rank is None:
             continue
         exact_method = int(request_method is not None and request_method in methods)
