@@ -169,6 +169,77 @@ def bind_calls(
     )
 
 
+class ScipReferences:
+    """The parsed declarations that SCIP references at written names resolve
+    to, for rules other than call binding (``deepthought.data_contracts``).
+
+    ``indexes`` are pairs of an ingested SCIP index and its receipt digest,
+    as ``bind_calls`` takes them, and ``root`` holds the sources."""
+
+    def __init__(self, result: AnalysisResult, indexes, root: str | Path):
+        self.lines = _Lines(Path(root))
+        self.in_file = defaultdict(list)
+        for d in result.definitions:
+            self.in_file[d.file].append(d)
+        self.covering, shared_by_indexer = {}, {}
+        for index, receipt in indexes:
+            tool = next(
+                (
+                    f"{n}@{v}"
+                    for n, v in index.analyzer_versions
+                    if n.startswith("scip-")
+                ),
+                "scip",
+            )
+            view = _IndexView(index, tool, receipt)
+            shared = shared_by_indexer.setdefault(
+                tool.split("@", 1)[0], defaultdict(list)
+            )
+            for key, found in view.definitions.items():
+                shared[key].extend(found)
+            view.definitions = shared
+            for coverage in index.coverage:
+                self.covering.setdefault(coverage.file, view)
+
+    def covers(self, file) -> bool:
+        return file in self.covering
+
+    def tool(self, file):
+        """(indexer ``name@version``, receipt digest) of the index covering
+        ``file``, or None."""
+        view = self.covering.get(file)
+        return None if view is None else (view.tool, view.receipt)
+
+    def declarations(self, file, line, column, name):
+        """The parsed declarations named ``name`` that the reference written
+        at ``line`` and UTF-8 byte ``column`` of ``file`` resolves to: None
+        when no index covers the file or it records no reference there, else
+        a tuple (empty for a symbol declared outside the repository). A
+        declaration of another name is dropped, since an index may follow a
+        star re-export to a wrong one."""
+        view = self.covering.get(file)
+        if view is None:
+            return None
+        text = self.lines.get(file, line)
+        found = [
+            r
+            for encoding in sorted(view.encodings.get(file, ()))
+            for r in view.references.get(
+                (file, line, _to_index(text, column, encoding)), ()
+            )
+            if view.encoding(r) == encoding
+        ]
+        if not found:
+            return None
+        targets = {}
+        for reference in found:
+            for scip in view.definitions.get(_key(file, reference.native_id), ()):
+                parsed = _declaration(scip, view, self.lines, self.in_file)
+                if parsed is not None and parsed.symbol.rsplit(".", 1)[-1] == name:
+                    targets[parsed.id] = parsed
+        return tuple(sorted(targets.values(), key=lambda d: d.id))
+
+
 class _Lines:
     """Source lines of the analyzed files, read when first needed."""
 

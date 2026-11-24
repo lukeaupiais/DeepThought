@@ -105,7 +105,6 @@ examples/aliases/aliases.py	21	update	-	0	external
 examples/aliases/aliases.py	26	RawConfigParser	-	0	external
 examples/aliases/aliases.py	27	add_section	-	0	external
 examples/aliases/aliases.py	28	items	-	0	external
-examples/aliases/aliases.py	29	set	-	0	external
 examples/aliases/aliases.py	30	open	-	0	external
 examples/aliases/aliases.py	31	write	-	0	external
 examples/aliases/aliases.py	34	make_pass_decorator	src/click/decorators.py	47	callable
@@ -713,7 +712,6 @@ src/click/_compat.py	565	wrapper_func	src/click/_compat.py	549	value
 src/click/_compat.py	575	_make_cached_stream_func	src/click/_compat.py	547	callable
 src/click/_compat.py	576	_make_cached_stream_func	src/click/_compat.py	547	callable
 src/click/_compat.py	577	_make_cached_stream_func	src/click/_compat.py	547	callable
-src/click/_termui_impl.py	32	TypeVar	-	0	external
 src/click/_termui_impl.py	75	_default_text_stdout	src/click/_compat.py	576	value
 src/click/_termui_impl.py	80	StringIO	-	0	external
 src/click/_termui_impl.py	92	length_hint	-	0	external
@@ -1010,8 +1008,6 @@ src/click/_winconsole.py	283	fileno	-	0	external
 src/click/_winconsole.py	283	get	-	0	external
 src/click/_winconsole.py	287	getattr	-	0	external
 src/click/_winconsole.py	292	func	src/click/_winconsole.py	283	local
-src/click/core.py	54	TypeVar	-	0	external
-src/click/core.py	55	TypeVar	-	0	external
 src/click/core.py	71	cast	-	0	external
 src/click/core.py	73	list_commands	src/click/core.py	1988	callable
 src/click/core.py	74	startswith	-	0	external
@@ -1592,10 +1588,6 @@ src/click/core.py	3994	add_argument	src/click/parser.py	290	callable
 src/click/core.py	4001	warn	-	0	external
 src/click/core.py	4010	warn	-	0	external
 src/click/core.py	4018	AttributeError	-	0	external
-src/click/decorators.py	17	ParamSpec	-	0	external
-src/click/decorators.py	18	TypeVar	-	0	external
-src/click/decorators.py	19	TypeVar	-	0	external
-src/click/decorators.py	21	TypeVar	-	0	external
 src/click/decorators.py	30	f	src/click/decorators.py	24	value
 src/click/decorators.py	30	get_current_context	src/click/globals.py	13	callable
 src/click/decorators.py	30	get_current_context	src/click/globals.py	17	callable
@@ -1623,7 +1615,6 @@ src/click/decorators.py	115	invoke	src/click/core.py	877	callable
 src/click/decorators.py	115	invoke	src/click/core.py	882	callable
 src/click/decorators.py	115	invoke	src/click/core.py	884	callable
 src/click/decorators.py	117	update_wrapper	-	0	external
-src/click/decorators.py	129	TypeVar	-	0	external
 src/click/decorators.py	204	callable	-	0	local
 src/click/decorators.py	211	cast	-	0	external
 src/click/decorators.py	214	isinstance	-	0	local
@@ -1641,7 +1632,6 @@ src/click/decorators.py	244	cls	src/click/decorators.py	152	value
 src/click/decorators.py	244	cls	src/click/decorators.py	160	value
 src/click/decorators.py	244	cls	src/click/decorators.py	166	value
 src/click/decorators.py	249	decorator	src/click/decorators.py	213	callable
-src/click/decorators.py	254	TypeVar	-	0	external
 src/click/decorators.py	302	cast	-	0	external
 src/click/decorators.py	304	callable	-	0	local
 src/click/decorators.py	305	command	src/click/decorators.py	134	callable
@@ -1865,7 +1855,6 @@ src/click/globals.py	46	setdefault	-	0	external
 src/click/globals.py	62	get_current_context	src/click/globals.py	13	callable
 src/click/globals.py	62	get_current_context	src/click/globals.py	17	callable
 src/click/globals.py	62	get_current_context	src/click/globals.py	20	callable
-src/click/parser.py	48	TypeVar	-	0	external
 src/click/parser.py	63	deque	-	0	external
 src/click/parser.py	64	deque	-	0	external
 src/click/parser.py	71	popleft	-	0	external
@@ -2005,7 +1994,6 @@ src/click/shell_completion.py	510	replace	-	0	external
 src/click/shell_completion.py	526	split_arg_string	src/click/shell_completion.py	598	callable
 src/click/shell_completion.py	527	int	-	0	external
 src/click/shell_completion.py	544	replace	-	0	external
-src/click/shell_completion.py	557	TypeVar	-	0	external
 src/click/shell_completion.py	595	get	-	0	external
 src/click/shell_completion.py	618	shlex	-	0	external
 src/click/shell_completion.py	624	extend	-	0	external
@@ -2033,7 +2021,6 @@ src/click/shell_completion.py	777	_start_of_option	src/click/shell_completion.py
 src/click/shell_completion.py	780	get_params	src/click/core.py	1126	callable
 src/click/shell_completion.py	785	_is_incomplete_option	src/click/shell_completion.py	666	callable
 src/click/shell_completion.py	791	_is_incomplete_argument	src/click/shell_completion.py	634	callable
-src/click/termui.py	30	TypeVar	-	0	external
 src/click/termui.py	71	replace	-	0	external
 src/click/termui.py	71	repr	-	0	local
 src/click/termui.py	73	sub	-	0	external
@@ -2262,13 +2249,6 @@ src/click/testing.py	826	mkdtemp	-	0	external
 src/click/testing.py	827	chdir	-	0	external
 src/click/testing.py	832	chdir	-	0	external
 src/click/testing.py	838	rmtree	-	0	external
-src/click/types.py	29	TypeVar	-	0	external
-src/click/types.py	30	TypeVar	-	0	external
-src/click/types.py	31	TypeVar	-	0	external
-src/click/types.py	39	TypeVar	-	0	external
-src/click/types.py	45	TypeVar	-	0	external
-src/click/types.py	46	TypeVar	-	0	external
-src/click/types.py	49	TypeVar	-	0	external
 src/click/types.py	115	isinstance	-	0	local
 src/click/types.py	117	len	-	0	local
 src/click/types.py	120	super	-	0	external
@@ -2481,8 +2461,6 @@ src/click/types.py	1390	IntParamType	src/click/types.py	707	callable
 src/click/types.py	1394	FloatParamType	src/click/types.py	739	callable
 src/click/types.py	1398	BoolParamType	src/click/types.py	790	callable
 src/click/types.py	1401	UUIDParameterType	src/click/types.py	859	callable
-src/click/utils.py	24	ParamSpec	-	0	external
-src/click/utils.py	25	TypeVar	-	0	external
 src/click/utils.py	29	join	-	0	external
 src/click/utils.py	29	lower	-	0	external
 src/click/utils.py	29	split	-	0	external
@@ -7399,12 +7377,10 @@ tests/test_utils/test_echo_via_pager.py	139	_test_gen_func_echo	tests/test_utils
 tests/test_utils/test_echo_via_pager.py	145	EchoViaPagerTest	tests/test_utils/test_echo_via_pager.py	14	value
 tests/test_utils/test_echo_via_pager.py	147	_test_gen_func_echo	tests/test_utils/test_echo_via_pager.py	44	callable
 tests/test_utils/test_echo_via_pager.py	165	nullcontext	-	0	external
-tests/test_utils/test_echo_via_pager.py	169	object	-	0	external
 tests/test_utils/test_echo_via_pager.py	172	partial	-	0	external
 tests/test_utils/test_echo_via_pager.py	176	echo_via_pager	src/click/termui.py	367	callable
 tests/test_utils/test_echo_via_pager.py	210	append	-	0	external
 tests/test_utils/test_echo_via_pager.py	211	real_write	tests/test_utils/test_echo_via_pager.py	207	local
-tests/test_utils/test_echo_via_pager.py	218	object	-	0	external
 tests/test_utils/test_echo_via_pager.py	218	partial	-	0	external
 tests/test_utils/test_echo_via_pager.py	221	_test_gen_func_yields_then_fails	tests/test_utils/test_echo_via_pager.py	39	callable
 tests/test_utils/test_echo_via_pager.py	221	echo_via_pager	src/click/termui.py	367	callable
@@ -7412,7 +7388,6 @@ tests/test_utils/test_echo_via_pager.py	223	join	-	0	external
 tests/test_utils/test_echo_via_pager.py	230	range	-	0	external
 tests/test_utils/test_echo_via_pager.py	245	real_popen	tests/test_utils/test_echo_via_pager.py	242	local
 tests/test_utils/test_echo_via_pager.py	246	append	-	0	external
-tests/test_utils/test_echo_via_pager.py	252	object	-	0	external
 tests/test_utils/test_echo_via_pager.py	252	partial	-	0	external
 tests/test_utils/test_echo_via_pager.py	255	_test_gen_func_fails	tests/test_utils/test_echo_via_pager.py	34	callable
 tests/test_utils/test_echo_via_pager.py	255	echo_via_pager	src/click/termui.py	367	callable

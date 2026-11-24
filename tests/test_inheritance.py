@@ -369,7 +369,6 @@ class InheritanceCommandTests(unittest.TestCase):
             indexed = command(
                 "index",
                 directory,
-                "--allow-uncovered",
                 "--tool",
                 "tree-sitter",
                 "--repository-id",

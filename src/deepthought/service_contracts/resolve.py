@@ -10,10 +10,12 @@ from dataclasses import dataclass
 
 from .gateways import forward
 from .http import PLACEHOLDER, best_routes, request_target, route_template
+from .listeners import LOOPBACK, under
 
 HTTP_SERVICE_PATH = "service-contracts.http-service-path"
 HTTP_PATH = "service-contracts.http-path"
 HTTP_GATEWAY = "service-contracts.http-gateway"
+HTTP_LOCAL_PORT = "service-contracts.http-local-port"
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,9 @@ class RequestResolution:
     gateway: str | None = None  # "file:line" of the gateway route followed
 
 
-def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
+def resolve_requests(
+    routes, requests, gateways=(), hosts=None, project=None, ports=None, served=None
+):
     """One resolution per request, in request order.
 
     The target service is the request's explicit service name (a Feign
@@ -109,6 +113,18 @@ def resolve_requests(routes, requests, gateways=(), hosts=None, project=None):
                         c for c in candidates if project(route_files[c[0]]) != own
                     ]
             rule, none_reason = HTTP_PATH, "no_route"
+            programs = (ports or {}).get(target.port)
+            if target.host in LOOPBACK and programs and not forwarded:
+                candidates = [
+                    c
+                    for c in candidates
+                    if any(
+                        under(file, program)
+                        for file in (served or {}).get(c[0], (route_files[c[0]],))
+                        for program in programs
+                    )
+                ]
+                rule, none_reason = HTTP_LOCAL_PORT, "no_route_on_port"
             service = None
         if forwarded:
             rule = HTTP_GATEWAY
