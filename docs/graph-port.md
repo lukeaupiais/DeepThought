@@ -1998,7 +1998,35 @@ the same way. A `configurationFile` (JSON or YAML) supplies settings under the
 pom's own. Without `apiPackage`, the generator's default applies
 (`org.openapitools.api` for spring, `org.openapitools.client.api` for java).
 
-Gradle builds are not read yet.
+Gradle builds that apply `org.openapi.generator` are read the same way
+(`deepthought.service_contracts.openapi_gradle`): the `openApiGenerate { }`
+block and each task of type `GenerateTask` (Groovy `task x(type: ...)`,
+Kotlin `tasks.register<GenerateTask>`, `tasks.register("x", GenerateTask::class)`
+and `by tasks.registering(GenerateTask::class)`), with comments skipped.
+
+A setting is read when it is written `name = value`, `name.set(value)` or
+`name value` at the block's top level, and its value is one of:
+- a string literal (`.toString()` allowed), with `$rootDir`, `$projectDir`
+  and their `${...}`/`project.`/`rootProject.` forms replaced; the root is
+  the nearest `settings.gradle(.kts)`, and a relative `inputSpec` is
+  relative to the project directory;
+- a boolean;
+- for `configOptions`, a Groovy map literal or a Kotlin `mapOf(... to ...)`.
+
+Any other value of a setting that matters (generator, spec, package,
+library, name affixes, options) makes the task `openapi:config_not_literal`.
+The plugin version comes from a `plugins { id ... version ... }` block in
+the build or its settings, or from a buildscript
+`openapi-generator-gradle-plugin` classpath, with `gradle.properties`
+values from the root down to the project replaced.
+
+Checked on three public builds; each one is read as written:
+
+| Build | Read as | Outcome |
+|---|---|---|
+| Guardian-Development/contract-first-service (`7be7d87`) | spring, plugin 4.3.1 | `generator_version` |
+| maschnetwork/openapi-code-generator (`d2ebb3a`) | kotlin-spring, a relative spec | `not_spring_server` |
+| The plugin's own `samples/local-spec` (v7.4.0) | all 5 tasks, version from `gradle.properties` | kotlin, go and csharp are not read; the java client is read |
 
 #### Generated Java clients
 
@@ -2416,6 +2444,10 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-default-table-name` | name_matched | an Eloquent model without `$table`: Laravel's `Str::snake(Str::pluralStudly(class_basename))`, the last word pluralized by doctrine/inflector 2.0's English rules (`PlaylistFolder` is `playlist_folders`, `Person` is `people`); a `Pivot` without `$table` is left unresolved, because Laravel names it from the relation |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.eloquent-call` | pattern_matched | a static call `Model::method(...)` on an Eloquent model, reading (`find`, `where`, `all`, `first`, `count`, ...) or writing (`create`, `insert`, `upsert`, `destroy`, `updateOrCreate`, ...); a reading start whose chain reaches `update`, `delete`, `increment`, ... also WRITES |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.laravel-db-table` | pattern_matched | `DB::table('name')` (`Illuminate\Support\Facades\DB`) with a fixed string, its alias (`as x`) and schema dropped, READS, and WRITES when the chain reaches a writing method |
+| File -[:DECLARES]-> DbTable | `data-contracts.sequelize-migration-table` | pattern_matched | `createTable('name', ...)` or `createTable({ tableName })`, or the new name of `renameTable`, called on `queryInterface` or `getQueryInterface()` with a fixed name, as Sequelize migrations do; the receiver is not type-checked |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.sequelize-table-name` | pattern_matched | a Sequelize model with a fixed `tableName` option: a class whose `extends` chain reaches `Model` of `sequelize`, `@sequelize/core` or `sequelize-typescript` and that is decorated with `@Table` or initialized by `X.init(attributes, options)` in its file, or a `define('Name', attributes, options)` call in a file importing Sequelize or on a receiver named `sequelize`; the edge starts at the class, else at the declaration holding the `define` |
+| Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.sequelize-default-table-name` | name_matched | a Sequelize model without `tableName`: Sequelize 6's name, the model name (`modelName`, else the class or `define` name) pluralized by the inflection package 1.13.4 (`Person` is `People`), underscored with `underscored` (`user_profiles`) and kept with `freezeTableName`, the model's options over the `define` options of `new Sequelize` or `config/config.json`; options that are not literals, spread, or set differently in several places leave the name unresolved |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sequelize-call` | pattern_matched | a static query (`findAll`, `findOne`, `findByPk`, `count`, ...) or persistence (`create`, `bulkCreate`, `update`, `destroy`, `upsert`, ...) method, `findOrCreate` both, on a model named by a local or imported binding (`User.findAll`, `db.User.create`, `sequelize.models.user.count`): the one model with that model, class or variable name in the caller's namespace, else in the repository |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2597,6 +2629,29 @@ struct field) and `query := db.Model(...)`, whose chain continues in
 another statement. Four grep lines are calls the tool reports at the line
 where their chain starts, and it also links one chain that `grep` misses
 because it spans lines.
+
+On outline/outline `fd66b5e`, all 42 sequelize-typescript `@Table` models
+are mapped. Their superclasses (`ParanoidModel`, `IdModel`, and a local
+`Model` over sequelize-typescript's) resolve through relative imports and
+the `@server/*` alias of `tsconfig.json`; a second `ParanoidModel` in the
+frontend is never taken. The 41 tables (`Document` and `Template` share
+`documents`) are all created by the baseline `schema.sql` or a
+`createTable` migration. The tool links 1,862 static calls. A single-line
+`grep` for the mapped class names followed by a Sequelize method finds 1,854
+lines, and the tool links all of them but one, a model taken from a
+dynamic `await import(...)`. Its 9 extra lines are calls with type
+arguments (`Import.findAll<Import<any>>(`). The 133 calls not linked are on
+other classes (`TextSelection.create`, `Metrics.count`, ...). On
+TonyMckes/conduit-realworld-example-app `5e127d8` the 4 `Model.init` models
+get their default names (`Users`, `Articles`, ...), and each is one its
+migrations create; its 23 calls are the lines `grep` finds. In
+cirosantilli/node-express-sequelize-nextjs-realworld-example-app `b7f8b80`,
+the `define: { freezeTableName: true }` given to `new Sequelize` keeps the 6
+`define` model names as tables, and its 65 calls are the lines `grep`
+finds. The `through` tables of `belongsToMany`, instance methods, and
+`beforeDefine` hooks are not read. The pluralization port gives the
+inflection package's own result for all 45 `pluralize` and `underscore`
+cases of its test suite.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
 they map is one its migrations create. One `Pivot` without `$table` is left
