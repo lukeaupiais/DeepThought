@@ -668,8 +668,9 @@ Knex through migration callbacks whose untyped parameter is named
 its data seeders' `this.transaction` field, as well as through `knex`
 itself. Backstage hands its transactions to callbacks named `tx` and keeps most
 table names in constants, some imported from a sibling `tables.ts`. A
-schema-qualified table keeps its schema in the label
-(`information_schema.statistics`).
+schema qualifier is dropped (`app.users` names `users`), since tables join
+across readers by name, and a database's own catalog (`information_schema.*`,
+`pg_catalog.*`, `pg_*`, `sqlite_*`, ...) is listed under `not_counted`.
 
 ## Metamorphic checks
 

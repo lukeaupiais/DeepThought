@@ -64,16 +64,6 @@
       ]
     },
     {
-      "file": "packages/backend-defaults/src/entrypoints/database/connectors/postgres.ts",
-      "line": 664,
-      "tables": [
-        [
-          "pg_database",
-          "READS"
-        ]
-      ]
-    },
-    {
       "file": "packages/backend-defaults/src/entrypoints/scheduler/lib/PluginTaskSchedulerJanitor.ts",
       "line": 60,
       "tables": [
@@ -1740,26 +1730,6 @@
         [
           "catalog_generation_counter",
           "WRITES"
-        ]
-      ]
-    },
-    {
-      "file": "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
-      "line": 105,
-      "tables": [
-        [
-          "sqlite_master",
-          "READS"
-        ]
-      ]
-    },
-    {
-      "file": "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
-      "line": 112,
-      "tables": [
-        [
-          "information_schema.statistics",
-          "READS"
         ]
       ]
     },
@@ -4024,6 +3994,10 @@
       43
     ],
     [
+      "packages/backend-defaults/src/entrypoints/database/connectors/postgres.ts",
+      664
+    ],
+    [
       "plugins/app-backend/migrations/20211229105307_init.js",
       59
     ],
@@ -4690,6 +4664,14 @@
     [
       "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
       98
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      105
+    ],
+    [
+      "plugins/catalog-backend/migrations/20261013000000_final_entity_generations.js",
+      112
     ],
     [
       "plugins/events-backend/migrations/20240523100528_init.js",

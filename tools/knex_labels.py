@@ -21,7 +21,11 @@ by hand per file: ``--not-handle FILE:NAME`` drops a name a file uses for
 something else. Other schema calls on a literal table (alterTable, table,
 dropTable, hasTable, renameTable, ...) are listed under ``not_counted``.
 
-A table literal ``'posts as p'`` names ``posts``. The access of a builder
+A table literal ``'posts as p'`` names ``posts``, and ``'app.posts'`` names
+``posts``: tables join across readers by unqualified name. A database's own
+catalog (schemas information_schema, pg_catalog, mysql, sys,
+performance_schema; names starting pg_ or sqlite_) is no application table
+and its sites are listed under ``not_counted``. The access of a builder
 table follows Knex's execution model: each execution of a builder runs one
 query, which writes the table when its chain calls insert, update, del,
 delete, increment, decrement, truncate, upsert or merge, and reads it
@@ -119,6 +123,26 @@ def table_name(value):
     if not name or not all(c.isalnum() or c in "_." for c in name):
         return None
     return name
+
+
+SYSTEM_SCHEMAS = {
+    "information_schema",
+    "pg_catalog",
+    "mysql",
+    "sys",
+    "performance_schema",
+}
+
+
+def system_catalog(table):
+    """A database's own catalog, not an application table:
+    ``information_schema.tables``, ``pg_database``, ``sqlite_master``."""
+    parts = table.lower().split(".")
+    return (
+        len(parts) > 1
+        and parts[-2] in SYSTEM_SCHEMAS
+        or parts[-1].startswith(("pg_", "sqlite_"))
+    )
 
 
 def file_constants(tree):
@@ -626,6 +650,10 @@ def sites(path, rel, handles, not_handles):
             # A common table expression the file names with .with('x', ...)
             # is no table.
             continue
+        catalog = system_catalog(table)
+        # Tables join across readers by name, so a schema qualifier is
+        # dropped: ``app.users`` names ``users``.
+        table = table.split(".")[-1]
         inner = []
         if name in local:
             # H('t') or x.H('t')
@@ -658,7 +686,9 @@ def sites(path, rel, handles, not_handles):
             else []
         )
         methods = base.union(*later)
-        if kind == "batch":
+        if catalog:
+            access = "not_counted"
+        elif kind == "batch":
             access = ["WRITES"]
         elif kind == "declare":
             access = ["DECLARES"]
