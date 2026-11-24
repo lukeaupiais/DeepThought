@@ -2259,12 +2259,15 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
+  | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
 
 - **Clients.** `service-contracts.grpc-stub-call` links the calling
   declaration (or the file) by `REQUESTS` when a method is called on a stub of
   service X: built in place by its generated factory (`pb.NewXClient(conn)`,
   `pkg_pb2_grpc.XStub(channel)`, `XGrpc.newStub/newBlockingStub/newFutureStub`,
-  `new pkg.X(addr, creds)`), or a name (local, field or attribute) bound in
+  `new pkg.X(addr, creds)`, and grpc-tools' `new m.XClient(addr, creds)` for a
+  `*_grpc_pb` module `m` or an `XClient` imported from one), or a name
+  (local, field or attribute) bound in
   the same file only to stubs of X. For JavaScript, where any `new a.B()`
   looks the same, `B` must be a service some proto declares. The call is
   placed at the method's name.
@@ -2307,9 +2310,13 @@ to its server and its client call. Before the constructor rule, the Go server
 was unread because it is registered as `newServer()`. Across all grpc-go
 examples, the rule adds 6 correct `HANDLES` edges, from 2 registrations. The
 3 registrations still unread are a library health server from another
-package (2) and a loop variable (1). grpc-node's static codegen
-(`services.RouteGuideService`, `new services.RouteGuideClient`) is not read
-yet.
+package (2) and a loop variable (1).
+
+grpc-tools static codegen (`*_grpc_pb.js`) is read too. In grpc-node's
+`examples/` (`ca7f83f`), the 4 files that use it (route_guide and helloworld,
+servers and clients) give 11 new edges: 5 `HANDLES` and 6 `REQUESTS`, all
+correct. Destructured requires (`const {XClient} = require(...)`) are not
+read.
 
 ### Message destinations
 

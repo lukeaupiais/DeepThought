@@ -13,6 +13,7 @@ from deepthought.service_contracts.grpc import (
     GO_REGISTER_CONSTRUCTOR,
     JAVA_IMPL_BASE,
     NODE_ADD_SERVICE,
+    NODE_STATIC_ADD_SERVICE,
     PYTHON_SERVICER,
     STUB_CALL,
     ProtoIndex,
@@ -559,6 +560,73 @@ class GrpcStreamingTests(unittest.TestCase):
         )
         self.assertEqual(
             get_rule(GO_REGISTER_CONSTRUCTOR).evidence_type, "pattern_matched"
+        )
+
+
+NODE_STATIC_SERVER = """\
+var services = require('./route_grpc_pb');
+
+function get(call, callback) {}
+function chat(call) {}
+
+function main() {
+  var server = new grpc.Server();
+  server.addService(services.GuideService, {get: get, chat: chat});
+}
+"""
+
+NODE_STATIC_CLIENT = """\
+import { GuideClient as Client } from './gen/route_grpc_pb.js';
+import * as lookalike from './route_client';
+
+const client = new Client('localhost:50051', credentials);
+
+export function run() {
+  client.list({});
+  // Not a grpc-tools module: not a stub.
+  new lookalike.GuideClient('x').record();
+}
+"""
+
+
+@unittest.skipUnless(
+    READY and importlib.util.find_spec("tree_sitter_typescript"),
+    "tree-sitter grammars are not installed",
+)
+class GrpcNodeStaticCodegenTests(unittest.TestCase):
+    def test_static_service_and_client(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(
+                root,
+                {
+                    "route.proto": STREAM_PROTO,
+                    "server/server.js": NODE_STATIC_SERVER,
+                    "server/route_grpc_pb.js": "exports.GuideService = {};",
+                    "web/client.ts": NODE_STATIC_CLIENT,
+                },
+            )
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[2],
+                r.target_match["qualified_name"].rpartition("::")[2],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.target_labels == ["GrpcMethod", "Contract"]
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("HANDLES", "chat", "route.Guide/Chat", NODE_STATIC_ADD_SERVICE),
+                ("HANDLES", "get", "route.Guide/Get", NODE_STATIC_ADD_SERVICE),
+                ("REQUESTS", "run", "route.Guide/List", STUB_CALL),
+            ],
+        )
+        self.assertEqual(
+            get_rule(NODE_STATIC_ADD_SERVICE).evidence_type, "pattern_matched"
         )
 
 
