@@ -457,22 +457,34 @@ def extract_c(
 _CPP_CLASS_MACRO = re.compile(
     rb"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'"
     rb"|\b(?:class|struct|union)\s+(?P<macro>[A-Za-z_]\w*)"
-    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])",
+    rb"(?=\s+(?!final\b)[A-Za-z_]\w*\s*(?:final\s*)?[:{])"
+    # A line holding only an upper-case name with an underscore
+    # (`FMT_BEGIN_EXPORT`, `FMT_CONSTEXPR` before a declaration on the next
+    # line): a macro, which the grammar would read as a type.
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<line>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[ \t]*(?=\r?\n|\Z)"
+    # The same name before a constructor or destructor on its line
+    # (`FMT_CONSTEXPR explicit checker(...) : a(1) {`): read as a return
+    # type, it makes the member initializers a parse error that ends the
+    # class early.
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<ctor>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"
+    rb"(?=[ \t]+(?:(?:explicit|constexpr|inline)[ \t]+)*~?[A-Za-z_]\w*[ \t]*\()",
     re.DOTALL,
 )
 
 
 def prepare_source(language: str, content: bytes) -> bytes:
     """The text the grammar parses. For C++, a macro between a class key
-    and the class's name (``class API Name {``) is replaced with spaces, so
-    offsets, lines and every other byte are kept; other languages are
-    parsed as written."""
+    and the class's name (``class API Name {``) and a line holding only an
+    upper-case macro name are replaced with spaces, so offsets, lines and
+    every other byte are kept; other languages are parsed as written."""
     if language != "cpp":
         return content
 
     def blank(match):
-        # A comment or literal has no macro: its span is empty.
-        start, end = match.span("macro")
+        group = next((g for g in ("macro", "line", "ctor") if match.group(g)), None)
+        if group is None:  # a comment or literal
+            return match.group(0)
+        start, end = match.span(group)
         whole = match.group(0)
         offset = start - match.start()
         return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
@@ -586,8 +598,26 @@ def _cpp_declarators(node):
     declarator: when an error node holds one declarator, that is the one
     declared. ``API T f();`` puts the type ``T`` in the error node and keeps
     ``f``, so ``int x GUARDED_BY(m);``, which has the same shape, reads as a
-    function ``GUARDED_BY``."""
+    function ``GUARDED_BY``.
+
+    Two shapes declare no function. A class defined in the declaration
+    (``class C {...} f();``) cannot be a function's return type in C++, so
+    its declarators are text after a body the grammar closed early. A
+    declarator after a bit-field width (``F() : size_(n), cap_(n) {}``, a
+    constructor's member initializers after a macro the grammar does not
+    know) is not a function either.
+    """
+    written = node.child_by_field_name("type")
+    if (
+        written is not None
+        and written.type in _CPP_CLASSES
+        and written.child_by_field_name("body") is not None
+    ):
+        return []
     declarators = node.children_by_field_name("declarator")
+    width = next((c for c in node.children if c.type == "bitfield_clause"), None)
+    if width is not None:
+        declarators = [d for d in declarators if d.start_byte < width.start_byte]
     errors = [c for c in node.children if c.type == "ERROR"]
     if (
         len(declarators) == 1
@@ -596,6 +626,13 @@ def _cpp_declarators(node):
     ):
         return [errors[0].named_children[0]]
     return declarators
+
+
+def _cpp_names_class(declarator, scope, content) -> bool:
+    """Whether a function declarator declares a constructor of the class
+    whose symbol ends ``scope`` (empty in an unnamed class)."""
+    name = declarator.child_by_field_name("declarator")
+    return name is not None and bool(scope) and _text(name, content) == scope[-1]
 
 
 def extract_cpp(
@@ -727,7 +764,12 @@ def extract_cpp(
             if body is None:
                 continue
             name = node.child_by_field_name("name")
-            parts = _cpp_name(name, content) if name is not None else None
+            # `enum : unsigned {` parses with a missing name.
+            parts = (
+                _cpp_name(name, content)
+                if name is not None and not name.is_missing
+                else None
+            )
             inner = scope
             if parts is not None:
                 written, text, name_node = parts
@@ -747,6 +789,13 @@ def extract_cpp(
             in {"function_declarator", "pointer_declarator", "reference_declarator"}
             and node.parent is not None
             and node.parent.type == "ERROR"
+            # With nothing before it, `M(a, b);` is a macro's invocation,
+            # unless it names the class it is in: a constructor
+            # (`C(int n) : #if ...`).
+            and (
+                node.prev_named_sibling is not None
+                or (in_class and _cpp_names_class(node, scope, content))
+            )
         ):
             # A function's declarator standing alone in text the grammar
             # could not parse (see extract_c).
@@ -825,11 +874,14 @@ def extract_ruby(
         if nodes is not None:
             nodes[definition.id] = (node, name_node)
 
-    # (node, scope, inside a class or module body)
-    stack = [(tree.root_node, (), False)]
+    # (node, scope, inside a class or module body, inside a method body)
+    stack = [(tree.root_node, (), False, False)]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, in_def = stack.pop()
         kind = _RUBY_SCOPES.get(node.type)
+        if kind is not None and in_def:
+            # Ruby does not allow a class or module in a method body.
+            continue
         if kind is not None:
             name = node.child_by_field_name("name")
             path = _ruby_constant_path(name, content) if name is not None else None
@@ -839,17 +891,30 @@ def extract_ruby(
             inner = (*(() if absolute else scope), *names)
             last = name.child_by_field_name("name") if name.type != "constant" else name
             add(node, last, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend((c, inner, True, False) for c in reversed(node.named_children))
             continue
         if node.type in {"method", "singleton_method"}:
             name = node.child_by_field_name("name")
             if name is not None:
                 text = _text(name, content)
                 symbol = ".".join((*scope, text))
-                add(node, name, symbol, "Method" if in_type else "Function")
-            # A def in a method body is defined when the method runs.
+                # A receiver (`def obj.m`) makes it a method of that object.
+                method = in_type or node.type == "singleton_method"
+                add(node, name, symbol, "Method" if method else "Function")
+            # A def in a method body defines its method when that method
+            # runs, under the same scope.
+            stack.extend(
+                (c, scope, in_type, True) for c in reversed(node.named_children)
+            )
             continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        if node.type == "singleton_class":
+            # `class << obj` opens the object's singleton class: its defs are
+            # methods.
+            stack.extend(
+                (c, scope, True, in_def) for c in reversed(node.named_children)
+            )
+            continue
+        stack.extend((c, scope, in_type, in_def) for c in reversed(node.named_children))
     return found
 
 
@@ -859,10 +924,6 @@ _PHP_TYPES = {
     "trait_declaration": "Trait",
     "enum_declaration": "Enum",
 }
-# Bodies run later, so what they declare is declared when they run. (An
-# arrow function's body is an expression, which declares nothing outside
-# these.)
-_PHP_BODIES = {"anonymous_function", "anonymous_class"}
 
 
 def extract_php(
@@ -875,9 +936,11 @@ def extract_php(
     namespace statement, or a braced ``namespace A\\B { }``) and the
     enclosing class-like declaration with ``.``. Declarations in a
     conditional block (``if (!function_exists('f')) { function f() {} }``)
-    are recorded; those in a function or method body, a closure or an
-    anonymous class are not, since PHP declares them only when that code
-    runs. ``nodes`` receives id -> (node, name).
+    are recorded, and so are those in a function or method body or a
+    closure: PHP declares them in the current namespace when that code runs,
+    so their symbols are namespace-qualified. An anonymous class's methods
+    are named by the path to the class (``N.C.make.handle`` for one in
+    ``C::make``). ``nodes`` receives id -> (node, name).
     """
     found, ordinals = [], {}
 
@@ -914,25 +977,39 @@ def extract_php(
             items.append((child, scope, False))
         return items
 
-    # (node, scope, inside a class-like body)
-    stack = list(reversed(children(tree.root_node, ())))
+    # (node, scope, inside a class-like body, namespace, lexical path): a
+    # function or class declared in a body goes to the namespace, and an
+    # anonymous class's methods are named by the path to where it is.
+    stack = [(n, s, t, s, s) for n, s, t in reversed(children(tree.root_node, ()))]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, namespace, path = stack.pop()
         kind = _PHP_TYPES.get(node.type)
         if kind is not None:
             name = node.child_by_field_name("name")
             inner = (*scope, _text(name, content))
             add(node, name, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend(
+                (c, inner, True, namespace, inner)
+                for c in reversed(node.named_children)
+            )
+            continue
+        if node.type == "anonymous_class":
+            stack.extend(
+                (c, path, True, namespace, path) for c in reversed(node.named_children)
+            )
             continue
         if node.type in {"function_definition", "method_declaration"}:
             name = node.child_by_field_name("name")
-            symbol = ".".join((*scope, _text(name, content)))
-            add(node, name, symbol, "Method" if in_type else "Function")
+            symbol = (*scope, _text(name, content))
+            add(node, name, ".".join(symbol), "Method" if in_type else "Function")
+            stack.extend(
+                (c, namespace, False, namespace, symbol)
+                for c in reversed(node.named_children)
+            )
             continue
-        if node.type in _PHP_BODIES:
-            continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        stack.extend(
+            (c, scope, in_type, namespace, path) for c in reversed(node.named_children)
+        )
     return found
 
 

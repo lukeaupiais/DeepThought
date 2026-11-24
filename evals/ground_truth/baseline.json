@@ -61,7 +61,7 @@
     "unresolved_unjudged": 363
   },
   "click": {
-    "ambiguous_includes": 22,
+    "ambiguous_includes": 483,
     "ambiguous_no_candidates": 14,
     "ambiguous_unjudged": 29,
     "by_rule": {
@@ -76,9 +76,12 @@
       },
       "tree-sitter.call-self-method": {
         "confirmed": 159
+      },
+      "tree-sitter.python-call-reexport": {
+        "confirmed": 1261
       }
     },
-    "confirmed": 927,
+    "confirmed": 2188,
     "contradicted": 0,
     "expected": 3313,
     "impact": {
@@ -124,20 +127,18 @@
       "unjudged": 9,
       "unresolved": 95
     },
-    "missed": 2400,
+    "missed": 1141,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 14,
-      "ambiguous:multiple_declarations": 22,
+      "ambiguous:multiple_declarations": 483,
       "no_call_site": 67,
       "unresolved:attribute_call": 225,
-      "unresolved:imported_name_not_declared": 3,
       "unresolved:local_binding": 316,
-      "unresolved:module_attribute_not_declared": 1717,
       "unresolved:not_declared_in_class": 36
     },
     "precision": 1.0,
-    "recall": 0.2756,
-    "unresolved_expected": 2299,
+    "recall": 0.6556,
+    "unresolved_expected": 577,
     "unresolved_unjudged": 3556
   },
   "cobra": {
@@ -371,32 +372,32 @@
     "fmt": {
       "by_kind": {
         "alias": {
-          "found": 71,
-          "missed": 36
+          "found": 99,
+          "missed": 8
         },
         "function": {
-          "found": 237,
-          "missed": 117
+          "found": 395,
+          "missed": 17
         },
         "method": {
-          "found": 330,
-          "missed": 186
+          "found": 496,
+          "missed": 58
         },
         "namespace": {
-          "found": 15,
-          "missed": 25
+          "found": 23,
+          "missed": 17
         },
         "type": {
-          "found": 132,
-          "missed": 98
+          "found": 194,
+          "missed": 36
         }
       },
       "expected": 1346,
-      "extra": 101,
-      "found": 785,
-      "kind_mismatch": 99,
-      "missed": 462,
-      "recall": 0.5832
+      "extra": 95,
+      "found": 1207,
+      "kind_mismatch": 3,
+      "missed": 136,
+      "recall": 0.8967
     },
     "rack": {
       "by_kind": {
@@ -405,8 +406,8 @@
           "missed": 0
         },
         "method": {
-          "found": 691,
-          "missed": 4
+          "found": 755,
+          "missed": 0
         },
         "module": {
           "found": 69,
@@ -419,20 +420,20 @@
       },
       "expected": 1014,
       "extra": 0,
-      "found": 950,
-      "kind_mismatch": 60,
-      "missed": 4,
-      "recall": 0.9369
+      "found": 1014,
+      "kind_mismatch": 0,
+      "missed": 0,
+      "recall": 1.0
     },
     "slim": {
       "by_kind": {
         "function": {
-          "found": 0,
-          "missed": 3
+          "found": 3,
+          "missed": 0
         },
         "method": {
-          "found": 739,
-          "missed": 10
+          "found": 749,
+          "missed": 0
         },
         "type": {
           "found": 124,
@@ -441,10 +442,10 @@
       },
       "expected": 876,
       "extra": 0,
-      "found": 863,
+      "found": 876,
       "kind_mismatch": 0,
-      "missed": 13,
-      "recall": 0.9852
+      "missed": 0,
+      "recall": 1.0
     }
   },
   "gson": {
