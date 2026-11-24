@@ -1664,15 +1664,23 @@ def _express_mounts(sources):
 
 
 def _nest_applications(root, sources):
-    """(global prefix, unread reason) of each Node package's NestJS
-    application, from the setGlobalPrefix, enableVersioning and RouterModule
-    calls of its TypeScript files: one literal prefix applies to every route
-    of the package; anything else makes its routes unread."""
+    """(global prefix, unread reason, versioning, {controller class: module
+    path, None when ambiguous}) of each Node package's NestJS application,
+    from the setGlobalPrefix, enableVersioning and RouterModule.register
+    calls and the @Module controllers of its TypeScript files: one literal
+    prefix applies to every route of the package; a controller takes the
+    RouterModule path of the modules listing it; anything else makes the
+    package's routes unread."""
     settings = {}
     for coverage, content, tree in sources:
         if coverage.language != "typescript" or not any(
             needle in content
-            for needle in (b"setGlobalPrefix", b"enableVersioning", b"RouterModule")
+            for needle in (
+                b"setGlobalPrefix",
+                b"enableVersioning",
+                b"RouterModule",
+                b"controllers",
+            )
         ):
             continue
         package = _node_package(root, coverage.file)
@@ -1684,17 +1692,45 @@ def _nest_applications(root, sources):
         reasons = sorted({v for k, v in facts if k == "unread"})
         prefixes = {v for k, v in facts if k == "prefix"}
         versionings = {v for k, v in facts if k == "versioning"}
+        module_paths = {}
+        for kind, routes in facts:
+            if kind == "router":
+                for module, path in routes:
+                    module_paths.setdefault(module, set()).add(path)
+        controllers, opaque = {}, set()
+        for kind, value in facts:
+            if kind != "module":
+                continue
+            module, listed = value
+            if listed is None:
+                opaque.add(module)
+                continue
+            for controller in listed:
+                controllers.setdefault(controller, set()).add(module)
+        if any(len(paths) > 1 for paths in module_paths.values()):
+            reasons.append("router_module_ambiguous")
+        if any(module in module_paths for module in opaque):
+            reasons.append("router_module")
         if reasons:
-            found[package] = (None, reasons[0], None)
+            found[package] = (None, sorted(reasons)[0], None, {})
         elif len(prefixes) > 1:
-            found[package] = (None, "global_prefix_ambiguous", None)
+            found[package] = (None, "global_prefix_ambiguous", None, {})
         elif len(versionings) > 1:
-            found[package] = (None, "versioning_ambiguous", None)
+            found[package] = (None, "versioning_ambiguous", None, {})
         else:
+            routed = {}
+            if module_paths:
+                for controller, modules in controllers.items():
+                    paths = {
+                        next(iter(module_paths[m])) if m in module_paths else ""
+                        for m in modules
+                    }
+                    routed[controller] = paths.pop() if len(paths) == 1 else None
             found[package] = (
                 next(iter(prefixes), None),
                 None,
                 next(iter(versionings), None),
+                routed,
             )
     return found
 

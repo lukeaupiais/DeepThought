@@ -2631,6 +2631,13 @@ prefix, one route per version, and `VERSION_NEUTRAL` (or no version at all)
 adds none. The other types select a version from the request's headers, so
 they leave the path alone.
 
+`RouterModule.register([...])` with a literal array of `{ path, module,
+children }` entries gives each module class its path, children joined to
+their parent's. A controller takes the path of the `@Module({ controllers:
+[...] })` classes of its package that list it: the registered module's
+path before the controller path (after the global prefix and version), or
+none for a module the routes do not name.
+
 Counted as unread instead of guessed, by reason:
 - `version`: a controller or method whose version is not a literal (string,
   array of strings or `VERSION_NEUTRAL`), or that has a version in a
@@ -2638,7 +2645,12 @@ Counted as unread instead of guessed, by reason:
 - `versioning`: every route of a package whose `enableVersioning` options
   are not a literal object of the form above, and `versioning_ambiguous`
   when the package enables versioning in two different ways;
-- `router_module`: every route of a package that uses `RouterModule`;
+- `router_module`: every route of a package whose `RouterModule` routes are
+  not a literal array of literal paths and module classes, or that
+  registers a module whose controllers are not a literal list; and a
+  controller listed by modules with different paths;
+- `router_module_ambiguous`: every route of a package that registers one
+  module at two paths;
 - `global_prefix_options`, `global_prefix_not_literal` and
   `global_prefix_ambiguous`: every route of a package whose global prefix
   has exclusions, is not a literal, or is set to two different values.
