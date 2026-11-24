@@ -478,6 +478,57 @@ positional `Table('`footprints`')` and backtick-quoted names.
 | kimai | d46d79e | underscore_number_aware | 29 | 29 | 0 | 0 | 0 | 1 (`kimai2_sessions`, Symfony's session table) |
 | Part-DB | 04aeda7 | underscore_number_aware | 28 | 28 | 0 | 0 | 54 (inheritance) | 8 (4 inheritance roots, 4 OAuth2 bundle tables) |
 
+### Mongoose model collections
+
+A `tables` corpus with `"language": "mongoose"` scores Mongoose models on
+JavaScript and TypeScript. A model has no class, so it is named
+`file::Model`, after the file that declares it and the name it is declared
+under. `tools/mongoose_collection_oracle.cjs` finds the declarations with the
+TypeScript compiler's parser:
+
+- **Declarations:** `model('Name', schema[, collection])` called on the
+  mongoose module, or on a connection made from it.
+  - The module can be a default, namespace or `require` binding, or a
+    parameter typed `typeof import('mongoose')`.
+  - A connection is made by `createConnection`, `connection` or `useDb`.
+  - The `model` named import counts too.
+- **Collection:** the literal (or `const`) third argument, else the schema's
+  literal `collection` option, else the model name through Mongoose's
+  `toCollectionName`.
+  - The schema can be `new Schema(...)` or `Schema(...)`, written inline,
+    held in a variable, or imported through relative paths and tsconfig
+    `paths`.
+- **Discriminators:** a discriminator of a base declared in the same file
+  takes the base's collection.
+- **Default names:** the pluralize rules and uncountable words are read as
+  text from the pluralize module of the Mongoose version the app's lockfile
+  pins. That is `lib/helpers/pluralize.js` from Mongoose 6 on, and
+  `mongoose-legacy-pluralize` before. Neither Mongoose nor the app is ever
+  run.
+- **Not counted:** a declaration whose collection the oracle can't fix is
+  listed under `not_counted` with its reason. Examples are spread or
+  non-literal options, a schema built by a helper function, a receiver that
+  is not a known mongoose binding, and test sources. A global
+  `mongoose.pluralize(...)` override would set aside every default name.
+
+| App | Pin | Mongoose | Models | Found | Wrong | Missed | Not counted |
+|---|---|---|---|---|---|---|---|
+| Ackee | 7004370 | 9.11.2 | 6 | 6 | 0 | 0 | 0 |
+| node-express-boilerplate | 179ae84 | 5.13.20 | 2 | 0 | 0 | 2 | 8 (tests) |
+| LibreChat | 4700c44 | 8.24.9 | 69 | 0 | 0 | 69 | 95 (93 tests, 2 not fixed) |
+
+The engine maps no model wrongly, but it misses two common forms:
+
+- **node-express-boilerplate** builds both schemas with `mongoose.Schema(...)`
+  and no `new`. Mongoose accepts this, but the engine leaves the model
+  unresolved.
+- **LibreChat** declares every model in a factory,
+  `createXModel(mongoose: typeof import('mongoose'))`, so the receiver is a
+  parameter rather than an import. The engine reads none of those models.
+
+`tests/test_mongoose_collection_oracle.py` checks the oracle on a small app
+when `TYPESCRIPT_DIR` points at a TypeScript package.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

@@ -1027,6 +1027,13 @@
     }
   },
   "tables": {
+    "tables-ackee": {
+      "expected": 6,
+      "extra": 0,
+      "found": 6,
+      "missed": 0,
+      "wrong": 0
+    },
     "tables-discourse": {
       "expected": 402,
       "extra": 0,
@@ -1048,6 +1055,13 @@
       "missed": 0,
       "wrong": 0
     },
+    "tables-librechat": {
+      "expected": 69,
+      "extra": 0,
+      "found": 0,
+      "missed": 69,
+      "wrong": 0
+    },
     "tables-lobsters": {
       "expected": 42,
       "extra": 0,
@@ -1061,6 +1075,13 @@
       "found": 275,
       "missed": 0,
       "wrong": 1
+    },
+    "tables-node-express-boilerplate": {
+      "expected": 2,
+      "extra": 0,
+      "found": 0,
+      "missed": 2,
+      "wrong": 0
     },
     "tables-partdb": {
       "expected": 28,

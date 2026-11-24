@@ -1,0 +1,44 @@
+{
+  "source": "tools/mongoose_collection_oracle.cjs: model declarations read with the TypeScript parser, collections named by the pluralize rules of mongoose 9.11.2 (helpers/pluralize.js).",
+  "mongoose": "9.11.2",
+  "pluralize_overrides": [],
+  "models": [
+    {
+      "class": "src/models/action.js::Action",
+      "table": "actions",
+      "line": 41,
+      "how": "default"
+    },
+    {
+      "class": "src/models/domain.js::Domain",
+      "table": "domains",
+      "line": 28,
+      "how": "default"
+    },
+    {
+      "class": "src/models/event.js::Event",
+      "table": "events",
+      "line": 43,
+      "how": "default"
+    },
+    {
+      "class": "src/models/permanent-token.js::PermanentToken",
+      "table": "permanenttokens",
+      "line": 28,
+      "how": "default"
+    },
+    {
+      "class": "src/models/record.js::Record",
+      "table": "records",
+      "line": 104,
+      "how": "default"
+    },
+    {
+      "class": "src/models/token.js::Token",
+      "table": "tokens",
+      "line": 23,
+      "how": "default"
+    }
+  ],
+  "not_counted": []
+}
