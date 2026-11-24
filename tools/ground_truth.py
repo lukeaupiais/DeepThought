@@ -1771,6 +1771,11 @@ def main(argv=None):
         type=Path,
         help="With --scip: write call sites where SCIP and parser targets differ",
     )
+    s.add_argument(
+        "--impact",
+        type=Path,
+        help="Also score impact against this impact truth (impact_truth.py)",
+    )
     c = sub.add_parser("check")
     c.add_argument("--corpus", action="append", default=[])
     c.add_argument("--cache", type=Path, default=Path(".ground-truth-cache"))
@@ -1827,9 +1832,22 @@ def main(argv=None):
                     ),
                     "utf-8",
                 )
-        report, samples = score(
-            result, read_truth(args.truth), args.examples, resolutions
-        )
+        truth = read_truth(args.truth)
+        report, samples = score(result, truth, args.examples, resolutions)
+        if args.impact is not None:
+            import impact_truth
+
+            report["impact"], samples["impact"] = impact_truth.score(
+                result,
+                impact_truth.read(args.impact),
+                examples=args.examples,
+                aliases=impact_truth.read_aliases(args.impact),
+                nodes=impact_truth.read_nodes(args.impact),
+                unjudged=impact_truth.read_unjudged(args.impact),
+                indexed=truth[1],
+                fold_nested=bool({"typescript", "javascript"} & set(args.language)),
+                resolutions=resolutions,
+            )
         print(json.dumps({**report, "examples": samples}, indent=2))
         return 0
     baseline = json.loads((CORPUS / "baseline.json").read_text("utf-8"))

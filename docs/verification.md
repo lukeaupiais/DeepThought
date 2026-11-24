@@ -121,6 +121,9 @@ python tools/ground_truth.py score WORKSPACE TRUTH --language python
 # Calls bound from SCIP indexes, and where they differ from the parser's:
 python tools/ground_truth.py score WORKSPACE TRUTH --language python \
     --scip INDEX --disagreements OUT.tsv
+# Impact too, over the same (parser or SCIP-bound) calls:
+python tools/ground_truth.py score WORKSPACE TRUTH --language python \
+    --scip INDEX --impact IMPACT_TRUTH
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
 ```
 

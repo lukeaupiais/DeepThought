@@ -329,6 +329,56 @@ class ScipCallTests(unittest.TestCase):
             ],
         )
 
+    def test_impact_follows_calls_bound_from_an_index(self):
+        import ground_truth
+
+        (self.root / "a.ts").write_text(
+            "class P { m() {} }\nfunction use(p: any) { p.m(); }\n"
+        )
+        q = "scip-typescript npm demo 1 a.ts/"
+        self.index(
+            "impact",
+            "scip-typescript",
+            [
+                (
+                    "a.ts",
+                    [
+                        (0, "P", q + "P#", True, 0),
+                        (0, "m", q + "P#m().", True, 0),
+                        (1, "use", q + "use().", True, 0),
+                        (1, "m()", q + "P#m().", False, 0),
+                    ],
+                )
+            ],
+            2,
+        )
+        calls = self.indexes / "calls.tsv"
+        calls.write_text("a.ts\t2\tm\ta.ts\t1\tcallable\n")
+        impact = self.indexes / "impact.tsv"
+        impact.write_text("a.ts\t1\tm\ta.ts\t2\tuse\t1\n")
+
+        def scored(*extra):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ground_truth.main(
+                    [
+                        "score",
+                        str(self.root),
+                        str(calls),
+                        "--language",
+                        "typescript",
+                        "--impact",
+                        str(impact),
+                        *extra,
+                    ]
+                )
+            found = json.loads(out.getvalue())["impact"]
+            return found["confirmed"], found["missed"]
+
+        # The parser leaves `p.m()` open; the index links it.
+        self.assertEqual(scored(), (0, 1))
+        self.assertEqual(scored("--scip", str(self.indexes / "impact.scip")), (1, 0))
+
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)
         result = analyze_repository(
