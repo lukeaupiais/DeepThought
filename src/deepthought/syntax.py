@@ -1546,7 +1546,13 @@ def _rust_block(node):
     return None
 
 
-_CHAIN_PARTS = {"identifier", "property_identifier", "field_identifier", "this"}
+_CHAIN_PARTS = {
+    "identifier",
+    "property_identifier",
+    "private_property_identifier",  # JavaScript `obj.#m`
+    "field_identifier",
+    "this",
+}
 
 
 def _dotted(node, content):

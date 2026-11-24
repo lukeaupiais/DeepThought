@@ -1537,6 +1537,181 @@ class MyBatisTests(unittest.TestCase):
         )
 
 
+LARAVEL = {
+    "database/migrations/2024_01_01_000000_create_tables.php": """\
+<?php
+use Illuminate\\Support\\Facades\\Schema;
+
+return new class {
+    public function up(): void
+    {
+        Schema::create('user_profiles', function ($table) {});
+        Schema::create('legacy_songs_new', function ($table) {});
+        Schema::rename('legacy_songs_new', 'legacy_songs');
+    }
+};
+""",
+    "app/Models/Base.php": """\
+<?php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Model;
+
+abstract class Base extends Model
+{
+}
+""",
+    "app/Models/UserProfile.php": """\
+<?php
+namespace App\\Models;
+
+class UserProfile extends Base
+{
+}
+""",
+    "app/Models/Song.php": """\
+<?php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Model as Eloquent;
+
+class Song extends Eloquent
+{
+    protected $table = 'legacy_songs';
+}
+""",
+    "app/Models/Single.php": """\
+<?php
+namespace App\\Models;
+
+class Single extends Song
+{
+}
+""",
+    "app/Models/Membership.php": """\
+<?php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Relations\\Pivot;
+
+class Membership extends Pivot
+{
+}
+""",
+    "app/Services/Library.php": """\
+<?php
+namespace App\\Services;
+
+use App\\Models\\{Song, UserProfile as Profile};
+use Illuminate\\Support\\Arr;
+use Illuminate\\Support\\Facades\\DB;
+
+class Library
+{
+    public function prune(): void
+    {
+        Song::where('plays', 0)->delete();
+        Profile::firstOrCreate(['id' => 1]);
+        DB::table('audit as a')->insert([]);
+        Arr::where([], fn () => true);
+    }
+}
+""",
+}
+
+
+class LaravelTests(unittest.TestCase):
+    def test_default_names_match_laravel(self):
+        from deepthought.data_contracts import laravel_table_name
+
+        for name, table in (
+            ("UserProfile", "user_profiles"),
+            ("Person", "people"),
+            ("SongAnalysis", "song_analyses"),
+            ("Criterion", "criteria"),
+            ("Media", "media"),
+            ("HTTPLog", "h_t_t_p_logs"),
+            ("Related", "related"),
+            ("App\\Models\\Category", "categories"),
+        ):
+            self.assertEqual(laravel_table_name(name), table)
+
+    def test_migrations_models_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, LARAVEL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["php"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS" and r.type != "DECLARES"
+        )
+        declared = sorted(
+            r.target_match["qualified_name"].rsplit("::", 1)[1]
+            for r in output.relationships
+            if r.type == "DECLARES"
+        )
+        self.assertEqual(
+            declared, ["legacy_songs", "legacy_songs_new", "user_profiles"]
+        )
+        self.assertEqual(
+            edges,
+            [
+                (
+                    "MAPS_TO",
+                    "App.Models.Single",
+                    "legacy_songs",
+                    "eloquent-table-name",
+                ),
+                ("MAPS_TO", "App.Models.Song", "legacy_songs", "eloquent-table-name"),
+                (
+                    "MAPS_TO",
+                    "App.Models.UserProfile",
+                    "user_profiles",
+                    "eloquent-default-table-name",
+                ),
+                (
+                    "READS",
+                    "App.Services.Library.prune",
+                    "legacy_songs",
+                    "eloquent-call",
+                ),
+                (
+                    "READS",
+                    "App.Services.Library.prune",
+                    "user_profiles",
+                    "eloquent-call",
+                ),
+                ("WRITES", "App.Services.Library.prune", "audit", "laravel-db-table"),
+                (
+                    "WRITES",
+                    "App.Services.Library.prune",
+                    "legacy_songs",
+                    "eloquent-call",
+                ),
+                (
+                    "WRITES",
+                    "App.Services.Library.prune",
+                    "user_profiles",
+                    "eloquent-call",
+                ),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["eloquent_models"], 3)
+        self.assertEqual(metrics["eloquent_unresolved"], 1)
+        self.assertEqual(
+            metrics["eloquent_access_resolution"],
+            {"linked": 3, "not_a_model": 1, "not_fixed": 0},
+        )
+
+
 class GraphCase(unittest.IsolatedAsyncioTestCase):
     """Writes a workspace's tree-sitter, components and data-contracts
     outputs to an isolated repository of the provisioned Neo4j."""

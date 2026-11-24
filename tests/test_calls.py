@@ -16,6 +16,7 @@ from deepthought.calls import (
     CALL_LEXICAL_NAME,
     CALL_MODULE_ATTRIBUTE,
     CALL_PYTHON_REEXPORT,
+    CALL_PRIVATE_NAME,
     CALL_SELF_METHOD,
     resolve_calls,
 )
@@ -538,6 +539,52 @@ class TypeScriptCallTests(unittest.TestCase):
         self.assertNotIn(("main.ts", 8, "obj.x"), found)
         kinds = {(s.callee, s.kind) for s in result.call_sites}
         self.assertIn(("Box", "new"), kinds)
+
+    def test_typescript_private_names_name_the_innermost_class(self):
+        result = analyze(
+            {
+                "main.ts": (
+                    "class Outer {\n"
+                    "  #run() {}\n"
+                    "  go(o: Outer) {\n"
+                    "    this.#run();\n"  # 4
+                    "    o.#run();\n"  # 5: a private name, whatever `o` is
+                    "    o.inner.#run();\n"  # 6
+                    "    o.run();\n"  # 7: not a private name
+                    "    class Inner {\n"
+                    "      #other() {}\n"
+                    "      m(o: Outer) { o.#run(); o.#other(); }\n"  # 10
+                    "    }\n"
+                    "  }\n"
+                    "}\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        run = "main.ts::Outer.#run"
+        self.assertEqual(
+            found[("main.ts", 4, "this.#run")], ("linked", run, CALL_SELF_METHOD, None)
+        )
+        for line, callee in ((5, "o.#run"), (6, "o.inner.#run")):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", run, CALL_PRIVATE_NAME, None),
+                )
+        self.assertEqual(
+            found[("main.ts", 7, "o.run")],
+            ("unresolved", None, None, "attribute_call"),
+        )
+        # Inner declares no #run: the name is Outer's, which is not followed.
+        self.assertEqual(
+            found[("main.ts", 10, "o.#run")],
+            ("unresolved", None, None, "not_declared_in_class"),
+        )
+        self.assertEqual(
+            found[("main.ts", 10, "o.#other")],
+            ("linked", "main.ts::Outer.go.Inner.#other", CALL_PRIVATE_NAME, None),
+        )
 
 
 class CallSchemaTests(unittest.TestCase):
