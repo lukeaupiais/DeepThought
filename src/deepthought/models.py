@@ -260,8 +260,9 @@ class CallSite:
     arguments: int | None = None
     # Java calls with arguments: the static type of each argument where it
     # is written in it (``String`` for a string literal, ``int``, ``Class``
-    # for a class literal, ``Foo`` for ``new Foo()``, ``(Foo) e`` or a
-    # variable declared ``Foo``, ``null``), None for any other argument.
+    # for a class literal and a concatenation with a String, ``Foo`` for
+    # ``new Foo()``, ``(Foo) e`` or a variable declared ``Foo``, ``int`` for
+    # one declared ``int``, ``null``), None for any other argument.
     # None when no argument's type is written.
     argument_types: tuple[str | None, ...] | None = None
     # Java calls inside anonymous class bodies (an enum constant's body too):
