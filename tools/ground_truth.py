@@ -347,7 +347,8 @@ def score(result, truth, examples=10):
     near = {}
     for resolution in resolve_calls(result):
         site = sites[resolution.call_id]
-        name = re.split(r"::|\.", site.callee)[-1]
+        # TypeScript private names: the index names `#m` as `m`.
+        name = re.split(r"::|\.", site.callee)[-1].lstrip("#")
         keys = [
             (site.file, line, name)
             for line in range(site.line, site.end_line + 1)
@@ -604,6 +605,80 @@ def route_regressions(report, baseline):
     return problems
 
 
+def score_tables(corpus, workspace, examples=10):
+    """The table each ActiveRecord model maps to, against labels that
+    ActiveRecord itself computed (tools/rails_table_oracle.rb).
+
+    A model is *found* when the engine maps it to the labelled table and to
+    no other, *wrong* when it maps it to any other table, and *missed* when
+    it maps it to none. *extra* is a model the engine maps that the labels
+    neither list nor set aside under ``not_counted``. The engine runs with its
+    defaults, file limit included, on Ruby files only.
+    """
+    import asyncio
+
+    from deepthought.analysis_tools.data_contracts import DataContractTool
+
+    labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    output = asyncio.run(
+        DataContractTool(Path(workspace)).analyze("tables", languages=["ruby"])
+    )
+    nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
+    mapped = {}
+    for r in output.relationships:
+        source = nodes.get(r.source_match.get("qualified_name"))
+        target = nodes.get(r.target_match.get("qualified_name"))
+        if (
+            r.type != "MAPS_TO"
+            or r.properties.get("member")
+            or source is None
+            or target is None
+            or "Class" not in source.labels
+            or not str(source.properties.get("file_path", "")).endswith(".rb")
+        ):
+            continue
+        name = source.properties["name"].replace(".", "::")
+        mapped.setdefault(name, set()).add(target.properties.get("name"))
+    expected = {m["class"]: m["table"] for m in labels["models"]}
+    ignored = {m["class"] for m in labels.get("not_counted", ())}
+    found = sorted(c for c, t in expected.items() if mapped.get(c) == {t})
+    wrong = sorted(c for c, t in expected.items() if mapped.get(c, {t}) - {t})
+    missed = sorted(c for c in expected if c not in mapped)
+    extra = sorted(c for c in mapped if c not in expected and c not in ignored)
+    report = {
+        "expected": len(expected),
+        "found": len(found),
+        "wrong": len(wrong),
+        "missed": len(missed),
+        "extra": len(extra),
+    }
+    samples = {
+        "wrong": [[c, expected[c], sorted(mapped[c])] for c in wrong][:examples],
+        "missed": [[c, expected[c]] for c in missed][:examples],
+        "extra": [[c, sorted(mapped[c])] for c in extra][:examples],
+    }
+    return report, samples
+
+
+def table_regressions(report, before):
+    """Fewer models found, more wrong or extra ones, or changed labels."""
+    problems = [
+        f"{metric} {before[metric]} -> {report[metric]}"
+        for metric, higher in (("found", True), ("wrong", False), ("extra", False))
+        if (
+            report[metric] < before[metric]
+            if higher
+            else report[metric] > before[metric]
+        )
+    ]
+    if report["expected"] != before["expected"]:
+        problems.append(
+            f"expected {before['expected']} -> {report['expected']} (the labels "
+            "changed; update the baseline in the same commit)"
+        )
+    return problems
+
+
 def contract_regressions(report, baseline):
     """Fewer correct links, more wrong ones, or changed labels, per kind."""
     problems = []
@@ -662,6 +737,8 @@ def missing_requirements(manifest, names=()):
     ):
         modules.update(CONTRACT_MODULES)
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
+    if any(selected(c) for c in manifest.get("tables", ())):
+        modules.add(LANGUAGES["ruby"][1])
     return sorted(m for m in modules if importlib.util.find_spec(m) is None)
 
 
@@ -685,6 +762,17 @@ def declaration_regressions(report, baseline):
 
 def check(names, cache, update=False, examples=10):
     manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
+    known = {
+        entry["name"]
+        for entries in manifest.values()
+        if isinstance(entries, list)
+        for entry in entries
+        if isinstance(entry, dict) and "name" in entry
+    }
+    unknown = sorted(set(names) - known)
+    if unknown:
+        # A misspelled name would otherwise check nothing and pass.
+        raise ValueError("no such corpus: " + ", ".join(unknown))
     missing = missing_requirements(manifest, names)
     if missing:
         raise RuntimeError(
@@ -824,6 +912,25 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             routed[corpus["name"]] = report
+    tabled = baseline.setdefault("tables", {})
+    for corpus in manifest.get("tables", ()):
+        if names and corpus["name"] not in names:
+            continue
+        report, samples = score_tables(corpus, fetch(corpus, cache), examples)
+        problems = (
+            table_regressions(report, tabled[corpus["name"]])
+            if (corpus["name"] in tabled and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "tables": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            tabled[corpus["name"]] = report
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
@@ -1157,6 +1264,7 @@ SUMMARY_METRICS = {
     "declarations": (("found", True), ("kind_mismatch", False), ("extra", False)),
     "contracts": (("true_positive", True), ("false_positive", False)),
     "routes": (("found", True), ("extra", False), ("expected", True)),
+    "tables": (("found", True), ("wrong", False), ("extra", False)),
 }
 
 
@@ -1185,6 +1293,8 @@ def summary(reports, baseline):
                 report["declarations"],
                 base.get("declarations", {}).get(name),
             )
+        elif "tables" in report:
+            yield "tables", report["tables"], base.get("tables", {}).get(name)
         elif "routes" in report:
             before = base.get("routes", {}).get(name, {})
             for kind, counts in sorted(report["routes"].items()):
@@ -1296,7 +1406,7 @@ def main(argv=None):
         reports, failed = check(
             set(args.corpus), args.cache, args.update_baseline, args.examples
         )
-    except RuntimeError as error:
+    except (RuntimeError, ValueError) as error:
         print(f"ground_truth check: {error}", file=sys.stderr)
         return 2
     coverage = rule_coverage(reports)

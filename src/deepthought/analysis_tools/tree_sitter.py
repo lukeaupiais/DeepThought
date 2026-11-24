@@ -299,6 +299,9 @@ _CALL_RULE_TEXT = {
     "class or inherited through its declared bases.",
     call_rules.CALL_SELF_METHOD: "A self.name or this.name callee equals a "
     "method declared in the enclosing class body; inheritance is not followed.",
+    call_rules.CALL_PRIVATE_NAME: "A JavaScript or TypeScript 'obj.#m()' "
+    "names a private method that the innermost enclosing class declares, "
+    "whatever 'obj' is; private names are scoped to the class body.",
     call_rules.CALL_PACKAGE_NAME: "A bare callee name equals a function declared "
     "at top level by another file in the same directory with the same package "
     "clause; build constraints are not evaluated.",

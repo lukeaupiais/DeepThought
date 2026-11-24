@@ -155,6 +155,7 @@ arbitrary object gets no edge.
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
+| `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 
 A name bound both by an import and a local declaration, or declared more than
@@ -1968,9 +1969,10 @@ version 7 or later, `interfaceOnly` true and no `delegatePattern`, every
 operation of the `inputSpec` file (OpenAPI 3 or Swagger 2, YAML or JSON) is
 read as a method of a generated interface:
 
-- the interface is `apiPackage.<apiNamePrefix><Group><apiNameSuffix>`, where
-  the group is the operation's first tag with `useTags` (`default` when it
-  has none) and the first path segment without it;
+- the interface is `apiPackage.<apiNamePrefix><Group><apiNameSuffix>`, once
+  per group, where the groups are the operation's tags with `useTags`
+  (`default` when it has none) and its first path segment without it, as
+  the generator's `addOperationToGroup` does;
 - the method is the `operationId` with a lower-case first letter.
 
 A `@RestController`/`@Controller` class that implements the interface and
@@ -1992,7 +1994,55 @@ Counted as unread instead of guessed:
 - `openapi:operation_not_handled`, for each operation that no controller in
   the repository handles.
 
-Gradle builds and generated clients are not read yet.
+A module inherits the plugin's version and configuration (with
+`configOptions` merged entry by entry) from its parent poms in the
+repository, found through `<parent><relativePath>` (default `../pom.xml`)
+when the artifactId there is the declared parent's. Properties are inherited
+the same way. A `configurationFile` (JSON or YAML) supplies settings under the
+pom's own. Without `apiPackage`, the generator's default applies
+(`org.openapitools.api` for spring, `org.openapitools.client.api` for java).
+
+Gradle builds are not read yet.
+
+#### Generated Java clients
+
+An execution with generator `java`, plugin version 4 or later and a library
+whose API classes send each operation from a method named after it (the
+default `okhttp-gson`, `native`, `resttemplate`, `webclient`, `restclient`,
+`apache-httpclient`, `jersey2`, `jersey3`, `feign`) generates, per tag, the
+class `apiPackage.<apiNamePrefix><Tag><apiNameSuffix>`. A call of
+`<operation>`, `<operation>WithHttpInfo`, `<operation>Async` or
+`<operation>WithHttpInfoAsync` on a name declared once in the file with that
+class as its type, or on a `new` instance, is an `HttpRequest` with client
+`openapi-java`. Its method and path are the operation's, and its
+`declared_in` is the spec location. Its base URL is the spec's first server
+URL as the generator reads it: server variables take their defaults,
+`http://localhost` goes before a relative URL and is used when there is no
+server, and Swagger 2 uses scheme, host and basePath. When any Java file of
+the caller's module calls `setBasePath`, `setServers` or `setServerIndex`,
+the base is unknown and only the path is matched, under the usual
+assumption that the unknown base adds no path segments.
+
+The request is resolved like any other. A server URL host that is one
+service's `spring.application.name` narrows the candidates to that service.
+The `REQUESTS` edge carries `declared_in` and one of
+`service-contracts.openapi-client-service-path`, `openapi-client-path` or
+`openapi-client-gateway` (pattern_matched). These mirror the HTTP rules and
+also state the generated-client step. Libraries such as `rest-assured`,
+`retrofit2`, `vertx` and `microprofile` are unread as
+`openapi:client_library`, older plugins as `openapi:generator_version`, and
+an unreadable configuration file as `openapi:config_not_read`. Spring
+`spring-cloud` (Feign) clients are not read yet.
+
+Results on three repositories:
+
+| Repository | Call sites found | Outcome |
+|---|---|---|
+| happyride (`17a507f`) | 1 of 1 in main code | POST `http://localhost:8501/` is ambiguous between five POST `/` routes in different services, so no link is made (the ports are only in dev-profile config) |
+| spring-boot-api-first-approach (`ed987c1`) | 1 of 1 | Unresolved: the server is generated by plugin 6.5, which is not read |
+| openapi-generator-maven-plugin-demo (`7a86bda`) | 1 of 1 | Linked to the right operation, using library `feign` from the configurationFile and the default apiPackage |
+
+No link is wrong. spring-petclinic-rest still gives 36 routes.
 
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The
@@ -2260,7 +2310,7 @@ DELETE there, which leaves the request ambiguous among POST routes.
 
 Neither the original engine nor the port linked code to the database tables
 it uses. The `data-contracts` tool (`deepthought-graph index --tool
-tree-sitter --tool data-contracts --language java --language python --language typescript --language go --language ruby --snapshot
+tree-sitter --tool data-contracts --language java --language python --language typescript --language go --language ruby --language php --snapshot
 REV`) records
 tables as `["DbTable", "Contract"]` nodes, so they join impact and the
 component roll-up like HTTP routes and message destinations:
@@ -2291,6 +2341,11 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
+| File -[:DECLARES]-> DbTable | `data-contracts.laravel-migration-table` | resolved | `Schema::create('name', ...)` or the target of `Schema::rename(..., 'name')` (`Illuminate\Support\Facades\Schema`) with a fixed string, in PHP outside `test/`, `tests/` and `spec/` |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-table-name` | pattern_matched | an Eloquent model (a class whose `extends` chain, resolved through `namespace` and `use` statements, reaches `Illuminate\Database\Eloquent\Model` or `Illuminate\Foundation\Auth\User`) with a fixed `protected $table`, its own or the nearest ancestor's in the repository |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-default-table-name` | name_matched | an Eloquent model without `$table`: Laravel's `Str::snake(Str::pluralStudly(class_basename))`, the last word pluralized by doctrine/inflector 2.0's English rules (`PlaylistFolder` is `playlist_folders`, `Person` is `people`); a `Pivot` without `$table` is left unresolved, because Laravel names it from the relation |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.eloquent-call` | pattern_matched | a static call `Model::method(...)` on an Eloquent model, reading (`find`, `where`, `all`, `first`, `count`, ...) or writing (`create`, `insert`, `upsert`, `destroy`, `updateOrCreate`, ...); a reading start whose chain reaches `update`, `delete`, `increment`, ... also WRITES |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.laravel-db-table` | pattern_matched | `DB::table('name')` (`Illuminate\Support\Facades\DB`) with a fixed string, its alias (`as x`) and schema dropped, READS, and WRITES when the chain reaches a writing method |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2326,8 +2381,8 @@ arguments, comments and string literals are skipped, and a name holding text
 the code does not fix is dropped. SQL built at run time, entities passed
 through expressions other than a declared variable, named queries and other persistence frameworks
 are not read yet.
-Test sources (`src/test/`, Go's `_test.go` files, and for Ruby `test/` and
-`spec/`) and Ruby's vendored gems (`vendor/`) are skipped.
+Test sources (`src/test/`, Go's `_test.go` files, and for Ruby and PHP `test/`,
+`tests/` and `spec/`) and vendored code (`vendor/`, for Ruby and PHP) are skipped.
 
 ActiveRecord models are the classes whose superclass chain reaches
 `ActiveRecord::Base` through classes of the repository; the superclass and
@@ -2472,6 +2527,18 @@ struct field) and `query := db.Model(...)`, whose chain continues in
 another statement. Four grep lines are calls the tool reports at the line
 where their chain starts, and it also links one chain that `grep` misses
 because it spans lines.
+
+On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
+they map is one its migrations create. One `Pivot` without `$table` is left
+unresolved, and classes extending vendor bases other than Eloquent's are not
+models. It links 317 static calls; the 375 static calls it does not link are
+on facades and helpers (`Arr`, `Route`, `Cache`, ...). A single-line `grep`
+for `Model::` calls on the mapped classes finds 313 lines, and the tool links
+all of them, plus 2 calls through an aliased `use ... as Episode`. The
+default-name port gives doctrine/inflector 2.0.10's own plural for all 351
+English words of its `EnglishFunctionalTest` samples. Raw SQL in
+`DB::select` and `DB::statement`, query builders held in variables and
+relations are not read yet.
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create
