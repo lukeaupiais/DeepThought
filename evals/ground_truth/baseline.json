@@ -306,13 +306,13 @@
       "http": {
         "call_sites": {
           "labelled_in_scope": 24,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 23,
+          "true_positive": 23
         },
         "service_pairs": {
           "labelled_in_scope": 1,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 1,
+          "true_positive": 1
         }
       },
       "messaging": {

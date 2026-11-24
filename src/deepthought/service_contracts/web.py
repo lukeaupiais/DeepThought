@@ -538,7 +538,7 @@ def extract_angular(context, modules):
                         method = method if method in HTTP_METHODS else None
                     value = options["url"]
                 url = _browser_url(context.folder.evaluate(value))
-                context.request(value, method, url, "angular-http")
+                context.request(node, method, url, "angular-http")
             continue
         if function.type != "member_expression":
             continue

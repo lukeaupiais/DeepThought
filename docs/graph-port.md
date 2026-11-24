@@ -1864,7 +1864,11 @@ server has only PUT, and `GET /api/users/{id}`, where it has only
 constructor and keeps absolute URLs in fields, all 9 call sites are read;
 the one `@RestController` route links, 7 Spring Data REST requests stay
 unresolved because repository endpoints are not read, and one URL is a
-method parameter. No edges changed
+method parameter. An `httpResource` request is placed on the
+`httpResource` call. On the labelled contracts-jhipster-sample-app-websocket
+corpus this scores http call sites 23 of 24 with no false positives (0
+before); the miss is the SockJS handshake, whose URL goes through
+`Location.prepareExternalUrl`. No edges changed
 on the gated corpora.
 
 These services have no `spring.application.name`, so their requests resolve
