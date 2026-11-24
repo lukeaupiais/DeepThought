@@ -302,6 +302,32 @@
         }
       }
     },
+    "contracts-jhipster-sample-app-websocket": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 24,
+          "predicted": 23,
+          "true_positive": 23
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 3,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
     "contracts-msecend-apssouza22-java-microservice": {
       "http": {
         "call_sites": {
@@ -677,14 +703,14 @@
   },
   "gson": {
     "ambiguous_excludes": 2,
-    "ambiguous_includes": 709,
+    "ambiguous_includes": 643,
     "ambiguous_unjudged": 53,
     "by_rule": {
       "tree-sitter.call-self-method": {
         "confirmed": 6
       },
       "tree-sitter.java-call-typed-receiver": {
-        "confirmed": 4703,
+        "confirmed": 4769,
         "unjudged": 34
       },
       "tree-sitter.java-enclosing-type-method": {
@@ -705,17 +731,17 @@
         "unjudged": 380
       }
     },
-    "confirmed": 9146,
+    "confirmed": 9212,
     "contradicted": 0,
     "expected": 11050,
     "impact": {
       "by_depth": {
         "1": {
-          "confirmed": 686,
+          "confirmed": 689,
           "expected": 788
         },
         "2": {
-          "confirmed": 1157,
+          "confirmed": 1160,
           "expected": 2094
         },
         "3": {
@@ -723,14 +749,15 @@
           "expected": 2170
         }
       },
-      "confirmed": 2866,
+      "confirmed": 2872,
       "expected": 5052,
       "extra": 5,
-      "missed": 2186,
+      "missed": 2180,
       "precision": 0.9983,
-      "recall": 0.5673,
+      "recall": 0.5685,
       "seeds": 164,
-      "seeds_undeclared": 0
+      "seeds_undeclared": 0,
+      "unjudged": 0
     },
     "inherits": {
       "confirmed": 210,
@@ -741,15 +768,15 @@
       "recall": 1.0,
       "unresolved": 61
     },
-    "missed": 2004,
+    "missed": 1938,
     "missed_by_engine_outcome": {
-      "ambiguous:multiple_declarations": 710,
+      "ambiguous:multiple_declarations": 644,
       "no_call_site": 1165,
       "unresolved:attribute_call": 122,
       "unresolved:type_not_declared": 7
     },
     "precision": 1.0,
-    "recall": 0.8186,
+    "recall": 0.8246,
     "unjudged": 417,
     "unresolved_expected": 129,
     "unresolved_unjudged": 8034

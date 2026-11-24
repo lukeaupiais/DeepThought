@@ -767,8 +767,10 @@ none is `no_matching_arity`. When several are left, the argument types the
 call writes choose among them as javac does (JLS 15.12.2). An argument's type
 is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
 `long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
-`(T) e`, or a variable whose declaration writes its type (as for
-`receiver_type` below); `CallSite.argument_types` records them. The phases
+`(T) e`, a `+` with a `String` operand (concatenation, JLS 15.18.1), or a
+variable whose declaration writes its type (as for `receiver_type` below,
+primitives such as `int i` and `boolean flag` included); `var`, arrays and
+other expressions are not typed; `CallSite.argument_types` records them. The phases
 are tried in order: without boxing, with boxing, then variable arity. In the
 first phase where some method applies, the most specific one is linked:
 each of its parameter types is a subtype of the other's. Subtypes are known
@@ -1862,7 +1864,11 @@ server has only PUT, and `GET /api/users/{id}`, where it has only
 constructor and keeps absolute URLs in fields, all 9 call sites are read;
 the one `@RestController` route links, 7 Spring Data REST requests stay
 unresolved because repository endpoints are not read, and one URL is a
-method parameter. No edges changed
+method parameter. An `httpResource` request is placed on the
+`httpResource` call. On the labelled contracts-jhipster-sample-app-websocket
+corpus this scores http call sites 23 of 24 with no false positives (0
+before); the miss is the SockJS handshake, whose URL goes through
+`Location.prepareExternalUrl`. No edges changed
 on the gated corpora.
 
 These services have no `spring.application.name`, so their requests resolve

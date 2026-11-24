@@ -155,7 +155,7 @@ Baseline (calls):
 | preact | javascript | 3,884 | 4,426 | 0 | 1.0 | 0.8671 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,050 | 9,146 | 0 | 1.0 | 0.8277 |
+| gson | java | 11,050 | 9,212 | 0 | 1.0 | 0.8246 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -411,6 +411,21 @@ ng2-stomp-service's `configure({host: '/stomp-websocket'})`. They connect
 through a config object, never through a `WebSocket` or `SockJS` constructor,
 and the browser's `publish`, `send` and `subscribe` calls are not read. The
 server side of each frame, `@MessageMapping` and `@SendTo`, is read already.
+
+jhipster/jhipster-sample-app-websocket (410a632) adds a generated
+Angular and Spring app, labelled by hand from every `HttpClient`,
+`httpResource` and STOMP call and every handler. It has 24 in-scope `http`
+links (REST calls and the SockJS handshake) and 3 STOMP frames. Two more
+clients have no handler and are listed under `unmatched_clients`:
+`PATCH /api/admin/users/{login}` and `GET /api/users/{id}`. Calls to
+Actuator endpoints and to Spring Security's login and logout filters have
+no handler method, so they are out of scope.
+
+Main reads none of them, with no false positives. Every REST URL is
+`${serverApiUrl}api/...`, and `serverApiUrl` is a build-time define that
+angular.json sets to `''`. The connect is `webSocketFactory: () =>
+SockJS(this.buildUrl())`. Before #176 the whole contract analysis of this
+repository failed on a comment inside import braces.
 
 ### Routes and GraphQL fields
 
@@ -736,7 +751,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 2866 | 5 | 0.567 | 0.998 |
+| gson | 164 | 5052 | 2872 | 5 | 0.569 | 0.998 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
