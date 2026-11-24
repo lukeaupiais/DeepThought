@@ -2581,6 +2581,86 @@ class MongooseTests(unittest.TestCase):
         self.assertEqual(mongoose_majors(["latest"]), {5, 6, 7})
         self.assertEqual(mongoose_majors([]), {5, 6, 7})
 
+    def test_driver_collections_by_name(self):
+        files = {
+            "package.json": "{}",
+            "models/user.js": """const mongoose = require('mongoose');
+module.exports = mongoose.model('User', new mongoose.Schema({}));
+""",
+            "scripts/migrate.ts": """import mongoose from 'mongoose';
+import { MongoClient, Db } from 'mongodb';
+const client = new MongoClient('x');
+export async function migrate() {
+  const db = client.db('app');
+  await db.collection('users').updateMany({}, {});
+  const projects = db.collection('projects');
+  await projects.find({}).toArray();
+  await mongoose.connection.db!.collection('sharedlinks').drop();
+  await mongoose.connection.collection('logs').countDocuments();
+  const both = db.collection('audit');
+  await both.insertOne({});
+  await both.findOne({});
+}
+export function watch(handle: Db) {
+  return handle.collection('roles').watch([]);
+}
+export function untyped(thing) {
+  return thing.collection('untyped').find();
+}
+export function dynamic(name: string) {
+  return client.db('app').collection(name).find();
+}
+""",
+            "scripts/typed.ts": """export function changes(m: typeof import('mongoose')) {
+  const db = m.connection.db;
+  return db!.collection('roles').watch([]);
+}
+""",
+            "firestore.ts": """import { getFirestore } from 'firebase/firestore';
+const db = getFirestore();
+export const users = () => db.collection('users').get();
+""",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["javascript", "typescript"]
+                )
+            )
+        rows = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.properties.get("rule_id") == "data-contracts.mongodb-collection"
+        )
+        self.assertEqual(
+            rows,
+            [
+                ("READS", "changes", "roles"),
+                ("READS", "migrate", "audit"),
+                ("READS", "migrate", "logs"),
+                ("READS", "migrate", "projects"),
+                ("READS", "watch", "roles"),
+                ("WRITES", "migrate", "audit"),
+                ("WRITES", "migrate", "sharedlinks"),
+                ("WRITES", "migrate", "users"),
+            ],
+        )
+        # The driver's users collection is the User model's table.
+        users = {
+            r.target_match["qualified_name"]
+            for r in output.relationships
+            if r.target_match.get("qualified_name", "").endswith("::users")
+        }
+        self.assertEqual(len(users), 1)
+        self.assertEqual(
+            output.metadata.custom_metrics["mongodb_collections"], {"linked": 7}
+        )
+
     def test_models_collections_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, MONGOOSE)
