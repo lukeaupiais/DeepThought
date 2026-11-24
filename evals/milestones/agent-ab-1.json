@@ -1,0 +1,125 @@
+{
+  "milestone": "agent-ab-1",
+  "title": "Go + TypeScript/JavaScript + services slice: gate for the first scored agent A/B",
+  "decided": "2026-11-24",
+  "doc": "docs/milestones/agent-ab-1.md",
+  "measured_at": {
+    "engine_commit": "18cb028",
+    "note": "Values under 'current' were read from evals/ground_truth/baseline.json at this commit; tools/milestone_status.py reads the live baseline."
+  },
+  "impact": [
+    {"corpus": "cobra", "language": "go", "min_recall": 0.95, "min_precision": 0.99, "current": {"recall": 0.9813, "precision": 1.0}},
+    {"corpus": "chi", "language": "go", "min_recall": 0.95, "min_precision": 0.99, "current": {"recall": 0.995, "precision": 1.0}},
+    {"corpus": "ky", "language": "typescript", "min_recall": 0.90, "min_precision": 0.99, "current": {"recall": 0.7943, "precision": 1.0}},
+    {"corpus": "hono", "language": "typescript", "min_recall": 0.90, "min_precision": 0.99, "current": {"recall": 0.8889, "precision": 1.0}},
+    {"corpus": "preact", "language": "javascript", "min_recall": 0.90, "min_precision": 0.99, "current": {"recall": 0.9452, "precision": 1.0}}
+  ],
+  "contracts": {
+    "rule": "Service pairs summed over all gated kinds. Recall at least min_pair_recall and no predicted pair outside the labels. Every other contract corpus in the manifest keeps recall 1.0 and precision 1.0 on service pairs.",
+    "corpora": [
+      {"corpus": "contracts-online-boutique", "min_pair_recall": 0.95, "max_false_pairs": 0, "current": {"pairs": "13/15 (grpc 12/14, http 1/1)", "false_pairs": 0}},
+      {"corpus": "contracts-robot-shop", "min_pair_recall": 0.95, "max_false_pairs": 0, "current": {"pairs": "14/18 (http 13/17, messaging 1/1)", "false_pairs": 0}}
+    ]
+  },
+  "held_out": {
+    "rule": "One Go and one TypeScript repository, chosen and sealed on 2026-11-24, never used for tuning. The verification thread unseals, pins and labels impact truth (tools/impact_truth.py) only after every other criterion is green. Thresholds: impact recall at least 0.90, precision at least 0.99. If a repo cannot be labelled (oracle failure), its sealed reserve is used instead; the reason is recorded.",
+    "sealed_sha256": "3e3e5ba162e7fcda160f66d1075724667e481ad5b3d0c5a838a127145a0f37a3",
+    "sealed_format": "sha256 of the UTF-8 JSON object {go, typescript, reserves, salt} serialised with sort_keys=True and separators=(',', ':')"
+  },
+  "capabilities": [
+    "getImpact, getFunctionCallers, getComponentImpact and diffSnapshots answer against a freshly indexed task repository through the MCP server used by the runner",
+    "every edge those tools return carries its rule ID (explainEdge resolves it)",
+    "graders affected-set-v1, change-plan-v1, change-check-v1 and exact-fact-v1 exist, with positive and negative controls in tests",
+    "a two-task dry run (one Go, one services task) on myarch shows graph read receipts in the treatment arm"
+  ],
+  "tasks": [
+    {
+      "id": "U1", "objective": "understand", "corpus": "contracts-online-boutique", "grader": "affected-set-v1",
+      "prompt": "The response message of hipstershop.CartService/GetCart will change shape. List every service and every source location (file and line of the call or handler) that must be reviewed, on both client and server side.",
+      "truth": "online-boutique.json links with contract hipstershop.CartService/GetCart (clients src/frontend/rpc.go:58, src/checkoutservice/main.go:325) plus the labelled server location; +-3 line tolerance as in tools/check_contracts_ground_truth.py"
+    },
+    {
+      "id": "U2", "objective": "understand", "corpus": "contracts-robot-shop", "grader": "affected-set-v1",
+      "prompt": "Which services call the catalogue service's GET /product/{sku} endpoint, directly or through the web proxy? Give each client call site.",
+      "truth": "robot-shop.json links with contract GET /product/{sku}: cart/server.js:362, ratings/html/src/Service/CatalogueService.php:27, web/static/js/controller.js:243, load-gen/robot-shop.py:68"
+    },
+    {
+      "id": "U3", "objective": "understand", "corpus": "cobra", "grader": "affected-set-v1",
+      "prompt": "The behaviour of (*Command).InheritedFlags in command.go will change. List every function, up to three calls away, whose behaviour can change as a result.",
+      "truth": "evals/ground_truth/impact/cobra.tsv rows with seed command.go:1744 InheritedFlags (35 dependents in 10 files); unjudged rows ignored"
+    },
+    {
+      "id": "P1", "objective": "plan", "corpus": "chi", "grader": "change-plan-v1",
+      "prompt": "Plan adding a required parameter to (*Mux).Mount in mux.go. List (a) every function that must be edited so the code compiles and (b) every further function, up to three calls away, whose behaviour should be re-tested.",
+      "truth": "(a) depth-1 rows and (b) depth 2-3 rows of evals/ground_truth/impact/chi.tsv with seed mux.go:295 Mount (10 direct, 31 total)"
+    },
+    {
+      "id": "P2", "objective": "plan", "corpus": "hono", "grader": "change-plan-v1",
+      "prompt": "Plan making stringBufferToString in src/utils/html.ts always return a Promise. List (a) every function that must be edited to handle the new return type and (b) every further function, up to three calls away, that should be re-tested.",
+      "truth": "(a) depth-1 and (b) depth 2-3 rows of evals/ground_truth/impact/hono.tsv with seed src/utils/html.ts:53 stringBufferToString (5 direct, 34 total in 14 files)"
+    },
+    {
+      "id": "P3", "objective": "plan", "corpus": "contracts-online-boutique", "grader": "change-plan-v1",
+      "prompt": "Plan moving hipstershop.CurrencyService/Convert into a new pricing service. List (a) every client call site that must be repointed and the service it belongs to and (b) the handler that must move.",
+      "truth": "(a) online-boutique.json links with contract hipstershop.CurrencyService/Convert (src/frontend/rpc.go:82, src/checkoutservice/main.go:360) and (b) its labelled server location"
+    },
+    {
+      "id": "C1", "objective": "check", "corpus": "cobra", "grader": "change-check-v1",
+      "prompt": "Review this patch, which renames InitDefaultHelpFlag. Is it complete? List every call site it misses.",
+      "fault": "Verification thread builds the patch at the cobra pin from call truth: rename the declaration and update all but two depth-1 callers of command.go:1219 InitDefaultHelpFlag, chosen by a fixed seed (random.Random(1)) over the sorted caller list. The patch must not compile only because of the two omissions.",
+      "truth": "The two omitted call sites"
+    },
+    {
+      "id": "C2", "objective": "check", "corpus": "ky", "grader": "change-check-v1",
+      "prompt": "Review this patch, which adds a required second parameter to isError in source/utils/is.ts. Is it complete? List every call site it misses.",
+      "fault": "Patch at the ky pin updating all but one depth-1 caller of source/utils/is.ts:13 isError, chosen by random.Random(2) over the sorted caller list; type-checks only after the omission is fixed.",
+      "truth": "The omitted call site"
+    },
+    {
+      "id": "C3", "objective": "check", "corpus": "contracts-robot-shop", "grader": "change-check-v1",
+      "prompt": "Review this patch, which renames catalogue's GET /product/{sku} route to GET /products/item/{sku}. Is it complete across all services? List every client it misses.",
+      "fault": "Patch at the robot-shop pin changing the catalogue route and the cart/server.js:362 and web/static/js/controller.js:243 clients only.",
+      "truth": "ratings/html/src/Service/CatalogueService.php:27 and load-gen/robot-shop.py:68"
+    },
+    {
+      "id": "K1", "objective": "control", "corpus": "cobra", "grader": "exact-fact-v1",
+      "prompt": "Where is (*Command).ExecuteC declared (file and line), and what does it return?",
+      "truth": "Declaration from the cobra calls truth / scip-go index at the pin; return types from source"
+    },
+    {
+      "id": "K2", "objective": "control", "corpus": "hono", "grader": "exact-fact-v1",
+      "prompt": "List the exported functions declared in src/utils/url.ts with their start lines.",
+      "truth": "scip-typescript declarations at the hono pin"
+    },
+    {
+      "id": "K3", "objective": "control", "corpus": "ky", "grader": "exact-fact-v1",
+      "prompt": "What is ky's default retry limit, and in which file and line is it defined?",
+      "truth": "Hand-checked against source at the ky pin before the first scored run"
+    }
+  ],
+  "protocol": {
+    "arms": {
+      "baseline": "Read-only checkout of the pinned corpus, shell search tools (rg, find, sed, cat), Python and Node; no DeepThought access",
+      "treatment": "The same plus the DeepThought MCP server over a read-only Neo4j snapshot of the same pinned corpus; no graph facts injected into the prompt"
+    },
+    "agent": "Codex CLI on myarch under the operator's personal subscription; same CLI version, model and reasoning effort in both arms, recorded in every record; fresh ephemeral session per run; no paid API",
+    "repetitions": 3,
+    "order": "Per task: baseline, treatment, treatment, baseline, baseline, treatment for odd-numbered tasks in the list above; the mirror image for even-numbered tasks",
+    "sessions": 72,
+    "timeout_seconds": 600,
+    "retries": "None. Incomplete runs are kept and reported.",
+    "metrics": [
+      "correctness: recall, precision and F1 of the answer against task truth; must-change recall for plan tasks; missed-site recall and false alarms for check tasks",
+      "wrong claims: answer items contradicted by truth",
+      "total native tokens (input plus output; cached and reasoning as reported subsets)",
+      "actor wall seconds",
+      "tool calls, graph reads (treatment), files read",
+      "preparation cost: index and Neo4j import seconds per corpus, reported separately"
+    ],
+    "decision_rule": {
+      "status": "proposed; to be confirmed by Luke before the first scored run, then frozen",
+      "value": "On the 9 scored tasks, treatment mean F1 at least 0.10 higher than baseline, wrong claims not higher, and median total tokens no more than 10% higher",
+      "overhead": "On the 3 control tasks, report the token and time overhead of the treatment arm; above 25% is recorded as a finding to fix, not hidden"
+    }
+  }
+}
