@@ -1,0 +1,116 @@
+{
+ "corpus": "contracts-packt-chapter07",
+ "repo": "https://github.com/PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition",
+ "commit": "db9e0fa7d41756224a149a5a870647e0f0426b2e",
+ "root": "Chapter07",
+ "license": "MIT",
+ "languages": [
+  "Java (Spring Boot, Spring Cloud Stream)",
+  "Gradle",
+  "Docker Compose"
+ ],
+ "sources": [
+  "manual reading of Chapter07's Java sources, application.yml files and docker-compose*.yml at the pinned commit; paths are relative to Chapter07"
+ ],
+ "services": [
+  {
+   "name": "product-composite",
+   "root": "microservices/product-composite-service"
+  },
+  {
+   "name": "product",
+   "root": "microservices/product-service"
+  },
+  {
+   "name": "recommendation",
+   "root": "microservices/recommendation-service"
+  },
+  {
+   "name": "review",
+   "root": "microservices/review-service"
+  }
+ ],
+ "summary": {
+  "messaging": {
+   "in_scope": 3,
+   "out_of_scope": 0
+  },
+  "service_pairs_in_scope": [
+   [
+    "product-composite",
+    "product",
+    "messaging"
+   ],
+   [
+    "product-composite",
+    "recommendation",
+    "messaging"
+   ],
+   [
+    "product-composite",
+    "review",
+    "messaging"
+   ]
+  ]
+ },
+ "notes": "One send site serves all three bindings: the literal binding names are arguments of the private helper sendMessage. Each compose file (RabbitMQ by default, Kafka in docker-compose-kafka.yml) deploys the same three links. The auditGroup producer group has no consumer in the repository.",
+ "links": [
+  {
+   "kind": "messaging",
+   "from_service": "product-composite",
+   "to_service": "product",
+   "contract": "stream-destination:products",
+   "client": {
+    "file": "microservices/product-composite-service/src/main/java/se/magnus/microservices/composite/product/services/ProductCompositeIntegration.java",
+    "line": 183
+   },
+   "server": {
+    "file": "microservices/product-service/src/main/java/se/magnus/microservices/core/product/services/MessageProcessorConfig.java",
+    "line": 24
+   },
+   "evidence": "sendMessage(\"products-out-0\", ...) at lines 83, 99 calls streamBridge.send(bindingName, message); products-out-0.destination is products in microservices/product-composite-service/src/main/resources/application.yml; the @Bean Consumer messageProcessor is the function definition of product, bound as messageProcessor-in-0 with destination products in microservices/product-service/src/main/resources/application.yml",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "packt-chapter07#1"
+  },
+  {
+   "kind": "messaging",
+   "from_service": "product-composite",
+   "to_service": "recommendation",
+   "contract": "stream-destination:recommendations",
+   "client": {
+    "file": "microservices/product-composite-service/src/main/java/se/magnus/microservices/composite/product/services/ProductCompositeIntegration.java",
+    "line": 183
+   },
+   "server": {
+    "file": "microservices/recommendation-service/src/main/java/se/magnus/microservices/core/recommendation/services/MessageProcessorConfig.java",
+    "line": 24
+   },
+   "evidence": "sendMessage(\"recommendations-out-0\", ...) at lines 107, 126 calls streamBridge.send(bindingName, message); recommendations-out-0.destination is recommendations in microservices/product-composite-service/src/main/resources/application.yml; the @Bean Consumer messageProcessor is the function definition of recommendation, bound as messageProcessor-in-0 with destination recommendations in microservices/recommendation-service/src/main/resources/application.yml",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "packt-chapter07#2"
+  },
+  {
+   "kind": "messaging",
+   "from_service": "product-composite",
+   "to_service": "review",
+   "contract": "stream-destination:reviews",
+   "client": {
+    "file": "microservices/product-composite-service/src/main/java/se/magnus/microservices/composite/product/services/ProductCompositeIntegration.java",
+    "line": 183
+   },
+   "server": {
+    "file": "microservices/review-service/src/main/java/se/magnus/microservices/core/review/services/MessageProcessorConfig.java",
+    "line": 24
+   },
+   "evidence": "sendMessage(\"reviews-out-0\", ...) at lines 134, 153 calls streamBridge.send(bindingName, message); reviews-out-0.destination is reviews in microservices/product-composite-service/src/main/resources/application.yml; the @Bean Consumer messageProcessor is the function definition of review, bound as messageProcessor-in-0 with destination reviews in microservices/review-service/src/main/resources/application.yml",
+   "in_scope_static": true,
+   "hop": "direct",
+   "label_confidence": "high",
+   "id": "packt-chapter07#3"
+  }
+ ]
+}

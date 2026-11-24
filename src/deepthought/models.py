@@ -241,7 +241,9 @@ class CallSite:
     shadowed: bool | None = None
     # Go calls ``x.M()`` and ``x.f.g.M()`` where ``x`` is declared in the
     # function around the call: the type of ``x`` its declaration gives,
-    # written as for ``Definition.result_type``. None elsewhere.
+    # written as for ``Definition.result_type``. Python calls ``x.m()``: the
+    # class name (``T``, ``m.T``) that the binding of ``x`` writes. None
+    # elsewhere.
     receiver_type: str | None = None
     # Go: how the receiver's type follows from ``receiver_type``, one step
     # each: a field name ``f``, a method call ``M()`` (its first result), or

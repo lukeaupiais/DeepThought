@@ -96,6 +96,7 @@ precision only, so confirmed can exceed expected.
 ```sh
 python tools/ground_truth.py check                   # fetch, score, compare with baseline
 python tools/ground_truth.py check --corpus click    # one corpus
+# A name that is in no manifest list fails instead of checking nothing.
 python tools/ground_truth.py check --update-baseline # accept a new score
 python tools/ground_truth.py score WORKSPACE TRUTH --language python
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
@@ -299,6 +300,8 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
 | apollo fullstack-tutorial | graphql | 7 / 7 / 7 | 1 / 1 / 1 |
 | apollo spotify-showcase | graphql | 46 / 46 / 46 | 2 / 2 / 2 |
+| packt Chapter07 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
+| packt Chapter23 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
 
 Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
@@ -310,6 +313,16 @@ REQUESTS edge to a GraphqlField, placed at the request line and at the
 field's declaration. The fullstack tutorial's `start/` client, whose own
 server declares nothing, must not link to `final/server`; since #121 a
 client only matches the server scopes nearest to it.
+
+The two Packt corpora (`Microservices-with-Spring-Boot-and-Spring-Cloud`,
+4th edition, at db9e0fa) are Spring Cloud Stream apps labelled by hand. Each is
+one chapter of the book's repository, analyzed on its own (`root` in the
+manifest), so paths are relative to `Chapter07` and `Chapter23`. Chapter23
+keeps its configuration in `config-repo/`, which the Compose units mount as
+`SPRING_CONFIG_LOCATION`. The composite publishes all three topics from one
+`streamBridge.send(bindingName, message)` in a private helper, called with
+literal binding names, so the three labelled links share that send site.
+Main reads 0 of the 3 in each: the binding is a parameter.
 
 ### Routes and GraphQL fields
 
@@ -333,6 +346,43 @@ its controllers) are listed as neutral. graphql-js joins resolver modules
 follows since #105; `Query.info` is declared with no resolver, so a link to
 it would count as extra. The gate fails on fewer found, more
 extra, or changed labels.
+
+### ActiveRecord model tables
+
+The data-contracts tool maps each Rails model to its table. The manifest's
+`tables` corpora label that mapping with ActiveRecord's own naming code:
+`tools/rails_table_oracle.rb` finds the model classes with Prism (nesting,
+superclass, literal `self.table_name`, abstract classes, literal
+`table_name_prefix` methods and assignments, and the app's literal
+inflections). It rebuilds them on `ActiveRecord::Base` and asks each one its
+`table_name`. It never loads or runs the app. Models whose table it cannot
+know are set aside as `not_counted`: a computed `table_name` or prefix, or a
+class declared only under `spec/` or `test/`.
+
+| App | Pin | Models | Found | Wrong | Missed | Not counted |
+|---|---|---|---|---|---|---|
+| lobsters | d23941f | 42 | 42 | 0 | 0 | 0 |
+| rubygems.org | 6f51e32 | 45 | 45 | 0 | 0 | 0 |
+| mastodon | fe9d150 | 276 | 275 | 1 | 0 | 0 |
+| forem | 1f13196 | 134 | 134 | 0 | 0 | 0 |
+| discourse | 5fc74b5 | 402 | 398 | 0 | 4 | 27 |
+
+The engine runs with its defaults on Ruby files only. The scores are:
+
+- mastodon's one wrong model is `Mastodon::MigrationHelpers::Grant`, whose
+  table is `information_schema.role_table_grants`. The engine drops the schema.
+- discourse has 13,285 Ruby files, past the engine's default 10,000-file
+  limit, so the models in the last files read (`Poll`, `PollOption`,
+  `PollVote`, `ReviewableLiveUser`) are missed.
+- forem's prefixed models (`GDPRDeleteRequest`, `Users::Setting` and three
+  more) were found only after #126; before it, forem was 129 found, 1 wrong
+  and 4 missed.
+
+A model is found when the engine maps it to the labelled table and to no
+other, and wrong when it maps it anywhere else. The gate fails on fewer
+found, more wrong or extra, or changed labels. The labels are built offline,
+`ruby tools/rails_table_oracle.rb CHECKOUT` with Ruby 3.3 and activerecord
+7.2.2, and committed. `tests/test_rails_table_oracle.py` skips without them.
 
 ## Metamorphic checks
 
@@ -492,15 +542,20 @@ declaration already spans: a function `run` is not merged with a method
 
 | Corpus | Seeds | Oracle dependents | Confirmed | Extra | Recall | Precision |
 |---|---|---|---|---|---|---|
-| click | 144 | 1151 | 123 | 0 | 0.107 | 1.0 |
+| click | 144 | 1080 | 535 | 0 | 0.495 | 1.0 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
-| cobra | 107 | 1764 | 119 | 0 | 0.068 | 1.0 |
+| cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | gson | 164 | 5126 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
 Recall falls with depth because each missing link cuts off everything behind
-it (click confirms 60 of 351 direct callers, but 21 of 295 at depth 3).
+it.
+A decorator call runs where the decorated function is declared, not in its
+body. scip-python's range for a function starts at its first decorator, so
+the lines from there to the `def` line belong to the enclosing function: a
+test that runs `@cli.command()` on a nested def depends on `Group.command`,
+and the nested def does not.
 ripgrep's one extra is a caller of the `#[cfg(windows)]` `from_path`, which
 the Linux index does not analyze, and 84 of its seeds are test functions
 that macros expand to, which the engine does not declare. scip-go

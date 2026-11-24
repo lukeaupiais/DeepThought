@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -56,9 +57,12 @@ def main():
         if site.file not in content:
             content[site.file] = (args.root / site.file).read_bytes().split(b"\n")
         line = content[site.file][site.line - 1]
-        name = site.callee.split(".")[-1].encode()
-        start = line.find(name, site.column)
-        return None if start < 0 else at.get((site.file, site.line, start))
+        name = re.escape(site.callee.split(".")[-1].encode())
+        # A whole identifier, so `collect` is not found inside `collector`.
+        match = re.compile(rb"(?<![\w$])" + name + rb"(?![\w$])").search(
+            line, site.column
+        )
+        return None if match is None else at.get((site.file, site.line, match.start()))
 
     def contains(target, scip_def):
         return (
