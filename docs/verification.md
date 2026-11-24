@@ -919,10 +919,13 @@ calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
 `derive-java --chains` lists them and they join the impact graph as
 `--extra-calls`. A call javac bound by error recovery (the proto classes
 are missing) is not ruled on: `derive-java --recovered` lists each one against
-every overload of the name it bound, the impact truth is derived a second time
+every overload of the name it bound, and a call javac left unbound because
+its receiver's type is erroneous although the receiver is a call it did bind
+(the `.create()` ending a `GsonBuilder` chain that registers a proto class) against every method of that name and arity the receiver's
+declared type has or inherits; the impact truth is derived a second time
 with those calls added (`--possible-calls`), and a dependent only that wider
 graph reaches is written as an `# unjudged` row for its seed. An engine
-dependent on such a row counts as unjudged, not extra; 238 rows cover gson's
+dependent on such a row counts as unjudged, not extra; 242 rows cover gson's
 proto tests, and 4 engine dependents land on them: the test methods at
 `LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, as dependents of
 `Gson.toJson(Object, Type)` and `JsonElement.newJsonStringBuilder()`.

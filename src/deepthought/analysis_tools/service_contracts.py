@@ -87,7 +87,9 @@ from ..service_contracts.script_constants import (
     angular_defines,
 )
 from ..service_contracts.web import (
+    compose_express_prefixes,
     compose_python_prefixes,
+    express_routers,
     extract_web,
     nest_settings,
     python_routers,
@@ -1376,6 +1378,26 @@ def _laravel_route_prefixes(root, sources, composer):
     return {target: sorted(settings) for target, settings in found.items()}
 
 
+def _express_mounts(sources):
+    """{file: {router name: full prefixes}} of Express routers mounted with
+    ``use`` in other routers or apps."""
+    found = {
+        coverage.file: express_routers(tree, content)
+        for coverage, content, tree in sources
+        if coverage.language in ("javascript", "typescript")
+        and (b"express" in content or b".use(" in content)
+    }
+    if not any(facts[2] for facts in found.values()):
+        return {}
+    files = set(found)
+    mounts = {}
+    for (file, name), prefixes in compose_express_prefixes(
+        found, lambda f, m: resolve_script_module(f, m, files)
+    ).items():
+        mounts.setdefault(file, {})[name] = prefixes
+    return mounts
+
+
 def _nest_applications(root, sources):
     """(global prefix, unread reason) of each Node package's NestJS
     application, from the setGlobalPrefix, enableVersioning and RouterModule
@@ -1619,6 +1641,7 @@ class ServiceContractTool(AnalysisTool):
         python_mounts = _python_mounts(sources)
         composer = {}
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
+        python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
         calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
