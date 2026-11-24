@@ -91,6 +91,18 @@ def parser():
         "repeat for one index per indexer (deepthought index-scip writes them)",
     )
     index.add_argument(
+        "--scip-output-dir",
+        type=Path,
+        help="Keep the SCIP indexes the tree-sitter tool binds calls with here "
+        "(default: a temporary directory)",
+    )
+    index.add_argument(
+        "--allow-uncovered",
+        action="store_true",
+        help="Import even when Python, TypeScript, JavaScript or Go files have "
+        "no SCIP index; their calls fall back to the parser's rules",
+    )
+    index.add_argument(
         "--previous-artifact",
         type=Path,
         help="Earlier tree-sitter analysis; unchanged files need no parsing",
@@ -283,9 +295,73 @@ def parser():
     return p
 
 
+def index_scip(args, directory):
+    """Run the pinned SCIP indexers for an ``index`` run's tree-sitter tool.
+
+    Returns the ``index_workspace`` report, cut to the files the run analyzes,
+    and the ingested indexes. Every analyzed Python, TypeScript, JavaScript and
+    Go file must be covered unless ``--allow-uncovered``; each uncovered file
+    is named on stderr with the reason."""
+    from fnmatch import fnmatchcase
+
+    from .indexers import LANGUAGE_INDEXERS, index_workspace, ingest_indexed
+
+    requested = args.language or LANGUAGE_INDEXERS
+    languages = tuple(sorted(set(requested) & set(LANGUAGE_INDEXERS)))
+    if not languages:
+        return None, []
+    report = index_workspace(
+        args.workspace, directory, languages=languages, project_name=None
+    )
+
+    def analyzed(path):
+        return any(
+            fnmatchcase(path, pattern) for pattern in args.include or ("*",)
+        ) and not any(fnmatchcase(path, pattern) for pattern in args.exclude or ())
+
+    report["coverage"] = {
+        path: entry for path, entry in report["coverage"].items() if analyzed(path)
+    }
+    uncovered = {
+        path: entry
+        for path, entry in report["coverage"].items()
+        if entry["status"] != "covered"
+    }
+    report["uncovered"] = len(uncovered)
+    for run in report["runs"]:
+        if run["status"] != "indexed":
+            print(
+                f"{run['indexer']} {run['version']}: {run['status']} "
+                f"({run['reason']})" + (f": {run['detail']}" if run["detail"] else ""),
+                file=sys.stderr,
+            )
+    for path, entry in sorted(uncovered.items()):
+        print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
+    if uncovered and not args.allow_uncovered:
+        raise ValueError(
+            f"{len(uncovered)} source files have no SCIP index; install the "
+            "pinned indexers (deepthought indexers) or pass --allow-uncovered"
+        )
+    return report, ingest_indexed(report, args.repository_id)
+
+
 async def execute(args):
     from .storage.graph.connection import Neo4jConnectionManager
 
+    if args.command == "index" and "tree-sitter" in (args.tool or ["tree-sitter"]):
+        if args.scip_output_dir is not None:
+            scip_report, scip_indexes = index_scip(args, args.scip_output_dir)
+        else:
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as directory:
+                scip_report, scip_indexes = index_scip(args, directory)
+    elif args.command == "index":
+        if args.scip_output_dir is not None or args.allow_uncovered:
+            raise ValueError(
+                "--scip-output-dir and --allow-uncovered belong to the tree-sitter tool"
+            )
+        scip_report, scip_indexes = None, []
     config = connection_settings()
     manager = Neo4jConnectionManager(**config)
     driver = await manager.connect()
@@ -339,7 +415,11 @@ async def execute(args):
                 )
                 if tool is None:
                     raise ValueError("Unknown AnalysisTool: " + name)
-                options = {"previous": earlier} if name == "tree-sitter" else {}
+                options = (
+                    {"previous": earlier, "scip_indexes": scip_indexes}
+                    if name == "tree-sitter"
+                    else {}
+                )
                 try:
                     if not await tool.check_availability():
                         raise ValueError("Requested AnalysisTool is unavailable")
@@ -391,6 +471,19 @@ async def execute(args):
             report = {**asdict(result), "source_revision": link.to_dict()}
             if earlier is not None:
                 report["reuse"] = reuse
+            if scip_report is not None:
+                report["scip"] = {
+                    "runs": scip_report["runs"],
+                    "uncovered": {
+                        path: entry["reason"]
+                        for path, entry in scip_report["coverage"].items()
+                        if entry["status"] != "covered"
+                    },
+                    "covered": sum(
+                        entry["status"] == "covered"
+                        for entry in scip_report["coverage"].values()
+                    ),
+                }
             return report
         from .graph_queries import GraphQueryService
 

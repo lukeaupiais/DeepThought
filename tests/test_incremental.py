@@ -252,7 +252,10 @@ class IncrementalIndexTests(unittest.TestCase):
             root = Path(directory) / "work"
             shutil.copytree(FIXTURES / "python", root)
             artifact = Path(directory) / "analysis.json"
+            # Calls bind through scip-python where it is installed; this test is
+            # about reuse, which must hold either way.
             scope = [str(root), "--repository-id", repo, "--language", "python"]
+            scope.append("--allow-uncovered")
 
             def index(*extra):
                 result = run_module("deepthought.graph_cli", "index", *scope, *extra)

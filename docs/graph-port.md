@@ -2019,6 +2019,19 @@ the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
 (external targets the earlier environment left unresolved).
 
+`deepthought-graph index` indexes by default. Whenever the run includes the
+`tree-sitter` tool (the default tool), it first runs the pinned indexers for
+the run's Python, TypeScript, JavaScript and Go files, into a temporary
+directory or `--scip-output-dir DIR` to keep them, and the tree-sitter tool
+binds call sites in covered files through those indexes (see Calls). Each
+analyzed file without an index is named on stderr with its reason, and the run
+stops before importing anything unless `--allow-uncovered`; with it, those
+files' calls fall back to the parser's rules. The import report carries a
+`scip` object: each indexer run, the covered file count and the uncovered
+files with their reasons. `--include` and `--exclude` limit which files must
+be covered; a run whose languages have no indexer (`--language rust`) indexes
+nothing.
+
 The `scip` AnalysisTool reads these indexes, one per indexer, into one
 snapshot (`deepthought-graph index WORKSPACE --tool scip --scip-index
 DIR/scip-python.scip --scip-index DIR/scip-go.scip`; SDK
