@@ -54,6 +54,9 @@ from ..data_contracts import (
     resolve_doctrine,
     mongoose_majors,
     resolve_mongoose,
+    resolve_workspace_module,
+    read_package_entries,
+    read_tsconfig_out,
     resolve_sequelize,
     merge_sequelize_defines,
     sequelize_define_options,
@@ -634,6 +637,20 @@ MONGOOSE_CALL_RULE = register_rule(
         "import that resolves to a file exporting it, mongoose.model(name) "
         "or mongoose.models.name. Instance methods (doc.save()) and query "
         "chains held in variables are not read.",
+    )
+)
+
+MONGOOSE_REPOSITORY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-repository-call",
+        "pattern_matched",
+        "A Mongoose model held in a field of a repository class: the class's "
+        "constructor passes the model to super(), and a base class sets the "
+        "field from that constructor parameter. The code calls a query or "
+        "write method on this.field in the subclass, or calls a method the "
+        "class inherits, on this or on a property whose declared type is "
+        "the class, and that inherited method's body (with the methods it "
+        "calls on this) makes those calls on the field.",
     )
 )
 
@@ -1554,12 +1571,34 @@ class DataContractTool(AnalysisTool):
             found = extract_mongoose(tree, content, file, result.definitions)
             if found is not None:
                 mongoose_files[file] = found
+        # Workspace packages, for imports of a sibling package by name.
+        workspace_packages, ts_outputs = [], {}
+        for path in _sql_files(root, include, exclude, ".json"):
+            name = path.rpartition("/")[2]
+            if name != "package.json" and not re.fullmatch(
+                r"tsconfig(?:\.[\w-]+)*\.json", name
+            ):
+                continue
+            content = (root / path).read_bytes()
+            if name == "package.json":
+                found = read_package_entries(path, content)
+                if found is not None:
+                    workspace_packages.append(found)
+                    digests[path] = sha256(content).hexdigest()
+                continue
+            found = read_tsconfig_out(path, content)
+            if found is not None:
+                digests[path] = sha256(content).hexdigest()
+                ts_outputs.setdefault(path.rpartition("/")[0], []).append(found)
         mongoose_tables, mongoose_unresolved, mongoose_model = resolve_mongoose(
             mongoose_files,
             mongoose_majors(mongoose_specs),
             lambda file, module: (
                 resolve_script_module(file, module, script_files)
                 or resolve_script_alias(file, module, script_files, ts_paths)
+                or resolve_workspace_module(
+                    file, module, script_files, workspace_packages, ts_outputs
+                )
             ),
             scope,
         )
@@ -1579,10 +1618,43 @@ class DataContractTool(AnalysisTool):
                 extra,
             )
         mongoose_counts = {"linked": 0, "unresolved_model": 0}
+        repository_counts = {"linked": 0, "unresolved_model": 0}
         has_models = any(found.models for found in mongoose_files.values())
         for file, found in sorted(mongoose_files.items()):
             for use in found.uses if has_models else ():
                 key = mongoose_model(use)
+                if use.target[0] in ("field", "typed"):
+                    if isinstance(key, tuple):
+                        key = [(key, use.reads, use.writes)]
+                    if not isinstance(key, list):
+                        if key not in ("package", "field"):
+                            repository_counts[key] = repository_counts.get(key, 0) + 1
+                        continue
+                    linked = False
+                    for model_key, reads, writes in key:
+                        target = mongoose_targets.get(model_key)
+                        if target is None:
+                            continue
+                        linked = True
+                        model = mongoose_files[model_key[0]].models[model_key[1]]
+                        extra = {
+                            "model": model.name,
+                            "line": use.line,
+                            "column": use.column,
+                        }
+                        if use.target[0] == "typed":
+                            extra["method"] = use.target[2]
+                        for kind, used in (("READS", reads), ("WRITES", writes)):
+                            if used:
+                                link(
+                                    kind,
+                                    code(use.file, use.caller_id),
+                                    target,
+                                    MONGOOSE_REPOSITORY_RULE,
+                                    extra,
+                                )
+                    repository_counts["linked" if linked else "unresolved_model"] += 1
+                    continue
                 if not isinstance(key, tuple):
                     if key != "package":
                         mongoose_counts[key] = mongoose_counts.get(key, 0) + 1
@@ -2041,6 +2113,9 @@ class DataContractTool(AnalysisTool):
                         sorted(Counter(mongoose_unresolved.values()).items())
                     ),
                     "mongoose_access_resolution": dict(sorted(mongoose_counts.items())),
+                    "mongoose_repository_resolution": dict(
+                        sorted(repository_counts.items())
+                    ),
                     "eloquent_models": len(eloquent_tables),
                     "eloquent_unresolved": len(eloquent_unresolved),
                     "eloquent_access_resolution": eloquent_counts,

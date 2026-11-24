@@ -376,6 +376,26 @@
       "labels": "tables/discourse.json",
       "oracle": "ActiveRecord 7.2.2 on Ruby 3.3.6 (Prism)",
       "oracle_command": "ruby tools/rails_table_oracle.rb ."
+    },
+    {
+      "name": "tables-kimai",
+      "url": "https://github.com/kimai/kimai",
+      "commit": "d46d79ec7646c6df351b6d9d61aab1726148f8a0",
+      "license": "AGPL-3.0",
+      "language": "php",
+      "labels": "tables/kimai.json",
+      "oracle": "PHP 8.3.6 token_get_all; Doctrine migrations",
+      "oracle_command": "php tools/doctrine_table_oracle.php . underscore_number_aware"
+    },
+    {
+      "name": "tables-partdb",
+      "url": "https://github.com/Part-DB/Part-DB-server",
+      "commit": "04aeda78ac8cc0fa5de07dc6e96d27945ff4f043",
+      "license": "AGPL-3.0",
+      "language": "php",
+      "labels": "tables/partdb.json",
+      "oracle": "PHP 8.3.6 token_get_all; Doctrine migrations",
+      "oracle_command": "php tools/doctrine_table_oracle.php . underscore_number_aware"
     }
   ]
 }

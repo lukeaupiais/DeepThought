@@ -259,6 +259,34 @@ MESSAGE_RULES = {
         "Client, or on AngularJS ngStomp's $stomp, names this destination."
         + _SAME_NAME,
     ),
+    ("graphql-subscriptions", "publish"): _message_rule(
+        "service-contracts.graphql-pubsub-publish",
+        "publish(topic, ...) on a name that every assignment in the file binds "
+        "to a graphql-subscriptions PubSub (or the PubSub re-exported by "
+        "apollo-server, graphql-yoga or @nestjs/graphql) names this topic. An "
+        "in-memory PubSub delivers only within its own instance, so the "
+        "destination is the file, the name and the topic." + _SAME_NAME,
+    ),
+    ("graphql-subscriptions", "consume"): _message_rule(
+        "service-contracts.graphql-pubsub-subscribe",
+        "asyncIterator(topic), asyncIterableIterator(topic) or subscribe(topic, "
+        "...) on a name that every assignment in the file binds to a "
+        "graphql-subscriptions PubSub names this topic; an array names each "
+        "topic. The destination is the file, the name and the topic." + _SAME_NAME,
+    ),
+    ("graphql-redis-subscriptions", "publish"): _message_rule(
+        "service-contracts.graphql-redis-pubsub-publish",
+        "publish(channel, ...) on a name that every assignment in the file "
+        "binds to a graphql-redis-subscriptions RedisPubSub names this Redis "
+        "channel." + _SAME_NAME,
+    ),
+    ("graphql-redis-subscriptions", "consume"): _message_rule(
+        "service-contracts.graphql-redis-pubsub-subscribe",
+        "asyncIterator(channel), asyncIterableIterator(channel) or "
+        "subscribe(channel, ...) on a name that every assignment in the file "
+        "binds to a graphql-redis-subscriptions RedisPubSub names this Redis "
+        "channel; an array names each channel." + _SAME_NAME,
+    ),
     ("spring-cloud-stream", "publish"): _message_rule(
         "service-contracts.spring-cloud-stream-output",
         "Code sends to a Spring Cloud Stream binding (Source.output(), @SendTo "
