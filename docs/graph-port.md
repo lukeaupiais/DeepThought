@@ -166,8 +166,15 @@ arbitrary object gets no edge.
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
 | `tree-sitter.js-call-static-method` | JavaScript/TypeScript: `C.m()` to the method `m` that the class `C` declares `static` (`Definition.static`), as ky's `Ky.create(...)` and `NonError.wrap(...)`. `C` is the class declared where the call's scopes see `C` (`CallSite.binding` records that declaration for `x.m` calls too), or the one class a named or default import binds to `C`, followed as for `call-imported-name`. A static method `C` inherits is not followed (`static_not_declared`), and a name a scope binds to anything else (a parameter, `const C = other`) leaves the call `attribute_call` |
+| `tree-sitter.js-call-typed-receiver` | JavaScript/TypeScript: `x.m()` where the declaration of `x` the call sees (`CallSite.binding`) is a variable or parameter annotated `x: C` or `x: C<...>`, or a variable initialized with `new C(...)`. `C` is found as for `js-call-static-method`, from where `x` is declared (`CallSite.receiver_type` and `receiver_binding`), and must be one class that no interface or namespace merges with. It links to the instance method `m` that `C` declares, or that it inherits through `extends`, class by class. An instance field or constructor parameter property named `m` on the way hides the method (`field_not_method`, `Definition.properties`), and a base that names no repository class stops the lookup (`base_not_resolved`), since it may declare `m`. A file that declares an interface or type alias named `C` anywhere is not read, since that name may be the type. Receivers typed any other way (a function's result, a callback parameter typed by its context, `this.x`), interfaces, private names `x.#m` and methods named on an object type stay `attribute_call` |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
+
+In JavaScript and TypeScript, a `new C(...)` that one of these rules links to
+the class `C` links instead to the `constructor` that `C` declares, which is
+the code the construction runs; the rule stays the one that found `C`. A class
+that declares no constructor (one it inherits is not followed), or several
+constructor overload signatures, keeps the link to the class.
 
 A name bound both by an import and a local declaration, or declared more than
 once, is ambiguous and gets no edge. Python `typing.overload` signatures
@@ -750,7 +757,7 @@ every link is `name_matched`:
 | `tree-sitter.java-static-import` | `m()` declared by no enclosing type: a method of a type imported with `import static`, by name or `*` |
 | `tree-sitter.call-self-method` | `this.m()`: the innermost enclosing type's `m` |
 | `tree-sitter.java-type-member` | `T.m()`: `T` names a type by Java's type lookup (below), and that type declares `m` |
-| `tree-sitter.java-type-name` | `new T()`: the type `T` names, by the same lookup |
+| `tree-sitter.java-type-name` | `new T()`: the constructor of the type `T` names, by the same lookup, that the arguments select (overloads chosen as for methods, below). When `T` declares no constructor, or the arguments leave none or more than one, the link is to the type |
 | `tree-sitter.java-inherited-method` | `m()`, `this.m()` or `T.m()` where the type found does not declare `m` but inherits it through its declared bases |
 | `tree-sitter.java-call-typed-receiver` | `x.m()` or `this.x.m()` where the declaration of `x` in scope writes a class type `T` (below): `m` declared on `T` or inherited through its declared bases |
 
@@ -2022,6 +2029,52 @@ meets the catalogue's `GET /product/:sku`. With the Java change above, the
 corpus scores 42 of 42 labelled call sites and 17 of 17 service pairs, none
 wrong (37 and 14 before).
 
+### ASP.NET Core routes
+
+C# files are read for routes (`service_contracts.aspnet`):
+
+- **Controllers** (rule `service-contracts.aspnet-controller-route`). A
+  class counts when it carries `[ApiController]`, derives from
+  `Controller`, `ControllerBase` or an Ardalis.ApiEndpoints base
+  (`EndpointBaseAsync...`), or is named `...Controller`; `[NonController]`
+  excludes it. An action is a method with `[HttpGet]`, `[HttpPost]`, ...
+  (optionally with a template) or `[Route]`. Its template is joined with
+  each of the class's `[Route]` templates unless it starts with `/` or
+  `~/`. `[controller]` is the class name without `Controller`, `[action]`
+  the method name without an `Async` suffix, `[area]` the class's `[Area]`.
+  An action with no template on either level is conventionally routed
+  (`MapControllerRoute`) and not read.
+- **Minimal APIs** (rule `service-contracts.aspnet-minimal-api-route`).
+  `MapGet/MapPost/MapPut/MapDelete/MapPatch(template, ...)` and
+  `MapMethods(template, new[] { "GET", ... }, ...)` with a literal
+  template; the methods of `MapMethods` are string literals or
+  `HttpMethods.X` constants, anything else leaves it unread
+  (`methods_not_literal`). `MapGroup(prefix)` in the receiver chain, or a local bound
+  once to one, adds its prefix; builder calls such as `WithTags` or
+  `NewVersionedApi` pass through. A receiver that is a `RouteGroupBuilder`
+  or `IEndpointRouteBuilder` parameter gets an unknown base, joined with
+  any known group prefixes after it. A template that is not a literal is
+  unread (`path_not_literal`).
+
+Constraints and defaults (`{id:int}`, `{id?}`, `{*rest}`) are read as plain
+parameters. Matching is case-sensitive, so a request to `/api/catalog` does
+not meet `[controller]` read as `Catalog`, although ASP.NET Core matches
+both.
+
+Checked by hand against a lexical count of route attributes and `Map*`
+calls: eShopOnWeb `4da8212` 33 of 33 (26 attribute routes, 7 minimal API),
+dotnet/eShop `669682e` 31 of 31 with the group prefixes it builds
+(`/api/catalog/items`, `/api/orders/cancel`), grpc-dotnet `7c1a477` 5 of 5.
+CleanArchitecture `f7f9771` maps its endpoints by reflection through its own
+`MapGet(handler, template)` overloads; all 15 are unread rather than
+guessed.
+
+online-boutique's cartservice maps `GET /` to a notice that it only speaks
+gRPC. The load generator's `l.client.get("/")` has no host, so it now meets
+both that route and the frontend's `GET /` and is ambiguous instead of
+linked; the corpus scores 8 of 9 HTTP call sites, with its one HTTP service
+pair still found.
+
 ### NestJS controllers
 
 In TypeScript files that import from `@nestjs/common`, a class decorated
@@ -2433,8 +2486,7 @@ path pairs under `/api`, and they are exactly the 36 routes.
 ### gRPC
 
 The same tool reads gRPC contracts from `.proto` files and from Go, Python,
-Java and JavaScript sources (`deepthought.service_contracts.grpc`). C# is not
-parsed, so C# servers and clients are out of scope.
+Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
 
 - **Methods.** Every `rpc` of a top-level `service` block in a `.proto` file
   (comments removed, strings kept; directories `node_modules`, `vendor` and
@@ -2456,7 +2508,7 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-go-register-constructor` | `pb.RegisterXServer(s, f(...))` (or a name bound once to that call), where `f` is declared in one file of the same package directory and its only result is `T` or `*T` for a struct type `T` of that package; the methods of `T` as above |
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
-  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class. C# clients are not read yet |
+  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
   | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
 
@@ -2476,6 +2528,31 @@ parsed, so C# servers and clients are out of scope.
   the same file only to stubs of X. For JavaScript, where any `new a.B()`
   looks the same, `B` must be a service some proto declares. The call is
   placed at the method's name.
+
+  C# stubs are values of the generated client type `X.XClient` (with or
+  without its namespace, or through a `using A = ...;` alias):
+  `new X.XClient(channel)`, a parameter (primary constructor parameters
+  included), field, property or local declared with that type (`var` takes
+  the type of a `new`), `this.x` for a field or property, or a call to a
+  method of the same file whose return type is `X.XClient`. A name is looked
+  up in the innermost enclosing member, function or type that declares it,
+  so two locals named `client` in different methods can hold different
+  services; a name declared there with another type, or with clients of
+  two services, is not a stub. `MAsync` denotes rpc `M` when the proto has
+  no rpc `MAsync`. Clients registered with `AddGrpcClient<X.XClient>` and
+  injected into a constructor are read through that parameter's type.
+  Clients of a `using static` import (`XClient` alone) are not read.
+
+  C# clients, against a lexical reference (names assigned
+  `new ...X.XClient(` or declared with that type, then `name.M(`):
+  grpc-dotnet `7c1a477` 82 of 131 reference sites extracted plus 1 the
+  reference missed; each of the 49 others is a `client` local assigned
+  from `TestClientFactory.Create(...)`, which the reference's file-wide
+  name match takes for a stub. 72 sites link; 11 are unresolved because
+  their service (`Counter`, `Racer`, `ServerReflection`) is declared by several
+  proto packages of the repository. dotnet/eShop `669682e`: the WebApp's
+  injected `Basket.BasketClient` and the MAUI ClientApp's
+  `GetBasketClient()` give 6 of 6 calls, linked to `BasketApi.Basket`.
 
 A simple service name must belong to one proto package and the written
 method must be one of its rpcs (exactly, or as the only lowerCamel match);

@@ -98,6 +98,42 @@ def _applied(rest, template=False):
     return rest.startswith("(") or (template and rest.startswith("`"))
 
 
+_CONSTRUCTOR = re.compile(r"\s*constructor\s*\(")
+
+
+def _local_constructor(lines, line):
+    """The line of the constructor declared directly in the class body that
+    starts at ``line`` (1-based), or None. Braces inside strings, template
+    literals and comments are skipped."""
+    depth, opened, quote = 0, False, None
+    for number in range(line, len(lines) + 1):
+        text = lines[number - 1]
+        if opened and depth == 1 and quote is None and _CONSTRUCTOR.match(text):
+            return number
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if quote:
+                if ch == "\\":
+                    i += 1
+                elif ch == quote:
+                    quote = None
+            elif ch in "'\"`":
+                quote = ch
+            elif text.startswith("//", i):
+                break
+            elif ch == "{":
+                depth, opened = depth + 1, True
+            elif ch == "}":
+                depth -= 1
+                if opened and depth == 0:
+                    return None
+            i += 1
+        if quote and quote in "'\"":
+            quote = None
+    return None
+
+
 def derive(workspace, index):
     """Expected calls and the files the oracle indexed.
 
@@ -177,9 +213,16 @@ def derive(workspace, index):
             # `local N`<constructor>`().` without defining it: the call
             # creates the class bound at `local N`.
             owner = r.native_id.removesuffix("`<constructor>`().")
-            targets = bound.get((r.file, r.native_id)) or bound.get(
-                (r.file, owner), {("-", 0, "local")}
-            )
+            targets = bound.get((r.file, r.native_id))
+            if not targets and owner != r.native_id and (r.file, owner) in bound:
+                # The constructor it leaves undefined is the one the class
+                # declares, if any: a construction targets either.
+                targets = set(bound[(r.file, owner)])
+                for _, line, _ in list(targets):
+                    found = _local_constructor(text_of(r.file), line)
+                    if found:
+                        targets.add((r.file, found, "local"))
+            targets = targets or bound.get((r.file, owner), {("-", 0, "local")})
         else:
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
