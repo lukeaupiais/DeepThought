@@ -37,6 +37,7 @@ import re
 from ..syntax import identifier
 from .folding import Folder, text
 from .http import PLACEHOLDER
+from .script_constants import function_name
 from .stomp_clients import bound_kinds, value_kind
 from .spring import _Imports, _annotations, _arguments, _Values
 from .web import _go_imports, _js_modules, _js_object, _python_imports
@@ -67,6 +68,9 @@ class MessageEndpoint:
     # Compose services ("file:name") that deploy it, for Spring Cloud Stream.
     service_identity: str | None = None
     deployed_as: tuple = ()
+    # The calls ("file:line") that pass the destination to the parameter of
+    # the function around the site, when that is where it comes from.
+    argument_from: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -99,7 +103,16 @@ class _Sites:
             return self.spans.get((*start, *end))
         return next((i for s, e, i in self.enclosing if s <= start and end <= e), None)
 
-    def add(self, node, role, broker, destination, client, declaration_id=None):
+    def add(
+        self,
+        node,
+        role,
+        broker,
+        destination,
+        client,
+        declaration_id=None,
+        argument_from=(),
+    ):
         line = node.start_point.row + 1
         if PLACEHOLDER in destination:
             self.unread.append(
@@ -134,6 +147,7 @@ class _Sites:
                 broker=broker,
                 destination=destination,
                 client=client,
+                argument_from=tuple(argument_from),
             )
         )
 
@@ -992,8 +1006,38 @@ def _required_members(root, content):
     return names
 
 
-def extract_javascript_brokers(sites, language):
-    """kafkajs producers and consumers, and amqplib channels."""
+def _destinations(sites, folder, node, topic, role, broker, client, arguments_of):
+    """Add the site of a destination expression. A destination that is a
+    parameter of a module-level function takes, instead, each value that
+    calls of the function pass (``arguments_of(name, index)``)."""
+    value = PLACEHOLDER if topic is None else folder.evaluate(topic)
+    found = None
+    if (
+        PLACEHOLDER in value
+        and arguments_of is not None
+        and topic is not None
+        and topic.type in ("identifier", "shorthand_property_identifier")
+    ):
+        parameter = folder.parameter(topic)
+        name = function_name(parameter[0]) if parameter is not None else None
+        if name is not None:
+            found = arguments_of(text(name, sites.content), parameter[1])
+    if not found:
+        sites.add(node, role, broker, value, client)
+        return
+    calls = {}
+    for passed, call in found:
+        calls.setdefault(passed, []).append(call)
+    for passed in sorted(calls):
+        sites.add(
+            node, role, broker, passed, client, argument_from=sorted(calls[passed])
+        )
+
+
+def extract_javascript_brokers(sites, language, arguments_of=None):
+    """kafkajs producers and consumers, and amqplib channels. A topic that
+    is a parameter of the enclosing module-level function is read from the
+    calls of that function (``arguments_of``)."""
     content, root = sites.content, sites.root
     modules = {**_required_members(root, content), **_js_modules(root, content)}
     kafkajs = "kafkajs" in {m.split(".")[0] for m in modules.values() if m}
@@ -1003,15 +1047,18 @@ def extract_javascript_brokers(sites, language):
     folder = Folder(language, root, content)
     clients = {}
     if kafkajs:
+        # Names bound to, or typed as, a kafkajs Kafka.
         kafkas = set(
-            _bound_kinds(
+            bound_kinds(
                 root,
                 content,
+                modules,
                 lambda v: (
                     "kafka"
                     if _constructed(_awaited(v), content, modules, _KAFKAJS)
                     else None
                 ),
+                {("kafkajs", "Kafka"): "kafka"},
             )
         )
 
@@ -1066,8 +1113,16 @@ def extract_javascript_brokers(sites, language):
                         if item.type != "comment"
                     ]
             for topic in topics:
-                name = PLACEHOLDER if topic is None else folder.evaluate(topic)
-                sites.add(node, "publish", "kafka", name, "kafkajs")
+                _destinations(
+                    sites,
+                    folder,
+                    node,
+                    topic,
+                    "publish",
+                    "kafka",
+                    "kafkajs",
+                    arguments_of,
+                )
         elif kind == "consumer" and verb == "subscribe" and positional:
             options = _js_object(positional[0], content)
             if "topic" in options:
@@ -1089,8 +1144,16 @@ def extract_javascript_brokers(sites, language):
                         )
                     )
                     continue
-                name = PLACEHOLDER if topic is None else folder.evaluate(topic)
-                sites.add(node, "consume", "kafka", name, "kafkajs")
+                _destinations(
+                    sites,
+                    folder,
+                    node,
+                    topic,
+                    "consume",
+                    "kafka",
+                    "kafkajs",
+                    arguments_of,
+                )
         elif owner in channels:
             if verb == "publish" and len(positional) >= 2:
                 exchange, key = (folder.evaluate(a) for a in positional[:2])
@@ -1430,11 +1493,15 @@ def extract_messaging(
     constants=None,
     template_exchange=None,
     application_prefixes=None,
+    arguments_of=None,
 ):
     """Publish and consume sites, and unread ones, of one source file.
 
     ``template_exchange`` is the exchange a Spring RabbitTemplate of the
     file's module sends to when given only a routing key, None if unknown.
+    ``arguments_of(name, index)`` gives the values calls of the file's
+    module-level function ``name`` pass as argument ``index``, with the
+    calls (JavaScript/TypeScript).
     """
     sites = _Sites(tree, content, repository_id, file, definitions)
     if language == "java":
@@ -1447,6 +1514,6 @@ def extract_messaging(
         extract_go_kafka(sites, imports)
     elif language in ("javascript", "typescript"):
         extract_javascript(sites, language)
-        extract_javascript_brokers(sites, language)
+        extract_javascript_brokers(sites, language, arguments_of)
         extract_nest_microservices(sites, language)
     return sites.endpoints, sites.unread

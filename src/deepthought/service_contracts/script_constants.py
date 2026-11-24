@@ -210,3 +210,137 @@ class ScriptConstants:
         found = {k: v for k, v in found.items() if v is not None and v != PLACEHOLDER}
         self._exports[file] = found
         return found
+
+
+def function_name(function):
+    """The module-level name of a function: a ``function`` declaration, or a
+    ``const``/``let``/``var`` at the top level whose value is the function;
+    None otherwise."""
+    parent = function.parent
+    if function.type in ("function_declaration", "generator_function_declaration"):
+        name = function.child_by_field_name("name")
+        holder = parent
+    elif parent is not None and parent.type == "variable_declarator":
+        if parent.child_by_field_name("value") != function:
+            return None
+        name = parent.child_by_field_name("name")
+        holder = parent.parent
+        holder = holder.parent if holder is not None else None
+    else:
+        return None
+    if holder is not None and holder.type == "export_statement":
+        holder = holder.parent
+    if name is None or name.type != "identifier":
+        return None
+    if holder is None or holder.type != "program":
+        return None
+    return name
+
+
+class ScriptCalls:
+    """The values that calls of a module-level function pass to one of its
+    parameters: calls in the function's own module, and in modules that
+    import it by name, or import the module as a namespace and call
+    ``ns.name(...)``."""
+
+    def __init__(self, constants):
+        self.constants = constants
+        self._importers = None
+
+    def _imports(self):
+        """{(target file, exported name): [(importing file, local name)]}."""
+        if self._importers is None:
+            self._importers = {}
+            constants = self.constants
+            for file, (tree, content, _) in constants.sources.items():
+                for node in tree.root_node.named_children:
+                    if node.type != "import_statement":
+                        continue
+                    source = _module_text(node.child_by_field_name("source"), content)
+                    target = constants.resolve(file, source) if source else None
+                    if target is None:
+                        continue
+                    for clause in node.named_children:
+                        if clause.type != "import_clause":
+                            continue
+                        for item in clause.named_children:
+                            if item.type == "namespace_import":
+                                local = text(item.named_children[-1], content)
+                                self._importers.setdefault((target, "*"), []).append(
+                                    (file, local)
+                                )
+                                continue
+                            if item.type != "named_imports":
+                                continue
+                            for spec in item.named_children:
+                                if spec.type != "import_specifier":
+                                    continue
+                                name = text(spec.child_by_field_name("name"), content)
+                                alias = spec.child_by_field_name("alias")
+                                local = text(alias, content) if alias else name
+                                self._importers.setdefault((target, name), []).append(
+                                    (file, local)
+                                )
+        return self._importers
+
+    def arguments(self, file, name, index):
+        """[(value, "file:line")] for each call of the module-level function
+        ``name`` of ``file`` that passes argument ``index``; a value is
+        folded in the calling module."""
+        imports = self._imports()
+        callers = (
+            [(file, name, True)]
+            + [
+                (caller, local, False)
+                for caller, local in imports.get((file, name), [])
+            ]
+            # import * as ns: ns.name(...)
+            + [
+                (caller, f"{local}.{name}", False)
+                for caller, local in imports.get((file, "*"), [])
+            ]
+        )
+        found = []
+        for caller, local, own in callers:
+            tree, content, language = self.constants.sources[caller]
+            folder = Folder(
+                language, tree.root_node, content, self.constants.externals(caller)
+            )
+            stack = [tree.root_node]
+            while stack:
+                node = stack.pop()
+                stack.extend(node.named_children)
+                if node.type != "call_expression":
+                    continue
+                function = node.child_by_field_name("function")
+                if text(function, content) != local:
+                    continue
+                if function.type == "member_expression":
+                    function = function.child_by_field_name("object")
+                    if function.type != "identifier" or folder._bound(function):
+                        continue
+                elif function.type != "identifier":
+                    continue
+                elif own:
+                    # The name must be the module's own declaration.
+                    bound = folder.binding(function)
+                    if bound is None and folder._bound(function):
+                        continue
+                    if bound is not None and function_name(bound[1]) is None:
+                        continue
+                elif folder._bound(function):
+                    continue  # shadowed by a local name
+                arguments = node.child_by_field_name("arguments")
+                if arguments is None or arguments.type != "arguments":
+                    continue
+                positional = [
+                    c for c in arguments.named_children if c.type != "comment"
+                ]
+                if any(c.type == "spread_element" for c in positional[: index + 1]):
+                    value = PLACEHOLDER
+                elif len(positional) <= index:
+                    continue
+                else:
+                    value = folder.evaluate(positional[index])
+                found.append((value, f"{caller}:{node.start_point.row + 1}"))
+        return found

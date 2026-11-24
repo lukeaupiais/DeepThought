@@ -23,6 +23,9 @@ matcher could find.
 | websocket-spring-boot-angular2-stomp.json | chriswhite199/spring-boot-angular2-stomp @ 78ade07e770f5c674a0111cb8df14ff315dfdef3 | Apache-2.0 | Java Spring WebSocket + STOMP + SockJS, TypeScript Angular ng2-stomp-service | HTTP (handshake), STOMP destinations as messaging |
 | jhipster-sample-app-websocket.json | jhipster/jhipster-sample-app-websocket @ 410a632c041f8ee50059362681b2a3a53f49361d | Apache-2.0 | Java Spring MVC + WebSocket/STOMP/SockJS, TypeScript Angular HttpClient/httpResource + @stomp/rx-stomp | HTTP (REST and handshake), STOMP destinations as messaging |
 | node-microservices-base-kafka.json | 19EB/microservices-base-kafka @ 9facb7f3c6a588252aa6364fb119beeedafa7b56 | MIT | TypeScript Node, Express, kafkajs | Kafka |
+| grpc-go-route-guide.json | grpc/grpc-go @ 9ad6d94991448f5efccbdeab46dbaf70fef7c7ad (examples/route_guide) | Apache-2.0 | Go | gRPC, one rpc per streaming kind |
+| grpc-java-route-guide.json | grpc/grpc-java @ 63363339259696a63ef0b33387e01b5520c5c700 (examples/src/main) | Apache-2.0 | Java | gRPC, one rpc per streaming kind |
+| grpc-node-route-guide.json | grpc/grpc-node @ ca7f83f719ba1e69ee9b832b84d5375de15eeca6 (examples; static and dynamic codegen) | Apache-2.0 | JavaScript @grpc/grpc-js, @grpc/proto-loader | gRPC, one rpc per streaming kind |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).
@@ -78,6 +81,8 @@ listed under `unmatched_clients`, so a link from it is wrong. To regenerate:
   - `gateway_route`: the route declaration itself. Its `server` is null.
 - `label_confidence`: `high` or `ambiguous`.
 - `contract_def`: the gRPC rpc line in the proto.
+- `streaming` (gRPC route_guide corpora): `unary`, `server`, `client` or `bidi`, from the
+  `stream` keywords of the rpc's request and response in the proto.
 - `client_invocations`: for Feign and WebClient wrappers, the places in business code where the
   client method is invoked. `client` is the Feign method annotation or the WebClient `.uri(` line.
 - `client_url_def`, `producer_invocation`, `consumer_binding`, `topic_config`: where a URL or
