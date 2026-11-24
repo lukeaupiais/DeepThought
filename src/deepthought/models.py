@@ -60,8 +60,10 @@ class Definition:
     overload: bool | None = None
     # Go functions and methods (interface methods too): the type of the
     # first result, as ``T``, ``pkg.T`` or ``[]`` before an element type,
-    # through pointers and type arguments. None elsewhere, or when that type
-    # is of another kind.
+    # through pointers and type arguments. Java methods: the return type as
+    # written without type arguments (``Foo``, ``Map.Entry``, ``int``). None
+    # elsewhere, or when that type is of another kind (``void``, an array, a
+    # type parameter).
     result_type: str | None = None
     # Go struct types: (name, type) for each named field whose type is
     # written as for ``result_type``. None elsewhere, or when there is none.
@@ -299,6 +301,10 @@ class CallSite:
     # around the call cannot be read (``with``, a syntax error), and
     # elsewhere.
     binding: tuple[int, ...] | None = None
+    # Java calls with an argument that is itself a method call: that call's
+    # span (line, column, end line, end column) for each such argument, None
+    # for any other argument. None when no argument is a method call.
+    argument_calls: tuple[tuple[int, int, int, int] | None, ...] | None = None
 
     def __post_init__(self):
         if self.binding is not None and (
@@ -308,6 +314,21 @@ class CallSite:
             or (self.binding and self.binding[0] < 1)
         ):
             raise ValueError("binding must be (line, column), () or None")
+        if self.argument_calls is not None and (
+            type(self.argument_calls) is not tuple
+            or len(self.argument_calls) != self.arguments
+            or all(span is None for span in self.argument_calls)
+            or not all(
+                span is None
+                or (
+                    type(span) is tuple
+                    and len(span) == 4
+                    and all(type(v) is int and v >= 0 for v in span)
+                )
+                for span in self.argument_calls
+            )
+        ):
+            raise ValueError("argument_calls must give a span for some argument")
         if self.receiver_type is not None and (
             not isinstance(self.receiver_type, str) or not self.receiver_type
         ):
@@ -657,6 +678,8 @@ class AnalysisResult:
                 del item["receiver_steps"]
             if item["binding"] is None:
                 del item["binding"]
+            if item["argument_calls"] is None:
+                del item["argument_calls"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -754,6 +777,16 @@ class AnalysisResult:
                         **(
                             {"binding": tuple(item["binding"])}
                             if isinstance(item.get("binding"), list)
+                            else {}
+                        ),
+                        **(
+                            {
+                                "argument_calls": tuple(
+                                    None if span is None else tuple(span)
+                                    for span in item["argument_calls"]
+                                )
+                            }
+                            if isinstance(item.get("argument_calls"), list)
                             else {}
                         ),
                     }

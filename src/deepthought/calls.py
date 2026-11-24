@@ -331,6 +331,13 @@ class _JavaScope:
             if item.file in self.roots and owner is not None:
                 self.bases[(owner.file, owner.symbol)].append(item.name)
         self._members = {}  # (file, type symbol, name) -> [_Member]
+        self.definitions = {d.id: d for d in result.definitions}
+        # Call sites by (file, span), and the return types of what they link.
+        self.spans = {
+            (s.file, s.line, s.column, s.end_line, s.end_column): s
+            for s in result.call_sites
+        }
+        self._results = {}
         # Whether subtype checks may use that JDK types are no repository
         # subtypes (see ``methods``).
         self._platform = False
@@ -594,16 +601,46 @@ class _JavaScope:
         specs = self.single.get((file, written.split(".")[0]))
         return bool(specs) and all(spec.startswith("java.") for spec in specs)
 
+    def call_result(self, file, span):
+        """(return type, (file, scope) it is written in) of the method that
+        the Java call at ``span`` in ``file`` links to; None when that call
+        is not linked or its method's return type is not recorded."""
+        site = self.spans.get((file, *span))
+        if site is None:
+            return None
+        if site.id not in self._results:
+            caller = self.definitions.get(site.caller_id)
+            scope = caller.symbol.split(".") if caller is not None else []
+            # Resolved first by the pass without the platform rule.
+            target = self.definitions.get(self.call(site, scope).target_id)
+            self._results[site.id] = (
+                (
+                    target.result_type,
+                    (target.file, tuple(target.symbol.split(".")[:-1])),
+                )
+                if target is not None and target.result_type is not None
+                else None
+            )
+        return self._results[site.id]
+
     def overloads(self, site, scope, methods):
         """The methods among ``methods`` that the call's written argument
         types may select, as javac does (JLS 15.12.2): the first phase
         (strict, then with boxing, then variable arity) with an applicable
         method, then the most specific of them. Only methods known to be
         the choice are returned; otherwise ``methods`` is returned."""
-        arguments = site.argument_types
-        if not arguments or len(methods) < 2:
+        if len(methods) < 2 or not (site.argument_types or site.argument_calls):
             return methods
         at = (site.file, tuple(scope))
+        arguments = list(site.argument_types or (None,) * site.arguments)
+        ats = [at] * len(arguments)
+        for i, span in enumerate(site.argument_calls or ()):
+            if span is not None:
+                # An argument that is a method call has the type its linked
+                # method returns, written where that method is declared.
+                found = self.call_result(site.file, span)
+                if found is not None:
+                    arguments[i], ats[i] = found
         top = scope[0] if scope else None
         visible = [
             m
@@ -634,8 +671,8 @@ class _JavaScope:
                 return False
             owner = (m.definition.file, tuple(m.definition.symbol.split(".")[:-1]))
             checks = [
-                None if a is None else self.subtype(a, at, t, owner, min(phase, 2))
-                for a, t in zip(arguments, types)
+                None if a is None else self.subtype(a, a_at, t, owner, min(phase, 2))
+                for a, a_at, t in zip(arguments, ats, types)
             ]
             if False in checks:
                 return False

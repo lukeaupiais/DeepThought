@@ -770,7 +770,12 @@ is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
 `(T) e`, a `+` with a `String` operand (concatenation, JLS 15.18.1), or a
 variable whose declaration writes its type (as for `receiver_type` below,
 primitives such as `int i` and `boolean flag` included); `var`, arrays and
-other expressions are not typed; `CallSite.argument_types` records them. The phases
+other expressions are not typed; `CallSite.argument_types` records them. An
+argument that is itself a method call (`a.j(box.get(0))`, recorded by its
+span in `CallSite.argument_calls`) has the return type of the method that
+call links to (`Definition.result_type`: the class or primitive type a Java
+method declares, read where that method is declared; none for `void`,
+arrays and type parameters). The phases
 are tried in order: without boxing, with boxing, then variable arity. In the
 first phase where some method applies, the most specific one is linked:
 each of its parameter types is a subtype of the other's. Subtypes are known

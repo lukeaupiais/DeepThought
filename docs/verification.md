@@ -155,7 +155,7 @@ Baseline (calls):
 | preact | javascript | 3,884 | 4,426 | 0 | 1.0 | 0.8671 |
 | anyhow | rust | 444 | 223 | 0 | 1.0 | 0.491 |
 | ripgrep | rust | 11,676 | 3,346 | 0 | 1.0 | 0.2865 |
-| gson | java | 11,050 | 9,305 | 0 | 1.0 | 0.833 |
+| gson | java | 11,050 | 9,328 | 0 | 1.0 | 0.835 |
 
 Recall is low by design where calls need a receiver's type (`x.m()`,
 `c.Root().Name()`), which name-based resolution does not infer. The largest
@@ -736,7 +736,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 2877 | 5 | 0.570 | 0.998 |
+| gson | 164 | 5052 | 2913 | 6 | 0.577 | 0.998 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -790,10 +790,12 @@ index). The call truth leaves out `this(...)` and `super(...)`, which name
 no declaration, but a constructor that delegates depends on the one it
 calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
 `derive-java --chains` lists them and they join the impact graph as
-`--extra-calls`. gson's 5 extras are real calls that the truth has no edge
+`--extra-calls`. gson's 6 extras are real calls that the truth has no edge
 for. One is a field initializer, `miniGson.getAdapter(...)` at
 `StreamingTypeAdaptersTest.java:46`, which is in no method or constructor
-span, so the class is not a dependent in the truth. The other 4 reach
-`Gson.toJson(Object, Type)` from `LegacyProtoTypeAdapterFactoryTest.java:342`
-and `:418` through calls that the call truth leaves out because javac chose
-them by error recovery (the generated proto classes are missing).
+span, so the class is not a dependent in the truth. The other 5 are the
+methods at `LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, which
+reach `Gson.toJson(Object, Type)`, and through it
+`JsonElement.newJsonStringBuilder`, by calls that the call truth leaves out
+because javac chose them by error recovery (the generated proto classes are
+missing).
