@@ -3123,9 +3123,9 @@ path pairs under `/api`, and they are exactly the 36 routes.
 The same tool reads gRPC contracts from `.proto` files and from Go, Python,
 Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
 
-- **Methods.** Every `rpc` of a top-level `service` block in a `.proto` file
-  (comments removed, strings kept; directories `node_modules`, `vendor` and
-  hidden ones skipped) is a `GrpcMethod` node with labels
+- **Methods.** Every `rpc` of a `service` in a `.proto` file (directories
+  `node_modules`, `vendor` and hidden ones skipped) is a `GrpcMethod` node
+  with labels
   `["GrpcMethod", "Contract"]` and qualified name
   `{repo}::grpc::{package}.{Service}/{Method}`. The identity is the fully
   qualified protobuf name, which is what goes on the wire, so the copies of
@@ -3135,6 +3135,28 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   the `proto_files` metric. `streaming` is `unary`, `client`, `server` or
   `bidi`, from `stream` on the request or response of the `rpc`. It is left
   out when the copies of the proto disagree.
+- **Reading .proto files.** protoc reads them, from `grpcio-tools` (the
+  `grpc` extra, also in `languages`;
+  `deepthought.service_contracts.protoc`): each file compiles to a
+  `FileDescriptorSet` with source info, and the services, rpcs, streaming
+  kinds and the lines of the rpc names come from the descriptor. protoc
+  needs the files a proto imports, under include roots the repository does
+  not name: an import `a/b.proto` is matched against the repository's
+  `.proto` paths, and what is left in front of it is a root. A file that
+  another file imports takes that importer's root as its own, else its
+  directory; the well-known types come from `grpcio-tools`. Files under the
+  same root compile in one run, split in halves when it fails, so a broken
+  file costs only itself. A file protoc does not compile (an import the
+  repository does not hold, such as an unvendored
+  `google/api/annotations.proto`, or a syntax error), and every file when
+  `grpcio-tools` is not installed, is read by the fallback reader: `rpc`
+  statements of top-level `service` blocks, comments removed and strings
+  kept. It gets no new features. The `proto_readers` metric counts the files
+  each reader read. On 639 `.proto` files across the validation
+  repositories, protoc compiled 615 and gave the same rpcs, lines and
+  streaming kinds as the fallback reader on every one; the rest import
+  protos the repositories do not vendor or are deliberately broken test
+  inputs.
 - **Servers.** Each rule ties a declaration to an rpc by `HANDLES`:
 
   | Rule | Server |
