@@ -302,6 +302,78 @@
         }
       }
     },
+    "contracts-grpc-go-route-guide": {
+      "grpc": {
+        "call_sites": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        },
+        "servers": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        },
+        "streaming": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        }
+      }
+    },
+    "contracts-grpc-java-route-guide": {
+      "grpc": {
+        "call_sites": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        },
+        "servers": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        },
+        "streaming": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        }
+      }
+    },
+    "contracts-grpc-node-route-guide": {
+      "grpc": {
+        "call_sites": {
+          "labelled_in_scope": 10,
+          "predicted": 10,
+          "true_positive": 10
+        },
+        "servers": {
+          "labelled_in_scope": 10,
+          "predicted": 10,
+          "true_positive": 10
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 1,
+          "true_positive": 1
+        },
+        "streaming": {
+          "labelled_in_scope": 4,
+          "predicted": 4,
+          "true_positive": 4
+        }
+      }
+    },
     "contracts-jhipster-sample-app-websocket": {
       "http": {
         "call_sites": {
@@ -424,13 +496,13 @@
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 6,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 6,
+          "true_positive": 6
         },
         "service_pairs": {
           "labelled_in_scope": 6,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 6,
+          "true_positive": 6
         }
       }
     },
@@ -441,10 +513,20 @@
           "predicted": 20,
           "true_positive": 20
         },
+        "servers": {
+          "labelled_in_scope": 20,
+          "predicted": 15,
+          "true_positive": 15
+        },
         "service_pairs": {
           "labelled_in_scope": 14,
           "predicted": 12,
           "true_positive": 12
+        },
+        "streaming": {
+          "labelled_in_scope": 0,
+          "predicted": 0,
+          "true_positive": 0
         }
       },
       "http": {
@@ -1154,8 +1236,8 @@
     "tables-librechat": {
       "expected": 69,
       "extra": 0,
-      "found": 0,
-      "missed": 69,
+      "found": 69,
+      "missed": 0,
       "wrong": 0
     },
     "tables-lobsters": {
@@ -1175,8 +1257,8 @@
     "tables-node-express-boilerplate": {
       "expected": 2,
       "extra": 0,
-      "found": 0,
-      "missed": 2,
+      "found": 2,
+      "missed": 0,
       "wrong": 0
     },
     "tables-partdb": {

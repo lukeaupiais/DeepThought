@@ -361,7 +361,7 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | ewolff microservice-kafka | messaging | 2 / 2 / 2 | 2 / 2 / 2 |
 | piggymetrics | http | 3 / 3 / 3 | 3 / 3 / 3 |
 | spring-petclinic-microservices | http | 1 / 1 / 14 | 1 / 1 / 3 |
-| online-boutique | grpc | 20 / 21 / 20 | 12 / 12 / 14 |
+| online-boutique | grpc | 20 / 20 / 20 | 12 / 12 / 14 |
 | online-boutique | http | 9 / 9 / 9 | 1 / 1 / 1 |
 | robot-shop | http | 4 / 4 / 42 | 3 / 3 / 17 |
 | robot-shop | messaging | 1 / 1 / 1 | 1 / 1 / 1 |
@@ -369,6 +369,9 @@ pairs), and fails when a kind has fewer correct links or more wrong ones than
 | apollo spotify-showcase | graphql | 46 / 46 / 46 | 2 / 2 / 2 |
 | packt Chapter07 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
 | packt Chapter23 | messaging | 0 / 0 / 3 | 0 / 0 / 3 |
+| grpc-go route_guide | grpc | 4 / 4 / 4 | 1 / 1 / 1 |
+| grpc-java route_guide | grpc | 4 / 4 / 4 | 1 / 1 / 1 |
+| grpc-node route_guide | grpc | 10 / 10 / 10 | 1 / 1 / 1 |
 
 Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
@@ -439,6 +442,26 @@ topic. The six labelled links run from that shared `send` line, with the
 other service's `subscribe`. Main reads all three subscriptions but none of
 the sends, because the topic is a parameter fixed only at the wrapper's
 callers. So it links 0 of 6, with no false positives.
+
+grpc's route_guide example has one rpc of each streaming kind (`GetFeature`
+unary, `ListFeatures` server, `RecordRoute` client, `RouteChat` bidi). Its
+Go, Java and Node copies are labelled by hand in `build_grpc_route_guide.py`,
+from the code and the .proto, without the gRPC readers' code or tests (#162,
+#164). Each corpus is rooted at the example (`root` in the manifest); other
+examples in the same directory and protoc output are don't-care. Java's client
+and server share a package, so a service's root may be one file. Node has two
+copies, `static_codegen` (protoc output required as `services`) and
+`dynamic_codegen` (proto-loader): both clients dial the same address, so each
+copy's client file belongs to one client service and each server file to one
+server service.
+
+For gRPC the gate also scores two levels besides call sites and pairs:
+`servers` (labelled server lines with a `HANDLES` edge for the contract) and
+`streaming` (labelled rpcs whose `GrpcMethod` carries the labelled kind; a
+different kind is wrong, none is unread). Main reads every link, server and
+kind in all three: Go 4/4, Java 4/4, Node 10/10, streaming 4/4 each. Online
+Boutique's servers are 15 of 20: the 5 misses are the C# cartservice, whose
+servers are not read (C# is not a contract language yet).
 
 ### Routes and GraphQL fields
 

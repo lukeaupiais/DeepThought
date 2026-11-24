@@ -203,6 +203,36 @@
       ]
     },
     {
+      "name": "contracts-grpc-go-route-guide",
+      "url": "https://github.com/grpc/grpc-go",
+      "commit": "9ad6d94991448f5efccbdeab46dbaf70fef7c7ad",
+      "root": "examples/route_guide",
+      "labels": "../fixtures/service_contracts/grpc-go-route-guide.json",
+      "kinds": [
+        "grpc"
+      ]
+    },
+    {
+      "name": "contracts-grpc-java-route-guide",
+      "url": "https://github.com/grpc/grpc-java",
+      "commit": "63363339259696a63ef0b33387e01b5520c5c700",
+      "root": "examples/src/main",
+      "labels": "../fixtures/service_contracts/grpc-java-route-guide.json",
+      "kinds": [
+        "grpc"
+      ]
+    },
+    {
+      "name": "contracts-grpc-node-route-guide",
+      "url": "https://github.com/grpc/grpc-node",
+      "commit": "ca7f83f719ba1e69ee9b832b84d5375de15eeca6",
+      "root": "examples",
+      "labels": "../fixtures/service_contracts/grpc-node-route-guide.json",
+      "kinds": [
+        "grpc"
+      ]
+    },
+    {
       "name": "contracts-robot-shop",
       "url": "https://github.com/instana/robot-shop",
       "commit": "55292e2199f2fb00a165b1f7d3045fe7f8922038",

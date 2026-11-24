@@ -40,11 +40,11 @@ def _walk(node):
         stack.extend(reversed(current.named_children))
 
 
-def class_kind(written, modules, globals_allowed=True):
+def class_kind(written, modules, globals_allowed=True, classes=None):
     """The client kind of the class written ``written`` (``Client``,
     ``StompJs.Client``), given the file's imports {local name: module}."""
     owner, _, member = written.rpartition(".")
-    for (module, name), kind in CLASSES.items():
+    for (module, name), kind in (CLASSES if classes is None else classes).items():
         if modules.get(written) == f"{module}.{name}" or (
             owner and member == name and modules.get(owner) == module
         ):
@@ -67,7 +67,7 @@ def value_kind(value, content, modules):
     return None
 
 
-def type_kind(node, content, modules):
+def type_kind(node, content, modules, classes=None):
     """The client kind of the type annotation (or getter return type) on a
     declaration, or None."""
     annotation = node.child_by_field_name("return_type") or next(
@@ -81,10 +81,12 @@ def type_kind(node, content, modules):
         "nested_type_identifier",
     ):
         return None
-    return class_kind(text(types[0], content), modules, globals_allowed=False)
+    return class_kind(
+        text(types[0], content), modules, globals_allowed=False, classes=classes
+    )
 
 
-def _declarations(root, content, modules, classify):
+def _declarations(root, content, modules, classify, classes):
     """(written name, kind or None) for each declaration or assignment."""
     for node in _walk(root):
         kind = node.type
@@ -98,7 +100,7 @@ def _declarations(root, content, modules, classify):
             if value is not None:
                 yield text(name, content), classify(value)
             else:
-                typed = type_kind(node, content, modules)
+                typed = type_kind(node, content, modules, classes)
                 if typed is not None:
                     yield text(name, content), typed
         elif kind == "assignment_expression":
@@ -119,14 +121,14 @@ def _declarations(root, content, modules, classify):
             if value is not None:
                 yield written, classify(value)
             else:
-                typed = type_kind(node, content, modules)
+                typed = type_kind(node, content, modules, classes)
                 if typed is not None:
                     yield written, typed
         elif kind in _PARAMETERS:
             pattern = node.child_by_field_name("pattern")
             if pattern is None or pattern.type != "identifier":
                 continue
-            typed = type_kind(node, content, modules)
+            typed = type_kind(node, content, modules, classes)
             if node.child_by_field_name("value") is not None and typed is None:
                 continue
             written = text(pattern, content)
@@ -140,17 +142,19 @@ def _declarations(root, content, modules, classify):
         elif kind == "method_definition" and any(
             c.type == "get" for c in node.children
         ):
-            typed = type_kind(node, content, modules)
+            typed = type_kind(node, content, modules, classes)
             if typed is not None:
                 yield "this." + text(node.child_by_field_name("name"), content), typed
 
 
-def bound_kinds(root, content, modules, classify):
+def bound_kinds(root, content, modules, classify, classes=None):
     """{name: kind} for the names (``x`` or ``this.x``) that every
     declaration and assignment in the file gives the same kind;
-    ``classify(value)`` gives a value's kind or None."""
+    ``classify(value)`` gives a value's kind or None, and ``classes``
+    ({(module, class): kind}, by default the STOMP clients) the kind of a
+    declared type."""
     found = {}
-    for written, kind in _declarations(root, content, modules, classify):
+    for written, kind in _declarations(root, content, modules, classify, classes):
         found.setdefault(written, set()).add(kind)
     return {
         name: next(iter(kinds))
