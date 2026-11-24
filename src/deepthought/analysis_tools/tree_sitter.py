@@ -492,12 +492,13 @@ CALL_RULES.update(
             "links to a function whose return type writes a type 'A', '&A', "
             "'m::A<T>' or 'Self' names 'm' as 'A::m' does, 'A' read where the "
             "function is declared.",
-            call_rules.C_CALL_STATIC: "A C call 'f(...)' in a file that "
-            "declares a function 'f' 'static' names that file's definition of "
-            "'f', unless a parameter, local or file-scope variable, or a macro "
+            call_rules.C_CALL_STATIC: "A C call 'f(...)' in a file whose "
+            "translation unit (the file and the files its quoted includes "
+            "reach) declares a function 'f' 'static' names the unit's "
+            "definition of 'f', unless a parameter, local or file-scope variable, or a macro "
             "anywhere in the repository's C files, is named 'f'.",
-            call_rules.C_CALL_EXTERNAL: "A C call 'f(...)' in a file that "
-            "declares no function 'f' 'static' names the one definition of 'f' "
+            call_rules.C_CALL_EXTERNAL: "A C call 'f(...)' in a file whose "
+            "translation unit declares no function 'f' 'static' names the one definition of 'f' "
             "without 'static' in the repository's C files, unless a parameter, "
             "local or file-scope variable, or a macro anywhere in those files, "
             "is named 'f'.",
