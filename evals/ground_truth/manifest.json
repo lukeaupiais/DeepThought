@@ -249,6 +249,26 @@
       "kinds": [
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-websocket-gs-messaging-stomp",
+      "url": "https://github.com/spring-guides/gs-messaging-stomp-websocket",
+      "commit": "45228a145a9fc0289aa87ed424870bfcd3c413d5",
+      "labels": "../fixtures/service_contracts/websocket-gs-messaging-stomp.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-websocket-spring-boot-angular2-stomp",
+      "url": "https://github.com/chriswhite199/spring-boot-angular2-stomp",
+      "commit": "78ade07e770f5c674a0111cb8df14ff315dfdef3",
+      "labels": "../fixtures/service_contracts/websocket-spring-boot-angular2-stomp.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",

@@ -473,6 +473,58 @@
           "true_positive": 1
         }
       }
+    },
+    "contracts-websocket-gs-messaging-stomp": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
+    },
+    "contracts-websocket-spring-boot-angular2-stomp": {
+      "http": {
+        "call_sites": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 1,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      },
+      "messaging": {
+        "call_sites": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        },
+        "service_pairs": {
+          "labelled_in_scope": 2,
+          "predicted": 0,
+          "true_positive": 0
+        }
+      }
     }
   },
   "declarations": {

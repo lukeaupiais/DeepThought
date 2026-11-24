@@ -1,0 +1,131 @@
+{
+  "corpus": "websocket-spring-boot-angular2-stomp",
+  "repo": "https://github.com/chriswhite199/spring-boot-angular2-stomp",
+  "commit": "78ade07e770f5c674a0111cb8df14ff315dfdef3",
+  "license": "Apache-2.0",
+  "languages": [
+    "Java (Spring WebSocket, STOMP, SockJS)",
+    "TypeScript (Angular, ng2-stomp-service)"
+  ],
+  "sources": [
+    "README.md",
+    "manual reading of src/ at the pinned commit"
+  ],
+  "services": [
+    {
+      "name": "browser",
+      "root": "src/main/ng"
+    },
+    {
+      "name": "server",
+      "root": "src/main/java"
+    }
+  ],
+  "summary": {
+    "http": {
+      "in_scope": 1,
+      "out_of_scope": 0
+    },
+    "grpc": {
+      "in_scope": 0,
+      "out_of_scope": 0
+    },
+    "messaging": {
+      "in_scope": 2,
+      "out_of_scope": 0
+    },
+    "service_pairs_in_scope": [
+      [
+        "browser",
+        "server",
+        "http"
+      ],
+      [
+        "browser",
+        "server",
+        "messaging"
+      ],
+      [
+        "server",
+        "browser",
+        "messaging"
+      ]
+    ]
+  },
+  "links": [
+    {
+      "kind": "http",
+      "from_service": "browser",
+      "to_service": "server",
+      "contract": "GET /stomp-websocket",
+      "client": {
+        "file": "src/main/ng/src/app/app.component.ts",
+        "line": 16
+      },
+      "server": {
+        "file": "src/main/java/com/example/WebSocketConfig.java",
+        "line": 20
+      },
+      "evidence": "ng2-stomp-service configure({host}) (SockJS, relative URL) -> registry.addEndpoint(...).withSockJS()",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "server_alternatives": [
+        {
+          "file": "src/main/java/com/example/WebSocketConfig.java",
+          "line": 19
+        }
+      ],
+      "id": "websocket-spring-boot-angular2-stomp#1"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "browser",
+      "to_service": "server",
+      "contract": "stomp-destination:/app/hello",
+      "client": {
+        "file": "src/main/ng/src/app/app.component.ts",
+        "line": 45
+      },
+      "server": {
+        "file": "src/main/java/com/example/WebSocketController.java",
+        "line": 12
+      },
+      "evidence": "StompService.send('/app/hello', ...) -> @MessageMapping(\"/hello\") under prefix /app",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "websocket-spring-boot-angular2-stomp#2"
+    },
+    {
+      "kind": "messaging",
+      "from_service": "server",
+      "to_service": "browser",
+      "contract": "stomp-destination:/topic/greetings",
+      "client": {
+        "file": "src/main/java/com/example/WebSocketController.java",
+        "line": 13
+      },
+      "server": {
+        "file": "src/main/ng/src/app/app.component.ts",
+        "line": 29
+      },
+      "evidence": "@SendTo(\"/topic/greetings\") -> StompService.subscribe('/topic/greetings')",
+      "in_scope_static": true,
+      "hop": "direct",
+      "label_confidence": "high",
+      "id": "websocket-spring-boot-angular2-stomp#3"
+    }
+  ],
+  "dont_care_call_sites": [
+    {
+      "file": "src/main/ng/e2e",
+      "reason": "Protractor end-to-end tests"
+    }
+  ],
+  "notes": [
+    "A WebSocket connection opens with an HTTP GET handshake, so the client's connect is an http link to the endpoint path (contract GET /path); its server is the addEndpoint(...) line of registerStompEndpoints, with the method's declaration as an alternative.",
+    "STOMP frames are messaging links, producer to consumer. A client SEND to /app/x (the application destination prefix from setApplicationDestinationPrefixes) is consumed by @MessageMapping(\"/x\"); a reply via @SendTo(\"/topic/y\") is produced by the annotated method and consumed by the client's subscribe('/topic/y'). Destinations are written in full, prefix included.",
+    "The client is ng2-stomp-service's StompService, configured with stomp.configure({host: '/stomp-websocket'}) (a relative SockJS URL); send and subscribe are methods of the same injected service."
+  ]
+}

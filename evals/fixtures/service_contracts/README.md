@@ -19,6 +19,8 @@ matcher could find.
 | graphql-apollo-fullstack-tutorial.json | apollographql/fullstack-tutorial @ fca98dec747244a6cd08e3611f826db01617e208 | MIT | React + Apollo Client, Apollo Server | GraphQL |
 | graphql-apollo-spotify-showcase.json | apollographql/spotify-showcase @ 5a9afc5c96ef5a60f07d438dab5088bf0f6d661e | MIT | React + Apollo Client, two Apollo Federation subgraphs behind Apollo Router | GraphQL |
 | packt-chapter07.json, packt-chapter23.json | PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Fourth-Edition @ db9e0fa7d41756224a149a5a870647e0f0426b2e (one chapter each; paths relative to it) | MIT | Java Spring Cloud Stream (StreamBridge, functional consumers), Gradle, Compose | RabbitMQ, Kafka |
+| websocket-gs-messaging-stomp.json | spring-guides/gs-messaging-stomp-websocket @ 45228a145a9fc0289aa87ed424870bfcd3c413d5 (complete/) | Apache-2.0 | Java Spring WebSocket + STOMP, JavaScript @stomp/stompjs | HTTP (handshake), STOMP destinations as messaging |
+| websocket-spring-boot-angular2-stomp.json | chriswhite199/spring-boot-angular2-stomp @ 78ade07e770f5c674a0111cb8df14ff315dfdef3 | Apache-2.0 | Java Spring WebSocket + STOMP + SockJS, TypeScript Angular ng2-stomp-service | HTTP (handshake), STOMP destinations as messaging |
 
 The `msecend-*` corpora come from the microSecEnD dataset (github.com/tuhh-softsec/microSecEnD,
 Apache-2.0; Schneider, Özen, Chen, Scandariato, MSR 2023, doi:10.1109/MSR59073.2023.00030).
@@ -38,7 +40,8 @@ artifact URLs. Clone each repository at its pinned commit into `$CORPORA/<dir>` 
 3. **Line numbers** are computed by `build.py` (kept with this README) using exact-substring
    matches against the checked-out files. Each match must be unique (or the nth match must be
    named), so every client and server line in the JSONs was checked against the pinned commit.
-   Run `CORPORA=<clones> python3 build.py <outdir>` to regenerate.
+   Run `CORPORA=<clones> python3 build.py <outdir>` to regenerate (the WebSocket
+   corpora: `build_websocket.py`, same arguments).
 4. **microSecEnD labels** were used only to cross-check service pairs. Links were derived again
    from source. Every entry in each `*_traceability.json` was resolved against the pinned
    checkout, and the application-level edges were read by hand. Disagreements are listed in

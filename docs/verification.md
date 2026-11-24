@@ -391,6 +391,27 @@ keeps its configuration in `config-repo/`, which the Compose units mount as
 literal binding names, so the three labelled links share that send site.
 Main reads 0 of the 3 in each: the binding is a parameter.
 
+Two WebSocket corpora label the browser side of Spring STOMP apps: the
+spring-guides STOMP guide (45228a1) and an Angular port of it,
+chriswhite199/spring-boot-angular2-stomp (78ade07). Both were labelled by
+hand from the guide text and the code, and built by
+`evals/fixtures/service_contracts/build_websocket.py`, from repositories
+the WebSocket reader's own validation did not use.
+
+- **Handshake:** the connect is an `http` link, `GET /path`, to the
+  `addEndpoint` line.
+- **Frames:** STOMP frames are `messaging` links. One goes from the client's
+  `publish`/`send` to `/app/x` to the `@MessageMapping("/x")` method. The
+  other goes from a `@SendTo("/topic/y")` method to the client's
+  `subscribe('/topic/y')`.
+
+Main reads 0 of the 2 handshakes and 0 of the 4 frame links, with no false
+positives. The clients are `new StompJs.Client({brokerURL: 'ws://…'})` and
+ng2-stomp-service's `configure({host: '/stomp-websocket'})`. They connect
+through a config object, never through a `WebSocket` or `SockJS` constructor,
+and the browser's `publish`, `send` and `subscribe` calls are not read. The
+server side of each frame, `@MessageMapping` and `@SendTo`, is read already.
+
 ### Routes and GraphQL fields
 
 The contract corpora score links between services, so a route the engine
