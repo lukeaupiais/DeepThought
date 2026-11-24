@@ -11,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from hashlib import sha256
 from pathlib import PurePosixPath
+import functools
 import json
 import os
 import posixpath
@@ -58,7 +59,11 @@ from ..service_contracts.spring import (
     extract_spring,
     java_constants,
 )
-from ..service_contracts.script_constants import ScriptConstants, angular_defines
+from ..service_contracts.script_constants import (
+    ScriptCalls,
+    ScriptConstants,
+    angular_defines,
+)
 from ..service_contracts.web import extract_web, nest_settings
 from ..syntax import identifier, make_parser
 from .base import AnalysisTool, ToolCapability, ToolMetadata
@@ -471,6 +476,16 @@ REQUEST_RULES = {
         )
     ),
 }
+# A destination passed to the function around the site by its callers.
+ARGUMENT_RULE = _message_rule(
+    "service-contracts.destination-argument",
+    "The site's destination is a parameter of the module-level function "
+    "around it, which nothing in the function assigns again, and a call of "
+    "that function (in its own module, or in a module importing it by name "
+    "through a relative path or tsconfig paths alias) passes this value, "
+    "folded in the calling module. The site itself is read by the rule in "
+    "site_rule; argument_from lists the calls." + _SAME_NAME,
+)
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -1307,6 +1322,7 @@ class ServiceContractTool(AnalysisTool):
 
         nest = _nest_applications(root, sources)
         scripts = _script_constants(root, sources)
+        calls = ScriptCalls(scripts) if scripts is not None else None
         for coverage, content, tree in sources:
             if coverage.language == "java":
                 service, context_path = config.service(coverage.file)
@@ -1365,6 +1381,11 @@ class ServiceContractTool(AnalysisTool):
                     application_prefixes=(
                         application_prefixes(coverage.file)
                         if coverage.language == "java"
+                        else None
+                    ),
+                    arguments_of=(
+                        functools.partial(calls.arguments, coverage.file)
+                        if calls is not None and coverage.file in scripts.sources
                         else None
                     ),
                 )
@@ -1999,7 +2020,19 @@ class ServiceContractTool(AnalysisTool):
                             if endpoint.deployed_as
                             else {}
                         ),
-                        **_evidence(MESSAGE_RULES[(endpoint.client, endpoint.role)]),
+                        **(
+                            {
+                                "argument_from": list(endpoint.argument_from),
+                                "site_rule": MESSAGE_RULES[
+                                    (endpoint.client, endpoint.role)
+                                ].rule_id,
+                                **_evidence(ARGUMENT_RULE),
+                            }
+                            if endpoint.argument_from
+                            else _evidence(
+                                MESSAGE_RULES[(endpoint.client, endpoint.role)]
+                            )
+                        ),
                     },
                 )
             )

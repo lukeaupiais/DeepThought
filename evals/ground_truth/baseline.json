@@ -496,13 +496,13 @@
       "messaging": {
         "call_sites": {
           "labelled_in_scope": 6,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 6,
+          "true_positive": 6
         },
         "service_pairs": {
           "labelled_in_scope": 6,
-          "predicted": 0,
-          "true_positive": 0
+          "predicted": 6,
+          "true_positive": 6
         }
       }
     },

@@ -2459,7 +2459,39 @@ that imports `amqplib` or `amqplib/callback_api`, of one of these kinds:
 - the parameter of its `.then`.
 
 A channel passed in from another file is not read. A kafkajs topic given as
-a regular expression is `consume:topic_pattern`.
+a regular expression is `consume:topic_pattern`. A `Kafka` may also be a
+name typed `Kafka` (a parameter `kafka: Kafka`, say).
+
+#### Topics passed to a wrapper function
+
+Services often wrap a kafkajs send or subscribe in a function that takes the
+topic as a parameter (`publishEvent(topic, payload)`), so the topic is fixed
+only where the function is called (`script_constants.ScriptCalls`,
+`messaging._destinations`). When the topic at a kafkajs site is a parameter
+of the module-level function around it (a `function` declaration, or a
+top-level `const` whose value is the function) that the function never
+assigns again, the site takes, instead, each value a call of that function
+passes:
+
+- **Calls.** Calls in the function's own module, and in modules that import
+  it by name (`import { publishEvent as send } from './broker'`) or as a
+  namespace (`ns.publishEvent(...)`), resolved as for constants across
+  modules. A local name that shadows the function is not a call of it. A
+  function reached any other way (a default-exported object's member, a
+  value passed around) is not followed.
+- **Values.** Each argument is folded in the calling module, with its own
+  constants. One site is added per distinct value, with `argument_from`
+  listing the calls (`file:line`) that pass it, and rule
+  `service-contracts.destination-argument` (the site's own rule is kept as
+  `site_rule`). A call passing unknown text adds an unread site; a function
+  that no call reaches keeps its site unread as before.
+
+| Repository | Wrapper calls | Outcome |
+|---|---|---|
+| 19EB/microservices-base-kafka `9facb7f` (labelled corpus) | 6 `KafkaPublish(kafka, 'x-topic', ...)` in 3 services | 6 of 6 labelled links, none wrong (none before) |
+| simbolmina/nodejs-microservices-demo `7734f36` | 8 `publishEvent('...')` in the same module | 6 topics read from the 8 calls, all correct. A 9th call through a default-imported object passes a parameter, so it would be unknown anyway |
+| Rabin18Glan/gantabya `f90b2bc` | 2 `produceEvent('trip-events', ...)` in a controller | The send takes `trip-events` and meets the consumer |
+| Yash-op7/Distributed-Payments-Processing-System `8e4a6f5` | the only call is commented out | Unread, as before |
 
 The Go Kafka clients are read in files that import them. A producer or
 consumer is placed where the literal or call is written, which is not always
