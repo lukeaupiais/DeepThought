@@ -334,6 +334,43 @@ follows since #105; `Query.info` is declared with no resolver, so a link to
 it would count as extra. The gate fails on fewer found, more
 extra, or changed labels.
 
+### ActiveRecord model tables
+
+The data-contracts tool maps each Rails model to its table. The manifest's
+`tables` corpora label that mapping with ActiveRecord's own naming code:
+`tools/rails_table_oracle.rb` finds the model classes with Prism (nesting,
+superclass, literal `self.table_name`, abstract classes, literal
+`table_name_prefix` methods and assignments, and the app's literal
+inflections). It rebuilds them on `ActiveRecord::Base` and asks each one its
+`table_name`. It never loads or runs the app. Models whose table it cannot
+know are set aside as `not_counted`: a computed `table_name` or prefix, or a
+class declared only under `spec/` or `test/`.
+
+| App | Pin | Models | Found | Wrong | Missed | Not counted |
+|---|---|---|---|---|---|---|
+| lobsters | d23941f | 42 | 42 | 0 | 0 | 0 |
+| rubygems.org | 6f51e32 | 45 | 45 | 0 | 0 | 0 |
+| mastodon | fe9d150 | 276 | 275 | 1 | 0 | 0 |
+| forem | 1f13196 | 134 | 134 | 0 | 0 | 0 |
+| discourse | 5fc74b5 | 402 | 398 | 0 | 4 | 27 |
+
+The engine runs with its defaults on Ruby files only. The scores are:
+
+- mastodon's one wrong model is `Mastodon::MigrationHelpers::Grant`, whose
+  table is `information_schema.role_table_grants`. The engine drops the schema.
+- discourse has 13,285 Ruby files, past the engine's default 10,000-file
+  limit, so the models in the last files read (`Poll`, `PollOption`,
+  `PollVote`, `ReviewableLiveUser`) are missed.
+- forem's prefixed models (`GDPRDeleteRequest`, `Users::Setting` and three
+  more) were found only after #126; before it, forem was 129 found, 1 wrong
+  and 4 missed.
+
+A model is found when the engine maps it to the labelled table and to no
+other, and wrong when it maps it anywhere else. The gate fails on fewer
+found, more wrong or extra, or changed labels. The labels are built offline,
+`ruby tools/rails_table_oracle.rb CHECKOUT` with Ruby 3.3 and activerecord
+7.2.2, and committed. `tests/test_rails_table_oracle.py` skips without them.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

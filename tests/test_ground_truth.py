@@ -523,6 +523,54 @@ class RouteTruthTests(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(importlib.util.find_spec("tree_sitter_ruby"), "the Ruby grammar")
+class TableTruthTests(unittest.TestCase):
+    FILES = {
+        "app/models/application_record.rb": (
+            "class ApplicationRecord < ActiveRecord::Base\n"
+            "  self.abstract_class = true\nend\n"
+        ),
+        "app/models/user.rb": "class User < ApplicationRecord\nend\n",
+        "app/models/post.rb": (
+            "class Post < ApplicationRecord\n  self.table_name = 'articles'\nend\n"
+        ),
+        "app/models/tag.rb": "class Tag < ApplicationRecord\nend\n",
+    }
+
+    def test_models_against_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            for name, text in self.FILES.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text, "utf-8")
+            labels = Path(tmp) / "labels.json"
+            labels.write_text(
+                json.dumps(
+                    {
+                        "models": [
+                            {"class": "User", "table": "users"},
+                            {"class": "Post", "table": "posts"},
+                            {"class": "Comment", "table": "comments"},
+                        ],
+                        "not_counted": [{"class": "Tag", "reason": "test_only"}],
+                    }
+                ),
+                "utf-8",
+            )
+            report, samples = ground_truth.score_tables({"labels": labels}, root)
+        # Post maps to a table the labels do not give; Comment is not read;
+        # Tag is set aside, so it is not extra.
+        self.assertEqual(
+            report, {"expected": 3, "found": 1, "wrong": 1, "missed": 1, "extra": 0}
+        )
+        self.assertEqual(samples["wrong"], [["Post", "posts", ["articles"]]])
+        baseline = {"expected": 3, "found": 2, "wrong": 0, "missed": 1, "extra": 0}
+        self.assertEqual(
+            ground_truth.table_regressions(report, baseline),
+            ["found 2 -> 1", "wrong 0 -> 1"],
+        )
+
+
 class SummaryTests(unittest.TestCase):
     def test_changed_scores_show_their_difference(self):
         base = {
