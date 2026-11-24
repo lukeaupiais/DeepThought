@@ -479,7 +479,7 @@ class GoTests(unittest.TestCase):
                 "\t_, args, _ := c.Find()\n"
                 "\targs.Name()\n"  # 48: not the first result
                 "\tc.missing.Root()\n"  # 49: no such field
-                "\tc.Name().Root()\n"  # 50: not a dotted name
+                "\tc.Name().Root()\n"  # 50: a string result has no methods
                 "\tc.fn.Root()\n"  # 51: a field of a function type
                 "\tv := b.Get()\n"
                 "\tv.Root()\n"  # 53: a type parameter result
@@ -565,6 +565,7 @@ class GoTests(unittest.TestCase):
             (45, "n.Name", unknown),
             (48, "args.Name", ("unresolved", "attribute_call", None)),
             (49, "c.missing.Root", unknown),
+            (50, "c.Name().Root", ("unresolved", "not_declared_on_type", None)),
             (51, "c.fn.Root", unknown),
             (53, "v.Root", unknown),
             (54, "b.v.Root", unknown),
@@ -577,7 +578,6 @@ class GoTests(unittest.TestCase):
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(found[(line, callee)], outcome)
-        self.assertNotIn((50, "c.Name().Root"), found)
         steps = {
             (sites[s].line, sites[s].callee): sites[s].receiver_steps for s in sites
         }
@@ -596,6 +596,78 @@ class GoTests(unittest.TestCase):
                 replace(cmd, fields=fields)
         with self.assertRaises(ValueError):
             replace(cmd, result_type="")
+
+    def test_receivers_that_are_call_results_indexes_and_package_variables(self):
+        files = {
+            "go.mod": "module example.com/app\n",
+            "lib/lib.go": (
+                "package lib\n"
+                "type T struct{}\n"
+                "func (t *T) Go() {}\n"
+                "func New() *T { return nil }\n"
+            ),
+            "cmd.go": (
+                "package app\n"
+                "type Command struct{ commands []*Command }\n"
+                "func (c *Command) Root() *Command { return c }\n"
+                "func (c *Command) Parent() *Command { return c }\n"
+                'func (c *Command) Name() string { return "" }\n'
+                "func Make() *Command { return nil }\n"
+            ),
+            "use.go": (
+                "package app\n"
+                'import "example.com/app/lib"\n'
+                "var root = &Command{}\n"
+                "var (\n"
+                "\ttyped *Command\n"
+                "\tdup, dup = 1, 2\n"
+                ")\n"
+                "func Use(c *Command) {\n"
+                "\tc.Parent().Root().Name()\n"  # 9: two results
+                "\tc.commands[0].Name()\n"  # 10: an index
+                "\tMake().Name()\n"  # 11: a package function's result
+                "\tlib.New().Go()\n"  # 12: an imported function's result
+                "\troot.Name()\n"  # 13: a package variable
+                "\ttyped.Root().Name()\n"  # 14: a typed package variable
+                "\tdup.Name()\n"  # 15: declared twice
+                "\tother.Name()\n"  # 16: declared in another file
+                "}\n"
+                "func Shadow(root int) {\n"
+                "\troot.Name()\n"  # 19: a parameter shadows the variable
+                "}\n"
+            ),
+            "other.go": "package app\nvar other = &Command{}\n",
+        }
+        result = analyze(files)
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                r.status,
+                definitions[r.target_id].symbol if r.target_id else r.reason,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "use.go"
+        }
+        self.assertEqual(
+            found,
+            {
+                (9, "c.Parent"): ("linked", "Command.Parent"),
+                (9, "c.Parent().Root"): ("linked", "Command.Root"),
+                (9, "c.Parent().Root().Name"): ("linked", "Command.Name"),
+                (10, "c.commands[].Name"): ("linked", "Command.Name"),
+                (11, "Make"): ("linked", "Make"),
+                (11, "Make().Name"): ("linked", "Command.Name"),
+                (12, "lib.New"): ("linked", "New"),
+                (12, "lib.New().Go"): ("linked", "T.Go"),
+                (13, "root.Name"): ("linked", "Command.Name"),
+                (14, "typed.Root"): ("linked", "Command.Root"),
+                (14, "typed.Root().Name"): ("linked", "Command.Name"),
+                (15, "dup.Name"): ("unresolved", "attribute_call"),
+                (16, "other.Name"): ("unresolved", "attribute_call"),
+                (19, "root.Name"): ("unresolved", "not_declared_on_type"),
+            },
+        )
 
     def test_reindex_reuses_package_clauses_and_rejects_earlier_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
