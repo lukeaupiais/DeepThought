@@ -1247,6 +1247,109 @@ class ComposeDatabaseTests(unittest.TestCase):
         )
 
 
+KNEX = {
+    "package.json": '{"dependencies": {"knex": "3.1.0"}}',
+    "migrations/001_init.js": """exports.up = async function (knex) {
+  await knex.schema.createTable('users', (table) => { table.increments(); });
+  await knex.schema.withSchema('app').createTable('Teams', () => {});
+  await knex.schema.table('users', (table) => { table.string('bio'); });
+  await knex.batchInsert('audit', []);
+};
+""",
+    "src/store.ts": """import type { Knex } from 'knex';
+
+export class Store {
+  constructor(private readonly db: Knex) {}
+
+  async find(id: string) {
+    return this.db<Row>('users as u')
+      .leftJoin('app.teams as t', 'u.team_id', 't.id')
+      .where('u.id', id)
+      .first();
+  }
+
+  async purge(tx: Knex | Knex.Transaction, opaque: unknown) {
+    const trx = opaque as Knex.Transaction;
+    await trx.insert({ id: 1 }).into('archive');
+    const query = tx('sessions').where('expired', true);
+    const rows = await query.clone().select('id');
+    await query.del();
+    return rows;
+  }
+}
+""",
+    "src/report.js": """async function report(db) {
+  await db.knex.transaction(async (t) => {
+    await t('teams').update({ active: false });
+  });
+  return db.knex
+    .with('recent', db.knex('logins').select('*'))
+    .select('*')
+    .from('recent');
+}
+function other(x) {
+  return x.select('id').from('not_knex');
+}
+""",
+}
+
+
+class KnexTests(unittest.TestCase):
+    maxDiff = None
+
+    def test_queries_and_created_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, KNEX)
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["javascript", "typescript"]
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[1],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["line"],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES", "DECLARES")
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("DECLARES", "migrations/001_init.js", "teams", 3, "knex-create-table"),
+                ("DECLARES", "migrations/001_init.js", "users", 2, "knex-create-table"),
+                ("READS", "src/report.js", "logins", 6, "knex-query"),
+                ("READS", "src/store.ts", "sessions", 16, "knex-query"),
+                ("READS", "src/store.ts", "teams", 8, "knex-query"),
+                ("READS", "src/store.ts", "users", 7, "knex-query"),
+                ("WRITES", "migrations/001_init.js", "audit", 5, "knex-query"),
+                ("WRITES", "src/report.js", "teams", 3, "knex-query"),
+                ("WRITES", "src/store.ts", "archive", 15, "knex-query"),
+                ("WRITES", "src/store.ts", "sessions", 16, "knex-query"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["knex"], {"queries": 7, "created": 2}
+        )
+
+    def test_without_knex_nothing_is_read(self):
+        files = {
+            "package.json": "{}",
+            "src/a.js": "async function f(knex) { await knex('users').del(); }\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["javascript"])
+            )
+        self.assertEqual(
+            [r for r in output.relationships if r.type in ("READS", "WRITES")], []
+        )
+
+
 RAILS = {
     "db/schema.rb": """\
 ActiveRecord::Schema[7.1].define(version: 2024_01_01_000000) do
