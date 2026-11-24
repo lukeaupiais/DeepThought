@@ -778,7 +778,13 @@ for repository types through their declared bases, for primitives by
 widening, and for the `java.lang` types a literal or boxing gives (`String`,
 `Class`, the box types), which are listed with every supertype. A type outside
 the repository has no other known supertype than `Object`, and a type
-parameter has no known bound, so a check against either is unknown. An
+parameter has no known bound, so a check against either is unknown, with one
+exception: a type a single-type import names in a `java.` package
+(`import java.util.Map;`) is no subtype of a repository type, since only the
+JDK defines `java.` classes. A link only that rule decides carries
+`tree-sitter.java-overload-platform-argument` (name_matched). Other imported
+types are not ruled out: one in a package no analyzed file declares may still
+be built with the repository (an excluded module, generated sources). An
 unknown argument or check makes a method possibly applicable, and the call is
 linked only when the choice holds for every outcome of the unknown checks:
 one method possible from that phase on, or a method that applies and is more
