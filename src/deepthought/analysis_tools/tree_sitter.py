@@ -198,6 +198,25 @@ IMPORT_RULES = {
         ),
         register_rule(
             EvidenceRule(
+                import_rules.PHP_USE_DECLARED,
+                "resolved",
+                "A PHP 'use' or 'use function' names, ignoring ASCII case, a "
+                "class, interface, trait, enum or function that exactly one "
+                "analyzed file declares outside any function body. Composer "
+                "autoload configuration is not read.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
+                import_rules.PHP_USE_NAMESPACE,
+                "resolved",
+                "A PHP 'use' names no declared class-like type but a namespace "
+                "that analyzed files declare types or functions in; the link "
+                "reaches every such file.",
+            )
+        ),
+        register_rule(
+            EvidenceRule(
                 import_rules.RUST_EXTERN_CRATE,
                 "resolved",
                 "A Rust 'extern crate name;' names the one workspace library "

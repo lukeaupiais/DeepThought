@@ -6,6 +6,11 @@ import tempfile
 import unittest
 
 from deepthought import analyze_repository
+from deepthought.imports import (
+    PHP_USE_DECLARED,
+    PHP_USE_NAMESPACE,
+    resolve_imports,
+)
 from deepthought.syntax import declaration_sources, make_parser
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -107,7 +112,192 @@ class PhpTests(unittest.TestCase):
         helpers = {d.id for d in result.definitions if d.symbol.endswith("helper")}
         self.assertEqual(len(helpers), 2)
         self.assertEqual(
-            (result.imports, result.call_sites, result.supertypes), ((), (), ())
+            [(i.file, i.line, i.specifier) for i in result.imports],
+            [("a.php", 4, "Other\\Thing")],
+        )
+        self.assertEqual((result.call_sites, result.supertypes), ((), ()))
+
+    def test_use_imports_link_to_declaring_files(self):
+        files = {
+            "src/User.php": "<?php\nnamespace App\\Models;\nclass User {}\n"
+            "function helper() {}\n",
+            "src/Post.php": "<?php\nnamespace App\\Models;\ninterface Post {}\n"
+            "enum Kind { case A; function go() {} }\n",
+            # One file declaring a type in each branch of an `if`.
+            "src/Compat.php": "<?php\nnamespace App;\n"
+            "if (PHP_VERSION_ID > 80000) { class Compat {} }\n"
+            "else { class Compat {} }\n",
+            # Two files declaring one type.
+            "a/Twice.php": "<?php\nnamespace App;\ntrait Twice {}\n",
+            "b/Twice.php": "<?php\nnamespace App;\ntrait Twice {}\n",
+            # A class in a function body is declared only when it runs.
+            "src/Late.php": "<?php\nnamespace App;\n"
+            "function make() { class Late {} }\n",
+            "src/main.php": "<?php\n"
+            "namespace App\\Http;\n"
+            "use App\\Models\\User;\n"
+            "use \\app\\MODELS\\Post as P, App\\Compat;\n"
+            "use function App\\Models\\helper, App\\Models\\missing as gone;\n"
+            "use const App\\Models\\LIMIT;\n"
+            "use App\\{function make, Twice, Models, Late};\n"
+            "use function App\\{make as build};\n"
+            "use Vendor\\Package\\Thing;\n"
+            "use App\\Models\\Kind, App\\Models\\helper, App;\n"
+            "use function App\\Models, App\\Models\\Kind\\go;\n"
+            "class Controller { use Twice; }\n"
+            "function f() { $c = function () use ($x) {}; }\n",
+        }
+        result = analyze(files)
+        main = [i for i in result.imports if i.file == "src/main.php"]
+        self.assertEqual(
+            [(i.line, i.kind, i.specifier, i.local_names) for i in main],
+            [
+                (3, "use", "App\\Models\\User", ("User",)),
+                (4, "use", "app\\MODELS\\Post", ("P",)),
+                (4, "use", "App\\Compat", ("Compat",)),
+                # The keyword applies to every clause.
+                (5, "use_function", "App\\Models\\helper", ("helper",)),
+                (5, "use_function", "App\\Models\\missing", ("gone",)),
+                (6, "use_const", "App\\Models\\LIMIT", ("LIMIT",)),
+                # A group joins its prefix; a clause may name its own kind.
+                (7, "use_function", "App\\make", ("make",)),
+                (7, "use", "App\\Twice", ("Twice",)),
+                (7, "use", "App\\Models", ("Models",)),
+                (7, "use", "App\\Late", ("Late",)),
+                (8, "use_function", "App\\make", ("build",)),
+                (9, "use", "Vendor\\Package\\Thing", ("Thing",)),
+                (10, "use", "App\\Models\\Kind", ("Kind",)),
+                (10, "use", "App\\Models\\helper", ("helper",)),
+                (10, "use", "App", ("App",)),
+                (11, "use_function", "App\\Models", ("Models",)),
+                (11, "use_function", "App\\Models\\Kind\\go", ("go",)),
+                # A trait use in a class body and a closure's `use` are not
+                # imports.
+            ],
+        )
+        ids = {i.id: i for i in main}
+        self.assertEqual(
+            [
+                (
+                    ids[r.import_id].specifier,
+                    r.status,
+                    [(link.target_file, link.rule_id) for link in r.links],
+                    r.reason,
+                    r.candidates,
+                )
+                for r in sorted(
+                    (r for r in resolve_imports(result) if r.import_id in ids),
+                    key=lambda r: main.index(ids[r.import_id]),
+                )
+            ],
+            [
+                (
+                    "App\\Models\\User",
+                    "linked",
+                    [("src/User.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                # Names compare ignoring ASCII case.
+                (
+                    "app\\MODELS\\Post",
+                    "linked",
+                    [("src/Post.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                (
+                    "App\\Compat",
+                    "linked",
+                    [("src/Compat.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                (
+                    "App\\Models\\helper",
+                    "linked",
+                    [("src/User.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                ("App\\Models\\missing", "unresolved", [], "not_in_repository", ()),
+                ("App\\Models\\LIMIT", "unresolved", [], "constant", ()),
+                (
+                    "App\\make",
+                    "linked",
+                    [("src/Late.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                (
+                    "App\\Twice",
+                    "ambiguous",
+                    [],
+                    "multiple_declarations",
+                    ("a/Twice.php", "b/Twice.php"),
+                ),
+                # A namespace: every file declaring something in it.
+                (
+                    "App\\Models",
+                    "linked",
+                    [
+                        ("src/Post.php", PHP_USE_NAMESPACE),
+                        ("src/User.php", PHP_USE_NAMESPACE),
+                    ],
+                    None,
+                    (),
+                ),
+                ("App\\Late", "unresolved", [], "not_in_repository", ()),
+                (
+                    "App\\make",
+                    "linked",
+                    [("src/Late.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                ("Vendor\\Package\\Thing", "unresolved", [], "not_in_repository", ()),
+                (
+                    "App\\Models\\Kind",
+                    "linked",
+                    [("src/Post.php", PHP_USE_DECLARED)],
+                    None,
+                    (),
+                ),
+                # A function is not a class, nor a namespace.
+                ("App\\Models\\helper", "unresolved", [], "not_in_repository", ()),
+                (
+                    "App",
+                    "linked",
+                    [
+                        (f, PHP_USE_NAMESPACE)
+                        for f in (
+                            "a/Twice.php",
+                            "b/Twice.php",
+                            "src/Compat.php",
+                            "src/Late.php",
+                            "src/Post.php",
+                            "src/User.php",
+                            "src/main.php",
+                        )
+                    ],
+                    None,
+                    (),
+                ),
+                # A function import names no namespace, and a method is not
+                # a function.
+                ("App\\Models", "unresolved", [], "not_in_repository", ()),
+                ("App\\Models\\Kind\\go", "unresolved", [], "not_in_repository", ()),
+            ],
+        )
+
+    def test_use_imports_link_only_to_php_declarations(self):
+        result = analyze(
+            {"thing.py": "class Thing:\n    pass\n", "a.php": "<?php\nuse Thing;\n"},
+            languages=("php", "python"),
+        )
+        self.assertEqual(
+            [(r.status, r.reason) for r in resolve_imports(result)],
+            [("unresolved", "not_in_repository")],
         )
 
     def test_php_is_opt_in(self):

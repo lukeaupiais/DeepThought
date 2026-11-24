@@ -207,6 +207,34 @@ interface `extends`).
 The 49 bases missed on click are all `class X(click.Group)`-style bases named
 through the package's `__init__.py` re-exports, the same gap as for calls.
 
+### C and C++ declarations
+
+The engine reads C and C++ declarations but no calls yet, so these corpora
+check declarations. `tools/c_declaration_truth.py` runs clang (18.1.3) on each
+translation unit and records every named function, method, record, enum,
+typedef, alias and namespace written in a repository file, at the line of its
+name and the line it begins. It leaves out implicit declarations, template
+instantiations, forward declarations of records and declarations local to a
+function body. A declaration is *found* when the engine declares the same name
+in the same file at either line with the same kind of thing; *kind_mismatch*
+when only the kind differs. An engine declaration with no clang counterpart in
+a file clang read is *extra*: a preprocessor branch clang did not take, or a
+misread. `check` fails when `found` drops, or `kind_mismatch` or `extra`
+grows.
+
+| Corpus | Expected | Found | Kind mismatch | Missed | Extra |
+|---|---|---|---|---|---|
+| cJSON (C) | 261 | 261 | 0 | 0 | 3 |
+| fmt (C++) | 1346 | 785 | 99 | 462 | 101 |
+
+fmt's misses are mostly the engine not recognizing declarations that follow
+a macro: namespaces opened by `FMT_BEGIN_NAMESPACE`, and class templates such
+as `basic_string_view` whose members are then read as free functions (the
+kind mismatches). Its extras include member initializers read as functions
+(`size_(sz)` in `buffer`'s constructor) and an anonymous enum with an empty
+name. cJSON's extras are three functions in a preprocessor branch clang did
+not take.
+
 ### Service contracts
 
 The `contracts` entries in the manifest gate cross-service links the same way.
