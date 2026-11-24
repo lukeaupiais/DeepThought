@@ -715,6 +715,9 @@ class JavaTests(unittest.TestCase):
                 "  }\n"
                 "  class In { void t() { this.field.go(); } }\n"  # 46
                 "  enum E { field; void f() { field.go(); } }\n"  # 47
+                "  class Impl implements Runnable { void f() { field.go(); } }\n"
+                "  interface J extends Runnable { default void f() { field.go(); } }\n"
+                "  enum K { A { void f() { field.go(); } } }\n"  # 50
                 "}\n"
             ),
         }
@@ -741,7 +744,6 @@ class JavaTests(unittest.TestCase):
         self.assertEqual(found[(16, "a.go")], typed)
         self.assertEqual(found[(18, "b.open")], ("Box.open", JAVA_TYPED_RECEIVER))
         self.assertEqual(found[(20, "i.in")], ("Foo.Inner.in", JAVA_TYPED_RECEIVER))
-        self.assertEqual(found[(32, "x.go")], typed)
         self.assertEqual(found[(31, "x.go")], (None, "no_matching_arity"))
         for line, callee in (
             (21, "arr.clone"),
@@ -765,9 +767,104 @@ class JavaTests(unittest.TestCase):
             (46, "this.field.go"),
             # An enum constant hides the outer field.
             (47, "field.go"),
+            # An anonymous class, a type with superinterfaces and an enum
+            # constant's body may each inherit a field of that name.
+            (32, "x.go"),
+            (48, "field.go"),
+            (49, "field.go"),
+            (50, "field.go"),
         ):
             with self.subTest(line=line, callee=callee):
                 self.assertEqual(found[(line, callee)], (None, "attribute_call"))
+
+    def test_an_override_needs_parameter_types_that_may_be_the_same(self):
+        files = {
+            "src/p/Range.java": (
+                "package p;\n"
+                "import java.util.Map;\n"
+                "class Range<T> {\n"
+                "  T fit(T x) { return x; }\n"
+                "  void up(java.util.List<String> xs) {}\n"
+                "  void put(byte[] b) {}\n"
+                "  void all(T[] xs) {}\n"
+                "  void entry(Map.Entry e) {}\n"
+                "  <U> void any(U u) {}\n"
+                "  void arr(String[] a) {}\n"
+                "}\n"
+                "class LongRange extends Range<Long> {\n"
+                "  long fit(long x) { return x; }\n"
+                "  void up(java.util.List<Long> xs) {}\n"
+                "  void put(java.nio.ByteBuffer b) {}\n"
+                "  void all(Long xs) {}\n"
+                "  void entry(Entry e) {}\n"
+                "  void any(String u) {}\n"
+                "  void arr(String a) {}\n"
+                "}\n"
+                "class Box extends Range<String> {\n"
+                "  String fit(String x) { return x; }\n"
+                "}\n"
+                "class Main {\n"
+                "  void m(LongRange r, Box b) {\n"
+                "    r.fit(1L);\n"
+                "    r.up(null);\n"
+                "    r.put(null);\n"
+                "    r.all(null);\n"
+                "    r.entry(null);\n"
+                "    r.any(null);\n"
+                "    b.fit(null);\n"
+                "    r.arr(null);\n"
+                "  }\n"
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        methods = {d.symbol: d for d in result.definitions if d.kind == "Method"}
+        self.assertEqual(methods["Range.fit"].parameter_types, ("*",))
+        self.assertEqual(methods["Range.all"].parameter_types, ("*[]",))
+        self.assertEqual(methods["Range.any"].parameter_types, ("?",))
+        self.assertEqual(methods["LongRange.up"].parameter_types, ("java.util.List",))
+        self.assertEqual(methods["Range.entry"].parameter_types, ("Map.Entry",))
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        symbols = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            sites[r.call_id].callee: (
+                symbols.get(r.target_id),
+                sorted(symbols[c] for c in r.candidates),
+                r.rule_id or r.reason,
+            )
+            for r in resolve_calls(result)
+        }
+
+        def both(name):
+            return (
+                None,
+                [f"LongRange.{name}", f"Range.{name}"],
+                "multiple_declarations",
+            )
+
+        def near(symbol):
+            return (symbol, [], JAVA_TYPED_RECEIVER)
+
+        # A type parameter is not the same type as written: both stay.
+        self.assertEqual(found["r.fit"], both("fit"))
+        # Type arguments are not compared, as for erasure.
+        self.assertEqual(found["r.up"], near("LongRange.up"))
+        # Two different types as written: overloads.
+        self.assertEqual(found["r.put"], both("put"))
+        # A type parameter's array is not a single type.
+        self.assertEqual(found["r.all"], both("all"))
+        # A simple name may be the imported qualified one.
+        self.assertEqual(found["r.entry"], near("LongRange.entry"))
+        # A different array dimension: an overload.
+        self.assertEqual(found["r.arr"], both("arr"))
+        # A method's own type parameter erases to its bound: an overload.
+        self.assertEqual(found["r.any"], both("any"))
+        # Whether a reference type stands for the class's type parameter
+        # depends on the base's type arguments, which are not followed.
+        self.assertEqual(
+            found["b.fit"], (None, ["Box.fit", "Range.fit"], "multiple_declarations")
+        )
 
     def test_calls_in_anonymous_classes_look_there_first(self):
         files = {

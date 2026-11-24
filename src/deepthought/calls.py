@@ -200,14 +200,32 @@ def _shape(method):
     return (method.parameters, method.variadic, method.definition.parameter_types)
 
 
+def _may_override(near, far):
+    """Whether a parameter of type ``near`` as written may override one of
+    type ``far``: the same type, where a simple name may be an imported
+    qualified one (``Map.Entry`` and ``Entry``). A type parameter of a class
+    (``*``) matches only another: ``write(JsonElement)`` may override
+    ``write(T)`` in ``TypeAdapter<T>``, but ``getOrDefault(..., String)``
+    overloads ``getOrDefault(..., T)`` when ``T`` is bound to an enum, and
+    telling the two apart needs the type arguments of every base."""
+    near_base, far_base = near.rstrip("[]."), far.rstrip("[].")
+    if near[len(near_base) :] != far[len(far_base) :]:
+        return False  # different array dimensions or variable arity
+    if "*" in {near_base, far_base}:
+        return near_base == far_base
+    return near_base.split(".")[-1] == far_base.split(".")[-1]
+
+
 def _overridden(method, shapes):
     """Whether a nearer method with one of ``shapes`` overrides ``method``:
-    the same parameter count and the same parameter types as written. A
-    different type as written (``fit(T)`` and ``fit(Long)``) may be an
-    overload, so both stay."""
+    the same parameter count and variable arity, and parameter types that
+    may be the same (``_may_override``). Otherwise the methods may be
+    overloads (``putBytes(byte[])`` and ``putBytes(ByteBuffer)``), and
+    both stay."""
     count, variadic, types = _shape(method)
     return any(
-        (c, v) == (count, variadic) and (t is None or types is None or t == types)
+        (c, v) == (count, variadic)
+        and (t == types if None in (t, types) else all(map(_may_override, t, types)))
         for c, v, t in shapes
     )
 

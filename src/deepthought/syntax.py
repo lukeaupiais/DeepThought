@@ -226,12 +226,17 @@ def extract(
                     for c in parameters.named_children
                     if c.type in {"formal_parameter", "spread_parameter"}
                 ]
+                own = _java_type_variables(node, content, 1)
+                variables = {
+                    **dict.fromkeys(_java_type_variables(node.parent, content), "*"),
+                    **dict.fromkeys(own, "?"),
+                }
                 arity = {
                     "parameters": len(declared),
                     "variadic": bool(declared)
                     and declared[-1].type == "spread_parameter",
                     "parameter_types": tuple(
-                        _java_parameter_type(c, content) for c in declared
+                        _java_parameter_type(c, content, variables) for c in declared
                     ),
                 }
             elif node.type == "annotation_type_element_declaration":
@@ -1839,9 +1844,26 @@ _JAVA_METHODS = {
 }
 
 
-def _java_parameter_type(parameter, content):
+def _java_type_variables(node, content, depth=None):
+    """Names of the type parameters declared by ``node`` and the
+    declarations around it (``<T>`` of a method or class), or only by the
+    ``depth`` innermost of them."""
+    names = set()
+    while node is not None and depth != 0:
+        depth = None if depth is None else depth - 1
+        parameters = node.child_by_field_name("type_parameters")
+        for child in parameters.named_children if parameters else ():
+            names.add(_text(child.named_children[0], content))
+        node = node.parent
+    return names
+
+
+def _java_parameter_type(parameter, content, variables=None):
     """A Java parameter's type as written, without type arguments,
-    annotations or spaces (``List``, ``int[]``, ``T``, ``String...``)."""
+    annotations or spaces (``List``, ``int[]``, ``String...``). A type
+    parameter is written as ``variables`` maps it: ``*`` for one of a
+    class around the method, ``?`` for the method's own (``T[]`` is
+    ``*[]``)."""
     if parameter.type == "spread_parameter":
         written = next(
             (
@@ -1867,24 +1889,22 @@ def _java_parameter_type(parameter, content):
             (c for c in written.named_children if c.type != "type_arguments"),
             written,
         )
-    text = (
-        "".join(
-            _text(c, content)
-            for c in (
-                [written] if not written.named_children else written.named_children
-            )
-            if c.type not in {"annotation", "marker_annotation", "type_arguments"}
-        )
-        if written.type == "scoped_type_identifier"
-        else _text(written, content)
-    )
     if written.type == "scoped_type_identifier":
-        text = ".".join(
-            _text(c, content)
-            for c in written.named_children
-            if c.type == "type_identifier"
-        )
-    return "".join(text.split()) + dims + suffix
+        # `java.util.List` nests as ((java . util) . List); annotations on a
+        # part (`java.util.@A List`) are dropped.
+        names, stack = [], [written]
+        while stack:
+            current = stack.pop()
+            if current.type == "type_identifier":
+                names.append(_text(current, content))
+            elif current.type == "scoped_type_identifier":
+                stack.extend(reversed(current.named_children))
+        text = ".".join(names)
+    else:
+        text = _text(written, content)
+    text = "".join(text.split())
+    text = (variables or {}).get(text, text)
+    return text + dims + suffix
 
 
 def _java_type_name(node, content):
@@ -2021,6 +2041,18 @@ def _java_declared_here(node, name, content, before):
     return found
 
 
+def _java_may_inherit_fields(owner):
+    """Whether the type whose body is under ``owner`` may inherit fields: an
+    anonymous class or enum constant body, or a type with a superclass or superinterfaces (an
+    interface's constants are inherited by its implementations)."""
+    if owner is None or owner.type in {"object_creation_expression", "enum_constant"}:
+        return True
+    return any(
+        owner.child_by_field_name(field) is not None
+        for field in ("superclass", "interfaces")
+    ) or any(c.type == "extends_interfaces" for c in owner.named_children)
+
+
 def _java_binds_pattern(node, name, content):
     """Whether a pattern (``o instanceof Foo x``, ``case Foo x``) in ``node``
     binds ``name``: such a variable's scope depends on control flow."""
@@ -2054,7 +2086,7 @@ def _java_receiver_type(node, content, callee, cache):
     else:
         return None
     before = (node.start_point.row, node.start_point.column)
-    found, method, type_parameters = None, None, set()
+    found, method = None, None
     ancestor = node.parent
     while ancestor is not None:
         body = ancestor.type in _JAVA_CLASS_BODIES
@@ -2064,19 +2096,12 @@ def _java_receiver_type(node, content, callee, cache):
                 found = here
             elif body:
                 owner = ancestor.parent
-                if fields_only or (
-                    owner is not None
-                    and owner.type == "class_declaration"
-                    and owner.child_by_field_name("superclass") is not None
-                ):
+                if fields_only or _java_may_inherit_fields(owner):
                     # `this.x` names a field of the innermost class; and a
-                    # field a class inherits may be the one named.
+                    # field a type inherits may be the one named.
                     return None
         if ancestor.type in _JAVA_METHODS and method is None:
             method = ancestor
-        parameters = ancestor.child_by_field_name("type_parameters")
-        for child in parameters.named_children if parameters else ():
-            type_parameters.add(_text(child.named_children[0], content))
         ancestor = ancestor.parent
     if not found or found[0] is None:
         return None
@@ -2087,7 +2112,7 @@ def _java_receiver_type(node, content, callee, cache):
         if cache[key]:
             return None
     written = found[0]
-    if written.split(".")[0] in type_parameters:
+    if written.split(".")[0] in _java_type_variables(node, content):
         return None
     return written
 
