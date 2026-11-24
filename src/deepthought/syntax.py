@@ -5642,6 +5642,133 @@ def extract_packages(
     return []
 
 
+def extract_python_exports(
+    tree, content: bytes, repository_id: str, file: str
+) -> list[PackageClause]:
+    """The names a Python module's ``__all__`` lists, which ``from m import *``
+    binds: ``exports`` holds them when the module writes ``__all__`` only in
+    a top-level ``__all__ = [...]`` (or a tuple) and later ``__all__ +=
+    [...]`` statements, each of plain string literals; None when it writes
+    it in any other way (a computed value, ``__all__.extend(...)``, a write
+    inside a block). No clause when the module never names ``__all__`` as a
+    target."""
+    found, stack = [], [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type == "identifier" and _text(node, content) == "__all__":
+            found.append(node)
+    writes, names, readable = [], [], True
+    for node in sorted(found, key=lambda n: n.start_byte):
+        parent = node.parent
+        if parent.type == "attribute":
+            # `__all__.extend(...)`, `.append(...)`: a write not read here.
+            if (
+                parent.child_by_field_name("object") == node
+                and parent.parent is not None
+                and parent.parent.type == "call"
+            ):
+                writes.append(node)
+                readable = False
+            continue
+        if parent.type in {"assignment", "augmented_assignment"}:
+            if parent.child_by_field_name("left") != node:
+                continue
+        elif parent.type in _PYTHON_BINDING_PARENTS:
+            writes.append(node)
+            readable = False
+            continue
+        else:
+            continue
+        writes.append(node)
+        statement = parent.parent
+        augmented = parent.type == "augmented_assignment"
+        operator = parent.child_by_field_name("operator")
+        listed = _python_string_list(parent.child_by_field_name("right"), content)
+        if (
+            listed is None
+            or statement is None
+            or statement.type != "expression_statement"
+            or statement.parent is None
+            or statement.parent.type != "module"
+            or augmented != (len(writes) > 1)
+            or (augmented and (operator is None or operator.type != "+="))
+        ):
+            readable = False
+            continue
+        names.extend(listed)
+    if not writes:
+        return []
+    first = writes[0]
+    return [
+        PackageClause(
+            id=identifier(repository_id, file, "__all__", "Exports", 0),
+            file=file,
+            name="__all__",
+            kind="exports",
+            line=first.start_point.row + 1,
+            column=first.start_point.column,
+            end_line=first.end_point.row + 1,
+            end_column=first.end_point.column,
+            exports=tuple(dict.fromkeys(names)) if readable else None,
+        )
+    ]
+
+
+# Nodes whose identifier child the statement binds (a loop or ``with``
+# target, ``global``, ``del``, an unpacking or a walrus).
+_PYTHON_BINDING_PARENTS = frozenset(
+    {
+        "pattern_list",
+        "tuple_pattern",
+        "list_pattern",
+        "for_statement",
+        "as_pattern_target",
+        "named_expression",
+        "global_statement",
+        "delete_statement",
+        "list_splat_pattern",
+    }
+)
+
+
+def _python_string_list(node, content):
+    """The strings of a Python list or tuple of plain string literals, or None."""
+    if node is None:
+        return None
+    if node.type == "parenthesized_expression" and len(node.named_children) == 1:
+        node = node.named_children[0]
+    if node.type not in {"list", "tuple"}:
+        return None
+    found = []
+    for item in node.named_children:
+        if item.type == "comment":
+            continue
+        if item.type != "string":
+            return None
+        start = next((c for c in item.children if c.type == "string_start"), None)
+        if start is None or _text(start, content).rstrip("'\"").lower() not in {
+            "",
+            "u",
+        }:
+            return None
+        if any(
+            c.type != "string_content" or c.named_children
+            for c in item.named_children
+            if c != start and c.type != "string_end"
+        ):
+            # An interpolation or an escape sequence.
+            return None
+        found.append(
+            "".join(
+                _text(c, content)
+                for c in item.named_children
+                if c.type == "string_content"
+            )
+        )
+    return found
+
+
 _GO_MOD_TOKEN = re.compile(rb'"(?:[^"\\\n]|\\.)*"|`[^`]*`|[()]|[^\s()"`]+')
 
 

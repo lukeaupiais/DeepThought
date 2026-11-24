@@ -42,6 +42,7 @@ from .syntax import (
     extract_impls,
     extract_imports,
     extract_packages,
+    extract_python_exports,
     extract_supertypes,
     make_parser,
     parse_source,
@@ -572,6 +573,10 @@ def analyze_repository(
                 if language in {"go", "java"}:
                     packages.extend(
                         extract_packages(tree, content, repository_id, relative)
+                    )
+                elif language == "python":
+                    packages.extend(
+                        extract_python_exports(tree, content, repository_id, relative)
                     )
             except ImportError:
                 coverage.append(FileCoverage(relative, language, "unavailable", digest))

@@ -609,7 +609,7 @@ class CallSite:
 
 
 SUPERTYPE_KINDS = frozenset({"extends", "implements"})
-PACKAGE_KINDS = frozenset({"package", "module"})
+PACKAGE_KINDS = frozenset({"package", "module", "exports"})
 
 
 @dataclass(frozen=True)
@@ -655,7 +655,9 @@ class PackageClause:
 
     ``package`` is a Go source file's ``package name`` or a Java file's dotted
     ``package a.b;`` name; ``module`` is the module path a ``go.mod`` file's
-    ``module`` directive declares.
+    ``module`` directive declares. ``exports`` is a Python module's
+    ``__all__``: its name is ``__all__`` and ``exports`` holds the names it
+    lists.
     """
 
     id: str
@@ -673,6 +675,10 @@ class PackageClause:
     # declaration writes it or a value ``T{...}``, ``&T{...}``, ``new(T)``
     # or a call gives it, else None. None elsewhere, or when there is none.
     variables: tuple[tuple[str, str | None], ...] | None = None
+    # Python ``exports`` clauses: the names ``__all__`` lists, in order; None
+    # when the module writes ``__all__`` in a way that is not read (a
+    # computed value, ``__all__.extend(...)``). None elsewhere.
+    exports: tuple[str, ...] | None = None
 
     def __post_init__(self):
         validate_location(
@@ -700,6 +706,12 @@ class PackageClause:
             )
         ):
             raise ValueError("variables must be (name, type or None) pairs")
+        if self.exports is not None and (
+            self.kind != "exports"
+            or type(self.exports) is not tuple
+            or not all(isinstance(v, str) and v for v in self.exports)
+        ):
+            raise ValueError("exports must be names of an exports clause")
 
 
 @dataclass(frozen=True)
@@ -955,6 +967,8 @@ class AnalysisResult:
         for item in data.get("packages", ()):
             if item["variables"] is None:
                 del item["variables"]
+            if item["exports"] is None:
+                del item["exports"]
         if not self.packages and "packages" not in self.capabilities:
             del data["packages"]
         if not self.impls and "impls" not in self.capabilities:
@@ -1109,6 +1123,11 @@ class AnalysisResult:
                                 )
                             }
                             if isinstance(item.get("variables"), list)
+                            else {}
+                        ),
+                        **(
+                            {"exports": tuple(item["exports"])}
+                            if isinstance(item.get("exports"), list)
                             else {}
                         ),
                     }

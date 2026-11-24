@@ -757,7 +757,9 @@ class TreeSitterTool(AnalysisTool):
                     resolution.status + "_imports", set()
                 ).add(item.specifier)
         declared_packages = {
-            item.file: {item.kind: item.name} for item in result.packages
+            item.file: {item.kind: item.name}
+            for item in result.packages
+            if item.kind in {"package", "module"}
         }
         for coverage in result.coverage:
             file_name = f"{repo_url}::{coverage.file}::file"

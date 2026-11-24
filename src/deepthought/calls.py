@@ -128,6 +128,12 @@ class NameBindings:
     # (file, alias) -> [Definition], for JavaScript/TypeScript top-level
     # declarations a local ``export { name as alias }`` exports.
     aliases: dict = field(default_factory=dict)
+    # File -> [target files], one per ``from M import *`` (Python) or other
+    # import of every name, in order.
+    stars: dict = field(default_factory=dict)
+    # Python file -> the names its ``__all__`` lists (None: not read), for
+    # each module that writes ``__all__``.
+    exports: dict = field(default_factory=dict)
 
     def top_level(self, files, name, kinds):
         """Declarations named ``name`` at the top level of ``files``, and
@@ -193,6 +199,7 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
     modules = defaultdict(list)
     module_level = defaultdict(list)
     reexports = defaultdict(list)
+    stars = defaultdict(list)
 
     def bind_module(file, prefix, targets):
         # The same module bound twice (`import a.b` and `import a.c` both
@@ -247,6 +254,8 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
                             break
                         bind_module(item.file, ".".join(parts[:depth]), (init,))
                         package = posixpath.dirname(package)
+        if item.names == ("*",):
+            stars[item.file].append(targets)
         for name, local in zip(item.names, item.local_names):
             if name == "*" and local != "*":
                 modules[(item.file, local)].append(targets)
@@ -275,7 +284,10 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
         ):
             continue
         bind_module(item.file, local, (found[0],))
-    return NameBindings(by_symbol, names, modules, module_level, reexports, aliases)
+    exports = {p.file: p.exports for p in result.packages if p.kind == "exports"}
+    return NameBindings(
+        by_symbol, names, modules, module_level, reexports, aliases, stars, exports
+    )
 
 
 def package_peers(result: AnalysisResult) -> dict:
@@ -1840,6 +1852,48 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     found[d.id] = d
         return list(found.values())
 
+    def python_following(module, name):
+        """Where the Python module ``module`` gets ``name`` that it does not
+        declare: (name, files) of the one import that binds it outside any
+        function or class, or of the one ``from M import *`` that gives it
+        when no import names it; else None."""
+        bound = bindings.module_level.get((module, name), [])
+        if bound:
+            return bound[0] if len(names.get((module, name), [])) == 1 else None
+        if names.get((module, name)):
+            return None
+        star = python_star(module, name)
+        return None if star is None else (name, (star,))
+
+    def python_star(module, name, seen=frozenset()):
+        """The module through whose ``from M import *`` the Python module
+        ``module`` binds ``name``, or None. A star import gives ``name`` when
+        M's ``__all__`` lists it, or when M has no ``__all__``, ``name`` is
+        public and M declares or imports it. A star import of a module
+        outside the repository, or of one whose ``__all__`` is not read, may
+        give any name: then none is chosen; so too when two give it."""
+        if (module, name) in seen:
+            return None
+        seen = seen | {(module, name)}
+        found = []
+        for targets in bindings.stars.get(module, ()):
+            if len(targets) != 1:
+                return None
+            (target,) = targets
+            if target in bindings.exports:
+                listed = bindings.exports[target]
+                if listed is None:
+                    return None
+                if name in listed:
+                    found.append(target)
+            elif not name.startswith("_") and (
+                by_symbol.get((target, name))
+                or bindings.module_level.get((target, name))
+                or python_star(target, name, seen) is not None
+            ):
+                found.append(target)
+        return found[0] if len(set(found)) == 1 else None
+
     def exported(files, name, rule, reason):
         """The resolution of ``name`` as an attribute of the modules in
         ``files``: declared there at top level, or else (Python only) bound
@@ -1859,20 +1913,16 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                     CALL_JS_REEXPORT if forwarded else rule_used,
                     reason,
                 )
-            bound = bindings.module_level.get((module, name), [])
-            if (
-                languages.get(module) != "python"
-                or (module, name) in seen
-                # Exactly one import binds it, outside any function or class.
-                or not bound
-                or len(names.get((module, name), [])) != 1
-            ):
+            if languages.get(module) != "python" or (module, name) in seen:
                 return _pick(site.id, declared, rule_used, reason)
             seen.add((module, name))
+            rule_used = CALL_PYTHON_REEXPORT
+            following = python_following(module, name)
+            if following is None:
+                return _pick(site.id, declared, rule, reason)
             # A module binding (`import m as name`) has no name, and nothing
             # is declared under it.
-            name, files = bound[0]
-            rule_used = CALL_PYTHON_REEXPORT
+            name, files = following
 
     def go_named(file, typed):
         """The files that may declare the Go type ``typed`` written in
@@ -1988,16 +2038,13 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             if declared or len(files) != 1:
                 return declared
             (module,) = files
-            bound = bindings.module_level.get((module, name), [])
-            if (
-                languages.get(module) != "python"
-                or (module, name) in seen
-                or not bound
-                or len(names.get((module, name), [])) != 1
-            ):
+            if languages.get(module) != "python" or (module, name) in seen:
                 return declared
             seen.add((module, name))
-            name, files = bound[0]
+            following = python_following(module, name)
+            if following is None:
+                return declared
+            name, files = following
 
     def python_class(file, scope, written):
         """The classes a Python annotation names, looked up as a base is:

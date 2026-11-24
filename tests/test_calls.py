@@ -538,6 +538,158 @@ class PythonCallTests(unittest.TestCase):
                     ("unresolved", None, None, "module_attribute_not_declared"),
                 )
 
+    def test_python_star_imports_give_the_names_all_lists(self):
+        result = analyze(
+            {
+                "pkg/__init__.py": (
+                    "from ._models import *\n"
+                    "from ._sub import *\n"
+                    "from ._open import *\n"
+                    "from ._twice_a import *\n"
+                    "from ._twice_b import *\n"
+                    "from ._cycle_a import *\n"
+                ),
+                "pkg/_models.py": (
+                    "__all__ = ['Request']\n"
+                    "__all__ += ('Response',)\n"
+                    "class Request: pass\nclass Response: pass\n"
+                    "class Hidden: pass\n"
+                ),
+                # A package that gathers its modules by star imports too.
+                "pkg/_sub/__init__.py": (
+                    "from .mock import *\n__all__ = ['MockTransport']\n"
+                ),
+                "pkg/_sub/mock.py": "class MockTransport: pass\n",
+                # No __all__: every public name it declares or imports.
+                "pkg/_open.py": (
+                    "from pkg._models import Hidden as Shown\n"
+                    "from ._deep import *\n"
+                    "def opened(): pass\ndef _private(): pass\n"
+                ),
+                "pkg/_deep.py": "def deep(): pass\n",
+                # A cycle of star imports.
+                "pkg/_cycle_a.py": "from ._cycle_b import *\n",
+                "pkg/_cycle_b.py": "from ._cycle_a import *\n",
+                "pkg/_twice_a.py": "def both(): pass\n",
+                "pkg/_twice_b.py": "def both(): pass\n",
+                "app/__init__.py": "from .unread import *\nfrom .other import *\n",
+                "app/other.py": "def run(): pass\n",
+                "app/unread.py": ("__all__ = ['run'] + []\ndef run(): pass\n"),
+                "ext/__init__.py": (
+                    "from os.path import *\nfrom ._mine import *\ndef local(): pass\n"
+                ),
+                "ext/_mine.py": "def join(): pass\n",
+                # An import in a function body binds no module attribute,
+                # but the name is bound there: no star import is followed.
+                "late/__init__.py": (
+                    "from ._m import *\ndef setup():\n    from ._m import go\n"
+                ),
+                "late/_m.py": "def go(): pass\n",
+                "main.py": (
+                    "import pkg, app, ext, late\n"
+                    "from pkg import Request\n"
+                    "def go():\n"
+                    "    pkg.Response()\n"
+                    "    Request()\n"
+                    "    pkg.MockTransport()\n"
+                    "    pkg.opened()\n"
+                    "    pkg.Shown()\n"
+                    "    pkg.Hidden()\n"
+                    "    pkg._private()\n"
+                    "    pkg.both()\n"
+                    "    app.run()\n"
+                    "    ext.join()\n"
+                    "    ext.local()\n"
+                    "    pkg.deep()\n"
+                    "    pkg.cycled()\n"
+                    "    late.go()\n"
+                ),
+            },
+            "python",
+        )
+        found = links(result)
+        for line, callee, target, rule in (
+            (4, "pkg.Response", "pkg/_models.py::Response", CALL_PYTHON_REEXPORT),
+            (5, "Request", "pkg/_models.py::Request", CALL_PYTHON_REEXPORT),
+            (
+                6,
+                "pkg.MockTransport",
+                "pkg/_sub/mock.py::MockTransport",
+                CALL_PYTHON_REEXPORT,
+            ),
+            (7, "pkg.opened", "pkg/_open.py::opened", CALL_PYTHON_REEXPORT),
+            (8, "pkg.Shown", "pkg/_models.py::Hidden", CALL_PYTHON_REEXPORT),
+            (14, "ext.local", "ext/__init__.py::local", CALL_MODULE_ATTRIBUTE),
+            (15, "pkg.deep", "pkg/_deep.py::deep", CALL_PYTHON_REEXPORT),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.py", line, callee)],
+                    ("linked", target, rule, None),
+                )
+        for line, callee in (
+            # Not in __all__; private without __all__; given by two star
+            # imports; an __all__ that is not read; a module outside.
+            (9, "pkg.Hidden"),
+            (10, "pkg._private"),
+            (11, "pkg.both"),
+            (12, "app.run"),
+            (13, "ext.join"),
+            (16, "pkg.cycled"),
+            (17, "late.go"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("main.py", line, callee)],
+                    ("unresolved", None, None, "module_attribute_not_declared"),
+                )
+
+    def test_python_all_is_read_only_from_plain_top_level_lists(self):
+        cases = {
+            "plain.py": "__all__ = ['a', \"b\", u'c']\n__all__ += ['d']\n",
+            "paren.py": "__all__ = (\n    'a',  # first\n    'a',\n)\n",
+            "none.py": "def f():\n    return __all__\n",
+            "reads.py": "__all__ = ['a']\nnames = __all__\n",
+            "wrapped.py": "__all__ = (['a', 'b'])\n",
+            "extend_only.py": "__all__.extend(['a'])\n",
+            "extend.py": "__all__ = ['a']\n__all__.extend(['b'])\n",
+            "computed.py": "from m import __all__ as x\n__all__ = x + ['a']\n",
+            "fstring.py": "n = 'a'\n__all__ = [f'{n}']\n",
+            "bytes.py": "__all__ = [b'a']\n",
+            "escape.py": "__all__ = ['\\x61']\n",
+            "block.py": "if True:\n    __all__ = ['a']\n",
+            "first_augmented.py": "__all__ += ['a']\n",
+            "twice.py": "__all__ = ['a']\n__all__ = ['b']\n",
+            "minus.py": "__all__ = ['a']\n__all__ -= ['a']\n",
+            "loop.py": "__all__ = ['a']\nfor __all__ in []: pass\n",
+            "global.py": "__all__ = ['a']\ndef f():\n    global __all__\n",
+        }
+        result = analyze(cases, "python")
+        clauses = {p.file: p for p in result.packages}
+        self.assertEqual(clauses["plain.py"].exports, ("a", "b", "c", "d"))
+        self.assertEqual(
+            (clauses["plain.py"].kind, clauses["plain.py"].name), ("exports", "__all__")
+        )
+        self.assertEqual((clauses["plain.py"].line, clauses["plain.py"].column), (1, 0))
+        self.assertEqual(clauses["paren.py"].exports, ("a",))
+        self.assertEqual(clauses["reads.py"].exports, ("a",))
+        self.assertEqual(clauses["wrapped.py"].exports, ("a", "b"))
+        self.assertNotIn("none.py", clauses)
+        readable = {"plain.py", "paren.py", "none.py", "reads.py", "wrapped.py"}
+        for file in sorted(set(cases) - readable):
+            with self.subTest(file=file):
+                self.assertIsNone(clauses[file].exports)
+        loaded = AnalysisResult.from_json(result.to_json())
+        self.assertEqual(loaded.packages, result.packages)
+        serialized = {p["file"]: p for p in result.to_dict()["packages"]}
+        self.assertNotIn("exports", serialized["extend.py"])
+        with self.assertRaises(ValueError):
+            replace(clauses["plain.py"], kind="package")
+        with self.assertRaises(ValueError):
+            replace(clauses["plain.py"], exports=("",))
+        with self.assertRaises(ValueError):
+            replace(clauses["plain.py"], exports=["a"])
+
     def test_javascript_imports_are_not_reexports(self):
         result = analyze(
             {
