@@ -1325,7 +1325,13 @@ function's declarator standing alone in an error node declares a function,
 as in C. A line holding only an upper-case name with an underscore
 (`FMT_BEGIN_EXPORT`, or `FMT_CONSTEXPR` above a declaration) is a macro and
 is replaced with spaces too, since the grammar would read it as the type of
-the declaration after it. Two shapes declare no function: a declarator after
+the declaration after it. The same name at the start of a line before a
+constructor or destructor (`FMT_CONSTEXPR explicit checker(...) : a(1) {`,
+`FMT_CONSTEXPR20 ~buffer()`) is replaced too: read as a return type, it turns
+the member initializers into a parse error that ends the class early. A
+declarator standing alone in an error node with nothing before it (`M(a,
+b);`) is a macro's invocation, not a function, unless it is in a class and
+names it (a constructor whose initializers hold an `#if`). Two shapes declare no function: a declarator after
 a class body in the same declaration (C++ does not allow a class defined in a
 return type, so this is text after a body the grammar closed early), and a
 declarator after a bit-field width (a constructor's member initializers,
@@ -1349,7 +1355,7 @@ text before it.
 |---|---|---|---|---|---|
 | leethomason/tinyxml2 `8224e42` | 4 (0) | 683 | 683 (0 / 0) | 32 / 0 / 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 / 0 / 0 |
 | google/leveldb `2946558` | 132 (37) | 1,804 | 1,773 (0 / 68) | 10 / 934 / 3 / 42 / 4 / 0 / 0 | 0 / 8 / 0 / 20 / 3 / 0 / 0 |
-| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 6,894 (2,117 / 856) | 744 / 50 / 0 / 842 / 201 / 0 / 13 | 3,511 / 127 / 0 / 165 / 174 / 14 / 1 |
+| fmtlib/fmt `3be6709` | 74 (2) | 10,886 | 7,036 (2,259 / 856) | 742 / 50 / 0 / 781 / 84 / 0 / 13 | 3,511 / 124 / 0 / 133 / 67 / 14 / 1 |
 
 No difference is unexplained. Most of fmt's macro-generated declarations
 and names that are macros come from its bundled GoogleTest (`TEST(...)`

@@ -461,7 +461,13 @@ _CPP_CLASS_MACRO = re.compile(
     # A line holding only an upper-case name with an underscore
     # (`FMT_BEGIN_EXPORT`, `FMT_CONSTEXPR` before a declaration on the next
     # line): a macro, which the grammar would read as a type.
-    rb"|(?:(?<=\n)|\A)[ \t]*(?P<line>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[ \t]*(?=\r?\n|\Z)",
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<line>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[ \t]*(?=\r?\n|\Z)"
+    # The same name before a constructor or destructor on its line
+    # (`FMT_CONSTEXPR explicit checker(...) : a(1) {`): read as a return
+    # type, it makes the member initializers a parse error that ends the
+    # class early.
+    rb"|(?:(?<=\n)|\A)[ \t]*(?P<ctor>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"
+    rb"(?=[ \t]+(?:(?:explicit|constexpr|inline)[ \t]+)*~?[A-Za-z_]\w*[ \t]*\()",
     re.DOTALL,
 )
 
@@ -475,8 +481,10 @@ def prepare_source(language: str, content: bytes) -> bytes:
         return content
 
     def blank(match):
-        # A comment or literal has no macro: its span is empty.
-        start, end = match.span("macro" if match.group("line") is None else "line")
+        group = next((g for g in ("macro", "line", "ctor") if match.group(g)), None)
+        if group is None:  # a comment or literal
+            return match.group(0)
+        start, end = match.span(group)
         whole = match.group(0)
         offset = start - match.start()
         return whole[:offset] + b" " * (end - start) + whole[offset + end - start :]
@@ -618,6 +626,13 @@ def _cpp_declarators(node):
     ):
         return [errors[0].named_children[0]]
     return declarators
+
+
+def _cpp_names_class(declarator, scope, content) -> bool:
+    """Whether a function declarator declares a constructor of the class
+    whose symbol ends ``scope`` (empty in an unnamed class)."""
+    name = declarator.child_by_field_name("declarator")
+    return name is not None and bool(scope) and _text(name, content) == scope[-1]
 
 
 def extract_cpp(
@@ -774,6 +789,13 @@ def extract_cpp(
             in {"function_declarator", "pointer_declarator", "reference_declarator"}
             and node.parent is not None
             and node.parent.type == "ERROR"
+            # With nothing before it, `M(a, b);` is a macro's invocation,
+            # unless it names the class it is in: a constructor
+            # (`C(int n) : #if ...`).
+            and (
+                node.prev_named_sibling is not None
+                or (in_class and _cpp_names_class(node, scope, content))
+            )
         ):
             # A function's declarator standing alone in text the grammar
             # could not parse (see extract_c).

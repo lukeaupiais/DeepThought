@@ -206,6 +206,67 @@ class CppTests(unittest.TestCase):
             ],
         )
 
+    def test_macros_before_constructors_and_macro_statements(self):
+        result = analyze(
+            {
+                "a.h": "class C {\n"
+                "  FMT_CONSTEXPR explicit C(int a) : a_(a), b_{a} {}\n"
+                "  FMT_CONSTEXPR20 ~C() = default;\n"
+                "  void f();\n"
+                "};\n",
+                "b.h": "FMT_TYPE_CONSTANT(int, int_type);\n"
+                "namespace N {\n"
+                "N(int, x);\n"
+                "}\n",
+                "c.h": "namespace n {\n"
+                "class L {\n"
+                " public:\n"
+                "  L(int n)\n"
+                "      :\n"
+                "#if !defined(NDEBUG)\n"
+                "        n_(n),\n"
+                "#endif\n"
+                "        m_(n) {}\n"
+                "  void f();\n"
+                "};\n"
+                "}\n",
+                "e.h": "namespace n {\n"
+                "class D {\n"
+                " public:\n"
+                "  M(int n)\n"
+                "      :\n"
+                "#if X\n"
+                "        n_(n),\n"
+                "#endif\n"
+                "        m_(n) {}\n"
+                "  void f();\n"
+                "};\n"
+                "}\n",
+            }
+        )
+        found = [(d.file, d.line, d.symbol, d.kind) for d in result.definitions]
+        self.assertEqual(
+            [f[1:] for f in found if f[0] in ("a.h", "b.h")],
+            [
+                # a.h: the macro before a constructor or destructor is
+                # blanked, so the class keeps its later members. b.h: a
+                # macro's invocation as a statement declares nothing.
+                (1, "C", "Class"),
+                (2, "C.C", "Method"),
+                (3, "C.~C", "Method"),
+                (4, "C.f", "Method"),
+                # Even inside a namespace of the same name.
+                (2, "N", "Namespace"),
+            ],
+        )
+        # c.h: a constructor whose initializers the grammar cannot parse is
+        # kept, since it names its class.
+        self.assertIn(("c.h", 4, "n.L.L", "Method"), found)
+        self.assertIn(("c.h", 10, "n.L.f", "Method"), found)
+        # e.h: one that names another class is a macro's invocation.
+        self.assertIn(("e.h", 10, "n.D.f", "Method"), found)
+        self.assertNotIn("n.D.M", [f[2] for f in found])
+
     def test_headers_are_cpp_when_cpp_is_selected(self):
         files = {"a.h": "int f(void);\n", "b.c": "int g(void);\n"}
         both = analyze(files, languages=("c", "cpp"))
