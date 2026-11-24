@@ -452,6 +452,7 @@ The gate fails on fewer confirmed, more extra, or changed seeds.
 | click | 144 | 1151 | 123 | 6 | 0.107 | 0.954 |
 | ky | 38 | 175 | 62 | 4 | 0.354 | 0.939 |
 | cobra | 107 | 1764 | 119 | 0 | 0.068 | 1.0 |
+| gson | 164 | 4987 | 152 | 0 | 0.030 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 495 | 123 | 0.260 | 0.801 |
 
@@ -463,4 +464,8 @@ functions that macros expand to, which the engine does not declare. scip-go
 records no definition spans, so cobra's come from Go's own parser
 (`go run tools/go_function_spans.go WORKSPACE`, passed as `--spans`); its
 low recall is mostly method calls on a receiver, such as `c.ExecuteC()` in
-`Execute`, left unresolved. gson (javac truth) is not covered yet.
+`Execute`, left unresolved. gson's call truth comes from javac, not an
+index, so its callables are the method and constructor spans of javac's
+parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
+index); most of its misses are calls on a `Gson` instance, such as
+`gson.toJson(...)` in the tests.
