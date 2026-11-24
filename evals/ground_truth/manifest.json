@@ -242,6 +242,15 @@
       ]
     },
     {
+      "name": "contracts-eshop-http",
+      "url": "https://github.com/dotnet/eShop",
+      "commit": "669682e724306a48f6c6ec4c8afea941658bf3a7",
+      "labels": "../fixtures/service_contracts/eshop-http.json",
+      "kinds": [
+        "http"
+      ]
+    },
+    {
       "name": "contracts-robot-shop",
       "url": "https://github.com/instana/robot-shop",
       "commit": "55292e2199f2fb00a165b1f7d3045fe7f8922038",
