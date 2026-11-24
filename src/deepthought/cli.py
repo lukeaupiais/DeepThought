@@ -105,6 +105,29 @@ def main(argv=None) -> int:
     )
     indexer.add_argument("--output", help="Index path, default workspace/index.scip")
     indexer.add_argument("--timeout", type=int, default=180)
+    scip_index = subcommands.add_parser(
+        "index-scip",
+        help="Run the pinned SCIP indexers for each language and report coverage",
+    )
+    scip_index.add_argument("workspace")
+    scip_index.add_argument(
+        "--output-dir", required=True, help="Directory for indexes and receipts"
+    )
+    scip_index.add_argument(
+        "--language",
+        action="append",
+        choices=("go", "javascript", "python", "typescript"),
+    )
+    scip_index.add_argument("--project-name")
+    scip_index.add_argument("--timeout", type=int, default=600)
+    scip_index.add_argument(
+        "--allow-uncovered",
+        action="store_true",
+        help="Exit 0 even when some source files have no index",
+    )
+    subcommands.add_parser(
+        "indexers", help="List the pinned SCIP indexers and whether each is installed"
+    )
     compose = subcommands.add_parser(
         "compose",
         help="Compose supplied analysis JSON artifacts into a local reference graph",
@@ -144,6 +167,39 @@ def main(argv=None) -> int:
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.signal(sig, lambda _sig, _frame: cancel.set())
     try:
+        if args.command == "indexers":
+            from .indexers import requirements
+
+            listed = requirements()
+            print(json.dumps(listed, sort_keys=True))
+            return 0 if all(item["installed"] for item in listed) else 1
+        if args.command == "index-scip":
+            from .indexers import index_workspace
+
+            report = index_workspace(
+                args.workspace,
+                args.output_dir,
+                languages=tuple(
+                    args.language or ("python", "typescript", "javascript", "go")
+                ),
+                project_name=args.project_name,
+                timeout=args.timeout,
+            )
+            print(json.dumps(report, sort_keys=True))
+            for run in report["runs"]:
+                if run["status"] != "indexed":
+                    print(
+                        f"{run['indexer']}: {run['status']} ({run['reason']})"
+                        + (f": {run['detail']}" if run["detail"] else ""),
+                        file=sys.stderr,
+                    )
+            if report["uncovered"]:
+                print(
+                    f"{report['uncovered']} source files have no SCIP index; "
+                    "see coverage",
+                    file=sys.stderr,
+                )
+            return 0 if args.allow_uncovered or not report["uncovered"] else 3
         if args.command == "index-typescript":
             from .scip_indexing import index_typescript
 
