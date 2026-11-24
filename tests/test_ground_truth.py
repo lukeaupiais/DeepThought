@@ -421,6 +421,13 @@ class DeclarationRegressionTests(unittest.TestCase):
             )
 
 
+class UnknownCorpusTests(unittest.TestCase):
+    def test_a_misspelled_corpus_name_fails_instead_of_checking_nothing(self):
+        with tempfile.TemporaryDirectory() as cache:
+            with self.assertRaisesRegex(ValueError, "no such corpus: clik"):
+                ground_truth.check(["clik"], Path(cache))
+
+
 class SummaryTests(unittest.TestCase):
     def test_changed_scores_show_their_difference(self):
         base = {

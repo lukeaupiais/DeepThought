@@ -96,6 +96,7 @@ precision only, so confirmed can exceed expected.
 ```sh
 python tools/ground_truth.py check                   # fetch, score, compare with baseline
 python tools/ground_truth.py check --corpus click    # one corpus
+# A name that is in no manifest list fails instead of checking nothing.
 python tools/ground_truth.py check --update-baseline # accept a new score
 python tools/ground_truth.py score WORKSPACE TRUTH --language python
 python tools/ground_truth.py derive WORKSPACE INDEX > TRUTH   # after the oracle command
