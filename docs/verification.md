@@ -290,3 +290,20 @@ and text search finds more of the co-edited files. Impact recall is bounded by
 call-resolution recall (0.26 to 0.48 on these corpora; see the baseline), so
 it should rise as more calls resolve. The replay is a trend to track per
 milestone, not a gate.
+
+### Tracking per milestone
+
+`tools/track_replay.py` replays every pinned ground-truth corpus (30 commits
+each, up to the pinned commit) and appends one entry to
+`evals/ground_truth/replay.json` with a label, the engine commit and each
+corpus's scores. Run it when the graph reaches a milestone; entries are never
+rewritten, so the file shows how impact recall and precision moved.
+
+```sh
+python tools/track_replay.py --label "milestone name" --cache .ground-truth-cache
+```
+
+The first entry ("graph port, 2026-11-23") adds the Rust corpora: anyhow 41
+cases, impact 0.164 recall at 0.444 precision against search 0.370 at 0.202;
+ripgrep 78 cases, impact 0.054 at 0.381 against search 0.331 at 0.090. A full
+run takes about six minutes.
