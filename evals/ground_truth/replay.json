@@ -83,5 +83,214 @@
         }
       }
     }
+  },
+  {
+    "label": "Java typed receivers and chi corpus, 2026-11-24",
+    "engine_commit": "2a4c7db91d2fad7a211019de9752ee49d9c152d1",
+    "commits_per_corpus": 30,
+    "corpora": {
+      "click": {
+        "cases": 76,
+        "impact": {
+          "recall": 0.048,
+          "precision": 0.0952,
+          "mean_predicted_files": 1.66
+        },
+        "search": {
+          "recall": 0.052,
+          "precision": 0.1171,
+          "mean_predicted_files": 1.46
+        }
+      },
+      "ky": {
+        "cases": 90,
+        "impact": {
+          "recall": 0.0296,
+          "precision": 0.5161,
+          "mean_predicted_files": 0.34
+        },
+        "search": {
+          "recall": 0.1778,
+          "precision": 0.3,
+          "mean_predicted_files": 3.56
+        }
+      },
+      "cobra": {
+        "cases": 71,
+        "impact": {
+          "recall": 0.2143,
+          "precision": 0.1925,
+          "mean_predicted_files": 2.63
+        },
+        "search": {
+          "recall": 0.0833,
+          "precision": 0.0725,
+          "mean_predicted_files": 2.72
+        }
+      },
+      "chi": {
+        "cases": 57,
+        "impact": {
+          "recall": 0.1484,
+          "precision": 0.2639,
+          "mean_predicted_files": 1.26
+        },
+        "search": {
+          "recall": 0.1406,
+          "precision": 0.3462,
+          "mean_predicted_files": 0.91
+        }
+      },
+      "anyhow": {
+        "cases": 41,
+        "impact": {
+          "recall": 0.1644,
+          "precision": 0.4444,
+          "mean_predicted_files": 0.66
+        },
+        "search": {
+          "recall": 0.3699,
+          "precision": 0.2015,
+          "mean_predicted_files": 3.27
+        }
+      },
+      "ripgrep": {
+        "cases": 78,
+        "impact": {
+          "recall": 0.0535,
+          "precision": 0.381,
+          "mean_predicted_files": 0.54
+        },
+        "search": {
+          "recall": 0.3311,
+          "precision": 0.0903,
+          "mean_predicted_files": 14.05
+        }
+      },
+      "gson": {
+        "cases": 102,
+        "impact": {
+          "recall": 0.0714,
+          "precision": 0.049,
+          "mean_predicted_files": 6.0
+        },
+        "search": {
+          "recall": 0.0429,
+          "precision": 0.0623,
+          "mean_predicted_files": 2.83
+        }
+      }
+    }
+  },
+  {
+    "label": "JavaScript corpus preact, 2026-11-24",
+    "engine_commit": "a12f0f8104a55aa1b54825943dada5257c7c0530",
+    "commits_per_corpus": 30,
+    "corpora": {
+      "click": {
+        "cases": 76,
+        "impact": {
+          "recall": 0.048,
+          "precision": 0.0952,
+          "mean_predicted_files": 1.66
+        },
+        "search": {
+          "recall": 0.052,
+          "precision": 0.1171,
+          "mean_predicted_files": 1.46
+        }
+      },
+      "ky": {
+        "cases": 90,
+        "impact": {
+          "recall": 0.0296,
+          "precision": 0.5161,
+          "mean_predicted_files": 0.34
+        },
+        "search": {
+          "recall": 0.1778,
+          "precision": 0.3,
+          "mean_predicted_files": 3.56
+        }
+      },
+      "preact": {
+        "cases": 58,
+        "impact": {
+          "recall": 0.0987,
+          "precision": 0.3433,
+          "mean_predicted_files": 1.16
+        },
+        "search": {
+          "recall": 0.1502,
+          "precision": 0.0549,
+          "mean_predicted_files": 10.98
+        }
+      },
+      "cobra": {
+        "cases": 71,
+        "impact": {
+          "recall": 0.2143,
+          "precision": 0.1846,
+          "mean_predicted_files": 2.75
+        },
+        "search": {
+          "recall": 0.0833,
+          "precision": 0.0725,
+          "mean_predicted_files": 2.72
+        }
+      },
+      "chi": {
+        "cases": 57,
+        "impact": {
+          "recall": 0.1562,
+          "precision": 0.2667,
+          "mean_predicted_files": 1.32
+        },
+        "search": {
+          "recall": 0.1406,
+          "precision": 0.3462,
+          "mean_predicted_files": 0.91
+        }
+      },
+      "anyhow": {
+        "cases": 41,
+        "impact": {
+          "recall": 0.1644,
+          "precision": 0.4444,
+          "mean_predicted_files": 0.66
+        },
+        "search": {
+          "recall": 0.3699,
+          "precision": 0.2015,
+          "mean_predicted_files": 3.27
+        }
+      },
+      "ripgrep": {
+        "cases": 78,
+        "impact": {
+          "recall": 0.0535,
+          "precision": 0.381,
+          "mean_predicted_files": 0.54
+        },
+        "search": {
+          "recall": 0.3311,
+          "precision": 0.0903,
+          "mean_predicted_files": 14.05
+        }
+      },
+      "gson": {
+        "cases": 102,
+        "impact": {
+          "recall": 0.0714,
+          "precision": 0.049,
+          "mean_predicted_files": 6.0
+        },
+        "search": {
+          "recall": 0.0429,
+          "precision": 0.0623,
+          "mean_predicted_files": 2.83
+        }
+      }
+    }
   }
 ]

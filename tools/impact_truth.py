@@ -162,8 +162,14 @@ def callables(index, source=None, spans=None):
     return found, aliases
 
 
-def call_graph(nodes, calls, aliases=None):
-    """{callee: {callers}} over oracle nodes, from call-truth positions."""
+def call_graph(nodes, calls, aliases=None, name_line_inside=False):
+    """{callee: {callers}} over oracle nodes, from call-truth positions.
+
+    ``name_line_inside``: a call on a callable's name line belongs to it
+    (Go, Rust, Java, TypeScript: a one-line body such as
+    ``func (ns nodes) Sort() { sort.Sort(ns); ns.tailSort() }``). In Python
+    that line holds decorators and default values, which run where the
+    function is declared, so it belongs to the enclosing callable."""
     by_file = defaultdict(list)
     for (file, line), (_, first, last) in nodes.items():
         by_file[file].append((last - first, line, first, last))
@@ -175,7 +181,7 @@ def call_graph(nodes, calls, aliases=None):
             # Decorators (above the name line, though scip-python's range
             # starts at the first one) and the definition line itself run
             # where the declaration is, not in its body.
-            if name_line < line <= last:
+            if name_line < line <= last or (name_line_inside and line == name_line):
                 return (aliases or {}).get((file, name_line), (file, name_line))
         return None
 
@@ -291,7 +297,7 @@ def derive(
     for path in extra_calls:
         for site, targets in read_truth(path)[0].items():
             positions.setdefault(site, set()).update(targets)
-    incoming = call_graph(nodes, positions, aliases)
+    incoming = call_graph(nodes, positions, aliases, language != "python")
     rows = []
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
         for (file, line), depth in sorted(reach(incoming, seed, max_depth).items()):

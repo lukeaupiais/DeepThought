@@ -151,7 +151,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
-| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` where `x` is declared in the function around the call and the innermost visible declaration writes a named type: a parameter, receiver or named result (`c *Command`), `var x T`, a typed `const`, or `x := T{...}`, `&T{...}`, `new(T)` or `make(T)`. It links to the method `M` declared on `T`, in the caller's package or, for `pkg.T`, in the package the file imports as `pkg`. Methods promoted from embedded fields are not followed, and a function that declares a local type of that name gets no link |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.python-call-typed-receiver` | Python: `x.m()` where the binding of `x` the call sees names one repository class `T`: a parameter annotated `T`, `m.T`, `"T"`, `Optional[T]` or `T \| None`, or a local whose one binding in the function is `x = T(...)` or `x: T = ...`. The function must bind `x` nowhere else and import nothing in its body. It links to `m` declared on `T` or inherited through its declared bases, depth first and left to right, which is the method resolution order when no class is reached twice; a class reached twice, or a base that names no repository class before `m` is found, leaves the call unresolved (`diamond`, `base_not_resolved`). A written `object` base is skipped. A name that is not one repository class (`str`, a factory function) leaves the call to the other rules |
@@ -753,7 +753,26 @@ read, so their methods stay unresolved.
 
 Among same-named methods, only those whose parameters accept the argument
 count are candidates (a variable-arity method accepts one fewer or more);
-several left are ambiguous, none is `no_matching_arity`.
+none is `no_matching_arity`. When several are left, the argument types the
+call writes choose among them as javac does (JLS 15.12.2). An argument's type
+is known when it is a literal (`"x"` is a `String`, `1` an `int`, `1L` a
+`long`, `1.5f` a `float`, `X.class` a `Class`, `null`), `new T(...)`, a cast
+`(T) e`, or a variable whose declaration writes its type (as for
+`receiver_type` below); `CallSite.argument_types` records them. The phases
+are tried in order: without boxing, with boxing, then variable arity. In the
+first phase where some method applies, the most specific one is linked:
+each of its parameter types is a subtype of the other's. Subtypes are known
+for repository types through their declared bases, for primitives by
+widening, and for the `java.lang` types a literal or boxing gives (`String`,
+`Class`, the box types), which are listed with every supertype. A type outside
+the repository has no other known supertype than `Object`, and a type
+parameter has no known bound, so a check against either is unknown. An
+unknown argument or check makes a method possibly applicable, and the call is
+linked only when the choice holds for every outcome of the unknown checks:
+one method possible from that phase on, or a method that applies and is more
+specific than every other possible one. A `private` method is not a
+candidate outside the top-level class that declares it. Otherwise the call
+stays ambiguous among the arity candidates.
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
@@ -1840,6 +1859,52 @@ of them match a route of the same sample. The other two are not controller
 routes: the Swagger UI page, and a test that expects 404 for `GET` on a
 `POST` route.
 
+### WebSocket endpoints
+
+A WebSocket connection opens with an HTTP GET handshake. Each endpoint is
+read as the `HttpRoute` of that handshake (`methods` GET), so clients are
+linked by the usual HTTP resolution:
+
+- **Spring.** In a method with a `StompEndpointRegistry` or
+  `WebSocketHandlerRegistry` parameter (from
+  `org.springframework.web.socket.config.annotation`), each literal path
+  given to `addEndpoint(...)` or to `addHandler(handler, ...)` on that
+  parameter is a route under the servlet context path, handled by the method
+  (framework `spring-websocket`, rule `service-contracts.spring-websocket-endpoint`).
+  SockJS fallback paths below the endpoint are not listed.
+- **Jakarta / javax.** A class with `@ServerEndpoint` from
+  `jakarta.websocket.server` or `javax.websocket.server` and a literal path is
+  a route handled by the class (framework `jakarta-websocket`, rule
+  `service-contracts.jakarta-websocket-endpoint`). Only a Spring module's
+  context path is joined.
+- **Clients.** In JavaScript and TypeScript, `new WebSocket(url)` and
+  `new SockJS(url)` are GET requests (client `websocket` or `sockjs`). The
+  constructor is the browser's global when the file does not import it.
+  Under any local name, it may also come from `ws`, `isomorphic-ws` or
+  `sockjs-client`; a constructor imported from another module is not read.
+  `ws://` and `wss://` URLs are read like `http://` ones. A relative URL is
+  read against the site root.
+
+A path that is not literal is `route:path_not_literal`. Scripts inside HTML
+pages and `.vue` files are not parsed, so clients written there are not
+found.
+
+Results on 15 repositories (13 cloned for this slice, plus the
+apssouza22/java-microservice corpus):
+
+| Repository | Server endpoints | Clients in parsed JS/TS | Outcome |
+|---|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 1 (`/wchess`) | 1 literal | Linked to the endpoint |
+| camunda-community-hub/zeebe-simple-monitor `0f80785`, zeebe-simple-tasklist `e24fddb` | 1 each | 1 each, `base_path + 'notifications'` | Unresolved: the base comes from the page template |
+| manusa/yakd `203f051` | 1 (`/api/v1/pods/{namespace}/{name}/exec/{container}`) | 1, `${getWsUrl()}/pods/...` | Unresolved: the unknown base holds `/api/v1` |
+| CodeDefenders `135180c`, m-reza-rahman/jakartaee-javascript `9ae218e` | 1 each | 1 each, URL from a field or constant built at run time | Unresolved |
+| ocinpp/springboot-sockjs-stomp-vue-sample, ygunayer/realtime-messaging, ben-rampel/Poker, leansd/cotrip, LianTianNo1/wiki_vue3, zhaxal/java-chess (2), cryostatio/cryostat, apssouza22/java-microservice | 9 | Clients in HTML or `.vue`, or none | Endpoints found; the cotrip path comes from a constant |
+| MicroIoT/iotplatform `8fa6874` | path from configuration | none | `path_not_literal` |
+
+All 15 literal endpoints are found, and the one literal client URL is
+linked to the right endpoint. No link is wrong. On the other corpora, the
+only new edge is apssouza22's `/socket-todos` endpoint.
+
 ### GraphQL root fields
 
 Each root field (`Query.x`, `Mutation.x`, `Subscription.x`) of a GraphQL
@@ -2029,7 +2094,16 @@ read as a method of a generated interface:
   per group (Spring's `toApiName` takes no `apiNamePrefix`), where the groups are the operation's tags with `useTags`
   (`default` when it has none) and its first path segment without it, as
   the generator's `addOperationToGroup` does;
-- the method is the `operationId` with a lower-case first letter.
+- the method is the `operationId` with a lower-case first letter. Without
+  one, it is the name the generator makes (`getOrGenerateOperationId`): the
+  path segments without braces and then the HTTP method, the first with a
+  lower-case first letter and the rest camelized (`/policies/{id}` GET is
+  `policiesIdGet`). That name is read only when the first segment is letters
+  and digits and the others are letters and digits joined by hyphens.
+  Anything else is `openapi:operation_id`;
+- `apiPackage`, `apiNamePrefix` and `apiNameSuffix` are read from the
+  execution's configuration or its `configOptions`, as the generator reads
+  both. Two different values are `openapi:config_conflict`.
 
 A `@RestController`/`@Controller` class that implements the interface and
 declares exactly one method of that name handles the operation. The route is
@@ -2149,7 +2223,7 @@ interface type are not read, because a server may implement it too.
 |---|---|---|
 | TPE-TicketYa (`cdf3173`, 6 services, plugin 7.16) | 7 | 7 linked, each to the controller method of the operation (precision 7/7, recall 7/7) |
 | oficina-agua-pagos (`0040a10`, plugin 7.21) | 2 | 2 requests found, unresolved: the bank and ERP servers are JSON mock definitions, not code in the repository |
-| cf-kaizen (`449d8d0`, plugin 7.18) | 3 | Not read: the spec's operations have no `operationId` (`openapi:operation_id`, 63) |
+| cf-kaizen (`449d8d0`, plugin 7.18) | 75 | 75 requests found, using generated operation names and `apiPackage` from `configOptions`. All are unresolved: the servers, cf-butler and cf-hoover, are other repositories |
 
 On spring-petclinic-rest (commit `220f4ba8`), 36 of the spec's 37 operations
 become routes, each on the controller method named by its operationId. The
@@ -2259,6 +2333,50 @@ when exactly one file declares that class with a `static final String` the
 file fixes, and Python reads `self.NAME` for a class attribute assigned
 once in the class body and never through an attribute assignment. A
 destination with unknown text is counted as unread.
+
+### STOMP destinations
+
+STOMP over WebSocket is read as messaging with broker `stomp`. A destination
+is the full STOMP destination a client names, and publishers and consumers
+meet at the `MessageDestination` of the same name:
+
+- **Consumers (Spring).** A method with `@MessageMapping` (from
+  `org.springframework.messaging.handler.annotation`) consumes each literal
+  path. The path is joined with the class's `@MessageMapping` path as
+  `AntPathMatcher.combine` joins slash paths, then put under each prefix that
+  the module's `MessageBrokerRegistry.setApplicationDestinationPrefixes`
+  sets (rule `service-contracts.spring-stomp-message-mapping`). A module that
+  sets no prefix uses the path itself. When the prefixes are not literal or
+  are set in more than one file, the mapping is `consume:application_prefix`.
+  A path that does not start with a slash is `consume:destination_not_literal`.
+- **Publishers (Spring).** `@SendTo` destinations, `@SubscribeMapping`
+  methods (they answer a subscription to the prefixed path), and
+  `convertAndSend(destination, ...)` on a name declared only as
+  `SimpMessagingTemplate`, `SimpMessageSendingOperations` or
+  `SimpMessageOperations` (rule `service-contracts.spring-stomp-send`).
+  `@SendToUser` and `convertAndSendToUser` are `publish:user_destination`. A
+  `@MessageMapping` method's default reply destination, used without
+  `@SendTo`, is not read.
+- **Clients (JavaScript/TypeScript).** These calls name a destination: `send`
+  and `subscribe` with a destination first, and `publish({destination})`.
+  The call must be on a name that every assignment in the file binds to
+  `Stomp.over`, `Stomp.client`, `webstomp.over`/`webstomp.client` or a
+  `@stomp/stompjs` `Client`, or on AngularJS ngStomp's `$stomp` (rules
+  `service-contracts.stompjs-send` and `stompjs-subscribe`).
+
+Destination patterns with `{variables}` are kept as written. A client
+destination with unknown text is not read, so it never meets them.
+
+| Repository | Literal STOMP sites | Outcome |
+|---|---|---|
+| mark-dev/chessfactory `b54acdb` | 14 server mappings (2 prefixes), 10 client sends and subscribes | 9 of the 10 client sites meet their handler or publisher. The 10th subscribes to `/user/queue/chesslobby`, whose publisher is a `convertAndSendToUser` (unread). The 7 client sites built from variables are unread |
+| ben-rampel/Poker `025a147` | 1 mapping, 1 ngStomp send | Linked. The topic is built from a variable on both sides, so it is unread |
+| leansd/cotrip, ygunayer/realtime-messaging | 1 mapping + 1 `@SendTo` each | Found; the clients are in HTML |
+| ocinpp/springboot-sockjs-stomp-vue-sample | 2 `convertAndSend` | Found; the client is in HTML |
+| apssouza22/java-microservice (corpus) | 1 mapping, 1 `@SendTo`, 1 `convertAndSend` | Found; its messaging ground-truth score is unchanged |
+
+No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
+change.
 
 ### Spring Cloud Stream
 

@@ -168,7 +168,13 @@ def derive(workspace, index):
         if r.native_id in defined:
             targets = defined[r.native_id]
         elif r.native_id.startswith("local "):
-            targets = bound.get((r.file, r.native_id), {("-", 0, "local")})
+            # scip-typescript names a local class's constructor
+            # `local N`<constructor>`().` without defining it: the call
+            # creates the class bound at `local N`.
+            owner = r.native_id.removesuffix("`<constructor>`().")
+            targets = bound.get((r.file, r.native_id)) or bound.get(
+                (r.file, owner), {("-", 0, "local")}
+            )
         else:
             targets = {("-", 0, "external")}
         expected.setdefault((r.file, r.line, name), set()).update(targets)
