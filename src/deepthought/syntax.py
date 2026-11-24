@@ -825,11 +825,14 @@ def extract_ruby(
         if nodes is not None:
             nodes[definition.id] = (node, name_node)
 
-    # (node, scope, inside a class or module body)
-    stack = [(tree.root_node, (), False)]
+    # (node, scope, inside a class or module body, inside a method body)
+    stack = [(tree.root_node, (), False, False)]
     while stack:
-        node, scope, in_type = stack.pop()
+        node, scope, in_type, in_def = stack.pop()
         kind = _RUBY_SCOPES.get(node.type)
+        if kind is not None and in_def:
+            # Ruby does not allow a class or module in a method body.
+            continue
         if kind is not None:
             name = node.child_by_field_name("name")
             path = _ruby_constant_path(name, content) if name is not None else None
@@ -839,7 +842,7 @@ def extract_ruby(
             inner = (*(() if absolute else scope), *names)
             last = name.child_by_field_name("name") if name.type != "constant" else name
             add(node, last, ".".join(inner), kind)
-            stack.extend((c, inner, True) for c in reversed(node.named_children))
+            stack.extend((c, inner, True, False) for c in reversed(node.named_children))
             continue
         if node.type in {"method", "singleton_method"}:
             name = node.child_by_field_name("name")
@@ -849,9 +852,20 @@ def extract_ruby(
                 # A receiver (`def obj.m`) makes it a method of that object.
                 method = in_type or node.type == "singleton_method"
                 add(node, name, symbol, "Method" if method else "Function")
-            # A def in a method body is defined when the method runs.
+            # A def in a method body defines its method when that method
+            # runs, under the same scope.
+            stack.extend(
+                (c, scope, in_type, True) for c in reversed(node.named_children)
+            )
             continue
-        stack.extend((c, scope, in_type) for c in reversed(node.named_children))
+        if node.type == "singleton_class":
+            # `class << obj` opens the object's singleton class: its defs are
+            # methods.
+            stack.extend(
+                (c, scope, True, in_def) for c in reversed(node.named_children)
+            )
+            continue
+        stack.extend((c, scope, in_type, in_def) for c in reversed(node.named_children))
     return found
 
 

@@ -35,6 +35,7 @@ end
 def top; end
 def self.on_main; end
 def YAML.safe; end
+class << object; def opened; end; end
 X = Class.new do
   def anonymous; end
 end
@@ -76,15 +77,19 @@ class RubyTests(unittest.TestCase):
                 # A block in a class body (`included do`) defines methods of
                 # the class.
                 (13, "A.B.C.from_block", "Method"),
-                # A def or class in a method body is defined when it runs.
                 (15, "A.B.C.outer", "Method"),
+                # A def in a method body defines its method when that method
+                # runs; Ruby allows no class there.
+                (16, "A.B.C.runtime", "Method"),
                 # `::Top` starts at the top.
                 (20, "Top", "Class"),
                 (22, "top", "Function"),
                 # A def with a receiver defines a method of that object.
                 (23, "on_main", "Method"),
                 (24, "safe", "Method"),
-                (26, "anonymous", "Function"),
+                # `class << object` opens a singleton class.
+                (25, "opened", "Method"),
+                (27, "anonymous", "Function"),
                 # A class whose path starts with an expression is not named,
                 # and neither is anything in it.
             ],

@@ -1363,11 +1363,13 @@ the top). A `def` in a class or module body, in its `class << self` or in a
 block written there (`included do`, `Class.new do`) is a `Method`, whether it
 defines an instance or a singleton method (`def self.m`); so is a `def` with
 a receiver anywhere (`def YAML.load`, `def self.helper` at the top level),
-which defines a method of that object. Any other `def` at the top level or in
-a block outside any class is a `Function`. A class whose
+which defines a method of that object, and so is a `def` in `class << obj`.
+Any other `def` at the top level or in a block outside any class is a
+`Function`. A class whose
 name is not a constant path (`class self::Dynamic`) and what it holds are not
-recorded, nor is a `def` inside a method body, which only defines a method
-when that method runs. Methods made by metaprogramming (`attr_reader`,
+recorded. A `def` inside a method body is recorded under the same scope as
+the method around it, since it defines its method when that method runs
+(Ruby allows no class or module there). Methods made by metaprogramming (`attr_reader`,
 `define_method`), constants, imports (`require`), calls and superclasses are
 not recorded for Ruby yet.
 
@@ -1380,11 +1382,11 @@ same file, is put down to it; every other difference is unexplained.
 
 | Corpus | Files (with syntax errors) | Prism | Matched | Tree-sitter only: syntax error / after one | Prism only: syntax error / after one |
 |---|---|---|---|---|---|
-| rack/rack `b432304` | 95 (0) | 1,010 | 1,010 | 0 / 0 | 0 / 0 |
-| sinatra/sinatra `2e3f791` | 147 (0) | 1,164 | 1,164 | 0 / 0 | 0 / 0 |
+| rack/rack `b432304` | 95 (0) | 1,014 | 1,014 | 0 / 0 | 0 / 0 |
+| sinatra/sinatra `2e3f791` | 147 (0) | 1,168 | 1,168 | 0 / 0 | 0 / 0 |
 | heartcombo/devise `05811fb` | 197 (9) | 1,040 | 1,035 | 6 / 0 | 2 / 3 |
-| jekyll/jekyll `97c3bdc` | 162 (0) | 1,405 | 1,405 | 0 / 0 | 0 / 0 |
-| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,577 | 11,577 | 0 / 0 | 0 / 0 |
+| jekyll/jekyll `97c3bdc` | 162 (0) | 1,406 | 1,406 | 0 / 0 | 0 / 0 |
+| mastodon/mastodon `fe9d150` | 3,342 (0) | 11,593 | 11,593 | 0 / 0 | 0 / 0 |
 
 No difference is unexplained. devise's syntax errors are its generator
 templates, `.rb` files holding ERB tags (`<% if ... %>`) that are not Ruby
