@@ -881,24 +881,35 @@ def index_workspace(
     }
 
 
-def ingest_indexed(report, repository_id):
+def ingest_indexed(report, repository_id, workspace=None):
     """The indexes an ``index_workspace`` report produced, ingested and each
     paired with its receipt digest: the ``scip_indexes`` TreeSitterTool binds
-    call sites with."""
+    call sites with.
+
+    These indexes were written by this engine and are bound to their receipts,
+    so their size is not capped the way an index from elsewhere is: scip-python
+    writes over 100 MB for a large monorepo. With ``workspace``, each index is
+    first checked against its receipt."""
     from .scip import ingest_scip
 
-    return [
-        (
-            ingest_scip(
-                run["index"],
-                repository_id=repository_id,
-                default_position_encoding=run["position_encoding"],
-            ),
-            run["receipt_sha256"],
+    sources = []
+    for run in report["runs"]:
+        if run["status"] != "indexed":
+            continue
+        if workspace is not None:
+            validate_receipt(workspace, run["index"])
+        sources.append(
+            (
+                ingest_scip(
+                    run["index"],
+                    repository_id=repository_id,
+                    default_position_encoding=run["position_encoding"],
+                    max_index_bytes=max(1, Path(run["index"]).stat().st_size),
+                ),
+                run["receipt_sha256"],
+            )
         )
-        for run in report["runs"]
-        if run["status"] == "indexed"
-    ]
+    return sources
 
 
 def requirements(environ=None):

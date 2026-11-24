@@ -342,7 +342,7 @@ def index_scip(args, directory):
             f"{len(uncovered)} source files have no SCIP index; install the "
             "pinned indexers (deepthought indexers) or pass --allow-uncovered"
         )
-    return report, ingest_indexed(report, args.repository_id)
+    return report, ingest_indexed(report, args.repository_id, args.workspace)
 
 
 async def execute(args):

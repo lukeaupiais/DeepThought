@@ -2061,7 +2061,11 @@ analyzed file without an index is named on stderr with its reason, and the run
 stops before importing anything unless `--allow-uncovered`; with it, those
 files' calls fall back to the parser's rules. The import report carries a
 `scip` object: each indexer run, the covered file count and the uncovered
-files with their reasons. `--include` and `--exclude` limit which files must
+files with their reasons. The indexes a run writes are checked against their
+receipts again before they are read, and are read whole: the 50 MB cap
+`ingest_scip` keeps for an index from elsewhere does not apply to them
+(scip-python writes over 100 MB for a large monorepo such as superset).
+`--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
 nothing.
 

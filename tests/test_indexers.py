@@ -338,6 +338,28 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(receipt["producer"]["platform"], "windows/amd64")
         self.assertEqual(receipt["producer"]["go_version"], "go1.24.7")
 
+    def test_own_indexes_are_read_whole_and_checked_against_their_receipts(self):
+        from unittest import mock
+
+        from deepthought import scip
+
+        self.fake("scip-python")
+        report = indexers.index_workspace(
+            self.root, self.out, languages=("python",), environ=self.environ()
+        )
+        index = Path(report["runs"][0]["index"])
+        with mock.patch.object(scip, "ingest_scip", wraps=scip.ingest_scip) as ingest:
+            [(source, receipt)] = indexers.ingest_indexed(report, "repo", self.root)
+        # No cap below the index's own size, however large the repository.
+        self.assertEqual(
+            ingest.call_args.kwargs["max_index_bytes"], index.stat().st_size
+        )
+        self.assertEqual(receipt, report["runs"][0]["receipt_sha256"])
+        self.assertEqual([c.file for c in source.coverage], ["src/pkg/a.py"])
+        (self.root / "src" / "pkg" / "a.py").write_text("def f():\n    return 2\n")
+        with self.assertRaisesRegex(ValueError, "inputs changed"):
+            indexers.ingest_indexed(report, "repo", self.root)
+
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
             index = scip_pb2.Index()
