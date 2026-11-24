@@ -713,16 +713,16 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def _feign_pom(options, *, version="7.4.0"):
+def _feign_pom(options, *, version="7.4.0", package="trips.feign.api"):
     return (
         "<project><build><plugins><plugin>"
         "<artifactId>openapi-generator-maven-plugin</artifactId>"
         f"<version>{version}</version><executions><execution><configuration>"
         "<generatorName>spring</generatorName><library>spring-cloud</library>"
         "<inputSpec>${project.basedir}/api.yml</inputSpec>"
-        "<apiPackage>trips.feign.api</apiPackage>"
+        + (f"<apiPackage>{package}</apiPackage>" if package else "")
         # Spring takes no apiNamePrefix.
-        "<apiNamePrefix>Ignored</apiNamePrefix>"
+        + "<apiNamePrefix>Ignored</apiNamePrefix>"
         f"<configOptions><useTags>true</useTags>{options}</configOptions>"
         "</configuration></execution></executions></plugin></plugins></build>"
         "</project>"
@@ -742,6 +742,14 @@ paths:
     get:
       tags: [trips]
       operationId: getTrip
+  # No operationId: the generator names it from the path and method.
+  /v1/trips/{id}/stop-points:
+    get:
+      tags: [trips]
+  # A segment it sanitizes: not read.
+  /v1/trip_logs:
+    get:
+      tags: [trips]
 """
 
 CHECKOUT = """
@@ -774,6 +782,14 @@ FEIGN_FILES = {
     "interfaces/api.yml": FEIGN_SPEC,
     "older/pom.xml": _feign_pom("", version="6.6.0"),
     "older/api.yml": FEIGN_SPEC,
+    # apiPackage in configOptions, as the generator also reads it; given
+    # twice with different values, not read.
+    "optioned/pom.xml": _feign_pom(
+        "<apiPackage>optioned.api</apiPackage>", package=None
+    ),
+    "optioned/api.yml": FEIGN_SPEC,
+    "conflicting/pom.xml": _feign_pom("<apiPackage>other.api</apiPackage>"),
+    "conflicting/api.yml": FEIGN_SPEC,
     f"trips/{RESOURCES}/application.properties": "spring.application.name=trips\n",
     "trips/pom.xml": "<project/>",
     f"trips/{JAVA}/trips/TripController.java": TRIPS,
@@ -807,17 +823,36 @@ class OpenApiFeignClientTests(unittest.TestCase):
             },
             {
                 # The base is a property or service discovery: not fixed.
-                "trips.feign.api.TripsApiClient": [
+                api: [
                     ("createTrip", "POST", "\x00/v1/trips", "openapi-spring-cloud"),
                     ("getTrip", "GET", "\x00/v1/trips/{id}", "openapi-spring-cloud"),
-                ],
+                    (
+                        "v1TripsIdStopPointsGet",
+                        "GET",
+                        "\x00/v1/trips/{id}/stop-points",
+                        "openapi-spring-cloud",
+                    ),
+                ]
+                for api in (
+                    "trips.feign.api.TripsApiClient",
+                    "optioned.api.TripsApiClient",
+                )
             },
         )
+        lines = {
+            o.method_name: o.spec_line
+            for o in clients["trips.feign.api.TripsApiClient"]
+        }
+        # The path key's line, without an operationId.
+        self.assertEqual(lines["v1TripsIdStopPointsGet"], 15)
         self.assertEqual(
-            sorted((u.file, u.reason) for u in unread),
+            sorted((u.file, u.line, u.reason) for u in unread),
             [
-                ("interfaces/pom.xml", "client_not_generated"),
-                ("older/pom.xml", "generator_version"),
+                ("conflicting/pom.xml", 1, "config_conflict"),
+                ("interfaces/pom.xml", 1, "client_not_generated"),
+                ("older/pom.xml", 1, "generator_version"),
+                ("optioned/api.yml", 19, "operation_id"),
+                ("trips-feign/api.yml", 19, "operation_id"),
             ],
         )
 
