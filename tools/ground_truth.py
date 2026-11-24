@@ -634,8 +634,12 @@ def check(names, cache, update=False, examples=10):
         if "impact" in corpus:
             import impact_truth
 
+            path = CORPUS / corpus["impact"]
             impact, impact_samples = impact_truth.score(
-                result, impact_truth.read(CORPUS / corpus["impact"]), examples=examples
+                result,
+                impact_truth.read(path),
+                examples=examples,
+                aliases=impact_truth.read_aliases(path),
             )
             report["impact"] = impact
             samples["impact"] = impact_samples

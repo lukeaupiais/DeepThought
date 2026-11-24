@@ -1,4 +1,54 @@
 # seed_file	seed_line	seed_name	file	line	name	depth
+# alias	src/click/_compat.py	527	520
+# alias	src/click/_termui_impl.py	747	742
+# alias	src/click/_termui_impl.py	749	742
+# alias	src/click/_termui_impl.py	936	882
+# alias	src/click/_termui_impl.py	962	885
+# alias	src/click/core.py	808	803
+# alias	src/click/core.py	812	803
+# alias	src/click/core.py	882	877
+# alias	src/click/core.py	884	877
+# alias	src/click/core.py	1497	1487
+# alias	src/click/core.py	1506	1487
+# alias	src/click/core.py	1840	1837
+# alias	src/click/core.py	1844	1837
+# alias	src/click/core.py	1889	1886
+# alias	src/click/core.py	1893	1886
+# alias	src/click/core.py	2628	2623
+# alias	src/click/core.py	2632	2623
+# alias	src/click/core.py	2746	2741
+# alias	src/click/core.py	2751	2741
+# alias	src/click/decorators.py	140	134
+# alias	src/click/decorators.py	149	134
+# alias	src/click/decorators.py	159	134
+# alias	src/click/decorators.py	164	134
+# alias	src/click/decorators.py	265	259
+# alias	src/click/decorators.py	274	259
+# alias	src/click/decorators.py	284	259
+# alias	src/click/decorators.py	289	259
+# alias	src/click/globals.py	17	13
+# alias	src/click/globals.py	20	13
+# alias	src/click/shell_completion.py	583	581
+# alias	src/click/shell_completion.py	585	581
+# alias	src/click/shell_completion.py	587	581
+# alias	src/click/shell_completion.py	588	581
+# alias	src/click/termui.py	154	139
+# alias	src/click/termui.py	168	139
+# alias	src/click/termui.py	423	403
+# alias	src/click/termui.py	443	403
+# alias	src/click/termui.py	825	815
+# alias	src/click/termui.py	835	815
+# alias	src/click/termui.py	848	815
+# alias	src/click/types.py	152	144
+# alias	src/click/types.py	159	144
+# alias	src/click/types.py	1320	1318
+# alias	src/click/types.py	1324	1318
+# alias	src/click/types.py	1327	1318
+# alias	tests/test_context.py	722	715
+# alias	tests/test_options.py	509	500
+# alias	tests/test_options.py	975	964
+# alias	tests/test_testing.py	172	162
+# alias	tests/test_types/test_Path.py	147	76
 src/click/_compat.py	128	writable	src/click/_compat.py	128	writable	0
 src/click/_compat.py	502	should_strip_ansi	examples/aliases/aliases.py	102	push	2
 src/click/_compat.py	502	should_strip_ansi	examples/aliases/aliases.py	108	pull	2
