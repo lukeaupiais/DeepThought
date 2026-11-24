@@ -102,7 +102,7 @@ LANGUAGE_INDEXERS = {
 }
 
 # Source suffix -> language, for coverage of files no indexer has seen.
-_LANGUAGE_SUFFIXES = {
+LANGUAGE_SUFFIXES = {
     ".py": "python",
     ".pyi": "python",
     ".go": "go",
@@ -191,7 +191,7 @@ def source_files(workspace, languages):
             and not _virtualenv(Path(directory) / name)
         )
         for name in sorted(filenames):
-            language = _LANGUAGE_SUFFIXES.get(Path(name).suffix)
+            language = LANGUAGE_SUFFIXES.get(Path(name).suffix)
             if language in languages:
                 path = (Path(directory) / name).relative_to(root).as_posix()
                 found[path] = language
@@ -358,6 +358,11 @@ def run_indexer(
             return run
         parsed = scip_pb2.Index()
         parsed.ParseFromString(temporary.read_bytes())
+        # scip-go also indexes test mains it generates in the Go build cache;
+        # those paths leave the workspace and name the machine, so drop them.
+        outside = [d for d in parsed.documents if not is_relative_file(d.relative_path)]
+        for document in outside:
+            parsed.documents.remove(document)
         data = canonical_bytes(parsed)
         produced = (parsed.metadata.tool_info.name, parsed.metadata.tool_info.version)
         if produced != (spec.name, spec.version):
@@ -398,6 +403,7 @@ def run_indexer(
                 ],
             },
             "documents": list(documents),
+            "dropped_outside_workspace": len(outside),
         }
         _write_pair(output, data, receipt_path, receipt)
     run.status, run.index = "indexed", str(output)
