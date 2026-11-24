@@ -2187,9 +2187,18 @@ PHP files are read for routes and requests (`service_contracts.php`):
   `Symfony\Contracts\HttpClient\HttpClientInterface`, or a local variable
   or `$this->x` property assigned once to `HttpClient::create([...])` or
   `HttpClient::createForBaseUri($base)`. A literal base (`base_uri`, or the
-  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). Scoped
-  clients configured in `framework.yaml` are not read: they reach code as an
-  injected interface, so their URLs stay as written.
+  `createForBaseUri` argument) is resolved as for Guzzle (RFC 3986). A
+  scoped client declared under `framework.http_client.scoped_clients` in the
+  composer project's `config/packages/*.yaml` is autowired by argument name,
+  as Symfony parses it (`orders.client` is `$ordersClient`, and so is
+  `$orders_client`), so an injected parameter or promoted property with that
+  name takes the client's `base_uri` when it is literal; a parameter or
+  `%env(...)%` base leaves the URL as written. A parameter attribute
+  `#[Autowire(service: 'id')]`, `#[Autowire('@id')]` or `#[Target('id')]`
+  names the client instead (any other `#[Autowire]` gives no base);
+  `services.yaml` bindings are not read. For Guzzle and Symfony clients
+  alike, a `$this->x` property assigned once from a typed parameter is that
+  parameter's client.
 
 robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the

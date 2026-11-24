@@ -73,7 +73,7 @@ from ..service_contracts.csharp_http import (
     typed_client_registrations,
 )
 from ..service_contracts.laravel import extract_laravel, route_loaders
-from ..service_contracts.php import extract_php
+from ..service_contracts.php import extract_php, symfony_argument_name
 from ..service_contracts.spring import (
     SpringConfig,
     _module_root,
@@ -1358,6 +1358,34 @@ def _composer_framework(root, file, cache):
         path = path.parent
 
 
+def _symfony_scoped_clients(root, project, cache):
+    """{argument name: literal base URI, else ""} of the scoped HTTP clients
+    ``framework.http_client.scoped_clients`` declares in the project's
+    ``config/packages/*.yaml``."""
+    if project in cache:
+        return cache[project]
+    found = cache[project] = {}
+    try:
+        import yaml
+    except ImportError:  # pyyaml comes with the languages extra
+        return found
+    directory = root / project / "config" / "packages"
+    for path in sorted(directory.glob("*.y*ml")) if directory.is_dir() else ():
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            continue
+        framework = data.get("framework") if isinstance(data, dict) else None
+        client = framework.get("http_client") if isinstance(framework, dict) else None
+        scoped = client.get("scoped_clients") if isinstance(client, dict) else None
+        for name, options in scoped.items() if isinstance(scoped, dict) else ():
+            base = options.get("base_uri") if isinstance(options, dict) else None
+            # A parameter or %env(...)% is not a literal base.
+            literal = isinstance(base, str) and "%" not in base
+            found[symfony_argument_name(str(name))] = base if literal else ""
+    return found
+
+
 def _laravel_route_prefixes(root, sources, composer):
     """{route file: sorted (prefix, controller namespace)} that the PHP
     code of Laravel and Lumen projects loads route files with."""
@@ -1640,6 +1668,7 @@ class ServiceContractTool(AnalysisTool):
         nest = _nest_applications(root, sources)
         python_mounts = _python_mounts(sources)
         composer = {}
+        symfony_clients = {}
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
@@ -1683,6 +1712,11 @@ class ServiceContractTool(AnalysisTool):
                     result.definitions,
                     laravel=_composer_framework(root, coverage.file, composer)[0]
                     == "laravel",
+                    scoped=_symfony_scoped_clients(
+                        root,
+                        _composer_framework(root, coverage.file, composer)[1],
+                        symfony_clients,
+                    ),
                 )
                 framework, project = _composer_framework(root, coverage.file, composer)
                 if framework is not None:
