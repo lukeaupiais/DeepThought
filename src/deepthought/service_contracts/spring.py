@@ -698,7 +698,9 @@ def _constructor_setting(assignment, left, field, content):
 
 
 def _constructed_fields(root, content, package, constructions):
-    """{field: [text]} of the fields constructors set from a parameter."""
+    """{field: [text]} of the fields constructors set from a parameter:
+    each value a ``new`` of the class passes, or only PLACEHOLDER when one
+    of them passes wholly unknown text or none is found."""
     found = {}
     for field, settings in _constructor_fields(root, content, package).items():
         values = []
@@ -709,7 +711,11 @@ def _constructed_fields(root, content, package, constructions):
             for arguments in calls:
                 values.extend(arguments[index])
         values = list(dict.fromkeys(values))
-        found[field] = values if len(values) <= _MAX_ALTERNATIVES else [PLACEHOLDER]
+        # One construction that passes nothing known leaves the field
+        # unknown: its other values would be a guess for that instance.
+        if PLACEHOLDER in values or len(values) > _MAX_ALTERNATIVES:
+            values = [PLACEHOLDER]
+        found[field] = values
     return found
 
 

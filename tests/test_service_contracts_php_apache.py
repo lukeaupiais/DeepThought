@@ -107,6 +107,51 @@ public class Controller {
 """
 
 
+# Negative cases: one `new` passes unknown text; a constructor sets the
+# field to a literal instead of its parameter.
+CLIENTS = """
+package shop;
+
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPut;
+
+class Mixed {
+    private String base;
+
+    Mixed(String base) {
+        this.base = base;
+    }
+
+    void get(String id) {
+        new HttpGet(base + id);
+    }
+}
+
+class Disagree {
+    private String base;
+
+    Disagree(String base) {
+        this.base = base;
+    }
+
+    Disagree() {
+        this.base = "http://other/";
+    }
+
+    void put(String id) {
+        new HttpPut(base + id);
+    }
+}
+
+class Make {
+    void make(String from) {
+        new Mixed("http://cart/shipping/");
+        new Mixed(from);
+        new Disagree("http://cart/shipping/");
+    }
+}
+"""
+
 FILES = {
     "ratings/src/Controller/RatingsController.php": RATINGS,
     "ratings/src/Service/CatalogueService.php": CLIENT,
@@ -114,6 +159,7 @@ FILES = {
     "catalogue/server.js": CATALOGUE,
     "shipping/src/main/java/shop/CartHelper.java": HELPER,
     "shipping/src/main/java/shop/Controller.java": CONTROLLER,
+    "shipping/src/main/java/shop/Clients.java": CLIENTS,
 }
 
 
@@ -152,6 +198,19 @@ class PhpApacheTests(unittest.TestCase):
             and r.source_match["qualified_name"].startswith("r::ratings/src/Controller")
         }
         self.assertEqual(rules, {"service-contracts.symfony-route"})
+
+    def test_constructor_fields_without_one_value(self):
+        # Mixed: one new passes a parameter; Disagree: a constructor sets a
+        # literal. Neither base is folded, so neither request is linked.
+        requests = {
+            n.properties["path"]: sorted(n.properties["unresolved_http_requests"])
+            for n in self.output.nodes
+            if n.properties.get("unresolved_http_requests")
+        }
+        self.assertEqual(
+            requests.get("shipping/src/main/java/shop/Clients.java"),
+            ["GET {?}{?}", "PUT {?}{?}"],
+        )
 
     def test_requests(self):
         edges = sorted(

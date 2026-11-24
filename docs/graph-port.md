@@ -1940,7 +1940,7 @@ client: a String field with no initializer and no annotation that only
 constructors assign, each time from one of their parameters
 (`this.baseUrl = baseUrl;`). Its values are that argument of every `new` of
 the class in the repository with as many arguments, folded in the file that
-writes it (`java_constructions`); with none, it is unknown. robot-shop's
+writes it (`java_constructions`). With none, or when one `new` passes wholly unknown text, or when another assignment (a literal in a second constructor, a setter) sets the field, it is unknown: the request is unresolved rather than linked through the values the other constructions give. robot-shop's
 shipping service builds `new CartHelper(CART_URL)` with
 `String.format("http://%s/shipping/", ...)`, so `new HttpPost(baseUrl + id)`
 is `POST http://{?}/shipping/{?}` and meets the cart service's route.
@@ -1969,9 +1969,9 @@ robot-shop `55292e2` ratings (Symfony 4 with annotations): both routes,
 `PUT /api/rate/{sku}/{score}` and `GET /api/fetch/{sku}`, are found, so the
 web front end and load generator reach ratings through the nginx
 `/api/ratings/` location. Its curl call to `sprintf('%s/product/%s', ...)`
-meets the catalogue's `GET /product/:sku`. The corpus scores 42 of 42
-labelled call sites and 17 of 17 service pairs, none wrong (37 and 14
-before).
+meets the catalogue's `GET /product/:sku`. With the Java change above, the
+corpus scores 42 of 42 labelled call sites and 17 of 17 service pairs, none
+wrong (37 and 14 before).
 
 ### NestJS controllers
 
