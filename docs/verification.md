@@ -547,6 +547,16 @@ cases, impact 0.164 recall at 0.444 precision against search 0.370 at 0.202;
 ripgrep 78 cases, impact 0.054 at 0.381 against search 0.331 at 0.090. A full
 run takes about six minutes.
 
+The second entry ("Java typed receivers and chi corpus, 2026-11-24") follows
+Go receiver types (#112) and Java typed receivers (#128), and adds chi.
+Impact recall rose where calls on receivers now resolve: cobra 0.024 to 0.214
+(precision 0.160 to 0.193, 2.63 files per case), click 0.020 to 0.048 (0.263
+to 0.095), gson 0.036 to 0.071 (0.084 to 0.049, 6.0 files per case). chi has
+57 cases: impact 0.148 at 0.264 against search 0.141 at 0.346. Impact now
+recalls more co-edited files than text search on cobra, chi and gson, at
+lower precision on chi and gson. Entries recorded before a corpus was pinned
+leave it out; the latest entry covers every corpus.
+
 ### Impact ground truth
 
 The replay scores impact against co-edits, which also measures whether
