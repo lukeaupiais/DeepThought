@@ -219,7 +219,11 @@ def extract(
             ordinals[(symbol, kind)] = ordinal + 1
             parameters = node.child_by_field_name("parameters")
             arity = {}
-            if parameters is not None and parameters.type == "formal_parameters":
+            if (
+                parameters is not None
+                and parameters.type == "formal_parameters"
+                and file.endswith(".java")
+            ):
                 # Java; a receiver parameter (``Outer this``) is not counted.
                 declared = [
                     c
