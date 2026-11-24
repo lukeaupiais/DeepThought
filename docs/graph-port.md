@@ -2009,8 +2009,16 @@ with a reason:
 | `indexer_failed`, `indexer_timeout` | The indexer exited non-zero, wrote nothing or ran past `--timeout` |
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
-| `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
+| `no_go_module` | No `go.mod` in the file's directory or any directory above it |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+scip-go indexes one module per run, so each `go.mod` in the workspace
+(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+own directory, written to `scip-go.scip` for the root module and
+`scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
+made workspace-relative and the receipt names the module. A Go file belongs to
+the innermost module above it. Global symbols name the module, so a call from
+one module into another binds across their indexes.
 
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript

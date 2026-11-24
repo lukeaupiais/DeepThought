@@ -268,6 +268,35 @@ def _unavailable_reason(spec, root):
     return None
 
 
+# Directories the go command never treats as part of a module's packages.
+_GO_IGNORED = {"vendor", "testdata", "node_modules"}
+
+
+def go_modules(workspace):
+    """Workspace-relative directories holding a go.mod (``.`` for the root),
+    outside vendor, testdata and hidden directories."""
+    root = Path(workspace).resolve(strict=True)
+    found = []
+    for directory, names, filenames in os.walk(root, followlinks=False):
+        names[:] = sorted(
+            name
+            for name in names
+            if name not in _SKIP_DIRECTORIES
+            and name not in _GO_IGNORED
+            and not name.startswith((".", "_"))
+            and not (Path(directory) / name).is_symlink()
+        )
+        if "go.mod" in filenames:
+            found.append(Path(directory).relative_to(root).as_posix())
+    return sorted(found)
+
+
+def go_module_of(path, modules):
+    """The innermost module directory that holds ``path``, or None."""
+    owners = [m for m in modules if m == "." or path == m or path.startswith(m + "/")]
+    return max(owners, key=lambda m: 0 if m == "." else len(m), default=None)
+
+
 @dataclass
 class IndexRun:
     """One indexer's outcome: an index and receipt, or why there is none."""
@@ -283,6 +312,7 @@ class IndexRun:
     documents: tuple = ()
     detail: str | None = None
     wall_seconds: float = 0.0
+    module: str | None = None
 
     def to_dict(self):
         return {
@@ -297,6 +327,7 @@ class IndexRun:
             "documents": len(self.documents),
             "detail": self.detail,
             "wall_seconds": round(self.wall_seconds, 3),
+            **({"module": self.module} if self.module is not None else {}),
         }
 
 
@@ -309,6 +340,7 @@ def run_indexer(
     timeout=600,
     environ=None,
     files=None,
+    module=None,
 ):
     """Run one pinned indexer; return an IndexRun, never raise for tool failures.
 
@@ -318,13 +350,18 @@ def run_indexer(
     """
     if files is not None and spec.name != "scip-typescript":
         raise ValueError("Only scip-typescript indexes a chosen set of files")
+    if module is not None and spec.name != "scip-go":
+        raise ValueError("Only scip-go indexes one module of a workspace")
     from ._scip import scip_pb2
 
     started = time.monotonic()
     root = Path(workspace).resolve(strict=True)
     output = Path(output).absolute()
-    run = IndexRun(spec.name, spec.version, spec.languages, "failed")
-    reason = _unavailable_reason(spec, root)
+    run = IndexRun(spec.name, spec.version, spec.languages, "failed", module=module)
+    # A nested Go module is indexed from its own directory; its document
+    # paths are then made workspace-relative.
+    base = root if module in (None, ".") else root / module
+    reason = _unavailable_reason(spec, base)
     if reason:
         run.status, run.reason = "unavailable", reason
         return run
@@ -341,6 +378,7 @@ def run_indexer(
     with tempfile.TemporaryDirectory(prefix="deepthought-scip-") as scratch:
         temporary = Path(scratch) / "index.scip"
         argv, cwd = _arguments(spec, root, temporary, project_name or root.name)
+        cwd = base
         project = None
         if files is not None:
             project = _uncovered_project(root, files)
@@ -394,6 +432,10 @@ def run_indexer(
         # scip-go also indexes test mains it generates in the Go build cache;
         # those paths leave the workspace and name the machine, so drop them.
         outside = [d for d in parsed.documents if not is_relative_file(d.relative_path)]
+        if base != root:
+            for document in parsed.documents:
+                if is_relative_file(document.relative_path):
+                    document.relative_path = f"{module}/{document.relative_path}"
         # A pass over chosen files keeps only those: their imports belong to
         # the first pass.
         other = [
@@ -444,6 +486,7 @@ def run_indexer(
                     if not a.startswith(str(Path(scratch)))
                 ],
                 **({"project": project} if project is not None else {}),
+                **({"module": module} if module is not None else {}),
             },
             "documents": list(documents),
             "dropped_outside_workspace": len(outside),
@@ -591,20 +634,33 @@ def index_workspace(
     sources = source_files(root, set(languages))
     present = {language for language in sources.values()}
     runs = []
+    modules = go_modules(root) if "go" in present else []
     for spec in INDEXERS.values():
         if not present & set(spec.languages):
             continue
-        runs.append(
-            run_indexer(
-                spec,
-                root,
-                directory / f"{spec.name}.scip",
-                project_name=project_name,
-                timeout=timeout,
-                environ=environ,
+        # scip-go indexes one module per run, so each go.mod gets its own.
+        for module in (modules or ["."]) if spec.name == "scip-go" else [None]:
+            name = spec.name
+            if module not in (None, "."):
+                name += "-" + module.replace("/", "__")
+            runs.append(
+                run_indexer(
+                    spec,
+                    root,
+                    directory / f"{name}.scip",
+                    project_name=project_name,
+                    timeout=timeout,
+                    environ=environ,
+                    module=module,
+                )
             )
-        )
-    by_language = {language: run for run in runs for language in run.languages}
+    by_language = {
+        language: run
+        for run in runs
+        if run.module in (None, ".")
+        for language in run.languages
+    }
+    go_runs = {run.module: run for run in runs if run.indexer == "scip-go"}
     # Files outside every tsconfig of the workspace get a second
     # scip-typescript pass of their own, so they are compiled too.
     typescript = next((r for r in runs if r.indexer == "scip-typescript"), None)
@@ -628,7 +684,18 @@ def index_workspace(
             runs.append(second)
     coverage = {}
     for path, language in sorted(sources.items()):
-        run = by_language[language]
+        run = by_language.get(language)
+        if language == "go":
+            run = go_runs.get(go_module_of(path, list(go_runs)), run)
+        if run is None:
+            # A Go file under no go.mod, in a workspace with nested modules.
+            coverage[path] = {
+                "language": language,
+                "status": "uncovered",
+                "indexer": "scip-go",
+                "reason": "no_go_module",
+            }
+            continue
         if run.status == "indexed" and path in run.documents:
             coverage[path] = {
                 "language": language,

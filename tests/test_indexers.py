@@ -37,6 +37,8 @@ FAKE = textwrap.dedent(
         with open(argv[-1]) as config:
             project = json.load(config)
         documents = [os.path.relpath(f) for f in project["files"]] + documents
+    # Only files under the directory it runs in, as a real indexer.
+    documents = [path for path in documents if os.path.isfile(path)]
     for path in reversed(documents):
         document = index.documents.add()
         document.relative_path = path
@@ -229,6 +231,42 @@ class IndexersTest(unittest.TestCase):
             indexers.run_indexer(
                 indexers.INDEXERS["scip-python"], self.root, self.out / "p", files=[]
             )
+
+    def test_each_go_module_is_indexed_from_its_own_directory(self):
+        for module in ("lib", "svc"):
+            (self.root / module).mkdir()
+            (self.root / module / "go.mod").write_text(f"module example.com/{module}\n")
+        (self.root / "lib" / "lib.go").write_text("package lib\n")
+        (self.root / "svc" / "main.go").write_text("package main\n")
+        (self.root / "svc" / "testdata").mkdir()
+        (self.root / "svc" / "testdata" / "go.mod").write_text("module fixture\n")
+        (self.root / "tools").mkdir()
+        (self.root / "tools" / "gen.go").write_text("package tools\n")
+        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc"])
+        self.fake("scip-go")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("go",),
+            environ=self.environ(
+                FAKE_NAME="scip-go",
+                FAKE_VERSION="0.1.26",
+                FAKE_DOCUMENTS="lib.go,main.go",
+            ),
+        )
+        self.assertEqual(
+            [
+                (run["module"], run["status"], run["documents"])
+                for run in report["runs"]
+            ],
+            [("lib", "indexed", 1), ("svc", "indexed", 1)],
+        )
+        self.assertEqual(report["coverage"]["lib/lib.go"]["status"], "covered")
+        self.assertEqual(report["coverage"]["svc/main.go"]["status"], "covered")
+        self.assertEqual(report["coverage"]["tools/gen.go"]["reason"], "no_go_module")
+        receipt = indexers.validate_receipt(self.root, self.out / "scip-go-svc.scip")
+        self.assertEqual(receipt["documents"], ["svc/main.go"])
+        self.assertEqual(receipt["producer"]["module"], "svc")
 
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
