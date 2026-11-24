@@ -1116,9 +1116,203 @@ def compose_express_prefixes(found, resolve):
     return {key: sorted(full(key, frozenset())) for key in parents}
 
 
-def extract_javascript(context, nest=None):
+def axios_base(value, modules, folder, content):
+    """The base URL ("" for none, PLACEHOLDER-bearing text when not fixed)
+    of the axios instance an ``axios.create(config)`` call ``value`` makes,
+    else None. A config that is not an object literal, or that spreads
+    another object, has an unknown base URL."""
+    if value is None or value.type != "call_expression":
+        return None
+    callee = value.child_by_field_name("function")
+    if callee is None or callee.type != "member_expression":
+        return None
+    owner = text(callee.child_by_field_name("object"), content)
+    if text(callee.child_by_field_name("property"), content) != "create":
+        return None
+    owner = owner[: -len(".default")] if owner.endswith(".default") else owner
+    if modules.get(owner) != "axios":
+        return None
+    arguments = value.child_by_field_name("arguments")
+    positional = [
+        c
+        for c in (arguments.named_children if arguments is not None else ())
+        if c.type != "comment"
+    ]
+    if not positional:
+        return ""
+    config = positional[0]
+    if config.type != "object" or any(
+        c.type == "spread_element" for c in config.named_children
+    ):
+        return PLACEHOLDER
+    base = _js_object(config, content).get("baseURL")
+    return "" if base is None else folder.evaluate(base)
+
+
+def axios_url(base, url):
+    """``url`` sent from an axios instance with base URL ``base``, as axios
+    joins them: an absolute or protocol-relative URL ignores the base,
+    otherwise the two are joined with one slash. A protocol-relative result
+    is read as http."""
+    if base and not re.match(r"(?i)^([a-z][a-z0-9+.-]*:)?//", url):
+        url = base.rstrip("/") + "/" + url.lstrip("/") if url else base
+    return "http:" + url if url.startswith("//") else url
+
+
+def axios_exports(tree, content, language, externals=None):
+    """{exported name, "default" for the default export: base URL} of the
+    axios instances an ES module exports: ``export default NAME`` or
+    ``export { NAME as x }`` of a name bound once, ``export const NAME =``,
+    and ``export default`` of the ``axios.create(...)`` call itself."""
+    root = tree.root_node
+    modules = _js_modules(root, content)
+    if "axios" not in modules.values():
+        return {}
+    folder = Folder(language, root, content, externals)
+    found = {}
+
+    def bound(name_node):
+        binding = folder.binding(name_node)
+        return (
+            axios_base(binding[1], modules, folder, content)
+            if binding is not None
+            else None
+        )
+
+    for node in root.named_children:
+        if node.type != "export_statement" or node.child_by_field_name("source"):
+            continue
+        value = node.child_by_field_name("value")
+        declaration = node.child_by_field_name("declaration")
+        if value is not None:
+            base = (
+                bound(value)
+                if value.type == "identifier"
+                else axios_base(value, modules, folder, content)
+            )
+            if base is not None:
+                found["default"] = base
+        elif declaration is not None and declaration.type in (
+            "lexical_declaration",
+            "variable_declaration",
+        ):
+            for declarator in declaration.named_children:
+                name = declarator.child_by_field_name("name")
+                if declarator.type == "variable_declarator" and name is not None:
+                    base = bound(name)
+                    if base is not None:
+                        found[text(name, content)] = base
+        for clause in node.named_children:
+            if clause.type != "export_clause":
+                continue
+            for spec in clause.named_children:
+                name = spec.child_by_field_name("name")
+                alias = spec.child_by_field_name("alias")
+                if name is None or name.type != "identifier":
+                    continue
+                base = bound(name)
+                if base is not None:
+                    found[text(alias or name, content)] = base
+    return found
+
+
+def axios_imports(tree, content, exports_of):
+    """{local name: base URL} of the axios instances a module imports;
+    ``exports_of(specifier)`` is what ``axios_exports`` gives for the module
+    the specifier names ({} when it is not a repository module)."""
+    found = {}
+    for node in tree.root_node.named_children:
+        source = node.child_by_field_name("source")
+        if node.type != "import_statement" or source is None:
+            continue
+        exported = exports_of(text(source, content)[1:-1])
+        if not exported:
+            continue
+        for clause in node.named_children:
+            if clause.type != "import_clause":
+                continue
+            for item in clause.named_children:
+                if item.type == "identifier" and "default" in exported:
+                    found[text(item, content)] = exported["default"]
+                elif item.type == "named_imports":
+                    for spec in item.named_children:
+                        if spec.type != "import_specifier":
+                            continue
+                        name = text(spec.child_by_field_name("name"), content)
+                        alias = spec.child_by_field_name("alias")
+                        if name in exported:
+                            found[text(alias, content) if alias else name] = exported[
+                                name
+                            ]
+    return found
+
+
+def _class_members(node, name, content):
+    """Values given to ``this.NAME`` in the class around ``node``: its field
+    initializers (a declaration without one gives none) and ``this.NAME =
+    value`` assignments."""
+    owner = node.parent
+    while owner is not None and owner.type not in ("class_declaration", "class"):
+        owner = owner.parent
+    if owner is None:
+        return []
+    values = []
+    for item in _walk(owner):
+        if item.type in ("public_field_definition", "field_definition"):
+            field = item.child_by_field_name("name") or item.child_by_field_name(
+                "property"
+            )
+            value = item.child_by_field_name("value")
+            if field is not None and text(field, content) == name and value:
+                values.append(value)
+        elif item.type == "assignment_expression":
+            left = item.child_by_field_name("left")
+            if left is not None and text(left, content) == "this." + name:
+                values.append(item.child_by_field_name("right"))
+    return values
+
+
+def extract_javascript(context, nest=None, axios_imports=None):
     content, root = context.content, context.root
     modules = _js_modules(root, content)
+    axios_imports = axios_imports or {}
+
+    def instance_config(node, base, config):
+        """A request an axios instance sends from a config object literal
+        (``instance.request({url, method})`` or ``instance({...})``); the
+        method defaults to GET."""
+        options = _js_object(config, content)
+        if "url" not in options:
+            return
+        context.request_folded(
+            node,
+            lambda f, m=options.get("method"), u=options["url"], b=base: (
+                _method(f, m),
+                axios_url(b, f.evaluate(u)),
+            ),
+            "axios",
+        )
+
+    def instance_base(owner):
+        """The base URL of the axios instance ``owner`` names: a name bound
+        once to ``axios.create(...)`` or imported as one (``axios_imports``),
+        or ``this.NAME`` given exactly one value in its class, that call;
+        else None."""
+        if owner.type == "identifier":
+            found = context.folder.binding(owner)
+            if found is not None:
+                return axios_base(found[1], modules, context.folder, content)
+            return axios_imports.get(text(owner, content))
+        if (
+            owner.type == "member_expression"
+            and text(owner.child_by_field_name("object"), content) == "this"
+        ):
+            name = text(owner.child_by_field_name("property"), content)
+            values = _class_members(owner, name, content)
+            if len(values) == 1:
+                return axios_base(values[0], modules, context.folder, content)
+        return None
+
     if any(m.startswith(_ANGULAR_HTTP + ".") for m in modules.values()):
         extract_angular(context, modules)
     if context.language == "typescript" and any(
@@ -1222,7 +1416,29 @@ def extract_javascript(context, nest=None):
                     lambda f, u=positional[0], m=_VERBS[verb]: (m, f.evaluate(u)),
                     module,
                 )
+                continue
+            base = (
+                instance_base(function.child_by_field_name("object"))
+                if (verb in _VERBS or verb == "request") and positional
+                else None
+            )
+            if base is not None and verb == "request":
+                instance_config(node, base, positional[0])
+            elif base is not None:
+                context.request_folded(
+                    node,
+                    lambda f, u=positional[0], m=_VERBS[verb], b=base: (
+                        m,
+                        axios_url(b, f.evaluate(u)),
+                    ),
+                    "axios",
+                )
             continue
+        if function.type == "identifier" and positional:
+            base = instance_base(function)
+            if base is not None:
+                instance_config(node, base, positional[0])
+                continue
         if written == "$http" and positional:
             options = _js_object(positional[0], content)
             if "url" not in options:
@@ -1832,6 +2048,7 @@ def extract_web(
     externals=None,
     calls_of=None,
     mounts=None,
+    axios_imported=None,
 ):
     """Routes, requests and unread facts of one non-Java source file.
 
@@ -1842,7 +2059,8 @@ def extract_web(
     JavaScript/TypeScript requests built from that function's parameters;
     ``mounts`` the full prefixes of a file's mounted Python or Express
     routers by name (``compose_python_prefixes``,
-    ``compose_express_prefixes``)."""
+    ``compose_express_prefixes``); ``axios_imported`` the base URLs of the
+    axios instances a script imports by name (``axios_imports``)."""
     context = _Context(
         tree, content, repository_id, file, definitions, language, externals
     )
@@ -1851,7 +2069,7 @@ def extract_web(
     if language == "python":
         extract_python(context)
     elif language in ("javascript", "typescript"):
-        extract_javascript(context, nest)
+        extract_javascript(context, nest, axios_imported)
     elif language == "go":
         extract_go(context, package or ({}, {}))
     return context.routes, context.requests, context.unread
