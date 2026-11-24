@@ -1,0 +1,312 @@
+{
+    "oracle": "PHP 8.3.6 token_get_all; Doctrine migrations up()",
+    "naming": "underscore_number_aware",
+    "models": [
+        {
+            "class": "App\\Entity\\AccessToken",
+            "files": [
+                "src/Entity/AccessToken.php"
+            ],
+            "table": "kimai2_access_token",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Activity",
+            "files": [
+                "src/Entity/Activity.php"
+            ],
+            "table": "kimai2_activities",
+            "join_tables": [
+                "kimai2_activities_teams"
+            ],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ActivityMeta",
+            "files": [
+                "src/Entity/ActivityMeta.php"
+            ],
+            "table": "kimai2_activities_meta",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ActivityRate",
+            "files": [
+                "src/Entity/ActivityRate.php"
+            ],
+            "table": "kimai2_activities_rates",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Bookmark",
+            "files": [
+                "src/Entity/Bookmark.php"
+            ],
+            "table": "kimai2_bookmarks",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Configuration",
+            "files": [
+                "src/Entity/Configuration.php"
+            ],
+            "table": "kimai2_configuration",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Customer",
+            "files": [
+                "src/Entity/Customer.php"
+            ],
+            "table": "kimai2_customers",
+            "join_tables": [
+                "kimai2_customers_teams"
+            ],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\CustomerComment",
+            "files": [
+                "src/Entity/CustomerComment.php"
+            ],
+            "table": "kimai2_customers_comments",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\CustomerMeta",
+            "files": [
+                "src/Entity/CustomerMeta.php"
+            ],
+            "table": "kimai2_customers_meta",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\CustomerRate",
+            "files": [
+                "src/Entity/CustomerRate.php"
+            ],
+            "table": "kimai2_customers_rates",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ExportTemplate",
+            "files": [
+                "src/Entity/ExportTemplate.php"
+            ],
+            "table": "kimai2_export_templates",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Invoice",
+            "files": [
+                "src/Entity/Invoice.php"
+            ],
+            "table": "kimai2_invoices",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\InvoiceMeta",
+            "files": [
+                "src/Entity/InvoiceMeta.php"
+            ],
+            "table": "kimai2_invoices_meta",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\InvoiceTemplate",
+            "files": [
+                "src/Entity/InvoiceTemplate.php"
+            ],
+            "table": "kimai2_invoice_templates",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\InvoiceTemplateMeta",
+            "files": [
+                "src/Entity/InvoiceTemplateMeta.php"
+            ],
+            "table": "kimai2_invoice_templates_meta",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Project",
+            "files": [
+                "src/Entity/Project.php"
+            ],
+            "table": "kimai2_projects",
+            "join_tables": [
+                "kimai2_projects_teams"
+            ],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ProjectComment",
+            "files": [
+                "src/Entity/ProjectComment.php"
+            ],
+            "table": "kimai2_projects_comments",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ProjectMeta",
+            "files": [
+                "src/Entity/ProjectMeta.php"
+            ],
+            "table": "kimai2_projects_meta",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\ProjectRate",
+            "files": [
+                "src/Entity/ProjectRate.php"
+            ],
+            "table": "kimai2_projects_rates",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Role",
+            "files": [
+                "src/Entity/Role.php"
+            ],
+            "table": "kimai2_roles",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\RolePermission",
+            "files": [
+                "src/Entity/RolePermission.php"
+            ],
+            "table": "kimai2_roles_permissions",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Tag",
+            "files": [
+                "src/Entity/Tag.php"
+            ],
+            "table": "kimai2_tags",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Team",
+            "files": [
+                "src/Entity/Team.php"
+            ],
+            "table": "kimai2_teams",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\TeamMember",
+            "files": [
+                "src/Entity/TeamMember.php"
+            ],
+            "table": "kimai2_users_teams",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\Timesheet",
+            "files": [
+                "src/Entity/Timesheet.php"
+            ],
+            "table": "kimai2_timesheet",
+            "join_tables": [
+                "kimai2_timesheet_tags"
+            ],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\TimesheetMeta",
+            "files": [
+                "src/Entity/TimesheetMeta.php"
+            ],
+            "table": "kimai2_timesheet_meta",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\User",
+            "files": [
+                "src/Entity/User.php"
+            ],
+            "table": "kimai2_users",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\UserPreference",
+            "files": [
+                "src/Entity/UserPreference.php"
+            ],
+            "table": "kimai2_user_preferences",
+            "join_tables": [],
+            "migrated": true
+        },
+        {
+            "class": "App\\Entity\\WorkingTime",
+            "files": [
+                "src/Entity/WorkingTime.php"
+            ],
+            "table": "kimai2_working_times",
+            "join_tables": [],
+            "migrated": true
+        }
+    ],
+    "not_counted": [],
+    "migrated_tables": [
+        "kimai2_access_token",
+        "kimai2_activities",
+        "kimai2_activities_meta",
+        "kimai2_activities_rates",
+        "kimai2_activities_teams",
+        "kimai2_bookmarks",
+        "kimai2_configuration",
+        "kimai2_customers",
+        "kimai2_customers_comments",
+        "kimai2_customers_meta",
+        "kimai2_customers_rates",
+        "kimai2_customers_teams",
+        "kimai2_export_templates",
+        "kimai2_invoice_templates",
+        "kimai2_invoice_templates_meta",
+        "kimai2_invoices",
+        "kimai2_invoices_meta",
+        "kimai2_projects",
+        "kimai2_projects_comments",
+        "kimai2_projects_meta",
+        "kimai2_projects_rates",
+        "kimai2_projects_teams",
+        "kimai2_roles",
+        "kimai2_roles_permissions",
+        "kimai2_sessions",
+        "kimai2_tags",
+        "kimai2_teams",
+        "kimai2_timesheet",
+        "kimai2_timesheet_meta",
+        "kimai2_timesheet_tags",
+        "kimai2_user_preferences",
+        "kimai2_users",
+        "kimai2_users_teams",
+        "kimai2_working_times"
+    ]
+}
