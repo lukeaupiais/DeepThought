@@ -229,6 +229,15 @@ def read(path):
         ]
 
 
+def _blocked(path, blocked):
+    """Whether path is judged: not a blocked file, not in a blocked package
+    directory (``dir/``, ``./`` for the root) and not under a blocked tree
+    (``dir/**``)."""
+    if path in blocked or (os.path.dirname(path) or ".") + "/" in blocked:
+        return True
+    return any(b.endswith("/**") and path.startswith(b[:-2]) for b in blocked)
+
+
 def compare(compile_tsv, calls_tsv):
     """How SCIP call truth stands against the compiler's references."""
     refs, sampled, blocked = {}, set(), {}
@@ -236,7 +245,7 @@ def compare(compile_tsv, calls_tsv):
         decl = (r[0], int(r[1]))
         sampled.add(decl)
         if r[5] == "blocked":
-            blocked.setdefault(decl, set()).add(r[3].rstrip("/"))
+            blocked.setdefault(decl, set()).add(r[3])
         elif r[5] == "reference" and r[3] != "-":
             refs.setdefault(decl, set()).add((r[3], int(r[4])))
     calls = {}
@@ -252,9 +261,7 @@ def compare(compile_tsv, calls_tsv):
     }
     for decl, sites in calls.items():
         for site in sorted(sites):
-            if os.path.dirname(site[0]) in blocked.get(decl, set()) or (
-                "." in blocked.get(decl, set()) and "/" not in site[0]
-            ):
+            if _blocked(site[0], blocked.get(decl, set())):
                 report["blocked"] += 1
                 continue
             report["scip_calls"] += 1

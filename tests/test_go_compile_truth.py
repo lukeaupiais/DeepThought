@@ -124,6 +124,31 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(report["not_a_reference"], [["r.go", 9, "b.go", 7]])
         self.assertEqual(report["references_without_scip_call"], 0)
 
+    def test_blocked_trees_and_files_are_not_judged(self):
+        blocked = {"sub/", "./", "e2e/**", "x/y.ts"}
+        judged = {
+            p: not go_compile_truth._blocked(p, blocked)
+            for p in (
+                "a.go",
+                "sub/c.go",
+                "sub/deep/c.go",
+                "e2e/a/b.ts",
+                "x/y.ts",
+                "x/z.ts",
+            )
+        }
+        self.assertEqual(
+            judged,
+            {
+                "a.go": False,
+                "sub/c.go": False,
+                "sub/deep/c.go": True,
+                "e2e/a/b.ts": False,
+                "x/y.ts": False,
+                "x/z.ts": True,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

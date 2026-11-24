@@ -1010,7 +1010,19 @@ SCIP call row whose target was sampled is one of the compiler's references.
 On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
 fall in blocked packages, and 2 references are not calls (a middleware
 passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66
-references without a call row uses the function as a value. gson's call truth comes from javac, not an
+references without a call row uses the function as a value.
+
+`tools/ts_compile_truth.py WORKSPACE CALLS --tsc PATH [--project P]` does the
+same for TypeScript with `tsc --noEmit`, sampling declarations the call truth
+links to. Only errors the rename adds count, so a project with existing type
+errors can still be used. An import of the missing name is the only error in
+the importing file, so the tool renames it there and follows aliases,
+re-exports and default imports (a default export is made a named one, so each
+default import fails and its local name is followed). Overload signatures are
+renamed with their implementation. TypeScript outside the project is
+`blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
+with a project over `src` and its type packages installed without scripts,
+38 give 431, all confirmed, and 6 fall outside the project. gson's call truth comes from javac, not an
 index, so its callables are the method and constructor spans of javac's
 parser (`java tools/JavaMethodSpans.java WORKSPACE`, passed with `-` as the
 index). The call truth leaves out `this(...)` and `super(...)`, which name
