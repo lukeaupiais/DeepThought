@@ -2428,7 +2428,7 @@ def _callee(node, content, rust=False):
         target = node.child_by_field_name("type")
         return (_java_dotted(target, content) if target is not None else None), "new"
     if node.type in {"call", "call_expression"}:
-        target = node.child_by_field_name("function")
+        target = _call_function(node)
         return (_dotted(target, content), "call") if target is not None else None
     if node.type == "new_expression":
         target = node.child_by_field_name("constructor")
@@ -2444,11 +2444,23 @@ _MEMBER_NAMES = {
 }
 
 
+def _call_function(node):
+    """The function a call calls. The TypeScript grammar reads
+    ``await a.f<T>()`` as a call of ``await a.f`` with type arguments: the
+    function is what is awaited, and the call is."""
+    target = node.child_by_field_name("function")
+    if target is not None and target.type == "await_expression":
+        return target.named_children[0] if target.named_children else None
+    return target
+
+
 def _callee_at(node):
     """``CallSite.callee_at``: (line, column) where the last name of a
     Python, JavaScript, TypeScript or Go call's callee starts, or None."""
-    target = node.child_by_field_name(
-        "constructor" if node.type == "new_expression" else "function"
+    target = (
+        node.child_by_field_name("constructor")
+        if node.type == "new_expression"
+        else _call_function(node)
     )
     if target is not None and target.type in _MEMBER_NAMES:
         target = target.child_by_field_name(_MEMBER_NAMES[target.type])
