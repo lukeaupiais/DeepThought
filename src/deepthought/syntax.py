@@ -5023,6 +5023,60 @@ def _go_receiver_type(node, content, callee, cache):
     return _go_receiver_result(found, node, outer, content, cache)
 
 
+# Member access, call, subscript and grouping nodes of JavaScript,
+# TypeScript and Python receivers: (receiver field, name field).
+_SCRIPT_CHAIN = {
+    "member_expression": ("object", "property"),
+    "attribute": ("object", "attribute"),
+}
+
+
+def _receiver_chain_callee(node, content):
+    """``a.b().c``, ``new T().m``, ``x[].m`` for a JavaScript, TypeScript or
+    Python callee built of names, member accesses, calls (arguments
+    dropped), ``new`` (JavaScript and TypeScript) and subscripts (index
+    dropped) whose receiver is a call, ``new``, subscript, ``super`` or an
+    optional chain (written ``a?.m`` and ``f?.()``, which no name-binding
+    rule reads); None for any other shape."""
+
+    def chain(node):
+        if node is None:
+            return None
+        if node.type in _CHAIN_PARTS or node.type == "super":
+            return _text(node, content)
+        if node.type in _SCRIPT_CHAIN:
+            receiver, name = _SCRIPT_CHAIN[node.type]
+            head = chain(node.child_by_field_name(receiver))
+            field = node.child_by_field_name(name)
+            if head is None or field is None or field.type not in _CHAIN_PARTS:
+                return None
+            optional = any(child.type == "optional_chain" for child in node.children)
+            return f"{head}{'?.' if optional else '.'}{_text(field, content)}"
+        if node.type in {"call_expression", "call"}:
+            head = chain(node.child_by_field_name("function"))
+            optional = any(child.type == "?." for child in node.children)
+            return None if head is None else f"{head}{'?.()' if optional else '()'}"
+        if node.type == "new_expression":
+            written = node.child_by_field_name("constructor")
+            typed = None if written is None else _dotted(written, content)
+            return None if typed is None else f"new {typed}()"
+        if node.type in {"subscript_expression", "subscript"}:
+            head = chain(
+                node.child_by_field_name(
+                    "object" if node.type == "subscript_expression" else "value"
+                )
+            )
+            return None if head is None else f"{head}[]"
+        if node.type in {"parenthesized_expression", "non_null_expression"}:
+            inner = [c for c in node.named_children if c.type != "comment"]
+            return chain(inner[0]) if len(inner) == 1 else None
+        return None
+
+    if node is None or node.type not in _SCRIPT_CHAIN:
+        return None
+    return chain(node)
+
+
 def _go_chain_callee(node, content):
     """``a.M().f.N`` or ``a[].N`` for a Go callee built of names,
     selectors, calls (arguments dropped) and index expressions (index
@@ -5206,6 +5260,17 @@ def extract_call_sites(
                 and attribute.type == "identifier"
             ):
                 found = (f"super().{_text(attribute, content)}", found[1])
+        if (script or python) and found is not None and found[0] is None:
+            # `f().m()`, `new T().m()`, `xs[0].m()`: a method of a call's,
+            # construction's or element's result.
+            callee = _receiver_chain_callee(
+                node.child_by_field_name(
+                    "constructor" if node.type == "new_expression" else "function"
+                ),
+                content,
+            )
+            if callee is not None:
+                found = (callee, found[1])
         if found is not None:
             callee, kind = found
             if callee is not None:

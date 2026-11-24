@@ -1318,7 +1318,7 @@ def extract_javascript(context, nest=None, axios_imports=None):
     if context.language == "typescript" and any(
         m.startswith(_NEST + ".") for m in modules.values()
     ):
-        extract_nest(context, modules, nest or (None, None, None))
+        extract_nest(context, modules, nest or (None, None, None, {}))
     express_names = {n for n, m in modules.items() if m == "express"}
     router_constructors = {n for n, m in modules.items() if m == "express.Router"}
 
@@ -1619,7 +1619,93 @@ def nest_settings(tree, content, language):
         elif name == "enableVersioning":
             found.append(_nest_versioning(folder, positional, content))
         elif owner == "RouterModule":
-            found.append(("unread", "router_module"))
+            routes = (
+                _nest_router_routes(folder, positional[0], content, "")
+                if name == "register" and len(positional) == 1
+                else None
+            )
+            found.append(
+                ("router", tuple(routes))
+                if routes is not None
+                else ("unread", "router_module")
+            )
+    for node in _walk(tree.root_node):
+        if node.type != "class_declaration":
+            continue
+        decorators = [c for c in node.named_children if c.type == "decorator"]
+        if node.parent is not None and node.parent.type == "export_statement":
+            decorators += [
+                c for c in node.parent.named_children if c.type == "decorator"
+            ]
+        for decorator in decorators:
+            call = decorator.named_children[0] if decorator.named_children else None
+            if call is None or call.type != "call_expression":
+                continue
+            if text(call.child_by_field_name("function"), content) != "Module":
+                continue
+            arguments = call.child_by_field_name("arguments")
+            options = _js_object(
+                arguments.named_children[0]
+                if arguments is not None and arguments.named_children
+                else None,
+                content,
+            )
+            listed = options.get("controllers")
+            name = text(node.child_by_field_name("name"), content)
+            if listed is None:
+                continue
+            if listed.type != "array" or any(
+                c.type != "identifier"
+                for c in listed.named_children
+                if c.type != "comment"
+            ):
+                found.append(("module", (name, None)))
+                continue
+            found.append(
+                (
+                    "module",
+                    (
+                        name,
+                        tuple(
+                            text(c, content)
+                            for c in listed.named_children
+                            if c.type == "identifier"
+                        ),
+                    ),
+                )
+            )
+    return found
+
+
+def _nest_router_routes(folder, node, content, parent):
+    """[(module class name, path)] of a literal ``RouterModule.register``
+    routes array, child paths joined to their parent's; None when any
+    entry, path or module is not literal."""
+    if node is None or node.type != "array":
+        return None
+    found = []
+    for entry in node.named_children:
+        if entry.type == "comment":
+            continue
+        if entry.type != "object" or any(
+            c.type == "spread_element" for c in entry.named_children
+        ):
+            return None
+        options = _js_object(entry, content)
+        path = folder.evaluate(options["path"]) if "path" in options else ""
+        if PLACEHOLDER in path:
+            return None
+        path = join_paths(parent, path)
+        module = options.get("module")
+        if module is not None:
+            if module.type != "identifier":
+                return None
+            found.append((text(module, content), path))
+        if "children" in options:
+            children = _nest_router_routes(folder, options["children"], content, path)
+            if children is None:
+                return None
+            found.extend(children)
     return found
 
 
@@ -1632,7 +1718,7 @@ def extract_nest(context, modules, nest):
     enables versioning with literal options; then a route without one takes
     the default version."""
     content = context.content
-    prefix, reason, versioning = nest
+    prefix, reason, versioning, routed = nest
     for node in _walk(context.root):
         if node.type != "class_declaration":
             continue
@@ -1666,9 +1752,16 @@ def extract_nest(context, modules, nest):
                     )
                     continue
             first = options.get("path")
-        bases = _nest_paths(context, first)
-        body = node.child_by_field_name("body")
         class_name = text(node.child_by_field_name("name"), content)
+        module_path = routed.get(class_name, "")
+        if module_path is None:
+            context.unread.append(Unread(context.file, line, "route", "router_module"))
+            continue
+        bases = [
+            base if PLACEHOLDER in base else join_paths(module_path, base)
+            for base in _nest_paths(context, first)
+        ]
+        body = node.child_by_field_name("body")
         pending = []
         for member in [] if body is None else body.named_children:
             if member.type == "decorator":
