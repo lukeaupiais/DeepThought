@@ -24,7 +24,7 @@ from ..syntax import (
     RustExpander,
     declaration_sources,
     make_parser,
-    prepare_source,
+    parse_source,
 )
 from .base import AnalysisTool, ToolCapability, ToolMetadata
 from .contracts import (
@@ -310,7 +310,7 @@ def _declaration_sources(root, result):
             parsers[key] = make_parser(item.language, suffix)
         sources.update(
             declaration_sources(
-                parsers[key].parse(prepare_source(item.language, content)),
+                parse_source(parsers[key], item.language, suffix, content),
                 content,
                 result.repository_id,
                 item.file,
