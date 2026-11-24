@@ -109,12 +109,21 @@ class NameBindings:
     # JavaScript/TypeScript file -> [(exported name, name, target files)],
     # one per name an ``export ... from`` re-exports.
     reexports: dict = field(default_factory=dict)
+    # (file, alias) -> [Definition], for JavaScript/TypeScript top-level
+    # declarations a local ``export { name as alias }`` exports.
+    aliases: dict = field(default_factory=dict)
 
     def top_level(self, files, name, kinds):
+        """Declarations named ``name`` at the top level of ``files``, and
+        JavaScript or TypeScript ones they export as ``name`` by a local
+        ``export { declared as name }``."""
         return [
             d
             for f in files
-            for d in self.by_symbol.get((f, name), ())
+            for d in (
+                *self.by_symbol.get((f, name), ()),
+                *self.aliases.get((f, name), ()),
+            )
             if d.kind in kinds
         ]
 
@@ -140,8 +149,11 @@ class NameBindings:
 
 def name_bindings(result: AnalysisResult) -> NameBindings:
     by_symbol = defaultdict(list)
+    aliases = defaultdict(list)
     for d in result.definitions:
         by_symbol[(d.file, d.symbol)].append(d)
+        for alias in d.export_aliases or ():
+            aliases[(d.file, alias)].append(d)
     module_files, submodules = {}, {}
     for resolution in resolve_imports(result):
         module_files[resolution.import_id] = tuple(
@@ -239,7 +251,7 @@ def name_bindings(result: AnalysisResult) -> NameBindings:
         ):
             continue
         bind_module(item.file, local, (found[0],))
-    return NameBindings(by_symbol, names, modules, module_level, reexports)
+    return NameBindings(by_symbol, names, modules, module_level, reexports, aliases)
 
 
 def package_peers(result: AnalysisResult) -> dict:
