@@ -1179,6 +1179,142 @@ class RailsTests(unittest.TestCase):
         self.assertEqual(mapped, ["legacy_orders"])
 
 
+GORM = {
+    "go.mod": "module example.com/shop\n\ngo 1.22\n",
+    "models/models.go": """\
+package models
+
+import "gorm.io/gorm"
+
+type UserModel struct {
+	gorm.Model
+	Name string
+}
+
+type Address struct {
+	ID uint
+}
+
+type Legacy struct {
+	ID uint
+}
+
+func (Legacy) TableName() string { return "legacy_rows" }
+
+type Plain struct {
+	ID uint
+}
+
+func Migrate(db *gorm.DB) {
+	db.AutoMigrate(&Address{})
+}
+""",
+    "store/store.go": """\
+package store
+
+import "example.com/shop/models"
+
+func Load(db DB, id uint) (models.UserModel, error) {
+	var user models.UserModel
+	err := db.First(&user, id).Error
+	return user, err
+}
+
+func Rename(db DB, user *models.UserModel) {
+	db.Model(user).Update("name", "x")
+	db.Model(user).Association("Addresses").Find(&[]models.Address{})
+}
+
+func Save(db DB, value interface{}, rows []models.Legacy) {
+	db.Save(value)
+	db.Create(&models.Address{})
+	db.Find(&rows)
+	db.Delete(&models.Plain{})
+}
+""",
+}
+
+
+class GormTests(unittest.TestCase):
+    def test_default_names_match_gorm(self):
+        from deepthought.data_contracts import gorm_table_name
+
+        # Outputs of gorm.io/gorm 1.25.12 schema.NamingStrategy{}.TableName.
+        for name, table in (
+            ("UserModel", "user_models"),
+            ("HTTPSServer", "http_s_servers"),
+            ("Human", "humen"),
+            ("APIKey", "api_keys"),
+            ("UTF8Data", "utf8_data"),
+            ("Person", "people"),
+            ("Leaf", "leafs"),
+            ("Campus", "campus"),
+        ):
+            self.assertEqual(gorm_table_name(name), table)
+
+    def test_models_and_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, GORM)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["go"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type != "CONTAINS"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("MAPS_TO", "Address", "addresses", "gorm-default-table-name"),
+                ("MAPS_TO", "Legacy", "legacy_rows", "gorm-table-name"),
+                ("MAPS_TO", "UserModel", "user_models", "gorm-default-table-name"),
+                ("READS", "Load", "user_models", "gorm-call"),
+                # Association(...).Find reads the associated table.
+                ("READS", "Rename", "addresses", "gorm-call"),
+                ("READS", "Save", "legacy_rows", "gorm-call"),
+                ("WRITES", "Rename", "user_models", "gorm-call"),
+                ("WRITES", "Save", "addresses", "gorm-call"),
+            ],
+        )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["gorm_default_table_names"], 2)
+        self.assertEqual(
+            metrics["gorm_access_resolution"], {"linked": 5, "not_a_model": 1}
+        )
+
+    def test_naming_strategy_leaves_defaults_out(self):
+        files = {
+            **GORM,
+            "db/open.go": """\
+package db
+
+import (
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
+)
+
+var Config = gorm.Config{NamingStrategy: schema.NamingStrategy{SingularTable: true}}
+""",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["go"])
+            )
+        mapped = sorted(
+            r.target_match["qualified_name"].rsplit("::", 1)[1]
+            for r in output.relationships
+            if r.type == "MAPS_TO"
+        )
+        self.assertEqual(mapped, ["legacy_rows"])
+
+
 class GraphCase(unittest.IsolatedAsyncioTestCase):
     """Writes a workspace's tree-sitter, components and data-contracts
     outputs to an isolated repository of the provisioned Neo4j."""

@@ -24,6 +24,8 @@ from ..data_contracts import (
     extract_ddl,
     extract_entity_manager,
     extract_go_sql,
+    extract_gorm,
+    gorm_table_name,
     extract_django,
     extract_java,
     extract_java_sql,
@@ -311,6 +313,32 @@ GORM_TABLE_RULE = register_rule(
         "Tabler interface).",
     )
 )
+GORM_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-default-table-name",
+        "name_matched",
+        "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
+        "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
+        "without a TableName method, and this table is GORM's default name: "
+        "NamingStrategy's snake case of the type name, pluralized by "
+        "jinzhu/inflection 1.0.0 (UserModel is user_models). A repository "
+        "that configures a NamingStrategy gets no default names.",
+    )
+)
+GORM_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.gorm-call",
+        "pattern_matched",
+        "A First, Last, Take, Find, FirstOrInit (READS), Create, Save, "
+        "Delete (WRITES) or FirstOrCreate "
+        "call, or a Model call chained with a reading (Find, Count, Pluck, "
+        "Scan, ...) or writing (Update, Updates, Delete, ...) method before any "
+        "Association, whose "
+        "model argument is a GORM model: &T{}, T{}, []T{}, new(T), "
+        "make([]T, n) or a parameter or local of the function declared with "
+        "such a type. The receiver is not checked to be a *gorm.DB.",
+    )
+)
 PRISMA_MODEL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.prisma-model",
@@ -521,6 +549,8 @@ class DataContractTool(AnalysisTool):
         trees, python_trees, script_trees, go_trees, ruby_trees = [], [], [], [], []
         for file, language, content in sources:
             if language == "ruby" and _is_ruby_test(file):
+                continue
+            if language == "go" and file.endswith("_test.go"):
                 continue
             suffix = ".tsx" if file.endswith(".tsx") else ""
             if (language, suffix) not in parsers:
@@ -889,28 +919,105 @@ class DataContractTool(AnalysisTool):
                     SQL_RULES["jpa-entity-manager"],
                     {"entity": entity, "line": use.line, "column": use.column},
                 )
-        # GORM TableName methods: the type is declared in the same package.
+        # GORM models: TableName methods, default names and the calls.
+        gorm_models, gorm_uses, gorm_naming = [], [], False
+        for file, content, tree in go_trees:
+            found = extract_gorm(tree, content, file, result.definitions)
+            gorm_models.extend(found[0])
+            gorm_uses.extend(found[1])
+            gorm_naming = gorm_naming or found[2]
+        go_types = {}
+        for d in result.definitions:
+            if d.file.endswith(".go"):
+                key = (d.file.rpartition("/")[0], d.symbol)
+                go_types.setdefault(key, []).append(d)
+
+        def owner(file, type_name):
+            """The one declaration of the type in the file's package."""
+            found = go_types.get((file.rpartition("/")[0], type_name), [])
+            return found[0] if len(found) == 1 else None
+
         gorm_counts = {"linked": 0, "type_not_found": 0}
+        gorm_targets = {}
         for item in go_names:
-            package = item.file.rpartition("/")[0]
-            owners = [
-                d
-                for d in result.definitions
-                if d.symbol == item.type_name
-                and d.file.rpartition("/")[0] == package
-                and d.file.endswith(".go")
-            ]
-            if len(owners) != 1:
+            declared = owner(item.file, item.type_name)
+            if declared is None:
                 gorm_counts["type_not_found"] += 1
                 continue
             gorm_counts["linked"] += 1
+            target = table(item.file, item.table)
+            gorm_targets[(item.file.rpartition("/")[0], item.type_name)] = target
             link(
                 "MAPS_TO",
-                symbol(owners[0].id),
-                table(item.file, item.table),
+                symbol(declared.id),
+                target,
                 GORM_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
+        # A configured NamingStrategy changes every default name.
+        gorm_defaults = 0
+        for model in sorted(
+            [] if gorm_naming else gorm_models,
+            key=lambda m: (m.file, m.line, m.column),
+        ):
+            key = (model.file.rpartition("/")[0], model.type_name)
+            if key in gorm_targets:
+                continue
+            declared = owner(model.file, model.type_name)
+            if declared is None:
+                continue
+            gorm_defaults += 1
+            target = table(declared.file, gorm_table_name(model.type_name))
+            gorm_targets[key] = target
+            link(
+                "MAPS_TO",
+                symbol(declared.id),
+                target,
+                GORM_DEFAULT_RULE,
+                {"line": declared.line, "column": declared.column},
+            )
+        modules = sorted(
+            (
+                (c.name, c.manifest.rpartition("/")[0])
+                for c in scan.components
+                if c.kind == "go_module" and c.name
+            ),
+            key=lambda m: -len(m[0]),
+        )
+
+        def package_directory(import_path):
+            for module, directory in modules:
+                if import_path == module or import_path.startswith(module + "/"):
+                    rest = import_path[len(module) :].strip("/")
+                    return "/".join(p for p in (directory, rest) if p)
+            return None
+
+        gorm_access = {"linked": 0, "not_a_model": 0}
+        for use in gorm_uses:
+            directory = (
+                use.file.rpartition("/")[0]
+                if use.model.package is None
+                else package_directory(use.model.package)
+            )
+            target = gorm_targets.get((directory, use.model.name))
+            if target is None:
+                gorm_access["not_a_model"] += 1
+                continue
+            gorm_access["linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        target,
+                        GORM_CALL_RULE,
+                        {
+                            "model": use.model.name,
+                            "line": use.line,
+                            "column": use.column,
+                        },
+                    )
         # Prisma models and the client calls that use them.
         prisma_targets = {}
         for model in sorted(prisma, key=lambda m: (m.file, m.line)):
@@ -1109,6 +1216,8 @@ class DataContractTool(AnalysisTool):
                     "sql_text": sql_counts,
                     "entity_manager_resolution": entity_counts,
                     "gorm_table_names": gorm_counts,
+                    "gorm_default_table_names": gorm_defaults,
+                    "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
                     "orm_access_resolution": orm_counts,
