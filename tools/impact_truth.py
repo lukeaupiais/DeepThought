@@ -265,7 +265,17 @@ def read_spans(path):
     return spans
 
 
-def derive(index, calls, repo, language, revision, commits=30, max_depth=3, spans=None):
+def derive(
+    index,
+    calls,
+    repo,
+    language,
+    revision,
+    commits=30,
+    max_depth=3,
+    spans=None,
+    extra_calls=(),
+):
     from ground_truth import read_truth
 
     if index is None:
@@ -276,6 +286,10 @@ def derive(index, calls, repo, language, revision, commits=30, max_depth=3, span
             index, lambda file: git(repo, "show", f"{revision}:{file}"), spans
         )
     positions, _ = read_truth(calls)
+    # Edges that are not call sites, such as Java's this(...) and super(...).
+    for path in extra_calls:
+        for site, targets in read_truth(path)[0].items():
+            positions.setdefault(site, set()).update(targets)
     incoming = call_graph(nodes, positions, aliases)
     rows = []
     for seed in seeds(nodes, repo, language, revision, commits, aliases):
@@ -440,6 +454,13 @@ def main(argv=None):
     derive_cmd.add_argument(
         "--spans", type=Path, help="function spans for an index without them"
     )
+    derive_cmd.add_argument(
+        "--extra-calls",
+        type=Path,
+        action="append",
+        default=[],
+        help="more edges in the call-truth format (Java constructor chains)",
+    )
     args = parser.parse_args(argv)
     rows, aliases = derive(
         None if args.index == "-" else Path(args.index),
@@ -450,6 +471,7 @@ def main(argv=None):
         args.commits,
         args.max_depth,
         read_spans(args.spans) if args.spans else None,
+        args.extra_calls,
     )
     write(rows, sys.stdout, aliases)
     return 0
