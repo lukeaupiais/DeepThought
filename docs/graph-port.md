@@ -2382,8 +2382,15 @@ parsed, so C# servers and clients are out of scope.
   | `service-contracts.grpc-go-register-constructor` | `pb.RegisterXServer(s, f(...))` (or a name bound once to that call), where `f` is declared in one file of the same package directory and its only result is `T` or `*T` for a struct type `T` of that package; the methods of `T` as above |
   | `service-contracts.grpc-python-servicer` | methods named as X's rpcs of a class inheriting `XServicer`, or of a class of the same file inheriting such a class |
   | `service-contracts.grpc-java-impl-base` | methods named `lowerCamel(rpc)` of a class extending `XGrpc.XImplBase` |
+  | `service-contracts.grpc-csharp-service-base` | methods named as X's rpcs of a C# class deriving from `X.XBase` (written with or without its namespace; Grpc.Tools nests `XBase` in the static class `X`), or of a class of the same file deriving from such a class. C# clients are not read yet |
   | `service-contracts.grpc-node-add-service` | `server.addService(pkg.X.service, {key: handler})`; `key` names the rpc (lowerCamel accepted) and `handler` is a function or `Class.method` (also `.bind(this)`) declared in the same file |
   | `service-contracts.grpc-node-static-add-service` | `server.addService(m.XService, {key: handler})` for grpc-tools static codegen: `m` is bound by `require`, a default or a namespace import to a `*_grpc_pb` module, or `XService` is imported by name from one; handlers as above |
+
+  C# servers, against a lexical reference (classes written `: ....X.XBase`,
+  their `override` methods named as an rpc of X in the repository's protos):
+  grpc/grpc-dotnet `7c1a477` `examples` 49 of 49 handlers, none extra;
+  online-boutique's cartservice 3 of 3, which takes its labelled servers to
+  20 of 20 and service pairs to 14 of 14.
 
 - **Clients.** `service-contracts.grpc-stub-call` links the calling
   declaration (or the file) by `REQUESTS` when a method is called on a stub of

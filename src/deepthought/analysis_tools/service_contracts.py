@@ -76,7 +76,7 @@ from .contracts import (
 from .evidence import EvidenceRule, register_rule
 from .registry import register_tool
 
-SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "typescript")
+SUPPORTED_LANGUAGES = ("csharp", "go", "java", "javascript", "python", "typescript")
 
 ROUTE_RULES = {
     "spring-mvc": register_rule(
@@ -618,6 +618,13 @@ GRPC_SERVER_RULES = {
             grpc_contracts.JAVA_IMPL_BASE,
             "A class extending XGrpc.XImplBase declares a method named as this "
             "rpc of service X with a lowercase first letter.",
+        ),
+        (
+            grpc_contracts.CSHARP_SERVICE_BASE,
+            "A C# class deriving from X.XBase (the base class Grpc.Tools "
+            "generates inside the static class X), or a class of the same "
+            "file deriving from such a class, declares a method named as this "
+            "rpc of service X.",
         ),
         (
             grpc_contracts.NODE_ADD_SERVICE,
