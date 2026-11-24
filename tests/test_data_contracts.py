@@ -624,6 +624,73 @@ class JavaSqlTests(unittest.TestCase):
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
 
 
+PYTHON_SQL = {
+    "pyproject.toml": '[project]\nname = "jobs"\n',
+    "jobs/store.py": """import sqlite3
+import sqlalchemy as sa
+from sqlalchemy import text
+
+def pending(conn):
+    return conn.execute(
+        "SELECT j.id FROM jobs j "
+        "JOIN workers w ON w.id = j.worker WHERE w.name = %s", ["a"]
+    )
+
+def finish(session, job):
+    session.execute(sa.text("UPDATE jobs SET done = 1 WHERE id = :id"), {"id": job})
+
+def archive(conn, day):
+    conn.execute(text(f"INSERT INTO archive SELECT * FROM jobs WHERE day = {day}"))
+
+def drop(conn, table):
+    conn.execute("DELETE FROM %s" % table)
+
+def ping(conn):
+    conn.execute("SELECT 1")
+
+conn = sqlite3.connect("jobs.db")
+conn.executescript("DELETE FROM workers")
+""",
+    "jobs/other.py": """def run(client):
+    client.execute("SELECT * FROM unrelated")
+""",
+}
+
+
+@unittest.skipUnless(PYTHON, "Install the python grammar")
+class PythonSqlTests(unittest.TestCase):
+    def test_execute_calls_in_database_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PYTHON_SQL)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+            )
+            for r in output.relationships
+            if r.properties["rule_id"] == "data-contracts.python-sql"
+        )
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "archive", "jobs"),
+                ("READS", "pending", "jobs"),
+                ("READS", "pending", "workers"),
+                ("WRITES", "archive", "archive"),
+                ("WRITES", "finish", "jobs"),
+                ("WRITES", "jobs/store.py", "workers"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["sql_text"],
+            {"statements": 6, "not_fixed": 1, "unknown_entity": 0},
+        )
+
+
 @unittest.skipUnless(
     JAVA and os.environ.get("DEEPTHOUGHT_NEO4J_URI"),
     "Provision isolated Neo4j and the java grammar",

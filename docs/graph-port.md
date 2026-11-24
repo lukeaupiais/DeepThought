@@ -1862,6 +1862,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
 | Symbol\|File -[:WRITES]-> DbTable | `data-contracts.jdbc-insert-table` | pattern_matched | `withTableName(...)` of a `SimpleJdbcInsert` in such a file |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
 
 Tables are told apart by name (case-insensitive, without schema or quotes)
 within a namespace. A module whose Spring configuration
@@ -1875,7 +1876,9 @@ environment variables are not resolved, and migrations kept in a separate
 package from their entities meet them only through a shared datasource URL.
 SQL and JPQL text is read where the code fixes it: literals, text blocks,
 concatenation and the constants and single-assignment locals that service
-contract paths are folded through. Tables are named after `FROM`, `JOIN`,
+contract paths are folded through. In Python only the call's own argument is read,
+not variables holding SQL, and driver parameter markers (`%s`, `%(name)s`)
+never name a table. Tables are named after `FROM`, `JOIN`,
 `USING`, `INSERT`/`MERGE`/`REPLACE INTO`, a statement's `UPDATE`, `DELETE
 FROM` and `TRUNCATE`; the targets of the last five are written and the rest
 read. Common table expressions, functions in `FROM`, `FROM` inside function
@@ -1907,6 +1910,16 @@ methods write their tables, and the constructors that set up a
 `SimpleJdbcInsert` write `owners`, `pets` and `visits`. On spring-petclinic-microservices the 2 `@Query` methods of
 `PetRepository` read `types`, which its CRUD repository of pets did not
 reach.
+
+On Superset's `superset/` package the Python rule reads 34 statements.
+12 build their table names at run time (`f"SELECT {cols} FROM {table_name}"`)
+and are left unlinked; the other 22 name what their text names, from the
+`tasks` heartbeat `UPDATE` to the catalog queries of the Postgres,
+Snowflake and DuckDB engine specs, and statements such as `SELECT 1` name
+none. In Django's own `django/` package, 71 statements are read: 23 are
+built at run time, and the rest name the system catalogs the backends'
+introspection queries (`pg_class`, `sqlite_master`, `user_constraints`,
+...).
 
 On Django 5.1.4's `django/contrib` apps (admin, auth, contenttypes, sessions,
 sites, redirects, flatpages) the tool finds the 13 tables those apps create

@@ -24,6 +24,7 @@ from ..data_contracts import (
     extract_django,
     extract_java,
     extract_java_sql,
+    extract_python_sql,
     extract_sqlalchemy,
     resolve_django,
 )
@@ -205,6 +206,15 @@ SQL_RULES = {
             "JdbcTemplate query, update, batchUpdate or execute method, in a "
             "file importing org.springframework.jdbc; the receiver's type is "
             "not checked.",
+        ),
+        (
+            "python-sql",
+            "The code passes SQL naming this table (a literal, an f-string or "
+            "a %/format template whose table names are fixed, or SQLAlchemy "
+            "text()) to an execute, executemany, executescript, "
+            "exec_driver_sql, fetch, fetchrow, fetchval or raw call, in a "
+            "module importing a database driver, SQLAlchemy or django.db; "
+            "the receiver's type is not checked.",
         ),
         (
             "jdbc-insert-table",
@@ -652,34 +662,42 @@ class DataContractTool(AnalysisTool):
                     mapped.get(mapping.entity)
                 )
         sql_counts = {"statements": 0, "not_fixed": 0, "unknown_entity": 0}
-        for file, content, tree in trees:
+        uses = [
+            item
+            for file, content, tree in trees
             for item in extract_java_sql(
                 tree, content, file, result.definitions, constants
+            )
+        ] + [
+            item
+            for file, content, tree in python_trees
+            for item in extract_python_sql(tree, content, file, result.definitions)
+        ]
+        for item in uses:
+            sql_counts["statements"] += 1
+            if item.statement is None:
+                sql_counts["not_fixed"] += 1
+                continue
+            for kind, names in (
+                ("READS", item.statement.reads),
+                ("WRITES", item.statement.writes),
             ):
-                sql_counts["statements"] += 1
-                if item.statement is None:
-                    sql_counts["not_fixed"] += 1
-                    continue
-                for kind, names in (
-                    ("READS", item.statement.reads),
-                    ("WRITES", item.statement.writes),
-                ):
-                    for name in names:
-                        if item.jpql:
-                            targets = entity_tables.get(name, set())
-                            if len(targets) != 1 or None in targets:
-                                sql_counts["unknown_entity"] += 1
-                                continue
-                            target, extra = next(iter(targets)), {"entity": name}
-                        else:
-                            target, extra = table(item.file, name), {}
-                        link(
-                            kind,
-                            code(item.file, item.owner_id),
-                            target,
-                            SQL_RULES[item.how],
-                            {**extra, "line": item.line, "column": item.column},
-                        )
+                for name in names:
+                    if item.jpql:
+                        targets = entity_tables.get(name, set())
+                        if len(targets) != 1 or None in targets:
+                            sql_counts["unknown_entity"] += 1
+                            continue
+                        target, extra = next(iter(targets)), {"entity": name}
+                    else:
+                        target, extra = table(item.file, name), {}
+                    link(
+                        kind,
+                        code(item.file, item.owner_id),
+                        target,
+                        SQL_RULES[item.how],
+                        {**extra, "line": item.line, "column": item.column},
+                    )
         files.extend(file_nodes[f] for f in sorted(file_nodes))
         nodes = (
             [
