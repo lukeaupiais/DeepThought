@@ -122,6 +122,70 @@ class UnknownBaseTests(unittest.TestCase):
         )
 
 
+GO_READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
+    "tree_sitter_go"
+)
+
+GO_SERVER = """package main
+
+import "net/http"
+
+func main() {
+	http.HandleFunc("/api/v1/auth", auth)
+}
+"""
+
+GO_CLIENT = """package main
+
+import "net/http"
+
+var base string
+
+func main() {
+	http.Post(base+"/api/v1/auth", "application/json", nil)
+}
+"""
+
+
+@unittest.skipUnless(GO_READY, "tree-sitter-go is not installed")
+class SeveralProgramsTests(unittest.TestCase):
+    """One Go module (or none) holding several programs does not say which
+    program a file belongs to, so nothing is excluded."""
+
+    def check(self, files):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, body in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8")
+            tool = ServiceContractTool(root)
+            asyncio.run(tool.analyze("r"))
+            _, routes, requests, _, resolutions = tool.last_facts
+            where = {r.id: r.file for r in routes}
+            return [(r.status, where.get(r.route_id)) for r in resolutions]
+
+    def test_one_module_two_programs(self):
+        files = {
+            "go.mod": "module example.com/shop\n",
+            "auth/main.go": GO_SERVER,
+            "movies/main.go": GO_CLIENT,
+        }
+        self.assertEqual(self.check(files), [("linked", "auth/main.go")])
+
+    def test_no_manifest(self):
+        files = {"auth/main.go": GO_SERVER, "movies/main.go": GO_CLIENT}
+        self.assertEqual(self.check(files), [("linked", "auth/main.go")])
+
+    def test_one_module_per_program(self):
+        files = {
+            "auth/go.mod": "module example.com/auth\n",
+            "auth/main.go": GO_SERVER,
+            "auth/client.go": GO_CLIENT.replace("func main()", "func call()"),
+        }
+        self.assertEqual(self.check(files), [("unresolved", None)])
+
+
 class ReferenceTests(unittest.TestCase):
     def test_unknown_base(self):
         from deepthought.service_contracts.php import _appended, _resolve_reference

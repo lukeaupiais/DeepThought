@@ -350,10 +350,12 @@ _CALL_RULE_TEXT = {
     "inherits are not followed.",
     call_rules.CALL_JS_TYPED_RECEIVER: "A JavaScript or TypeScript 'x.m()' "
     "where the declaration of x the call sees annotates it with a class or "
-    "initializes it with 'new' of that class, the class found as for a "
-    "static method's C, links to the instance method m that class declares "
-    "or inherits through 'extends'. A field of that name in a class on the "
-    "way, or a base that names no repository class, stops the lookup.",
+    "top-level interface (also 'T | undefined' or 'T | null') or "
+    "initializes it with 'new' of a class, the type found as for a static "
+    "method's C, links to the method m that class declares or inherits "
+    "through 'extends', or that interface or the interfaces it extends "
+    "declare. A field of that name in a class on the way, or a base that "
+    "names no repository class or interface, stops the lookup.",
     call_rules.CALL_JS_MEMBER_CHAIN: "A JavaScript or TypeScript 'x.a.m()', "
     "'this.a.m()' or 'y.m()' where y is declared from such a chain (or "
     "destructured from it): the class x holds, as for a typed receiver, or "
