@@ -3595,12 +3595,124 @@ def resolve_script_module(file, source, files):
             parts.pop()
         else:
             parts.append(part)
-    path = "/".join(parts)
+    return _script_file("/".join(parts), files)
+
+
+def _script_file(path, files):
+    """The repository file a module path names: the path itself, with a
+    script suffix, a ``.js`` written for its ``.ts`` source, or its
+    directory's index file."""
     stem = re.sub(r"\.(?:m|c)?js$|\.jsx$", "", path)
     candidates = [path, *(path + s for s in _SCRIPT_SUFFIXES)]
     candidates += [stem + s for s in _SCRIPT_SUFFIXES]
     candidates += [f"{path}/index{s}" for s in _SCRIPT_SUFFIXES]
     return next((c for c in candidates if c in files), None)
+
+
+def _join(directory, relative):
+    parts = [p for p in directory.split("/") if p]
+    for part in relative.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def _strip_jsonc(text):
+    """JSON text of a JSON-with-comments file (tsconfig.json): comments and
+    trailing commas outside strings removed."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i : j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        else:
+            out.append(c)
+            i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+def read_tsconfig_paths(path, content):
+    """(base directory, {pattern: [targets]}) of a tsconfig.json's
+    ``compilerOptions.paths``, relative to ``baseUrl`` when it is set, else
+    to the file's directory; None without paths. ``extends`` is not read."""
+    import json
+
+    try:
+        config = json.loads(_strip_jsonc(content.decode("utf-8", "replace")))
+    except ValueError:
+        return None
+    options = config.get("compilerOptions") if isinstance(config, dict) else None
+    paths = options.get("paths") if isinstance(options, dict) else None
+    if not isinstance(paths, dict):
+        return None
+    directory = path.rpartition("/")[0]
+    base = options.get("baseUrl")
+    base = _join(directory, base) if isinstance(base, str) else directory
+    if base is None:
+        return None
+    return base, {
+        k: [t for t in v if isinstance(t, str)]
+        for k, v in paths.items()
+        if isinstance(v, list)
+    }
+
+
+def resolve_script_alias(file, source, files, configs):
+    """The repository file a ``paths`` alias (``@server/models/x``) names,
+    by the nearest enclosing tsconfig.json with paths: {config directory:
+    (base directory, paths)}. The longest matching prefix wins, as in
+    TypeScript."""
+    directory = file.rpartition("/")[0]
+    while True:
+        if directory in configs:
+            break
+        if not directory:
+            return None
+        directory = directory.rpartition("/")[0]
+    base, paths = configs[directory]
+    best = None
+    for pattern, targets in paths.items():
+        if "*" in pattern:
+            prefix, _, suffix = pattern.partition("*")
+            if (
+                source.startswith(prefix)
+                and source.endswith(suffix)
+                and len(source) >= len(prefix) + len(suffix)
+            ):
+                rest = source[len(prefix) : len(source) - len(suffix)]
+                key = len(prefix)
+            else:
+                continue
+        elif pattern == source:
+            rest, key = "", len(pattern) + 1
+        else:
+            continue
+        if best is None or key > best[0]:
+            best = (key, rest, targets)
+    if best is None:
+        return None
+    for target in best[2]:
+        joined = _join(base, target.replace("*", best[1]))
+        found = joined is not None and _script_file(joined, files)
+        if found:
+            return found
+    return None
 
 
 # MyBatis: mapper XML and annotations -----------------------------------------
@@ -3758,3 +3870,1413 @@ def mybatis_script(text):
         root = _parse_xml(text.encode("utf-8"))
         text = PLACEHOLDER if root is None else _mybatis_text(root, {})
     return None if text is None else mybatis_sql(text)
+
+
+# Laravel Eloquent default table names ---------------------------------------
+
+# Generated from doctrine/inflector 2.0.10 lib/Doctrine/Inflector/Rules/English
+_DOCTRINE_PLURALS = (
+    ("(s)tatus$", "\\1\\2tatuses"),
+    ("(quiz)$", "\\1zes"),
+    ("^(ox)$", "\\1\\2en"),
+    ("([m|l])ouse$", "\\1ice"),
+    ("(matr|vert|ind)(ix|ex)$", "\\1ices"),
+    ("(x|ch|ss|sh)$", "\\1es"),
+    ("([^aeiouy]|qu)y$", "\\1ies"),
+    ("(hive|gulf)$", "\\1s"),
+    ("(?:([^f])fe|([lr])f)$", "\\1\\2ves"),
+    ("sis$", "ses"),
+    ("([ti])um$", "\\1a"),
+    ("(tax)on$", "\\1a"),
+    ("(c)riterion$", "\\1riteria"),
+    ("(p)erson$", "\\1eople"),
+    ("(m)an$", "\\1en"),
+    ("(c)hild$", "\\1hildren"),
+    ("(f)oot$", "\\1eet"),
+    ("(buffal|her|potat|tomat|volcan)o$", "\\1\\2oes"),
+    ("(alumn|bacill|cact|foc|fung|nucle|radi|stimul|syllab|termin|vir)us$", "\\1i"),
+    ("us$", "uses"),
+    ("(alias)$", "\\1es"),
+    ("(analys|ax|cris|test|thes)is$", "\\1es"),
+    ("s$", "s"),
+    ("^$", ""),
+    ("$", "s"),
+)
+_DOCTRINE_UNINFLECTED_PLURAL = (
+    "\\w+media",
+    "advice",
+    "aircraft",
+    "amoyese",
+    "art",
+    "audio",
+    "baggage",
+    "bison",
+    "borghese",
+    "bream",
+    "breeches",
+    "britches",
+    "buffalo",
+    "butter",
+    "cantus",
+    "carp",
+    "cattle",
+    "chassis",
+    "clippers",
+    "clothing",
+    "coal",
+    "cod",
+    "coitus",
+    "compensation",
+    "congoese",
+    "contretemps",
+    "coreopsis",
+    "corps",
+    "cotton",
+    "data",
+    "debris",
+    "deer",
+    "diabetes",
+    "djinn",
+    "education",
+    "eland",
+    "elk",
+    "emoji",
+    "equipment",
+    "evidence",
+    "faroese",
+    "feedback",
+    "fish",
+    "flounder",
+    "flour",
+    "foochowese",
+    "food",
+    "furniture",
+    "gallows",
+    "genevese",
+    "genoese",
+    "gilbertese",
+    "gold",
+    "headquarters",
+    "herpes",
+    "hijinks",
+    "homework",
+    "hottentotese",
+    "impatience",
+    "information",
+    "innings",
+    "jackanapes",
+    "jeans",
+    "jedi",
+    "kin",
+    "kiplingese",
+    "knowledge",
+    "kongoese",
+    "leather",
+    "love",
+    "lucchese",
+    "luggage",
+    "mackerel",
+    "Maltese",
+    "management",
+    "metadata",
+    "mews",
+    "money",
+    "moose",
+    "mumps",
+    "music",
+    "nankingese",
+    "news",
+    "nexus",
+    "niasese",
+    "nutrition",
+    "offspring",
+    "oil",
+    "patience",
+    "pekingese",
+    "piedmontese",
+    "pincers",
+    "pistoiese",
+    "plankton",
+    "pliers",
+    "pokemon",
+    "police",
+    "polish",
+    "portuguese",
+    "proceedings",
+    "progress",
+    "rabies",
+    "rain",
+    "research",
+    "rhinoceros",
+    "rice",
+    "salmon",
+    "sand",
+    "sarawakese",
+    "scissors",
+    "sea[- ]bass",
+    "series",
+    "shavese",
+    "shears",
+    "sheep",
+    "siemens",
+    "silk",
+    "sms",
+    "soap",
+    "social media",
+    "spam",
+    "species",
+    "staff",
+    "sugar",
+    "swine",
+    "talent",
+    "toothpaste",
+    "traffic",
+    "travel",
+    "trousers",
+    "trout",
+    "tuna",
+    "us",
+    "vermontese",
+    "vinegar",
+    "weather",
+    "wenchowese",
+    "wheat",
+    "whiting",
+    "wildebeest",
+    "wood",
+    "wool",
+    "yengeese",
+    "people",
+    "trivia",
+    "\\w+ware$",
+    "media",
+)
+_DOCTRINE_IRREGULAR = (
+    ("atlas", "atlases"),
+    ("axis", "axes"),
+    ("axe", "axes"),
+    ("beef", "beefs"),
+    ("blouse", "blouses"),
+    ("brother", "brothers"),
+    ("cafe", "cafes"),
+    ("cave", "caves"),
+    ("chateau", "chateaux"),
+    ("niveau", "niveaux"),
+    ("child", "children"),
+    ("canvas", "canvases"),
+    ("cookie", "cookies"),
+    ("brownie", "brownies"),
+    ("corpus", "corpuses"),
+    ("cow", "cows"),
+    ("criterion", "criteria"),
+    ("curriculum", "curricula"),
+    ("demo", "demos"),
+    ("domino", "dominoes"),
+    ("echo", "echoes"),
+    ("epoch", "epochs"),
+    ("foot", "feet"),
+    ("fungus", "fungi"),
+    ("ganglion", "ganglions"),
+    ("gas", "gases"),
+    ("genie", "genies"),
+    ("genus", "genera"),
+    ("goose", "geese"),
+    ("graffito", "graffiti"),
+    ("hippopotamus", "hippopotami"),
+    ("hoof", "hoofs"),
+    ("human", "humans"),
+    ("iris", "irises"),
+    ("larva", "larvae"),
+    ("leaf", "leaves"),
+    ("lens", "lenses"),
+    ("loaf", "loaves"),
+    ("man", "men"),
+    ("medium", "media"),
+    ("memorandum", "memoranda"),
+    ("money", "monies"),
+    ("mongoose", "mongooses"),
+    ("motto", "mottoes"),
+    ("move", "moves"),
+    ("mythos", "mythoi"),
+    ("niche", "niches"),
+    ("nucleus", "nuclei"),
+    ("numen", "numina"),
+    ("occiput", "occiputs"),
+    ("octopus", "octopuses"),
+    ("opus", "opuses"),
+    ("ox", "oxen"),
+    ("passerby", "passersby"),
+    ("penis", "penises"),
+    ("person", "people"),
+    ("plateau", "plateaux"),
+    ("runner-up", "runners-up"),
+    ("safe", "safes"),
+    ("sex", "sexes"),
+    ("sieve", "sieves"),
+    ("soliloquy", "soliloquies"),
+    ("son-in-law", "sons-in-law"),
+    ("syllabus", "syllabi"),
+    ("testis", "testes"),
+    ("thief", "thieves"),
+    ("tooth", "teeth"),
+    ("tornado", "tornadoes"),
+    ("trilby", "trilbys"),
+    ("turf", "turfs"),
+    ("valve", "valves"),
+    ("volcano", "volcanoes"),
+    ("abuse", "abuses"),
+    ("avalanche", "avalanches"),
+    ("cache", "caches"),
+    ("criterion", "criteria"),
+    ("curve", "curves"),
+    ("emphasis", "emphases"),
+    ("foe", "foes"),
+    ("grave", "graves"),
+    ("hoax", "hoaxes"),
+    ("medium", "media"),
+    ("neurosis", "neuroses"),
+    ("save", "saves"),
+    ("wave", "waves"),
+    ("oasis", "oases"),
+    ("valve", "valves"),
+    ("zombie", "zombies"),
+)
+
+
+def _php_replacement(template, groups):
+    """A preg_replace template for re.sub: ``\\N`` of a group the pattern
+    does not have is empty, as in PHP."""
+    return re.sub(
+        r"\\(\d+)",
+        lambda m: f"\\g<{m.group(1)}>" if int(m.group(1)) <= groups else "",
+        template.replace("\\\\", "\x01"),
+    ).replace("\x01", "\\\\")
+
+
+_DOCTRINE_PLURAL_RULES = tuple(
+    (rule, _php_replacement(template, rule.groups))
+    for pattern, template in _DOCTRINE_PLURALS
+    for rule in [re.compile(pattern, re.IGNORECASE | re.ASCII)]
+)
+_DOCTRINE_UNINFLECTED = re.compile(
+    "^(?:" + "|".join(_DOCTRINE_UNINFLECTED_PLURAL) + ")$", re.IGNORECASE | re.ASCII
+)
+# Substitutions keys by the lower-case word; a later pair replaces an
+# earlier one, as PHP array assignment does.
+_DOCTRINE_IRREGULAR_PLURAL = {}
+for _singular, _plural_word in _DOCTRINE_IRREGULAR:
+    _DOCTRINE_IRREGULAR_PLURAL[_singular] = _plural_word
+
+
+def doctrine_pluralize(word):
+    """doctrine/inflector 2.0's English ``Inflector::pluralize``: words
+    left uninflected, then irregular words (keeping an upper-case first
+    letter), then the first matching transformation."""
+    if word == "":
+        return ""
+    if _DOCTRINE_UNINFLECTED.search(word):
+        return word
+    lower = word.lower()
+    if lower in _DOCTRINE_IRREGULAR_PLURAL:
+        to = _DOCTRINE_IRREGULAR_PLURAL[lower]
+        return to[0].upper() + to[1:] if lower[0] != word[0] else to
+    for rule, replacement in _DOCTRINE_PLURAL_RULES:
+        if rule.search(word):
+            return rule.sub(replacement, word)
+    return word
+
+
+_LARAVEL_UNCOUNTABLE = ("recommended", "related")
+
+
+def _php_ucwords(text):
+    return re.sub(
+        r"(^|[ \t\r\n\f\v])([a-z])", lambda m: m.group(1) + m.group(2).upper(), text
+    )
+
+
+def laravel_plural(value):
+    """Laravel's ``Pluralizer::plural`` (count 2): Doctrine's plural with
+    the case of the original word."""
+    if value.lower() in _LARAVEL_UNCOUNTABLE or not re.search(
+        r"[A-Za-z0-9\u0080-\uffff]$", value
+    ):
+        return value
+    plural = doctrine_pluralize(value)
+    for function in (
+        str.lower,
+        str.upper,
+        lambda t: t[:1].upper() + t[1:],
+        _php_ucwords,
+    ):
+        if function(value) == value:
+            return function(plural)
+    return plural
+
+
+def laravel_table_name(class_name):
+    """Eloquent's default ``getTable()``: ``Str::snake(Str::pluralStudly(
+    class_basename))`` (``UserProfile`` is ``user_profiles``,
+    ``HTTPLog`` is ``h_t_t_p_logs``)."""
+    value = class_name.rpartition("\\")[2]
+    parts = re.split(r"(.)(?=[A-Z])", value)
+    plural = "".join(parts[:-1]) + laravel_plural(parts[-1])
+    if re.fullmatch(r"[a-z]+", plural):
+        return plural
+    plural = re.sub(r"\s+", "", _php_ucwords(plural))
+    return re.sub(r"(.)(?=[A-Z])", r"\1_", plural).lower()
+
+
+ELOQUENT_BASES = {
+    "Illuminate\\Database\\Eloquent\\Model",
+    "Illuminate\\Foundation\\Auth\\User",
+}
+ELOQUENT_PIVOTS = {
+    "Illuminate\\Database\\Eloquent\\Relations\\Pivot",
+    "Illuminate\\Database\\Eloquent\\Relations\\MorphPivot",
+}
+LARAVEL_SCHEMA = {"Illuminate\\Support\\Facades\\Schema", "Schema"}
+LARAVEL_DB = {"Illuminate\\Support\\Facades\\DB", "DB"}
+# Query builder methods: reading, and writing (anywhere in a chain).
+ELOQUENT_READS = {
+    "all", "find", "findOrFail", "findMany", "findOr", "first", "firstOrFail",
+    "firstWhere", "sole", "where", "whereIn", "whereNotIn", "whereKey",
+    "whereNull", "whereNotNull", "whereHas", "whereBetween", "orWhere", "query",
+    "get", "count", "exists", "doesntExist", "pluck", "value", "paginate",
+    "simplePaginate", "cursorPaginate", "cursor", "chunk", "chunkById", "each",
+    "lazy", "latest", "oldest", "orderBy", "orderByDesc", "with", "withCount",
+    "has", "select", "sum", "max", "min", "avg", "distinct", "groupBy", "limit",
+    "take", "skip", "firstOrNew", "join", "leftJoin",
+}  # fmt: skip
+ELOQUENT_WRITES = {
+    "create", "forceCreate", "insert", "insertGetId", "insertOrIgnore",
+    "upsert", "update", "updateOrInsert", "delete", "forceDelete", "destroy",
+    "truncate", "increment", "decrement", "incrementEach", "decrementEach",
+    "firstOrCreate", "updateOrCreate", "createMany", "restore",
+}  # fmt: skip
+ELOQUENT_READ_WRITES = {"firstOrCreate", "updateOrCreate", "updateOrInsert"}
+
+
+@dataclass(frozen=True)
+class PhpClass:
+    file: str
+    class_id: str | None
+    path: str  # fully qualified, without a leading backslash
+    superclass: str | None  # fully qualified
+    table: str | None  # protected $table = literal; PLACEHOLDER if not literal
+    abstract: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class PhpAccess:
+    file: str
+    caller_id: str | None
+    model: str | None  # fully qualified class, or None for DB::table
+    table: str | None  # DB::table's literal table
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+def _php_literal(node, content):
+    if node is None:
+        return None
+    if node.type in ("string", "encapsed_string"):
+        parts = []
+        for child in node.named_children:
+            if child.type == "string_content":
+                parts.append(_text(child, content))
+            else:
+                return None
+        return "".join(parts)
+    return None
+
+
+def _php_arguments(node):
+    arguments = node.child_by_field_name("arguments")
+    return [
+        a.named_children[0] if a.type == "argument" and a.named_children else a
+        for a in (arguments.named_children if arguments is not None else ())
+        if a.type != "comment"
+    ]
+
+
+def extract_php_eloquent(tree, content, file, definitions):
+    """(classes, accesses, tables) of one PHP file: classes with their
+    resolved superclass and ``$table``, static Eloquent calls
+    (``Model::where(...)``) and ``DB::table('t')`` chains, and the tables
+    ``Schema::create`` (or ``Schema::rename``'s target) makes."""
+    classes, accesses, tables = [], [], []
+    namespace, uses = "", {}
+
+    def resolve(written):
+        if written is None:
+            return None
+        if written.startswith("\\"):
+            return written[1:]
+        head, _, rest = written.partition("\\")
+        if head in uses:
+            return uses[head] + ("\\" + rest if rest else "")
+        if written in ("self", "static", "parent"):
+            return None
+        return f"{namespace}\\{written}" if namespace else written
+
+    def use_clauses(declaration):
+        prefix = ""
+        for child in declaration.named_children:
+            if child.type == "namespace_name":
+                prefix = _text(child, content) + "\\"
+            elif child.type == "namespace_use_clause":
+                add_clause(child, "")
+            elif child.type == "namespace_use_group":
+                for clause in child.named_children:
+                    if clause.type == "namespace_use_clause":
+                        add_clause(clause, prefix)
+
+    def add_clause(clause, prefix):
+        if any(c.type in ("function", "const") for c in clause.children):
+            return
+        alias = clause.child_by_field_name("alias")
+        target = next(
+            (c for c in clause.named_children if c.type in ("qualified_name", "name")),
+            None,
+        )
+        if target is None:
+            return
+        path = (prefix + _text(target, content)).lstrip("\\")
+        uses[
+            _text(alias, content) if alias is not None else path.rpartition("\\")[2]
+        ] = path
+
+    def chain_methods(call):
+        names, node = [], call
+        while node.parent is not None and node.parent.type == "member_call_expression":
+            if node.parent.child_by_field_name("object") != node:
+                break
+            node = node.parent
+            names.append(_text(node.child_by_field_name("name"), content))
+        return names
+
+    def access(call, model, table, method):
+        chain = [method, *chain_methods(call)]
+        writes = any(m in ELOQUENT_WRITES for m in chain)
+        reads = any(m in ELOQUENT_READS | ELOQUENT_READ_WRITES for m in chain) or (
+            not writes
+        )
+        accesses.append(
+            PhpAccess(
+                file,
+                _innermost(definitions, file, call),
+                model,
+                table,
+                reads,
+                writes,
+                call.start_point.row + 1,
+                call.start_point.column,
+            )
+        )
+
+    def walk(node):
+        nonlocal namespace
+        for child in node.named_children:
+            if child.type == "namespace_definition":
+                name = child.child_by_field_name("name")
+                namespace = _text(name, content) if name is not None else ""
+                uses.clear()
+                body = child.child_by_field_name("body")
+                if body is not None:
+                    walk(body)
+                continue
+            if child.type == "namespace_use_declaration":
+                use_clauses(child)
+                continue
+            if child.type == "class_declaration":
+                name = child.child_by_field_name("name")
+                base = next(
+                    (c for c in child.named_children if c.type == "base_clause"), None
+                )
+                written = (
+                    _text(base.named_children[0], content)
+                    if base is not None and base.named_children
+                    else None
+                )
+                table = None
+                body = child.child_by_field_name("body")
+                for member in body.named_children if body is not None else ():
+                    if member.type != "property_declaration":
+                        continue
+                    if any(c.type == "static_modifier" for c in member.named_children):
+                        continue
+                    for element in member.named_children:
+                        if element.type != "property_element":
+                            continue
+                        variable = element.child_by_field_name("name")
+                        if variable is None or _text(variable, content) != "$table":
+                            continue
+                        values = [c for c in element.named_children if c != variable]
+                        table = (
+                            (_php_literal(values[-1], content) or PLACEHOLDER)
+                            if values
+                            else None
+                        )
+                path = (
+                    f"{namespace}\\{_text(name, content)}"
+                    if namespace
+                    else _text(name, content)
+                )
+                classes.append(
+                    PhpClass(
+                        file,
+                        _innermost(definitions, file, name),
+                        path,
+                        resolve(written),
+                        table,
+                        any(
+                            c.type == "abstract_modifier" for c in child.named_children
+                        ),
+                        name.start_point.row + 1,
+                        name.start_point.column,
+                    )
+                )
+            if child.type == "scoped_call_expression":
+                scope = resolve(_text(child.child_by_field_name("scope"), content))
+                method = _text(child.child_by_field_name("name"), content)
+                arguments = _php_arguments(child)
+                first = _php_literal(arguments[0], content) if arguments else None
+                if scope in LARAVEL_SCHEMA and method == "create" and first:
+                    tables.append((table_key(first), child.start_point.row + 1))
+                elif (
+                    scope in LARAVEL_SCHEMA
+                    and method == "rename"
+                    and len(arguments) > 1
+                ):
+                    target = _php_literal(arguments[1], content)
+                    if target:
+                        tables.append((table_key(target), child.start_point.row + 1))
+                elif scope in LARAVEL_DB and method == "table" and arguments:
+                    # DB::table('schema.users as u'): the table is users.
+                    name = re.split(r"\s+as\s+", first or "", flags=re.I)[0].strip()
+                    access(
+                        child,
+                        None,
+                        table_key(name.rpartition(".")[2]) if name else PLACEHOLDER,
+                        method,
+                    )
+                elif scope is not None and method in ELOQUENT_READS | ELOQUENT_WRITES:
+                    access(child, scope, None, method)
+            walk(child)
+
+    walk(tree.root_node)
+    return classes, accesses, tables
+
+
+def resolve_eloquent(classes):
+    """({class path: (table, how)}, unresolved paths) of the concrete
+    Eloquent models: classes whose superclass chain, through classes of the
+    repository, reaches Eloquent's Model or Authenticatable (or a pivot).
+    The table is the nearest ``$table`` up the chain ("explicit"), else the
+    default name of the class itself ("default"); a pivot without
+    ``$table`` (Laravel singularizes its name) and a ``$table`` that is not
+    a literal are unresolved."""
+    by_path = {}
+    for c in classes:
+        by_path.setdefault(c.path, []).append(c)
+    single = {p: cs[0] for p, cs in by_path.items() if len(cs) == 1}
+
+    def chain(path, seen=()):
+        c = single.get(path)
+        if c is None or path in seen or c.superclass is None:
+            return None
+        if c.superclass in ELOQUENT_BASES | ELOQUENT_PIVOTS:
+            return [c], c.superclass in ELOQUENT_PIVOTS
+        found = chain(c.superclass, (*seen, path))
+        return None if found is None else ([c, *found[0]], found[1])
+
+    tables, unresolved = {}, []
+    for path, c in sorted(single.items()):
+        found = chain(path)
+        if found is None or c.abstract:
+            continue
+        ancestors, pivot = found
+        written = next((a.table for a in ancestors if a.table is not None), None)
+        if written == PLACEHOLDER or (written is None and pivot):
+            unresolved.append(path)
+        elif written is not None:
+            tables[path] = (table_key(written.rpartition(".")[2]), "explicit")
+        else:
+            tables[path] = (laravel_table_name(path), "default")
+    return tables, unresolved
+
+
+# Sequelize: models, migrations and static model calls -------------------------
+
+# The English plural rules of the npm ``inflection`` package 1.13.4, which
+# Sequelize 6 uses for default table names (``Utils.pluralize``), copied
+# from its ``lib/inflection.js``: the first rule whose pattern matches wins;
+# a rule without a replacement leaves an already plural word as it is.
+_INFLECTION_UNCOUNTABLE = frozenset(
+    (
+        "accommodation",
+        "adulthood",
+        "advertising",
+        "advice",
+        "aggression",
+        "aid",
+        "air",
+        "aircraft",
+        "alcohol",
+        "anger",
+        "applause",
+        "arithmetic",
+        "assistance",
+        "athletics",
+        "bacon",
+        "baggage",
+        "beef",
+        "biology",
+        "blood",
+        "botany",
+        "bread",
+        "butter",
+        "carbon",
+        "cardboard",
+        "cash",
+        "chalk",
+        "chaos",
+        "chess",
+        "crossroads",
+        "countryside",
+        "dancing",
+        "deer",
+        "dignity",
+        "dirt",
+        "dust",
+        "economics",
+        "education",
+        "electricity",
+        "engineering",
+        "enjoyment",
+        "envy",
+        "equipment",
+        "ethics",
+        "evidence",
+        "evolution",
+        "fame",
+        "fiction",
+        "flour",
+        "flu",
+        "food",
+        "fuel",
+        "fun",
+        "furniture",
+        "gallows",
+        "garbage",
+        "garlic",
+        "genetics",
+        "gold",
+        "golf",
+        "gossip",
+        "gratitude",
+        "grief",
+        "guilt",
+        "gymnastics",
+        "happiness",
+        "hardware",
+        "harm",
+        "hate",
+        "hatred",
+        "health",
+        "heat",
+        "help",
+        "homework",
+        "honesty",
+        "honey",
+        "hospitality",
+        "housework",
+        "humour",
+        "hunger",
+        "hydrogen",
+        "ice",
+        "importance",
+        "inflation",
+        "information",
+        "innocence",
+        "iron",
+        "irony",
+        "jam",
+        "jewelry",
+        "judo",
+        "karate",
+        "knowledge",
+        "lack",
+        "laughter",
+        "lava",
+        "leather",
+        "leisure",
+        "lightning",
+        "linguine",
+        "linguini",
+        "linguistics",
+        "literature",
+        "litter",
+        "livestock",
+        "logic",
+        "loneliness",
+        "luck",
+        "luggage",
+        "macaroni",
+        "machinery",
+        "magic",
+        "management",
+        "mankind",
+        "marble",
+        "mathematics",
+        "mayonnaise",
+        "measles",
+        "methane",
+        "milk",
+        "minus",
+        "money",
+        "mud",
+        "music",
+        "mumps",
+        "nature",
+        "news",
+        "nitrogen",
+        "nonsense",
+        "nurture",
+        "nutrition",
+        "obedience",
+        "obesity",
+        "oxygen",
+        "pasta",
+        "patience",
+        "physics",
+        "poetry",
+        "pollution",
+        "poverty",
+        "pride",
+        "psychology",
+        "publicity",
+        "punctuation",
+        "quartz",
+        "racism",
+        "relaxation",
+        "reliability",
+        "research",
+        "respect",
+        "revenge",
+        "rice",
+        "rubbish",
+        "rum",
+        "safety",
+        "scenery",
+        "seafood",
+        "seaside",
+        "series",
+        "shame",
+        "sheep",
+        "shopping",
+        "sleep",
+        "smoke",
+        "smoking",
+        "snow",
+        "soap",
+        "software",
+        "soil",
+        "spaghetti",
+        "species",
+        "steam",
+        "stuff",
+        "stupidity",
+        "sunshine",
+        "symmetry",
+        "tennis",
+        "thirst",
+        "thunder",
+        "timber",
+        "traffic",
+        "transportation",
+        "trust",
+        "underwear",
+        "unemployment",
+        "unity",
+        "validity",
+        "veal",
+        "vegetation",
+        "vegetarianism",
+        "vengeance",
+        "violence",
+        "vitality",
+        "warmth",
+        "wealth",
+        "weather",
+        "welfare",
+        "wheat",
+        "wildlife",
+        "wisdom",
+        "yoga",
+        "zinc",
+        "zoology",
+    )
+)
+_INFLECTION_PLURALS = (
+    ("^(m|wom)en$", None),
+    ("(pe)ople$", None),
+    ("(child)ren$", None),
+    ("([ti])a$", None),
+    ("((a)naly|(b)a|(d)iagno|(p)arenthe|(p)rogno|(s)ynop|(t)he)ses$", None),
+    ("(database)s$", None),
+    ("(drive)s$", None),
+    ("(hi|ti)ves$", None),
+    ("(curve)s$", None),
+    ("([lr])ves$", None),
+    ("([^fo])ves$", None),
+    ("([^aeiouy]|qu)ies$", None),
+    ("(s)eries$", None),
+    ("(m)ovies$", None),
+    ("(x|ch|ss|sh)es$", None),
+    ("([m|l])ice$", None),
+    ("(bus)es$", None),
+    ("(o)es$", None),
+    ("(shoe)s$", None),
+    ("(cris|ax|test)es$", None),
+    ("(octop|vir)uses$", None),
+    ("(alias|canvas|status|campus)es$", None),
+    ("^(summons|bonus)es$", None),
+    ("^(ox)en", None),
+    ("(matr)ices$", None),
+    ("^feet$", None),
+    ("^teeth$", None),
+    ("^geese$", None),
+    ("(quiz)zes$", None),
+    ("^(whereas)es$", None),
+    ("^(criteri)a$", None),
+    ("^genera$", None),
+    ("^(m|wom)an$", "$1en"),
+    ("(pe)rson$", "$1ople"),
+    ("(child)$", "$1ren"),
+    ("(drive)$", "$1s"),
+    ("^(ox)$", "$1en"),
+    ("(ax|test)is$", "$1es"),
+    ("(octop|vir)us$", "$1uses"),
+    ("(alias|status|canvas|campus)$", "$1es"),
+    ("^(summons|bonus)$", "$1es"),
+    ("(bu)s$", "$1ses"),
+    ("(buffal|tomat|potat)o$", "$1oes"),
+    ("([ti])um$", "$1a"),
+    ("sis$", "ses"),
+    ("(?:([^f])fe|([lr])f)$", "$1$2ves"),
+    ("(hi|ti)ve$", "$1ves"),
+    ("([^aeiouy]|qu)y$", "$1ies"),
+    ("(matr)ix$", "$1ices"),
+    ("(vert|ind)ex$", "$1ices"),
+    ("(x|ch|ss|sh)$", "$1es"),
+    ("([m|l])ouse$", "$1ice"),
+    ("^foot$", "feet"),
+    ("^tooth$", "teeth"),
+    ("^goose$", "geese"),
+    ("(quiz)$", "$1zes"),
+    ("^(whereas)$", "$1es"),
+    ("^(criteri)on$", "$1a"),
+    ("^genus$", "genera"),
+    ("s$", "s"),
+    ("$", "s"),
+)
+
+
+def _js_replacement(template):
+    return re.sub(r"\$(\d)", r"\\g<\1>", template)
+
+
+_INFLECTION_PLURAL_RULES = tuple(
+    (re.compile(pattern, re.I), None if r is None else _js_replacement(r))
+    for pattern, r in _INFLECTION_PLURALS
+)
+
+
+def inflection_pluralize(word):
+    """``inflection.pluralize(word)`` of the npm package 1.13.4."""
+    if word.lower() in _INFLECTION_UNCOUNTABLE:
+        return word
+    for pattern, replacement in _INFLECTION_PLURAL_RULES:
+        if pattern.search(word):
+            if replacement is not None:
+                word = pattern.sub(replacement, word)
+            break
+    return word
+
+
+def inflection_underscore(word):
+    """``inflection.underscore(word)`` of the npm package 1.13.4."""
+    return "/".join(
+        re.sub(r"^_", "", re.sub(r"([A-Z])", r"_\1", part)) for part in word.split("::")
+    ).lower()
+
+
+def sequelize_table_name(model_name, freeze=False, underscored=False):
+    """Sequelize 6's default table name of a model (``Model.init``): the
+    model name itself with ``freezeTableName``, else its plural, underscored
+    with ``underscored``."""
+    if freeze:
+        return model_name
+    plural = inflection_pluralize(model_name)
+    return inflection_underscore(plural) if underscored else plural
+
+
+SEQUELIZE_PACKAGES = {"sequelize", "@sequelize/core", "sequelize-typescript"}
+SEQUELIZE_READS = {
+    "findAll", "findOne", "findByPk", "findAndCountAll", "count", "max", "min",
+    "sum", "aggregate", "findOrBuild",
+}  # fmt: skip
+SEQUELIZE_WRITES = {
+    "create", "bulkCreate", "update", "destroy", "upsert", "truncate",
+    "restore", "increment", "decrement",
+}  # fmt: skip
+SEQUELIZE_READ_WRITES = {"findOrCreate", "findCreateFind"}
+SEQUELIZE_OPTIONS = ("tableName", "modelName", "freezeTableName", "underscored")
+UNKNOWN = object()  # An option whose value the code does not fix.
+
+
+@dataclass(frozen=True)
+class SequelizeModel:
+    """A class (``class X extends Model``) or a ``define`` call. ``options``
+    holds the literal SEQUELIZE_OPTIONS values (UNKNOWN when not fixed), or
+    is None when the options are not an object literal. ``superclass`` is
+    "base" for Sequelize's own Model, else the name of a class."""
+
+    file: str
+    kind: str  # "class" or "define"
+    name: str  # class name, or the name given to define
+    binding: str | None  # the variable a define is assigned to
+    model_id: str | None
+    superclass: str | None
+    decorated: bool
+    options: tuple | None
+    line: int
+    column: int
+    superclass_module: str | None = None  # the module it is imported from
+
+
+@dataclass(frozen=True)
+class SequelizeUse:
+    file: str
+    caller_id: str | None
+    model: str
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+def script_bindings(root, content):
+    """{local name: (module, imported name)} bound by ``import`` (named,
+    default as "default", namespace as "*") or ``require`` (the whole module
+    as "default", a destructured or ``.member`` name as itself)."""
+    found = {}
+    for node in root.named_children:
+        if node.type != "import_statement":
+            continue
+        source = _script_string(node.child_by_field_name("source"), content)
+        if source is None:
+            continue
+        for clause in node.named_children:
+            if clause.type != "import_clause":
+                continue
+            for part in clause.named_children:
+                if part.type == "identifier":
+                    found[_text(part, content)] = (source, "default")
+                elif part.type == "namespace_import":
+                    for c in part.named_children:
+                        if c.type == "identifier":
+                            found[_text(c, content)] = (source, "*")
+                elif part.type == "named_imports":
+                    for spec in part.named_children:
+                        if spec.type != "import_specifier":
+                            continue
+                        name = _text(spec.child_by_field_name("name"), content)
+                        alias = spec.child_by_field_name("alias")
+                        local = _text(alias, content) if alias is not None else name
+                        found[local] = (source, name)
+
+    def required(node):
+        member = None
+        if node is not None and node.type == "member_expression":
+            member = _text(node.child_by_field_name("property"), content)
+            node = node.child_by_field_name("object")
+        if node is None or node.type != "call_expression":
+            return None
+        callee, receiver, args = _call_parts(node, content)
+        if callee != "require" or receiver is not None or len(args) != 1:
+            return None
+        source = _script_string(args[0], content)
+        return None if source is None else (source, member)
+
+    for declarator in _descendants(root, "variable_declarator"):
+        found_require = required(declarator.child_by_field_name("value"))
+        name = declarator.child_by_field_name("name")
+        if found_require is None or name is None:
+            continue
+        source, member = found_require
+        if name.type == "identifier":
+            found[_text(name, content)] = (source, member or "default")
+        elif name.type == "object_pattern" and member is None:
+            for part in name.named_children:
+                if part.type == "shorthand_property_identifier_pattern":
+                    text = _text(part, content)
+                    found[text] = (source, text)
+                elif part.type == "pair_pattern":
+                    key = part.child_by_field_name("key")
+                    value = part.child_by_field_name("value")
+                    if value is not None and value.type == "identifier":
+                        found[_text(value, content)] = (source, _text(key, content))
+    return found
+
+
+def _script_key(node, content):
+    if node is None:
+        return None
+    if node.type in ("property_identifier", "identifier"):
+        return _text(node, content)
+    return _script_string(node, content)
+
+
+def _sequelize_options(node, content):
+    """The SEQUELIZE_OPTIONS of an options object literal as sorted pairs,
+    or None when ``node`` is not an object literal or spreads another."""
+    if node is None or node.type != "object":
+        return None
+    found = {}
+    for pair in node.named_children:
+        if pair.type == "spread_element":
+            return None
+        if pair.type == "shorthand_property_identifier":
+            if _text(pair, content) in SEQUELIZE_OPTIONS:
+                found[_text(pair, content)] = UNKNOWN
+            continue
+        if pair.type != "pair":
+            continue
+        key = _script_key(pair.child_by_field_name("key"), content)
+        if key not in SEQUELIZE_OPTIONS:
+            continue
+        value = pair.child_by_field_name("value")
+        if value is not None and value.type in ("true", "false"):
+            found[key] = value.type == "true"
+        else:
+            text = _script_string(value, content)
+            found[key] = UNKNOWN if text is None else text
+    return tuple(sorted(found.items()))
+
+
+def sequelize_define_options(root, content):
+    """The ``define`` option objects of a file that constructs ``new
+    Sequelize``: a list of option tuples (None for a non-literal object)."""
+    if not any(
+        _text(n.child_by_field_name("constructor"), content) == "Sequelize"
+        for n in _descendants(root, "new_expression")
+    ):
+        return []
+    found = []
+    for pair in _descendants(root, "pair"):
+        if _script_key(pair.child_by_field_name("key"), content) == "define":
+            found.append(_sequelize_options(pair.child_by_field_name("value"), content))
+    return found
+
+
+def _heritage(node):
+    """The expression a class extends, or None."""
+    for child in node.named_children:
+        if child.type != "class_heritage":
+            continue
+        for part in child.named_children:
+            if part.type == "extends_clause":
+                return part.child_by_field_name("value") or (
+                    part.named_children[0] if part.named_children else None
+                )
+            return part
+    return None
+
+
+def extract_sequelize(tree, content, file, definitions):
+    """(models, inits, tables, uses) of one TypeScript or JavaScript file:
+    classes extending a Model (decorated with sequelize-typescript's
+    ``@Table`` or not), ``X.init(attributes, options)`` calls, ``define``
+    calls, ``queryInterface.createTable``/``renameTable`` tables and static
+    model calls (``User.findAll``, ``db.User.create``)."""
+    root = tree.root_node
+    bindings = script_bindings(root, content)
+    sequelize = {
+        local: name
+        for local, (source, name) in bindings.items()
+        if source in SEQUELIZE_PACKAGES
+    }
+    models, inits, tables, uses = [], {}, [], []
+    local_models = set()
+    classes = [
+        *_descendants(root, "class_declaration"),
+        *_descendants(root, "abstract_class_declaration"),
+    ]
+    for node in classes:
+        name_node = node.child_by_field_name("name")
+        base = _heritage(node)
+        if name_node is None or base is None:
+            continue
+        superclass = module = None
+        if base.type == "identifier":
+            written = _text(base, content)
+            if sequelize.get(written) == "Model":
+                superclass = "base"
+            elif written in bindings:
+                module, imported = bindings[written]
+                superclass = written if imported in ("default", "*") else imported
+            else:
+                superclass = written
+        elif base.type == "member_expression":
+            target = base.child_by_field_name("object")
+            if (
+                target is not None
+                and sequelize.get(_text(target, content)) in ("default", "*")
+                and _text(base.child_by_field_name("property"), content) == "Model"
+            ):
+                superclass = "base"
+        if superclass is None:
+            continue
+        decorators = [c for c in node.named_children if c.type == "decorator"]
+        if node.parent is not None and node.parent.type == "export_statement":
+            decorators += [
+                c for c in node.parent.named_children if c.type == "decorator"
+            ]
+        decorated, options = False, ()
+        for decorator in decorators:
+            call = decorator.named_children[0] if decorator.named_children else None
+            if call is not None and call.type == "identifier":
+                callee, args = _text(call, content), []
+            elif call is not None and call.type == "call_expression":
+                callee, receiver, args = _call_parts(call, content)
+                if receiver is not None:
+                    continue
+            else:
+                continue
+            if sequelize.get(callee) != "Table":
+                continue
+            decorated = True
+            options = _sequelize_options(args[0], content) if args else ()
+        name = _text(name_node, content)
+        local_models.add(name)
+        models.append(
+            SequelizeModel(
+                file,
+                "class",
+                name,
+                None,
+                _innermost(definitions, file, name_node),
+                superclass,
+                decorated,
+                options,
+                name_node.start_point.row + 1,
+                name_node.start_point.column,
+                module,
+            )
+        )
+    calls = list(_descendants(root, "call_expression"))
+    for call in calls:
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None:
+            continue
+        where = call.child_by_field_name("function").child_by_field_name("property")
+        line, column = where.start_point.row + 1, where.start_point.column
+        if method == "init" and receiver.type == "identifier" and len(args) >= 2:
+            inits.setdefault(_text(receiver, content), []).append(
+                _sequelize_options(args[1], content)
+            )
+        elif method == "define" and args:
+            written = _text(receiver, content).rpartition(".")[2]
+            if not sequelize and "sequelize" not in written.lower():
+                continue
+            name = _script_string(args[0], content)
+            if name is None:
+                continue
+            binding = None
+            parent = call.parent
+            while parent is not None and parent.type in (
+                "await_expression",
+                "parenthesized_expression",
+            ):
+                parent = parent.parent
+            if parent is not None and parent.type == "variable_declarator":
+                target = parent.child_by_field_name("name")
+                if target is not None and target.type == "identifier":
+                    binding = _text(target, content)
+            options = _sequelize_options(args[2], content) if len(args) > 2 else ()
+            local_models.update(n for n in (name, binding) if n)
+            models.append(
+                SequelizeModel(
+                    file,
+                    "define",
+                    name,
+                    binding,
+                    _innermost(definitions, file, call),
+                    None,
+                    False,
+                    options,
+                    line,
+                    column,
+                )
+            )
+        elif method in ("createTable", "renameTable") and args:
+            interface = (
+                receiver.type == "identifier"
+                and _text(receiver, content) == "queryInterface"
+            ) or (
+                receiver.type == "call_expression"
+                and _call_parts(receiver, content)[0] == "getQueryInterface"
+            )
+            if not interface:
+                continue
+            argument = args[-1] if method == "renameTable" else args[0]
+            name = _script_string(argument, content)
+            if argument.type == "object":
+                options = dict(_sequelize_options(argument, content) or ())
+                name = options.get("tableName")
+            if isinstance(name, str) and name:
+                tables.append((name, line))
+    for call in calls:
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None:
+            continue
+        if method not in SEQUELIZE_READS | SEQUELIZE_WRITES | SEQUELIZE_READ_WRITES:
+            continue
+        model = None
+        if receiver.type == "identifier":
+            written = _text(receiver, content)
+            if written in local_models:
+                model = written
+            elif written in bindings:
+                imported = bindings[written][1]
+                model = written if imported in ("default", "*") else imported
+        elif receiver.type == "member_expression":
+            target = receiver.child_by_field_name("object")
+            if target is not None and (
+                (target.type == "identifier" and _text(target, content) in bindings)
+                or (
+                    target.type == "member_expression"
+                    and _text(target.child_by_field_name("property"), content)
+                    == "models"
+                )
+            ):
+                model = _text(receiver.child_by_field_name("property"), content)
+        if model is None:
+            continue
+        where = call.child_by_field_name("function").child_by_field_name("property")
+        uses.append(
+            SequelizeUse(
+                file,
+                _innermost(definitions, file, call),
+                model,
+                method in SEQUELIZE_READS | SEQUELIZE_READ_WRITES,
+                method in SEQUELIZE_WRITES | SEQUELIZE_READ_WRITES,
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+    return models, inits, tables, uses
+
+
+def merge_sequelize_defines(found):
+    """The repository's global (freezeTableName, underscored): False when
+    unset, UNKNOWN when not fixed or set differently in several places."""
+    values = {"freezeTableName": set(), "underscored": set()}
+    for options in found:
+        if options is None:
+            return UNKNOWN, UNKNOWN
+        given = dict(options)
+        for key in values:
+            values[key].add(given.get(key, False))
+    merged = []
+    for key in ("freezeTableName", "underscored"):
+        seen = values[key] or {False}
+        merged.append(
+            next(iter(seen)) if len(seen) == 1 and UNKNOWN not in seen else UNKNOWN
+        )
+    return tuple(merged)
+
+
+def resolve_sequelize(models, inits, defines, scope=None, resolve=None):
+    """{index into ``models``: (table, "explicit" | "default", names)} and
+    the unresolved indices. A class is a model when its superclass chain
+    reaches Sequelize's Model through classes of the repository (the one
+    class of a name in its namespace, else in the repository) and it is
+    decorated with ``@Table`` or has an ``init`` call in its file; its
+    options come from the decorator or that call, over the global ``define``
+    options. A superclass imported from a module that ``resolve(file,
+    module)`` finds in the repository is looked up in that file first."""
+    scope = scope or (lambda file: "")
+    by_name = {}
+    for index, m in enumerate(models):
+        if m.kind == "class":
+            by_name.setdefault(m.name, []).append(index)
+
+    def lookup(name, file, module):
+        if module is not None and resolve is not None:
+            path = resolve(file, module)
+            if path is not None:
+                there = [
+                    i
+                    for i, m in enumerate(models)
+                    if m.kind == "class" and m.file == path
+                ]
+                named = [i for i in there if models[i].name == name]
+                if len(named) == 1 or len(there) == 1:
+                    return (named or there)[0]
+        candidates = by_name.get(name, [])
+        own = [i for i in candidates if scope(models[i].file) == scope(file)]
+        found = own or candidates
+        return found[0] if len(found) == 1 else None
+
+    def reaches_base(index, seen=()):
+        m = models[index]
+        if m.superclass == "base":
+            return True
+        if index in seen or m.superclass is None:
+            return False
+        parent = lookup(m.superclass, m.file, m.superclass_module)
+        return parent is not None and reaches_base(parent, (*seen, index))
+
+    freeze_all, underscored_all = defines
+    tables, unresolved = {}, []
+    for index, m in enumerate(models):
+        options = m.options
+        if m.kind == "class":
+            if not reaches_base(index):
+                continue
+            calls = inits.get((m.file, m.name), [])
+            if not m.decorated and not calls:
+                continue
+            if calls:
+                options = calls[0] if len(calls) == 1 else None
+        if options is None:
+            unresolved.append(index)
+            continue
+        given = dict(options)
+        if any(v is UNKNOWN for v in given.values()):
+            unresolved.append(index)
+            continue
+        model_name = given.get("modelName", m.name)
+        names = {model_name, m.binding if m.kind == "define" else m.name} - {None}
+        if given.get("tableName"):
+            tables[index] = (table_key(given["tableName"]), "explicit", names)
+            continue
+        freeze = given.get("freezeTableName", freeze_all)
+        underscored = given.get("underscored", underscored_all)
+        if freeze is UNKNOWN or underscored is UNKNOWN:
+            unresolved.append(index)
+            continue
+        tables[index] = (
+            table_key(sequelize_table_name(model_name, freeze, underscored)),
+            "default",
+            names,
+        )
+    return tables, unresolved

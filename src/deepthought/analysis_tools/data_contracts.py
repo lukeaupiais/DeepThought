@@ -30,6 +30,8 @@ from ..data_contracts import (
     extract_django,
     extract_drizzle,
     resolve_script_module,
+    resolve_script_alias,
+    read_tsconfig_paths,
     extract_java,
     extract_java_sql,
     extract_mybatis_xml,
@@ -37,10 +39,17 @@ from ..data_contracts import (
     extract_prisma_schema,
     extract_python_sql,
     extract_ruby_models,
+    extract_php_eloquent,
+    resolve_eloquent,
     RAILS_ENGLISH,
     apply_rails_inflections,
     extract_sqlalchemy,
     extract_typeorm,
+    extract_sequelize,
+    resolve_sequelize,
+    merge_sequelize_defines,
+    sequelize_define_options,
+    UNKNOWN as SEQUELIZE_UNKNOWN,
     prisma_accessor,
     table_key,
     resolve_active_record,
@@ -120,6 +129,55 @@ REPOSITORY_RULE = register_rule(
 )
 
 
+LARAVEL_MIGRATION_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.laravel-migration-table",
+        "pattern_matched",
+        "The PHP file calls Laravel's Schema::create with this literal table "
+        "name, or Schema::rename with it as the new name.",
+    )
+)
+ELOQUENT_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.eloquent-table-name",
+        "pattern_matched",
+        "The class is an Eloquent model (its superclass chain reaches "
+        "Illuminate's Model, Authenticatable or a pivot through classes of "
+        "the repository, names resolved through namespaces and use "
+        "statements) whose own $table, or the nearest inherited one, is "
+        "this literal.",
+    )
+)
+ELOQUENT_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.eloquent-default-table-name",
+        "name_matched",
+        "The class is a concrete Eloquent model without $table, and this "
+        "table is Laravel's default getTable(): Str::snake of "
+        "Str::pluralStudly of the class name, the last word pluralized by "
+        "doctrine/inflector 2.0's English rules (UserProfile is "
+        "user_profiles).",
+    )
+)
+ELOQUENT_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.eloquent-call",
+        "pattern_matched",
+        "The code calls a query or persistence method statically on an "
+        "Eloquent model (Model::where, ::find, ::create, ...): it reads, and "
+        "it writes when the call or the chain after it creates, updates or "
+        "deletes. Instance methods ($model->save()) and relations are not "
+        "read.",
+    )
+)
+LARAVEL_DB_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.laravel-db-table",
+        "pattern_matched",
+        "The code calls DB::table with this literal table: it reads, and it "
+        "writes when the chain inserts, updates, upserts or deletes.",
+    )
+)
 DRIZZLE_TABLE_RULE = register_rule(
     EvidenceRule(
         "data-contracts.drizzle-table",
@@ -188,7 +246,15 @@ RAILS_ACCESS_RULE = register_rule(
 )
 
 
-SUPPORTED_LANGUAGES = ("go", "java", "javascript", "python", "ruby", "typescript")
+SUPPORTED_LANGUAGES = (
+    "go",
+    "java",
+    "javascript",
+    "php",
+    "python",
+    "ruby",
+    "typescript",
+)
 # Rails configuration that changes every default table name.
 RAILS_NAMING_CONFIG = re.compile(
     rb"active_record\.(?:table_name_prefix|table_name_suffix|pluralize_table_names)"
@@ -432,6 +498,49 @@ TYPEORM_REPOSITORY_RULE = register_rule(
     )
 )
 
+SEQUELIZE_MIGRATION_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sequelize-migration-table",
+        "pattern_matched",
+        "The code calls createTable (or renameTable, for its new name) with "
+        "this literal table on queryInterface or getQueryInterface(), as "
+        "Sequelize migrations do. The receiver is not type-checked.",
+    )
+)
+SEQUELIZE_TABLE_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sequelize-table-name",
+        "pattern_matched",
+        "A Sequelize model (a class extending Model from sequelize or "
+        "sequelize-typescript, initialized with init or decorated with "
+        "@Table, or a define call) names this table with a literal "
+        "tableName option.",
+    )
+)
+SEQUELIZE_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sequelize-default-table-name",
+        "name_matched",
+        "A Sequelize model without tableName: Sequelize 6's default name, the "
+        "model name pluralized by the inflection package 1.13 (underscored "
+        "with underscored, kept with freezeTableName), the options of the "
+        "model over the define options given to new Sequelize. beforeDefine "
+        "hooks are not read.",
+    )
+)
+SEQUELIZE_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sequelize-call",
+        "pattern_matched",
+        "The code calls a static query (findAll, findOne, count, ...) or "
+        "persistence (create, update, destroy, bulkCreate, ...) method on a "
+        "Sequelize model named by an imported or local binding (User, "
+        "db.User, sequelize.models.User): the one model of that name in the "
+        "caller's namespace, else in the repository. Instance methods and "
+        "associations are not read.",
+    )
+)
+
 
 def _nearest(candidates, scope):
     """The tables of (scope, table) candidates in the user's own namespace
@@ -449,10 +558,12 @@ def _is_test_source(path):
 
 
 def _is_ruby_test(path):
-    """Rails test and spec trees (test/, spec/ and their nested copies) and
-    vendored third-party code (vendor/, where Bundler caches gems and
-    Composer installs packages)."""
-    return any(part in ("test", "spec", "vendor") for part in path.split("/")[:-1])
+    """Rails and Laravel test trees (test/, tests/, spec/ and their nested
+    copies) and vendored third-party code (vendor/, where Bundler caches
+    gems and Composer installs packages)."""
+    return any(
+        part in ("test", "tests", "spec", "vendor") for part in path.split("/")[:-1]
+    )
 
 
 def table_name(repo_url, scope, name):
@@ -607,8 +718,9 @@ class DataContractTool(AnalysisTool):
             )
         parsers = {}
         trees, python_trees, script_trees, go_trees, ruby_trees = [], [], [], [], []
+        php_trees = []
         for file, language, content in sources:
-            if language == "ruby" and _is_ruby_test(file):
+            if language in ("ruby", "php") and _is_ruby_test(file):
                 continue
             if language == "go" and file.endswith("_test.go"):
                 continue
@@ -621,6 +733,7 @@ class DataContractTool(AnalysisTool):
                 "python": python_trees,
                 "go": go_trees,
                 "ruby": ruby_trees,
+                "php": php_trees,
             }.get(language, script_trees).append((file, content, tree))
         constants, seen = {}, set()
         for _, content, tree in trees:
@@ -1195,6 +1308,163 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        # Sequelize: migrations, models and their static calls.
+        sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
+        for path in _sql_files(root, include, exclude, ".json"):
+            if not path.endswith("config/config.json"):
+                continue
+            content = (root / path).read_bytes()
+            try:
+                config = json.loads(content)
+            except ValueError:
+                continue
+            stack = [config]
+            while stack:
+                value = stack.pop()
+                if isinstance(value, dict):
+                    for key, item in sorted(value.items()):
+                        if key == "define":
+                            digests[path] = sha256(content).hexdigest()
+                            defines.append(
+                                tuple(
+                                    sorted(
+                                        (
+                                            k,
+                                            v
+                                            if isinstance(v, bool)
+                                            else SEQUELIZE_UNKNOWN,
+                                        )
+                                        for k, v in item.items()
+                                        if k in ("freezeTableName", "underscored")
+                                    )
+                                )
+                                if isinstance(item, dict)
+                                else None
+                            )
+                        else:
+                            stack.append(item)
+                elif isinstance(value, list):
+                    stack.extend(value)
+        script_files = {c.file for c in result.coverage}
+        ts_paths = {}
+        for path in _sql_files(root, include, exclude, "tsconfig.json"):
+            content = (root / path).read_bytes()
+            found = read_tsconfig_paths(path, content)
+            if found is not None:
+                digests[path] = sha256(content).hexdigest()
+                ts_paths[path.rpartition("/")[0]] = found
+        for file, content, tree in script_trees:
+            models, inits, created, uses = extract_sequelize(
+                tree, content, file, result.definitions
+            )
+            sequelize_models.extend(models)
+            for name, options in inits.items():
+                sequelize_inits[file, name] = options
+            sequelize_uses.extend(uses)
+            defines.extend(sequelize_define_options(tree.root_node, content))
+            for name, line in created:
+                link(
+                    "DECLARES",
+                    code(file, None),
+                    table(file, table_key(name)),
+                    SEQUELIZE_MIGRATION_RULE,
+                    {"line": line},
+                )
+        sequelize_tables, sequelize_unresolved = resolve_sequelize(
+            sequelize_models,
+            sequelize_inits,
+            merge_sequelize_defines(defines),
+            scope,
+            lambda file, module: (
+                resolve_script_module(file, module, script_files)
+                or resolve_script_alias(file, module, script_files, ts_paths)
+            ),
+        )
+        sequelize_targets = {}
+        for index, (name, how, names) in sorted(sequelize_tables.items()):
+            model = sequelize_models[index]
+            target = table(model.file, name)
+            for alias in names:
+                sequelize_targets.setdefault(alias, set()).add(
+                    (scope(model.file), target)
+                )
+            link(
+                "MAPS_TO",
+                code(model.file, model.model_id),
+                target,
+                SEQUELIZE_TABLE_RULE if how == "explicit" else SEQUELIZE_DEFAULT_RULE,
+                {"model": model.name, "line": model.line, "column": model.column},
+            )
+        sequelize_counts = {"linked": 0, "not_a_model": 0}
+        for use in sequelize_uses:
+            targets = _nearest(sequelize_targets.get(use.model, set()), scope(use.file))
+            if len(targets) != 1:
+                sequelize_counts["not_a_model"] += 1
+                continue
+            sequelize_counts["linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        next(iter(targets)),
+                        SEQUELIZE_CALL_RULE,
+                        {"model": use.model, "line": use.line, "column": use.column},
+                    )
+        # Laravel: migrations, Eloquent models and their calls.
+        php_classes, php_accesses = [], []
+        for file, content, tree in php_trees:
+            found = extract_php_eloquent(tree, content, file, result.definitions)
+            php_classes.extend(found[0])
+            php_accesses.extend(found[1])
+            for name, line in found[2]:
+                link(
+                    "DECLARES",
+                    code(file, None),
+                    table(file, name),
+                    LARAVEL_MIGRATION_RULE,
+                    {"line": line},
+                )
+        eloquent_tables, eloquent_unresolved = resolve_eloquent(php_classes)
+        php_by_path = {c.path: c for c in php_classes}
+        eloquent_targets = {}
+        for path, (name, how) in eloquent_tables.items():
+            model = php_by_path[path]
+            target = table(model.file, name)
+            eloquent_targets[path] = target
+            if model.class_id is not None:
+                link(
+                    "MAPS_TO",
+                    symbol(model.class_id),
+                    target,
+                    ELOQUENT_TABLE_RULE if how == "explicit" else ELOQUENT_DEFAULT_RULE,
+                    {"line": model.line, "column": model.column},
+                )
+        eloquent_counts = {"linked": 0, "not_a_model": 0, "not_fixed": 0}
+        for use in php_accesses:
+            if use.model is None:
+                if use.table == PLACEHOLDER:
+                    eloquent_counts["not_fixed"] += 1
+                    continue
+                target, rule, extra = table(use.file, use.table), LARAVEL_DB_RULE, {}
+            elif use.model in eloquent_targets:
+                target, rule = eloquent_targets[use.model], ELOQUENT_CALL_RULE
+                extra = {"model": use.model}
+            else:
+                eloquent_counts["not_a_model"] += 1
+                continue
+            eloquent_counts["linked"] += 1
+            source = code(use.file, use.caller_id)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        source,
+                        target,
+                        rule,
+                        {**extra, "line": use.line, "column": use.column},
+                    )
         # Drizzle tables and the query-builder calls that name them.
         drizzle_tables, drizzle_uses, script_modules = {}, [], {}
         for file, content, tree in script_trees:
@@ -1427,14 +1697,21 @@ class DataContractTool(AnalysisTool):
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
                     "orm_access_resolution": orm_counts,
+                    "sequelize_models": len(sequelize_tables),
+                    "sequelize_unresolved": len(sequelize_unresolved),
+                    "sequelize_access_resolution": sequelize_counts,
+                    "eloquent_models": len(eloquent_tables),
+                    "eloquent_unresolved": len(eloquent_unresolved),
+                    "eloquent_access_resolution": eloquent_counts,
                     "drizzle_tables": drizzle_counts,
                     "drizzle_access_resolution": drizzle_access,
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,
                     "scope": "tables from CREATE TABLE, Prisma schemas, "
-                    "Rails schema files and JPA, Django, SQLAlchemy, GORM, "
-                    "TypeORM and ActiveRecord mappings, read and written by "
+                    "Rails schema files, Laravel and Sequelize migrations and "
+                    "JPA, Django, SQLAlchemy, GORM, TypeORM, Sequelize, "
+                    "Eloquent and ActiveRecord mappings, read and written by "
                     "repositories, ORM calls and the SQL text code runs; per "
                     "datasource URL or nearest package",
                 },

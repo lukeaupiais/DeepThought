@@ -9,7 +9,7 @@ import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
-from deepthought.service_contracts.openapi import generated_spring_apis
+from deepthought.service_contracts.openapi import generated_apis
 
 READY = (
     importlib.util.find_spec("yaml")
@@ -246,7 +246,7 @@ class OpenApiTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_generated_interfaces(self):
-        apis, unread = generated_spring_apis(self.root)
+        apis, clients, unread = generated_apis(self.root)
         self.assertEqual(
             {
                 interface: sorted(
@@ -264,7 +264,9 @@ class OpenApiTests(unittest.TestCase):
                     ("updatePets", "PUT", "/owners/{ownerId}/pets", 21),
                 ],
                 "shop.api.DefaultApi": [("audit", "GET", "/audit", 31)],
+                # Once per tag.
                 "shop.api.PetTypesApi": [("listPetTypes", "GET", "/pet-types", 35)],
+                "shop.api.PetsApi": [("listPetTypes", "GET", "/pet-types", 35)],
                 "carts.api.CartsApi": [
                     ("dropCart", "DELETE", "/carts/{id}", 6),
                     ("getCart", "GET", "/carts/{id}", 5),
@@ -281,10 +283,22 @@ class OpenApiTests(unittest.TestCase):
                 ("owners/pom.xml", 1, "generated_controller"),
                 ("owners/pom.xml", 1, "generated_controller"),
                 ("owners/pom.xml", 1, "not_spring_server"),
-                ("owners/pom.xml", 1, "not_spring_server"),
                 ("owners/pom.xml", 1, "spec_not_found"),
+                # Read by the spring and the java execution.
+                (f"owners/{RESOURCES}/openapi.yml", 25, "operation_id"),
                 (f"owners/{RESOURCES}/openapi.yml", 25, "operation_id"),
                 (f"owners/{RESOURCES}/openapi.yml", 28, "operation_id"),
+                (f"owners/{RESOURCES}/openapi.yml", 28, "operation_id"),
+            ],
+        )
+        # The java execution generates clients, grouped by tag only.
+        self.assertEqual(
+            sorted(clients),
+            [
+                "shop.api.DefaultApi",
+                "shop.api.OwnerV2Api",
+                "shop.api.PetTypesApi",
+                "shop.api.PetsApi",
             ],
         )
 
@@ -368,7 +382,7 @@ class OpenApiTests(unittest.TestCase):
         # deleteOwner, updatePets, audit, listPetTypes and root have no
         # handler.
         self.assertEqual(metrics["openapi:operation_not_handled"], 5)
-        self.assertEqual(metrics["openapi:not_spring_server"], 2)
+        self.assertEqual(metrics["openapi:not_spring_server"], 1)
         linked = [r for r in resolutions if r.status == "linked"]
         self.assertEqual(len(linked), 1)
 
@@ -401,6 +415,297 @@ class OpenApiTests(unittest.TestCase):
             and r.target_match["qualified_name"].endswith(owners["route_id"])
         ]
         self.assertEqual(len(requests), 1)
+
+
+def _client_pom(execution, *, parent="../pom.xml"):
+    return (
+        "<project><parent><artifactId>clients</artifactId>"
+        f"<relativePath>{parent}</relativePath></parent>"
+        "<artifactId>trips-client</artifactId>"
+        "<build><plugins><plugin>"
+        "<artifactId>openapi-generator-maven-plugin</artifactId>"
+        f"<executions><execution><configuration>{execution}"
+        "</configuration></execution></executions>"
+        "</plugin></plugins></build></project>"
+    )
+
+
+TRIPS_SPEC = """
+openapi: 3.0.1
+servers:
+  - url: "http://{service}:8080/v1"
+    variables:
+      service:
+        default: trips
+paths:
+  /trips:
+    post:
+      tags: [trips]
+      operationId: CreateTrip
+  /trips/{id}:
+    get:
+      tags: [trips, admin]
+      operationId: getTrip
+"""
+
+TRIPS = """
+package trips;
+
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/v1/trips")
+public class TripController {
+    @PostMapping
+    public Trip create(Trip trip) { return trip; }
+
+    @GetMapping("/{id}")
+    public Trip get(String id) { return null; }
+}
+
+// The path the base URL set at run time is assumed to lead to.
+@RestController
+class LegacyTripController {
+    @GetMapping("/trips/{id}")
+    public Trip get(String id) { return null; }
+}
+"""
+
+BOOKING = """
+package booking;
+
+import trips.client.api.TripsApi;
+import trips.client.api.AdminApi;
+
+public class Booking {
+    private final TripsApi trips = new TripsApi();
+
+    void book(AdminApi admin, String id) {
+        this.trips.createTrip(null);
+        trips.getTripWithHttpInfo(id);
+        new TripsApi().getTripAsync(id, null);
+        admin.getTrip(id);
+        // Not an operation.
+        trips.getApiClient();
+    }
+
+    // A name declared with two types is not read.
+    void twice(TripsApi dual) { dual.getTrip("1"); }
+
+    void again(Object dual) { dual.toString(); }
+}
+"""
+
+REPORTS = """
+package reports;
+
+import trips.client.ApiClient;
+import trips.client.api.TripsApi;
+
+public class Reports {
+    void run(TripsApi api, ApiClient client) {
+        client.setBasePath("http://localhost:9000");
+        api.getTrip("1");
+    }
+}
+"""
+
+CLIENT_FILES = {
+    # The parent gives the plugin its version and generator.
+    "pom.xml": (
+        "<project><artifactId>clients</artifactId>"
+        "<properties><openapi.version>4.3.1</openapi.version></properties>"
+        "<build><pluginManagement><plugins><plugin>"
+        "<artifactId>openapi-generator-maven-plugin</artifactId>"
+        "<version>${openapi.version}</version>"
+        "<configuration><generatorName>java</generatorName></configuration>"
+        "</plugin></plugins></pluginManagement></build></project>"
+    ),
+    "trips-client/pom.xml": _client_pom(
+        "<inputSpec>${project.basedir}/api.yml</inputSpec>"
+        "<apiPackage>trips.client.api</apiPackage>"
+    ),
+    "trips-client/api.yml": TRIPS_SPEC,
+    # Not read: a library whose classes do not send, a version before 4,
+    # and a parent that is not the declared one.
+    "assured/pom.xml": _client_pom(
+        "<inputSpec>../trips-client/api.yml</inputSpec><apiPackage>a</apiPackage>"
+        "<library>rest-assured</library>"
+    ),
+    "old/pom.xml": (
+        "<project><build><plugins><plugin>"
+        "<artifactId>openapi-generator-maven-plugin</artifactId>"
+        "<version>3.3.4</version><executions><execution><configuration>"
+        "<generatorName>java</generatorName><inputSpec>../trips-client/api.yml"
+        "</inputSpec><apiPackage>o</apiPackage>"
+        "</configuration></execution></executions></plugin></plugins></build>"
+        "</project>"
+    ),
+    "orphan/pom.xml": _client_pom(
+        "<inputSpec>../trips-client/api.yml</inputSpec><apiPackage>x</apiPackage>",
+        parent="../old/pom.xml",
+    ),
+    # A configurationFile's settings apply under the pom's.
+    "configured/pom.xml": _client_pom(
+        "<inputSpec>../trips-client/api.yml</inputSpec><apiPackage>c</apiPackage>"
+        "<configurationFile>${project.basedir}/generator.json</configurationFile>"
+    ),
+    "configured/generator.json": '{"library": "rest-assured", "apiPackage": "z"}',
+    # No apiPackage: the java generator's default.
+    "defaulted/pom.xml": _client_pom("<inputSpec>../trips-client/api.yml</inputSpec>"),
+    f"trips/{RESOURCES}/application.properties": "spring.application.name=trips\n",
+    "trips/pom.xml": "<project/>",
+    f"trips/{JAVA}/trips/TripController.java": TRIPS,
+    "booking/pom.xml": "<project/>",
+    f"booking/{JAVA}/booking/Booking.java": BOOKING,
+    "reports/pom.xml": "<project/>",
+    f"reports/{JAVA}/reports/Reports.java": REPORTS,
+}
+
+
+@unittest.skipUnless(READY, "pyyaml or tree-sitter grammars are not installed")
+class OpenApiClientTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        _write(self.root, CLIENT_FILES)
+        self.tool = ServiceContractTool(self.root)
+        self.output = asyncio.run(self.tool.analyze("r"))
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_generated_classes(self):
+        servers, clients, unread = generated_apis(self.root)
+        self.assertEqual(servers, {})
+        self.assertEqual(
+            sorted(c for c in clients if c.startswith("org.")),
+            [
+                "org.openapitools.client.api.AdminApi",
+                "org.openapitools.client.api.TripsApi",
+            ],
+        )
+        clients = {c: o for c, o in clients.items() if not c.startswith("org.")}
+        self.assertEqual(
+            {
+                api: sorted(
+                    (o.method_name, o.http_method, o.base_url + o.path, o.spec_line)
+                    for o in operations
+                )
+                for api, operations in clients.items()
+            },
+            {
+                "trips.client.api.TripsApi": [
+                    ("createTrip", "POST", "http://trips:8080/v1/trips", 12),
+                    ("getTrip", "GET", "http://trips:8080/v1/trips/{id}", 16),
+                ],
+                "trips.client.api.AdminApi": [
+                    ("getTrip", "GET", "http://trips:8080/v1/trips/{id}", 16),
+                ],
+            },
+        )
+        self.assertEqual(
+            sorted((u.file, u.reason) for u in unread),
+            [
+                ("assured/pom.xml", "client_library"),
+                ("configured/pom.xml", "client_library"),
+                ("old/pom.xml", "generator_version"),
+                ("orphan/pom.xml", "not_spring_server"),
+            ],
+        )
+
+    def test_requests(self):
+        _, routes, requests, _, resolutions = self.tool.last_facts
+        found = sorted(
+            (r.file.rpartition("/")[2], r.line, r.method, r.url, r.declared_in)
+            for r in requests
+        )
+        self.assertEqual(
+            found,
+            [
+                (
+                    "Booking.java",
+                    11,
+                    "POST",
+                    "http://trips:8080/v1/trips",
+                    "trips-client/api.yml:12",
+                ),
+                (
+                    "Booking.java",
+                    12,
+                    "GET",
+                    "http://trips:8080/v1/trips/{id}",
+                    "trips-client/api.yml:16",
+                ),
+                (
+                    "Booking.java",
+                    13,
+                    "GET",
+                    "http://trips:8080/v1/trips/{id}",
+                    "trips-client/api.yml:16",
+                ),
+                (
+                    "Booking.java",
+                    14,
+                    "GET",
+                    "http://trips:8080/v1/trips/{id}",
+                    "trips-client/api.yml:16",
+                ),
+                # The module sets the base URL at run time.
+                (
+                    "Reports.java",
+                    10,
+                    "GET",
+                    "\x00/trips/{id}",
+                    "trips-client/api.yml:16",
+                ),
+            ],
+        )
+        by_id = {r.id: r for r in routes}
+        self.assertEqual(
+            sorted(
+                (res.status, res.rule_id, by_id[res.route_id].path)
+                for res in resolutions
+            ),
+            [("linked", "service-contracts.http-path", "/trips/{id}")]
+            + [("linked", "service-contracts.http-service-path", "/v1/trips")]
+            + [("linked", "service-contracts.http-service-path", "/v1/trips/{id}")] * 3,
+        )
+
+    def test_graph(self):
+        requests = sorted(
+            (
+                r.properties["line"],
+                r.properties["client"],
+                r.properties["declared_in"],
+                r.properties["rule_id"],
+                r.source_match["qualified_name"].split("::")[2],
+            )
+            for r in self.output.relationships
+            if r.type == "REQUESTS"
+        )
+        self.assertEqual(
+            requests[0],
+            (
+                10,
+                "openapi-java",
+                "trips-client/api.yml:16",
+                "service-contracts.openapi-client-path",
+                "Reports.run",
+            ),
+        )
+        self.assertEqual(
+            requests[1],
+            (
+                11,
+                "openapi-java",
+                "trips-client/api.yml:12",
+                "service-contracts.openapi-client-service-path",
+                "Booking.book",
+            ),
+        )
+        rule = get_rule("service-contracts.openapi-client-service-path")
+        self.assertEqual(rule.evidence_type, "pattern_matched")
 
 
 if __name__ == "__main__":
