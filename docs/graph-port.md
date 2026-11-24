@@ -1963,7 +1963,8 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 |---|---|---|
 | `service-contracts.spring-route-mapping` | pattern_matched | handler -> HANDLES -> HttpRoute |
 | `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
-| `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name`; only that service's routes are candidates |
+| `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name` or deployment name, or to a host name only that service's deployments answer to (see "Services named by their deployments"); only that service's routes are candidates |
+| `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
 | `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
 
@@ -1984,6 +1985,49 @@ routes registered in code are not followed.
 Handlers and callers carry the tree-sitter declaration identities, so in one
 revision with tree-sitter output the routes join the code graph; run alone,
 the tool emits just the declarations and files its edges need.
+
+#### Services named by their deployments
+
+Routes whose language names no service (everything but Spring modules with
+a `spring.application.name`) take the name of the deployments that run
+their file (`service_contracts.deployed`), when those share one:
+
+- A Compose service whose `build` context is the file's directory or an
+  ancestor of it (the nearest one any deployment builds) is named after
+  itself and answers to that name.
+- A Kubernetes container whose image (without tag or digest) a Skaffold
+  `build.artifacts` entry builds from exactly one context is named after
+  its workload (`Deployment/frontend` gives `frontend`) and answers to the
+  names of the Services in the same manifest directory and namespace whose
+  selector its pod template labels match (`frontend`, `frontend-external`).
+  Helm templates and manifests that are not plain YAML are not read; images
+  that no Skaffold artifact builds (a registry path in a release manifest)
+  place nothing.
+
+A host name that deployments of two different services answer to names
+neither. A request whose literal host is one of these names has only that
+service's routes as candidates (`http-service-path`).
+
+**Locust's `--host`.** A Locust request written without a host (`self.client
+.get("/cart")`) takes the URL that `--host` (or `-H`) gives on the `locust`
+command line of the deployments running its file: a Kubernetes container's
+`command` and `args`, else the `ENTRYPOINT` and `CMD` of the Dockerfile in
+its build context (`args` replace `CMD`). `${VAR}` and `$VAR` take the
+literal value the deployment sets (container `env` `value`, Compose
+`environment`); an unset or non-literal variable gives no host. All the
+deployments must give the same host, which the link records as `host_from`
+(the deployments' labels) under the `locust-host-*` rules. Shell scripts the
+command runs, `host` attributes of the user class and `LOCUST_HOST` are not
+read.
+
+Online Boutique: `kubernetes-manifests/loadgenerator.yaml` sets
+`FRONTEND_ADDR=frontend:80`, and `src/loadgenerator/Dockerfile` runs
+`locust --host="http://${FRONTEND_ADDR}"`, so its `GET /`, which the
+cartservice's `MapGet("/")` made ambiguous, links to the frontend again: 9
+of 9 labelled HTTP call sites. The edge diff against `main` over
+robot-shop, train-ticket, the C# repositories and 16 other validation
+repositories changes only these 9 Locust links (from `http-path` to
+`locust-host-service-path`).
 
 #### Apache HttpClient and fields set by constructors
 
@@ -2070,10 +2114,9 @@ CleanArchitecture `f7f9771` maps its endpoints by reflection through its own
 guessed.
 
 online-boutique's cartservice maps `GET /` to a notice that it only speaks
-gRPC. The load generator's `l.client.get("/")` has no host, so it now meets
-both that route and the frontend's `GET /` and is ambiguous instead of
-linked; the corpus scores 8 of 9 HTTP call sites, with its one HTTP service
-pair still found.
+gRPC. The load generator's `l.client.get("/")` written without a host meets
+both that route and the frontend's `GET /`; the host its deployment gives
+it picks the frontend (see "Services named by their deployments").
 
 ### NestJS controllers
 

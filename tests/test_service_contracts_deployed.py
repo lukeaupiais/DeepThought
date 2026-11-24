@@ -1,0 +1,290 @@
+"""Services named by their deployments, and Locust's --host."""
+
+import asyncio
+import importlib.util
+from pathlib import Path
+import tempfile
+import unittest
+
+from deepthought.analysis_tools import ServiceContractTool
+from deepthought.service_contracts.deployed import (
+    Deployed,
+    Deployments,
+    command_line,
+    deployed_units,
+    locust_host,
+)
+
+READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec("yaml")
+
+SKAFFOLD = """
+apiVersion: skaffold/v3
+kind: Config
+build:
+  artifacts:
+  - image: frontend
+    context: src/frontend
+  - image: admin
+    context: src/admin
+  - image: loadgenerator
+    context: src/loadgenerator
+"""
+
+MANIFESTS = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: server
+        image: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-external
+spec:
+  selector:
+    app: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+spec:
+  template:
+    metadata:
+      labels:
+        app: admin
+    spec:
+      containers:
+      - name: server
+        image: admin:1.0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgenerator
+spec:
+  template:
+    spec:
+      containers:
+      - name: main
+        image: loadgenerator
+        env:
+        - name: FRONTEND_ADDR
+          value: "frontend:80"
+"""
+
+FLASK = """
+from flask import Flask
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "home"
+
+@app.route("/cart")
+def cart():
+    return "cart"
+"""
+
+LOCUST = """
+from locust import HttpUser, task
+
+class Shopper(HttpUser):
+    @task
+    def index(self):
+        self.client.get("/")
+
+    @task
+    def cart(self):
+        self.client.get("/cart")
+"""
+
+DOCKERFILE = """
+FROM python:3.12
+COPY . .
+ENTRYPOINT locust --host="http://${FRONTEND_ADDR}" --headless -u "${USERS:-10}"
+"""
+
+FILES = {
+    "skaffold.yaml": SKAFFOLD,
+    "kubernetes-manifests/app.yaml": MANIFESTS,
+    "src/frontend/app.py": FLASK,
+    "src/admin/app.py": FLASK,
+    "src/loadgenerator/locustfile.py": LOCUST,
+    "src/loadgenerator/Dockerfile": DOCKERFILE,
+}
+
+
+def _write(root, files):
+    for name, text in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+@unittest.skipUnless(READY, "tree-sitter or PyYAML is not installed")
+class DeployedServiceTests(unittest.TestCase):
+    def analyze(self, files):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(root, files)
+            units = deployed_units(root)
+            output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        return units, output
+
+    def test_units_and_route_services(self):
+        units, output = self.analyze(FILES)
+        self.assertEqual(
+            sorted((u.label, u.context, u.hosts) for u in units),
+            [
+                ("kubernetes-manifests/app.yaml:Deployment/admin", "src/admin", ()),
+                (
+                    "kubernetes-manifests/app.yaml:Deployment/frontend",
+                    "src/frontend",
+                    ("frontend", "frontend-external"),
+                ),
+                (
+                    "kubernetes-manifests/app.yaml:Deployment/loadgenerator",
+                    "src/loadgenerator",
+                    (),
+                ),
+            ],
+        )
+        services = sorted(
+            (n.properties["file_path"], n.properties["path"], n.properties["service"])
+            for n in output.nodes
+            if "HttpRoute" in n.labels
+        )
+        self.assertEqual(
+            services,
+            [
+                ("src/admin/app.py", "/", "admin"),
+                ("src/admin/app.py", "/cart", "admin"),
+                ("src/frontend/app.py", "/", "frontend"),
+                ("src/frontend/app.py", "/cart", "frontend"),
+            ],
+        )
+
+    def test_locust_host_picks_the_frontend(self):
+        _, output = self.analyze(FILES)
+        requests = sorted(
+            (
+                r.properties["request"],
+                r.target_match["qualified_name"].split("::")[1],
+                r.properties["rule_id"],
+                tuple(r.properties["host_from"]),
+            )
+            for r in output.relationships
+            if r.type == "REQUESTS"
+        )
+        unit = ("kubernetes-manifests/app.yaml:Deployment/loadgenerator",)
+        self.assertEqual(
+            requests,
+            [
+                (
+                    "GET http://frontend:80/",
+                    "src/frontend/app.py",
+                    "service-contracts.locust-host-service-path",
+                    unit,
+                ),
+                (
+                    "GET http://frontend:80/cart",
+                    "src/frontend/app.py",
+                    "service-contracts.locust-host-service-path",
+                    unit,
+                ),
+            ],
+        )
+
+    def test_without_a_host_both_services_fit(self):
+        files = dict(FILES)
+        files["src/loadgenerator/Dockerfile"] = "FROM python\nENTRYPOINT locust\n"
+        _, output = self.analyze(files)
+        self.assertFalse([r for r in output.relationships if r.type == "REQUESTS"])
+        self.assertEqual(
+            output.metadata.custom_metrics["http_request_resolution"],
+            {"ambiguous:several_routes": 2},
+        )
+
+
+class CommandLineTests(unittest.TestCase):
+    def unit(self, **values):
+        defaults = dict(
+            label="x",
+            name="load",
+            context="load",
+            hosts=(),
+            environment=(("HOST", "web:8080"), ("UNSET", None)),
+        )
+        return Deployed(**{**defaults, **values})
+
+    def test_locust_host(self):
+        unit = self.unit()
+        self.assertEqual(
+            locust_host('locust --host="http://${HOST}" -u 5', unit), "http://web:8080"
+        )
+        self.assertEqual(
+            locust_host("locust -H http://$HOST/", unit), "http://web:8080/"
+        )
+        self.assertEqual(
+            locust_host("/usr/bin/locust --host=http://a", unit), "http://a"
+        )
+        self.assertIsNone(locust_host("locust --host=http://${UNSET}", unit))
+        self.assertIsNone(locust_host("locust --host=http://${MISSING}", unit))
+        self.assertIsNone(locust_host("locust --headless", unit))
+        self.assertIsNone(locust_host("python run.py --host=http://a", unit))
+
+    def test_kubernetes_command_and_args_replace_the_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write(
+                root,
+                {
+                    "load/Dockerfile": 'ENTRYPOINT ["locust"]\nCMD ["--host", "http://a"]\n'
+                },
+            )
+            self.assertEqual(command_line(root, self.unit()), "locust --host http://a")
+            self.assertEqual(
+                command_line(root, self.unit(args=("--host=http://b",))),
+                "locust --host=http://b",
+            )
+            self.assertEqual(
+                command_line(root, self.unit(command=("sh", "-c", "run.sh"))),
+                "sh -c run.sh",
+            )
+            self.assertIsNone(command_line(root, self.unit(command=())))
+
+    def test_a_host_claimed_by_two_services_names_neither(self):
+        deployments = Deployments(
+            [
+                self.unit(label="a", name="a", context="a", hosts=("a", "shared")),
+                self.unit(label="b", name="b", context="b", hosts=("b", "shared")),
+                self.unit(label="c1", name="c", context="c", hosts=("c",)),
+                self.unit(label="c2", name="other", context="c", hosts=("c2",)),
+            ]
+        )
+        self.assertEqual(deployments.hosts(), {"a": "a", "b": "b"})
+        self.assertEqual(deployments.service("a/x/y.py"), "a")
+        self.assertIsNone(deployments.service("c/y.py"))
+        self.assertIsNone(deployments.service("d/y.py"))
+
+
+if __name__ == "__main__":
+    unittest.main()
