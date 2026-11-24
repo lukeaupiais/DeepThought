@@ -397,6 +397,54 @@
       "kind_mismatch": 99,
       "missed": 462,
       "recall": 0.5832
+    },
+    "rack": {
+      "by_kind": {
+        "function": {
+          "found": 89,
+          "missed": 0
+        },
+        "method": {
+          "found": 691,
+          "missed": 4
+        },
+        "module": {
+          "found": 69,
+          "missed": 0
+        },
+        "type": {
+          "found": 101,
+          "missed": 0
+        }
+      },
+      "expected": 1014,
+      "extra": 0,
+      "found": 950,
+      "kind_mismatch": 60,
+      "missed": 4,
+      "recall": 0.9369
+    },
+    "slim": {
+      "by_kind": {
+        "function": {
+          "found": 0,
+          "missed": 3
+        },
+        "method": {
+          "found": 739,
+          "missed": 10
+        },
+        "type": {
+          "found": 124,
+          "missed": 0
+        }
+      },
+      "expected": 876,
+      "extra": 0,
+      "found": 863,
+      "kind_mismatch": 0,
+      "missed": 13,
+      "recall": 0.9852
     }
   },
   "gson": {
