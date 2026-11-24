@@ -79,5 +79,67 @@
       "inherits": "inherits/gson.tsv",
       "inherits_command": "python tools/ground_truth.py derive-java . --bases"
     }
+  ],
+  "contracts_description": "Hand-labelled cross-service links (evals/fixtures/service_contracts, see its README), scored with tools/check_contracts_ground_truth.py. The corpus file's own repo and commit must match the entry here.",
+  "contracts": [
+    {
+      "name": "contracts-msecend-apssouza22-java-microservice",
+      "url": "https://github.com/apssouza22/java-microservice",
+      "commit": "9274eeb9189dfea0722ac0263814822b94b83ecc",
+      "labels": "../fixtures/service_contracts/msecend-apssouza22-java-microservice.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-msecend-ewolff-microservice-kafka",
+      "url": "https://github.com/ewolff/microservice-kafka",
+      "commit": "6fd9cc6aba3109f0e9c031ce4555b1a144b7a0d0",
+      "labels": "../fixtures/service_contracts/msecend-ewolff-microservice-kafka.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-msecend-piggymetrics",
+      "url": "https://github.com/sqshq/piggymetrics",
+      "commit": "fd5ee3c555ea9cd6067eacf3f2a3e8b85fe4fe77",
+      "labels": "../fixtures/service_contracts/msecend-piggymetrics.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
+    },
+    {
+      "name": "contracts-msecend-spring-petclinic-microservices",
+      "url": "https://github.com/spring-petclinic/spring-petclinic-microservices",
+      "commit": "0ab2e953e0e23761593a80cd17d7525e3ae32f9d",
+      "labels": "../fixtures/service_contracts/msecend-spring-petclinic-microservices.json",
+      "kinds": [
+        "http"
+      ]
+    },
+    {
+      "name": "contracts-online-boutique",
+      "url": "https://github.com/GoogleCloudPlatform/microservices-demo",
+      "commit": "c7cb6d5bfd6ea3aed768634ebbcb98cb7a523712",
+      "labels": "../fixtures/service_contracts/online-boutique.json",
+      "kinds": [
+        "grpc",
+        "http"
+      ]
+    },
+    {
+      "name": "contracts-robot-shop",
+      "url": "https://github.com/instana/robot-shop",
+      "commit": "55292e2199f2fb00a165b1f7d3045fe7f8922038",
+      "labels": "../fixtures/service_contracts/robot-shop.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
+    }
   ]
 }

@@ -28,7 +28,9 @@ Subcommands:
                                            (tools/JavaCallTruth.java)
   score WORKSPACE TRUTH --language L       score the engine against a TSV
   check [--corpus NAME ...] [--cache DIR]  fetch each pinned corpus, score it
-                                           and compare with the baseline
+                                           and compare with the baseline; the
+                                           manifest's ``contracts`` corpora
+                                           (labelled cross-service links) too
 
 Scores (calls):
   confirmed     linked, and the target is one the oracle names
@@ -449,6 +451,64 @@ def regressions(report, baseline):
     return problems
 
 
+CONTRACT_COUNTS = ("true_positive", "predicted", "labelled_in_scope")
+
+
+def score_contracts(corpus, workspace):
+    """Counts per link kind and level for one labelled contract corpus.
+
+    Uses the ``all`` scope of tools/check_contracts_ground_truth.py (direct
+    and gateway hops), with its false positives and negatives as examples.
+    """
+    import check_contracts_ground_truth
+
+    labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    report, samples = {}, {}
+    for kind in corpus["kinds"]:
+        scored = check_contracts_ground_truth.score(labels, workspace, kind=kind)
+        report[kind] = {
+            level: {k: scored["all"][level][k] for k in CONTRACT_COUNTS}
+            for level in ("call_sites", "service_pairs")
+        }
+        samples[kind] = {
+            level: {
+                "false_positive": scored["all"][level]["false_positive"],
+                "false_negative": scored["all"][level]["false_negative"],
+            }
+            for level in ("call_sites", "service_pairs")
+        }
+    return report, samples
+
+
+def contract_regressions(report, baseline):
+    """Fewer correct links, more wrong ones, or changed labels, per kind."""
+    problems = []
+    for kind, levels in sorted(baseline.items()):
+        for level, before in sorted(levels.items()):
+            after = report.get(kind, {}).get(level)
+            if after is None:
+                problems.append(f"{kind} {level}: no longer scored")
+                continue
+            wrong = (
+                before["predicted"] - before["true_positive"],
+                after["predicted"] - after["true_positive"],
+            )
+            if after["true_positive"] < before["true_positive"]:
+                problems.append(
+                    f"{kind} {level} correct "
+                    f"{before['true_positive']} -> {after['true_positive']}"
+                )
+            if wrong[1] > wrong[0]:
+                problems.append(f"{kind} {level} wrong {wrong[0]} -> {wrong[1]}")
+            if after["labelled_in_scope"] != before["labelled_in_scope"]:
+                problems.append(
+                    f"{kind} {level} labelled {before['labelled_in_scope']} -> "
+                    f"{after['labelled_in_scope']} (the labels changed; update "
+                    "the baseline in the same commit)"
+                )
+    return problems
+
+
 def check(names, cache, update=False, examples=10):
     manifest = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
     baseline_path = CORPUS / "baseline.json"
@@ -486,6 +546,25 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             baseline[corpus["name"]] = report
+    contracts = baseline.setdefault("contracts", {})
+    for corpus in manifest.get("contracts", ()):
+        if names and corpus["name"] not in names:
+            continue
+        report, samples = score_contracts(corpus, fetch(corpus, cache))
+        problems = (
+            contract_regressions(report, contracts[corpus["name"]])
+            if (corpus["name"] in contracts and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "contracts": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            contracts[corpus["name"]] = report
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
