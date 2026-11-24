@@ -1768,17 +1768,36 @@ server is one `GraphqlField` node (labels `GraphqlField`, `Contract`;
   name (`@Query('cats')`), the `name` of its options, or else the method
   name. It links to the field by `HANDLES` (rule
   `service-contracts.nestjs-graphql-resolver`, pattern_matched).
+- Resolver maps, in the JavaScript and TypeScript files of a Node package
+  whose `package.json` depends on a server that takes them (`@apollo/server`,
+  `apollo-server*`, `@apollo/subgraph`, `graphql-tools`,
+  `@graphql-tools/schema`, `graphql-yoga`, `mercurius`): each member with a
+  literal name of an object literal under a `Query`, `Mutation` or
+  `Subscription` key resolves that field (rule
+  `service-contracts.graphql-resolver-map`, pattern_matched). The map stands
+  alone or is the server's `resolvers` option; the same keys nested under
+  any other key (Apollo Client's `typePolicies` and `cacheRedirects`) are not
+  resolvers. A member that is a function declared in the file
+  (`{Query: {me}}`, `{tick: {subscribe: fn}}`) anchors the edge to that
+  function, anything else to the file.
+- In those packages, GraphQL templates declare fields as schema files do:
+  templates tagged `gql` or `graphql`, marked by a `/* GraphQL */` comment,
+  or starting with `#graphql`. A substitution (`${fragment}`) is not read.
 
 Counted as unread:
-- `graphql:schema_root_renamed`: a schema that renames its root types;
+- `graphql:schema_root_renamed`: a schema definition that names a root
+  type other than `Query`, `Mutation` or `Subscription`;
 - `graphql:field_not_literal`: a resolver name that is not literal;
+- `graphql:resolver_map_not_literal`: a `Query` (or other root) key whose
+  value is not an object literal (`{Query: queries}`);
+- `graphql:resolver_spread`: a spread or other member of a resolver map
+  whose fields are not listed in place (`{...more}`);
 - `graphql:declared_not_resolved`: a declared field that no read resolver
   handles;
 - `graphql:resolved_not_declared`: a resolved field missing from a package
   that has schema files.
 
-Clients, resolver maps (Apollo `resolvers` objects) and field resolvers of
-object types are not read yet.
+Clients and field resolvers of object types are not read yet.
 
 On the NestJS samples (commit `fed38a71`), 26 root fields are read in seven
 GraphQL servers, 23 of them also declared in schema files. The two
@@ -1788,6 +1807,23 @@ resolvers. In the schema-first samples, every declared field has a
 resolver and every resolver has a declaration. The four root fields that
 the samples' end-to-end tests query (other than introspection) are all
 among them.
+
+Resolver maps were checked on two Apollo servers, against the fields their
+schemas declare and the resolver files read by hand:
+
+- `apollographql/fullstack-tutorial` (commit `fca98de`): the server's six
+  root fields are declared in a `gql` template and all six are resolved, by
+  the right functions. The client package depends on `@apollo/client` only
+  and adds nothing.
+- `withspectrum/spectrum` (commit `e8ebdcb`): 30 root fields are declared in
+  `/* GraphQL */` templates, 26 of which have a resolver in the code (the
+  other four are the `dummy` fields of the root types and a removed
+  `invoice` query). 19 are read, each by its right resolver, and none is
+  wrong. The seven missed are in three resolver files whose Flow type
+  annotations the JavaScript grammar cannot parse; such files are left out
+  of every contract, and the missing resolvers show up as
+  `graphql:declared_not_resolved`. Apollo Client's `cacheRedirects` in
+  the shared client code is not read as a resolver map.
 
 ### Gateways
 

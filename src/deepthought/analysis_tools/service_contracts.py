@@ -11,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from hashlib import sha256
 from pathlib import PurePosixPath
+import json
 import importlib.util
 import re
 import time
@@ -23,8 +24,11 @@ from ..service_contracts.cloud_stream import MavenModules, extract_stream
 from ..service_contracts.gateways import nginx_routes, spring_gateway_routes
 from ..service_contracts.graphql import (
     GraphqlDeclaration,
+    RESOLVER_MAP_SERVERS,
     extract_nest_resolvers,
+    extract_resolver_maps,
     schema_fields,
+    template_schemas,
 )
 from ..service_contracts.http import PLACEHOLDER
 from ..service_contracts.messaging import (
@@ -274,16 +278,28 @@ GRPC_SERVER_RULES = {
         ),
     )
 }
-GRAPHQL_RESOLVER_RULE = register_rule(
-    EvidenceRule(
-        "service-contracts.nestjs-graphql-resolver",
-        "pattern_matched",
-        "A method of a class decorated @Resolver carries @Query, @Mutation or "
-        "@Subscription imported from @nestjs/graphql; the root field is the "
-        "decorator's literal name, the name of its options, or the method's "
-        "name, in the GraphQL server of the file's Node package.",
-    )
-)
+GRAPHQL_RESOLVER_RULES = {
+    "nestjs-graphql": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-graphql-resolver",
+            "pattern_matched",
+            "A method of a class decorated @Resolver carries @Query, @Mutation or "
+            "@Subscription imported from @nestjs/graphql; the root field is the "
+            "decorator's literal name, the name of its options, or the method's "
+            "name, in the GraphQL server of the file's Node package.",
+        )
+    ),
+    "resolver-map": register_rule(
+        EvidenceRule(
+            "service-contracts.graphql-resolver-map",
+            "pattern_matched",
+            "In a Node package that depends on a GraphQL server taking resolver "
+            "maps (Apollo Server, graphql-tools, GraphQL Yoga, Mercurius), a "
+            "member with a literal name of an object literal under a Query, "
+            "Mutation or Subscription key resolves that root field.",
+        )
+    ),
+}
 
 GRPC_CALL_RULE = register_rule(
     EvidenceRule(
@@ -440,6 +456,24 @@ def _node_package(root, file):
         path = path.parent
 
 
+def _package_dependencies(root, package):
+    """Names of the dependencies a package.json lists, of every kind."""
+    try:
+        manifest = json.loads(
+            (root / (package or ".") / "package.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return frozenset()
+    if not isinstance(manifest, dict):
+        return frozenset()
+    names = set()
+    for kind in ("dependencies", "devDependencies", "peerDependencies"):
+        found = manifest.get(kind)
+        if isinstance(found, dict):
+            names.update(found)
+    return frozenset(names)
+
+
 def _nest_applications(root, sources):
     """(global prefix, unread reason) of each Node package's NestJS
     application, from the setGlobalPrefix, enableVersioning and RouterModule
@@ -536,6 +570,8 @@ class ServiceContractTool(AnalysisTool):
         routes, requests, unread = [], [], []
         endpoints, messaging_unread, stream_sites = [], [], []
         graphql_resolvers = []
+        graphql_declared = []
+        resolver_map_packages = {}
         changed = []
         config = SpringConfig(root)
         parsers = {}
@@ -658,13 +694,34 @@ class ServiceContractTool(AnalysisTool):
                 )
                 graphql_resolvers.extend(found[0])
                 unread.extend(found[1])
+            if coverage.language in ("javascript", "typescript") and any(
+                needle in content for needle in (b"Query", b"Mutation", b"Subscription")
+            ):
+                package = _node_package(root, coverage.file)
+                if package not in resolver_map_packages:
+                    resolver_map_packages[package] = bool(
+                        _package_dependencies(root, package) & RESOLVER_MAP_SERVERS
+                    )
+                if resolver_map_packages[package]:
+                    found = extract_resolver_maps(
+                        tree,
+                        content,
+                        repo_url,
+                        coverage.file,
+                        result.definitions,
+                        coverage.language,
+                    )
+                    graphql_resolvers.extend(found[0])
+                    unread.extend(found[1])
+                    found = template_schemas(tree, content, coverage.file)
+                    graphql_declared.extend(found[0])
+                    unread.extend(found[1])
             if coverage.language == "java" and b"cloud.stream" in content:
                 found = extract_stream(
                     tree, content, coverage.file, result.definitions, constants
                 )
                 stream_sites.extend(found[0])
                 messaging_unread.extend(found[1])
-        graphql_declared = []
         for path in sorted(
             p for suffix in ("*.graphql", "*.gql") for p in root.rglob(suffix)
         ):
@@ -918,7 +975,7 @@ class ServiceContractTool(AnalysisTool):
                         {
                             "line": resolver.line,
                             "column": resolver.column,
-                            **_evidence(GRAPHQL_RESOLVER_RULE),
+                            **_evidence(GRAPHQL_RESOLVER_RULES[resolver.framework]),
                         },
                     )
                 )
