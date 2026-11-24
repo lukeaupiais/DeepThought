@@ -950,6 +950,9 @@ class _RustPaths:
 def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
     """One resolution per call site, in call identity order."""
     by_id = {d.id: d for d in result.definitions}
+    starts = defaultdict(list)
+    for d in result.definitions:
+        starts[(d.file, d.line, d.column)].append(d)
     bindings = name_bindings(result)
     by_symbol, names, modules = bindings.by_symbol, bindings.names, bindings.modules
     top_level = bindings.top_level
@@ -1174,6 +1177,29 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             # A local name (`for f in fs: f()`) is not the module's `f`.
             resolutions.append(
                 CallResolution(site.id, "unresolved", reason="local_binding")
+            )
+            continue
+        if len(parts) == 1 and site.binding is not None:
+            # JavaScript and TypeScript: the declaration the call's scopes
+            # give, or none; a binding that declares no callable (a
+            # parameter, `let f = make()`) is not one further out.
+            if not site.binding:
+                resolutions.append(
+                    CallResolution(site.id, "unresolved", reason="unbound_name")
+                )
+                continue
+            resolutions.append(
+                _pick(
+                    site.id,
+                    [
+                        d
+                        for d in starts.get((site.file, *site.binding), ())
+                        if d.symbol.split(".")[-1] == site.callee
+                        and d.kind in _CALLABLE
+                    ],
+                    CALL_LEXICAL_NAME,
+                    "local_binding",
+                )
             )
             continue
         if len(parts) == 1:

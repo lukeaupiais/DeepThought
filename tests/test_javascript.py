@@ -1,6 +1,7 @@
 """JavaScript declarations, ES module imports and name-matched calls."""
 
 import asyncio
+from dataclasses import replace
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 
 import deepthought
 from deepthought import analyze_repository
+from deepthought.models import AnalysisResult
 from deepthought.analysis_tools.evidence import registered_rules
 from deepthought.calls import (
     CALL_IMPORTED_NAME,
@@ -293,6 +295,174 @@ class JavaScriptCallTests(unittest.TestCase):
                 "other.#store": ("Shelf.#store", CALL_PRIVATE_NAME),
             },
         )
+
+    def test_a_plain_name_calls_the_declaration_its_scopes_give(self):
+        lines = [
+            "import { helper } from './lib.js';",
+            "function top() {}",
+            "export const exported = () => {};",
+            "describe('x', () => {",
+            "  it('a', () => {",
+            "    let click = () => {};",  # 6
+            "    click();",  # 7: the declaration in the same block
+            "  });",
+            "  it('b', () => {",
+            "    let click = make();",
+            "    click();",  # 11: a local that declares no function
+            "    top(); exported(); helper();",  # 12: module scope, an import
+            "  });",
+            "  it('c', () => { click(); });",  # 14: declared in no scope around
+            "  function outer(fn, { top }) {",
+            "    fn(); top();",  # 16: parameters, destructured too
+            "    try {} catch (helper) { helper(); }",  # 17: a catch parameter
+            "    for (let step = () => {}; ; ) { step(); }",  # 18
+            "    hoisted();",  # 19: var is hoisted to the function
+            "    { var hoisted = () => {}; }",  # 20
+            "    const named = function inner() { inner(); };",  # 21
+            "    if (x) { function sloppy() {} }",
+            "    sloppy();",  # 23: sloppy mode may bind it here
+            "    switch (k) { case 1: const sw = () => {}; sw(); }",  # 24
+            "  }",
+            "  const req = require('./lib.js');",
+            "  req();",  # 27: require is an import
+            "  with (o) { top(); }",  # 28: with may bind any name
+            "});",
+        ]
+        result = analyze(
+            {
+                "main.js": "\n".join(lines) + "\n",
+                "lib.js": "export function helper() {}\n",
+            }
+        )
+        definitions = {d.id: d for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                f"{definitions[r.target_id].file}:{definitions[r.target_id].line}"
+                if r.target_id
+                else r.reason
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "main.js"
+            and sites[r.call_id].callee not in {"describe", "it", "make", "require"}
+        }
+        self.assertEqual(
+            found,
+            {
+                (7, "click"): "main.js:6",
+                (11, "click"): "local_binding",
+                (12, "top"): "main.js:2",
+                (12, "exported"): "main.js:3",
+                (12, "helper"): "lib.js:1",
+                (14, "click"): "unbound_name",
+                (16, "fn"): "local_binding",
+                (16, "top"): "local_binding",
+                (17, "helper"): "local_binding",
+                (18, "step"): "main.js:18",
+                (19, "hoisted"): "main.js:20",
+                (21, "inner"): "local_binding",
+                (23, "sloppy"): "main.js:22",
+                (24, "sw"): "main.js:24",
+                (27, "req"): "unbound_name",
+                (28, "top"): "main.js:2",
+            },
+        )
+        bound = {(s.line, s.callee): s.binding for s in sites.values()}
+        self.assertEqual(bound[(7, "click")], (6, 8))
+        self.assertEqual(bound[(14, "click")], ())
+        self.assertEqual(bound[(12, "top")], (2, 0))
+        for line, callee in ((12, "helper"), (23, "sloppy"), (27, "req"), (28, "top")):
+            with self.subTest(line=line, callee=callee):
+                self.assertIsNone(bound[(line, callee)])
+        self.assertEqual(AnalysisResult.from_json(result.to_json()), result)
+        site = next(iter(sites.values()))
+        for bad in ((1,), (0, 0), (1, -1), [1, 0], (1.0, 0)):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                replace(site, binding=bad)
+
+    def test_every_kind_of_binding_hides_the_names_further_out(self):
+        lines = [
+            "var mod = () => {};",
+            "function f({ a: renamed }, p = 1, [first], ...rest) {",
+            "  renamed(); p(); first(); rest(); mod();",  # 3
+            "  for (var key in o) { key(); }",  # 4
+            "  for (const item of o) { item(); }",  # 5
+            "  var twice = () => {};",  # 6
+            "  var twice = () => {};",
+            "  twice();",  # 8: declared twice, left to the name lookup
+            "}",
+            "function renamed() {}",
+            "function p() {}",
+            "function first() {}",
+            "function rest() {}",
+            "function key() {}",
+            "function item() {}",
+        ]
+        result = analyze({"main.js": "\n".join(lines) + "\n"})
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                definitions[r.target_id].line if r.target_id else r.reason
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual(
+            found,
+            {
+                (3, "renamed"): "local_binding",
+                (3, "p"): "local_binding",
+                (3, "first"): "local_binding",
+                (3, "rest"): "local_binding",
+                (3, "mod"): 1,
+                (4, "key"): "local_binding",
+                (5, "item"): "local_binding",
+                (8, "twice"): "multiple_declarations",
+            },
+        )
+        typescript = analyze(
+            {
+                "main.ts": (
+                    "declare function amb(): void;\n"
+                    "function amb2(x: number, y?: string) { x(); y(); amb(); }\n"
+                    "function x() {}\nfunction y() {}\n"
+                )
+            },
+            languages=("typescript",),
+        )
+        sites = {s.id: s for s in typescript.call_sites}
+        definitions = {d.id: d for d in typescript.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                definitions[r.target_id].line if r.target_id else r.reason
+            )
+            for r in resolve_calls(typescript)
+        }
+        self.assertEqual(found, {"x": "local_binding", "y": "local_binding", "amb": 1})
+
+    def test_a_file_that_does_not_parse_keeps_the_name_lookup(self):
+        result = analyze(
+            {
+                "main.js": (
+                    "function f() {}\n"
+                    "describe(() => {\n"
+                    "  const g = () => {};\n"
+                    "  it(() => { f(); g(); });\n"
+                    "  let = ;\n"
+                    "});\n"
+                )
+            }
+        )
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            sites[r.call_id].callee: (
+                definitions[r.target_id].line if r.target_id else r.reason
+            )
+            for r in resolve_calls(result)
+        }
+        self.assertEqual((found["f"], found["g"]), (1, 3))
+        self.assertTrue(all(s.binding is None for s in sites.values()))
 
 
 @unittest.skipUnless(SCIP_READY, "Provision the javascript and scip extras")
