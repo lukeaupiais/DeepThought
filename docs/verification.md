@@ -751,7 +751,7 @@ declaration already spans: a function `run` is not merged with a method
 | cobra | 107 | 1764 | 1275 | 0 | 0.723 | 1.0 |
 | chi | 87 | 399 | 316 | 0 | 0.792 | 1.0 |
 | preact | 28 | 73 | 44 | 0 | 0.603 | 1.0 |
-| gson | 164 | 5052 | 2877 | 5 | 0.570 | 0.998 |
+| gson | 164 | 5052 | 2877 | 1 | 0.570 | 1.0 |
 | anyhow | 45 | 171 | 97 | 9 | 0.567 | 0.915 |
 | ripgrep | 277 | 1903 | 453 | 1 | 0.238 | 0.998 |
 
@@ -805,10 +805,16 @@ index). The call truth leaves out `this(...)` and `super(...)`, which name
 no declaration, but a constructor that delegates depends on the one it
 calls (`new Gson()` runs `Gson(GsonBuilder)` through `this(...)`), so
 `derive-java --chains` lists them and they join the impact graph as
-`--extra-calls`. gson's 5 extras are real calls that the truth has no edge
-for. One is a field initializer, `miniGson.getAdapter(...)` at
-`StreamingTypeAdaptersTest.java:46`, which is in no method or constructor
-span, so the class is not a dependent in the truth. The other 4 reach
-`Gson.toJson(Object, Type)` from `LegacyProtoTypeAdapterFactoryTest.java:342`
-and `:418` through calls that the call truth leaves out because javac chose
-them by error recovery (the generated proto classes are missing).
+`--extra-calls`. A call javac bound by error recovery (the proto classes
+are missing) is not ruled on: `derive-java --recovered` lists each one against
+every overload of the name it bound, the impact truth is derived a second time
+with those calls added (`--possible-calls`), and a dependent only that wider
+graph reaches is written as an `# unjudged` row for its seed. An engine
+dependent on such a row counts as unjudged, not extra; 238 rows cover gson's
+proto tests, and 4 engine dependents land on them: the test methods at
+`LegacyProtoTypeAdapterFactoryTest.java:342` and `:418`, as dependents of
+`Gson.toJson(Object, Type)` and `JsonElement.newJsonStringBuilder()`.
+gson's 1 extra is a real call that the truth has no edge for: a field
+initializer, `miniGson.getAdapter(...)` at `StreamingTypeAdaptersTest.java:43`,
+which is in no method or constructor span, so the class is not a dependent in
+the truth.
