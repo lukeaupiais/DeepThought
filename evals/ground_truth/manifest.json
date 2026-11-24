@@ -96,7 +96,7 @@
       "inherits": "inherits/gson.tsv",
       "inherits_command": "python tools/ground_truth.py derive-java . --bases",
       "impact": "impact/gson.tsv",
-      "impact_command": "java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED tools/JavaMethodSpans.java . > spans.tsv && python tools/impact_truth.py derive - evals/ground_truth/calls/gson.tsv HISTORY --language java --revision d9b5079eaa4567219771bba6d04289cf45c7589b --spans spans.tsv"
+      "impact_command": "java --add-exports jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED tools/JavaMethodSpans.java . > spans.tsv && python tools/ground_truth.py derive-java . --chains > chains.tsv && python tools/impact_truth.py derive - evals/ground_truth/calls/gson.tsv HISTORY --language java --revision d9b5079eaa4567219771bba6d04289cf45c7589b --spans spans.tsv --extra-calls chains.tsv"
     }
   ],
   "contracts_description": "Hand-labelled cross-service links (evals/fixtures/service_contracts, see its README), scored with tools/check_contracts_ground_truth.py. The corpus file's own repo and commit must match the entry here.",
@@ -159,6 +159,24 @@
         "http",
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-graphql-apollo-fullstack-tutorial",
+      "url": "https://github.com/apollographql/fullstack-tutorial",
+      "commit": "fca98dec747244a6cd08e3611f826db01617e208",
+      "labels": "../fixtures/service_contracts/graphql-apollo-fullstack-tutorial.json",
+      "kinds": [
+        "graphql"
+      ]
+    },
+    {
+      "name": "contracts-graphql-apollo-spotify-showcase",
+      "url": "https://github.com/apollographql/spotify-showcase",
+      "commit": "5a9afc5c96ef5a60f07d438dab5088bf0f6d661e",
+      "labels": "../fixtures/service_contracts/graphql-apollo-spotify-showcase.json",
+      "kinds": [
+        "graphql"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
@@ -210,6 +228,29 @@
       "truth": "declarations/slim.tsv",
       "oracle": "PHP 8.3.6 token_get_all",
       "oracle_command": "php tools/php_declaration_truth.php ."
+    }
+  ],
+  "routes": [
+    {
+      "name": "routes-realworld-nestjs",
+      "url": "https://github.com/lujakob/nestjs-realworld-example-app",
+      "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
+      "license": "ISC (package.json)",
+      "labels": "routes/realworld-nestjs.json"
+    },
+    {
+      "name": "routes-nestjs-prisma-starter",
+      "url": "https://github.com/notiz-dev/nestjs-prisma-starter",
+      "commit": "225e5a906865df237a681c1ad228a3ecf2909326",
+      "license": "MIT",
+      "labels": "routes/nestjs-prisma-starter.json"
+    },
+    {
+      "name": "routes-howtographql-graphql-js",
+      "url": "https://github.com/howtographql/graphql-js",
+      "commit": "e0a3a21dbf8e594226250b04fdc0a5776493e64d",
+      "license": "MIT (package.json)",
+      "labels": "routes/howtographql-graphql-js.json"
     }
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "source": "Read by hand at the pinned commit: the root fields src/schema.graphql declares, and the resolver modules (src/resolvers/Query.js, Mutation.js, Subscription.js, each a module.exports object) that src/index.js joins as `{ Query, Mutation, Subscription, ... }` and passes to ApolloServer. Query.info is declared but no module resolves it, so it is not expected (a resolver linked to it is extra).",
+  "graphql": [
+    "Mutation.login",
+    "Mutation.post",
+    "Mutation.signup",
+    "Mutation.vote",
+    "Query.feed",
+    "Subscription.newLink",
+    "Subscription.newVote"
+  ]
+}

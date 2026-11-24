@@ -151,6 +151,7 @@ arbitrary object gets no edge.
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
+| `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` where `x` is declared in the function around the call and the innermost visible declaration writes a named type: a parameter, receiver or named result (`c *Command`), `var x T`, a typed `const`, or `x := T{...}`, `&T{...}`, `new(T)` or `make(T)`. It links to the method `M` declared on `T`, in the caller's package or, for `pkg.T`, in the package the file imports as `pkg`. Methods promoted from embedded fields are not followed, and a function that declares a local type of that name gets no link |
 | `tree-sitter.python-call-reexport` | Python: `f()` or `mod.f()` where the named module does not declare `f` but binds it with exactly one module-level `from m import f` (as `click/__init__.py` does with `from .utils import echo`); that import is followed, step by step, to the module that declares `f` |
 | `tree-sitter.call-self-method` | `self.m()` / `this.m()` to a method declared in the enclosing class body |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
@@ -2128,8 +2129,51 @@ queue to it with `#`, so both sides meet at `destination/#`. Rules are
 Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
 `binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
 both) and `destination_not_literal` (a placeholder in the configured
-destination). The functional style (`Consumer`/`Supplier`/`Function` beans
-named by `spring.cloud.function.definition`) is not read yet.
+destination).
+
+The functional style is read too. A `@Bean` method (from
+`org.springframework.context.annotation`) that returns a
+`java.util.function` type is a binding site:
+
+- `Consumer<T>` consumes `<bean>-in-0`, and `BiConsumer` also consumes
+  `<bean>-in-1`;
+- `Supplier<T>` publishes `<bean>-out-0`;
+- `Function<T, R>` does both, and `BiFunction` consumes two inputs.
+
+The bean is the method name, or the literal `name`/`value` of `@Bean`. It is
+bound in a service that runs it when the service's
+`spring.cloud.function.definition` (or the older
+`spring.cloud.stream.function.definition`) lists it. Without that key, it
+is bound only when it is the service's only functional bean, as Spring
+Cloud Stream does. `spring.cloud.stream.function.bindings.<binding>` renames
+a binding before its destination is looked up as above. Rules are
+`service-contracts.spring-cloud-function-input` and `-output`. Further
+unread reasons:
+
+- `function_not_bound`: not in the definition, or one of several beans
+  without one;
+- `function_composed`: part of a composition such as `a|b`;
+- `function_outputs`: a `KStream[]` result, whose branch bindings are not
+  read;
+- `function_curried`: a function returning a function;
+- `function_definition_not_literal`, and `bean_name` for a `@Bean` name
+  that is not a literal.
+
+A functional bean in a module without a stream binder binds nothing and is
+not counted. One with both binders is `binder_unknown`.
+
+Checked on `spring-cloud/spring-cloud-stream-samples` (commit `2ff1168`):
+I labelled by hand every binding of the nine function-based applications
+that name a service (`spring.application.name`), 24 in all. The 16 read
+all have the configured destination. The other 8 are unread, not wrong:
+
+- the three branch outputs of `kafka-streams-branching`, one
+  `function_outputs` fact;
+- the five bindings of `kafka-streams-to-rabbitmq`, which uses both
+  binders, `binder_unknown`.
+
+Samples without a `spring.application.name` are not services here and give
+nothing.
 
 ### Validation
 

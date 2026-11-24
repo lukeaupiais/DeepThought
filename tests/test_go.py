@@ -13,6 +13,7 @@ from deepthought.calls import (
     CALL_LEXICAL_NAME,
     CALL_MODULE_ATTRIBUTE,
     CALL_PACKAGE_NAME,
+    GO_CALL_TYPED_RECEIVER,
     resolve_calls,
 )
 from deepthought.imports import GO_MODULE_PACKAGE, resolve_imports
@@ -163,6 +164,132 @@ class GoTests(unittest.TestCase):
         # Selector calls are recorded as written and not guessed.
         self.assertEqual(found[("server.go", "fmt.Println")][0], "unresolved")
         self.assertEqual(found[("server.go", "str.ToUpper")][0], "unresolved")
+
+    def test_calls_on_variables_whose_declaration_writes_the_type(self):
+        files = {
+            "go.mod": "module example.com/app\n",
+            "cmd.go": (
+                "package app\n"
+                "type Command struct{ Base }\n"
+                "type Base struct{}\n"
+                "type Runner interface{ Run() }\n"
+                "func (c *Command) Root() *Command { return c }\n"
+                "func (b Base) Up() {}\n"
+                'func (c *Command) Name() string { return "" }\n'
+                "type Wrap struct{ B Base }\n"
+                "func (w Wrap) Up() {}\n"
+                "type Num int\n"
+                "func (n Num) Get() {}\n"
+                "type Set map[string]bool\n"
+                "func (s Set) Add() {}\n"
+            ),
+            "lib/lib.go": "package lib\ntype T struct{}\nfunc (t T) Go() {}\n",
+            "use.go": (
+                "package app\n"
+                'import "example.com/app/lib"\n'
+                "func (c *Command) Use(p *Command, q lib.T, r Runner) (out *Command) {\n"
+                "\tc.Root()\n"  # 4: receiver
+                "\tp.Name()\n"  # 5: parameter
+                "\tq.Go()\n"  # 6: qualified type
+                "\tr.Run()\n"  # 7: interface method
+                "\tout.Root()\n"  # 8: named result
+                "\tx := &Command{}\n"
+                "\tx.Name()\n"  # 10: &T{}
+                "\ty, z := Command{}, new(Command)\n"
+                "\ty.Root(); z.Root()\n"  # 12
+                "\tvar w *Command\n"
+                "\tw.Root()\n"  # 14: var with a type
+                "\tc.Up()\n"  # 15: promoted from Base: not followed
+                "\tif p := make(); true {\n"
+                "\t\tp.Name()\n"  # 17: inner p has no written type
+                "\t}\n"
+                "\tp.Name()\n"  # 19: the parameter again
+                "\tfunc(p Base) { p.Up() }(Base{})\n"  # 20: literal parameter
+                "\tv.Root()\n"  # 21: declared later
+                "\tv := Command{}\n"
+                "\tn := n.Root()\n"  # 23: the new n is not in scope yet
+                "}\n"
+                "func More(t *Command, xs ...Command) {\n"  # 25
+                "\tswitch t := t.Root().(type) {\n"
+                "\tcase Base:\n"
+                "\t\tt.Name()\n"  # 28: the switch's t has no written type
+                "\t}\n"
+                "\tt.Name()\n"  # 30: the parameter again
+                "\txs.Root()\n"  # 31: a variadic parameter is a slice
+                "\tm := build(Command{})\n"
+                "\tm.Root()\n"  # 33: a call's result
+                "\ta, b := pair()\n"
+                "\tb.Root()\n"  # 35
+                "\twr := Wrap{}\n"
+                "\twr.B.Up()\n"  # 37: a field's method
+                "\tconst k Num = 1\n"
+                "\tk.Get()\n"  # 39: a typed constant
+                "\tset := make(Set)\n"
+                "\tset.Add()\n"  # 41: make(T)
+                "}\n"
+                "var hook = func(c *Command) { c.Root() }\n"  # 43
+                "func Other() {\n"
+                "\ttype Command struct{}\n"
+                "\tl := Command{}\n"
+                "\tl.Root()\n"  # 47: a local type
+                "}\n"
+            ),
+        }
+        result = analyze(files)
+        sites = {s.id: s for s in result.call_sites}
+        definitions = {d.id: d for d in result.definitions}
+        found = {
+            (sites[r.call_id].line, sites[r.call_id].callee): (
+                r.status,
+                (
+                    (definitions[r.target_id].file, definitions[r.target_id].symbol)
+                    if r.target_id
+                    else r.reason
+                ),
+                r.rule_id,
+            )
+            for r in resolve_calls(result)
+            if sites[r.call_id].file == "use.go"
+        }
+        for line, callee, target in (
+            (4, "c.Root", ("cmd.go", "Command.Root")),
+            (5, "p.Name", ("cmd.go", "Command.Name")),
+            (6, "q.Go", ("lib/lib.go", "T.Go")),
+            (7, "r.Run", ("cmd.go", "Runner.Run")),
+            (8, "out.Root", ("cmd.go", "Command.Root")),
+            (10, "x.Name", ("cmd.go", "Command.Name")),
+            (12, "y.Root", ("cmd.go", "Command.Root")),
+            (12, "z.Root", ("cmd.go", "Command.Root")),
+            (14, "w.Root", ("cmd.go", "Command.Root")),
+            (19, "p.Name", ("cmd.go", "Command.Name")),
+            (20, "p.Up", ("cmd.go", "Base.Up")),
+            (30, "t.Name", ("cmd.go", "Command.Name")),
+            (39, "k.Get", ("cmd.go", "Num.Get")),
+            (41, "set.Add", ("cmd.go", "Set.Add")),
+            (43, "c.Root", ("cmd.go", "Command.Root")),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[(line, callee)], ("linked", target, GO_CALL_TYPED_RECEIVER)
+                )
+        self.assertEqual(
+            found[(15, "c.Up")], ("unresolved", "not_declared_on_type", None)
+        )
+        for line, callee in (
+            (17, "p.Name"),
+            (21, "v.Root"),
+            (23, "n.Root"),
+            (47, "l.Root"),
+            (28, "t.Name"),
+            (31, "xs.Root"),
+            (33, "m.Root"),
+            (35, "b.Root"),
+            (37, "wr.B.Up"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[(line, callee)], ("unresolved", "attribute_call", None)
+                )
 
     def test_reindex_reuses_package_clauses_and_rejects_earlier_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
