@@ -50,6 +50,7 @@ from ..data_contracts import (
     extract_sequelize,
     extract_mongodb_collections,
     extract_knex,
+    script_string_constants,
     KNEX_MODULES,
     _MONGODB_MODULES as MONGODB_MODULES,
     extract_mongoose,
@@ -73,6 +74,7 @@ from ..data_contracts import (
     resolve_ruby_constant,
     ruby_namespaces,
 )
+from ..calls import name_bindings
 from ..engine import analyze_repository
 from ..deployments import compose_databases
 from ..service_contracts.spring import SpringConfig, _module_root, java_constants
@@ -1924,6 +1926,7 @@ class DataContractTool(AnalysisTool):
         # Knex query builder.
         knex_counts = {"queries": 0, "created": 0}
         knex_packages = dependents(KNEX_MODULES)
+        knex_constants = _script_module_constants(result, script_trees)
         for file, content, tree in script_trees:
             for use in extract_knex(
                 tree,
@@ -1931,6 +1934,7 @@ class DataContractTool(AnalysisTool):
                 file,
                 result.definitions,
                 project=enclosing(knex_packages, file) is not None,
+                constants=knex_constants.get(file),
             ):
                 target = table(use.file, table_key(use.table))
                 extra = {"line": use.line, "column": use.column}
@@ -2412,3 +2416,24 @@ class DataContractTool(AnalysisTool):
 
     async def get_symbol_definitions(self):
         return {}
+
+
+def _script_module_constants(result, script_trees):
+    """{file: {name: text}}: the module-level string constants each script
+    file declares, and those it imports by name (``import { T } from``)
+    from the one project module that declares them."""
+    declared = {
+        file: script_string_constants(tree.root_node, content)
+        for file, content, tree in script_trees
+    }
+    found = {file: dict(values) for file, values in declared.items() if values}
+    for (file, local), entries in name_bindings(result).names.items():
+        if file not in declared or local in declared[file] or len(entries) != 1:
+            continue
+        name, targets = entries[0]
+        if name is None or len(targets) != 1:
+            continue
+        text = declared.get(targets[0], {}).get(name)
+        if text is not None:
+            found.setdefault(file, {})[local] = text
+    return found

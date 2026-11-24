@@ -18,6 +18,7 @@ SQL and JPQL that Java code runs (``@Query``, ``createQuery``, JdbcTemplate
 and JdbcClient) name the tables they read and write (``SqlUse``).
 """
 
+from collections import Counter
 from dataclasses import dataclass, replace
 import re
 
@@ -8311,7 +8312,7 @@ KNEX_WRITES = frozenset(
 KNEX_READS = frozenset(
     "select first pluck count countDistinct min max sum avg distinct".split()
 )
-KNEX_TYPES = ("Knex", "Knex.Transaction", "Transaction")
+KNEX_TYPES = ("Knex", "Knex.Transaction", "Transaction", "Knex.QueryBuilder")
 
 
 @dataclass(frozen=True)
@@ -8338,6 +8339,92 @@ def _unwrap_type(node):
     return node
 
 
+def script_string_constants(root, content):
+    """{name: text} of the top-level ``const X = 'text'`` declarations of a
+    JavaScript or TypeScript module (exported or not); a name declared
+    more than once is left out."""
+    found, seen = {}, set()
+    for node in root.named_children:
+        if node.type == "export_statement":
+            node = node.child_by_field_name("declaration") or node
+        if node.type != "lexical_declaration" or not any(
+            c.type == "const" for c in node.children
+        ):
+            continue
+        for declarator in node.named_children:
+            if declarator.type != "variable_declarator":
+                continue
+            target = declarator.child_by_field_name("name")
+            if target is None or target.type != "identifier":
+                continue
+            name = _text(target, content)
+            text = _script_string(
+                _unwrap(declarator.child_by_field_name("value")), content
+            )
+            if name in seen:
+                found.pop(name, None)
+            elif text:
+                found[name] = text
+            seen.add(name)
+    return found
+
+
+_SCRIPT_SCOPES = (
+    "function_declaration",
+    "function_expression",
+    "arrow_function",
+    "method_definition",
+    "generator_function_declaration",
+    "class_body",
+)
+
+
+def _script_declares(scope, name, content):
+    """Whether a function (or class body) declares ``name`` anywhere in
+    it: a parameter, variable, function or class."""
+    for node in _descendants(scope, "identifier"):
+        if _text(node, content) != name or node.parent is None:
+            continue
+        parent = node.parent
+        if (
+            parent.type
+            in ("variable_declarator", "function_declaration", "class_declaration")
+            and parent.child_by_field_name("name") == node
+        ) or parent.type in (
+            "formal_parameters",
+            "required_parameter",
+            "optional_parameter",
+            "assignment_pattern",
+            "shorthand_property_identifier_pattern",
+            "array_pattern",
+            "rest_pattern",
+        ):
+            return True
+        if (
+            parent.type == "arrow_function"
+            and parent.child_by_field_name("parameter") == node
+        ):
+            return True
+    return False
+
+
+def _script_constant(node, content, constants):
+    """The text of the module-level string constant an identifier names,
+    when no function or class around it declares that name too."""
+    if not constants or node is None or node.type != "identifier":
+        return None
+    name = _text(node, content)
+    text = constants.get(name)
+    if text is None:
+        return None
+    up = node.parent
+    while up is not None:
+        if up.type in _SCRIPT_SCOPES and _script_declares(up, name, content):
+            return None
+        up = up.parent
+    return text
+
+
 def _knex_table(name):
     """The table of a Knex table argument: alias (``t as x``) and schema
     dropped; None for an empty name."""
@@ -8346,7 +8433,7 @@ def _knex_table(name):
     return name or None
 
 
-def extract_knex(tree, content, file, definitions, project=False):
+def extract_knex(tree, content, file, definitions, project=False, constants=None):
     """Tables of Knex queries in a file that imports knex or lies below a
     package.json depending on it (``project``). A Knex instance is a name
     ``knex`` or a ``.knex`` (or private ``.#knex``) property, a name the file binds to a call of the
@@ -8361,8 +8448,11 @@ def extract_knex(tree, content, file, definitions, project=False):
     also reads it with select, first, pluck or an aggregate; any other
     reads, and a joined table is always read. Names of common table
     expressions the file defines (``.with('x', ...)``) are not tables.
-    ``K.schema.createTable('t')`` declares the table. A use's position is
-    its table argument's."""
+    ``K.schema.createTable('t')`` declares the table. A table argument is a
+    string literal, or a name bound to one by a module-level ``const`` of
+    the file or imported from one of the project's modules (``constants``),
+    which no function around it declares again. A use's position is its
+    table argument's."""
     if b"knex" not in content and b"Knex" not in content:
         return []
     root = tree.root_node
@@ -8395,13 +8485,33 @@ def extract_knex(tree, content, file, definitions, project=False):
             ):
                 instances.add(_text(target, content))
 
-    def knex_type(annotation):
-        """Whether a type annotation is Knex, Knex.Transaction or a union
-        of them."""
+    def knex_type(annotation, aliases=()):
+        """Whether a type annotation is Knex, Knex.Transaction,
+        Knex.QueryBuilder, a type alias of the file for one of them, or a
+        union of them."""
         if annotation is None:
             return False
         text = _text(annotation, content).lstrip(": ").strip()
-        return all(part.strip() in KNEX_TYPES for part in text.split("|"))
+        return all(
+            part.strip() in KNEX_TYPES or part.strip() in aliases
+            for part in text.split("|")
+        )
+
+    # Type aliases of the file for Knex types (type Connection = Knex |
+    # Knex.Transaction), declared once.
+    declared = Counter(
+        _text(node.child_by_field_name("name"), content)
+        for node in _descendants(root, "type_alias_declaration")
+        if node.child_by_field_name("name") is not None
+    )
+    knex_aliases = frozenset(
+        _text(node.child_by_field_name("name"), content)
+        for node in _descendants(root, "type_alias_declaration")
+        if node.child_by_field_name("name") is not None
+        and declared[_text(node.child_by_field_name("name"), content)] == 1
+        and node.child_by_field_name("type_parameters") is None
+        and knex_type(node.child_by_field_name("value"))
+    )
 
     # Fields and properties the file types as Knex: x.f and this.f are
     # instances, and so is a name destructured as f.
@@ -8414,7 +8524,9 @@ def extract_knex(tree, content, file, definitions, project=False):
     ):
         for node in _descendants(root, kind):
             target = node.child_by_field_name(name_field)
-            if target is None or not knex_type(node.child_by_field_name("type")):
+            if target is None or not knex_type(
+                node.child_by_field_name("type"), knex_aliases
+            ):
                 continue
             if target.type == "identifier" and kind.endswith("_parameter"):
                 instances.add(_text(target, content))
@@ -8434,7 +8546,7 @@ def extract_knex(tree, content, file, definitions, project=False):
             and target.type == "identifier"
             and value is not None
             and value.type == "as_expression"
-            and knex_type(value.named_children[-1])
+            and knex_type(value.named_children[-1], knex_aliases)
         ):
             instances.add(_text(target, content))
     for pattern in _descendants(root, "shorthand_property_identifier_pattern"):
@@ -8600,7 +8712,9 @@ def extract_knex(tree, content, file, definitions, project=False):
         args = arguments.named_children if arguments is not None else []
         if not args or function is None:
             continue
-        name = _script_string(args[0], content)
+        name = _script_string(args[0], content) or _script_constant(
+            args[0], content, constants
+        )
         if not name:
             continue
         declares, joined = False, False

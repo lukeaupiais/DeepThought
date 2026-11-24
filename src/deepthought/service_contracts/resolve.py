@@ -68,7 +68,7 @@ def resolve_requests(routes, requests, gateways=(), hosts=None):
         service = request.target_service or (hosts or {}).get(target.host, target.host)
         segments, gateway, forwarded = target.segments, None, False
         if service not in services and target.host is None:
-            matches = forward(gateways, target.segments)
+            matches = forward(gateways, target.segments, request.method)
             if len({(m.replacement, m.target) for m in matches}) > 1:
                 resolutions.append(
                     RequestResolution(
