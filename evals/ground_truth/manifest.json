@@ -269,6 +269,16 @@
         "http",
         "messaging"
       ]
+    },
+    {
+      "name": "contracts-jhipster-sample-app-websocket",
+      "url": "https://github.com/jhipster/jhipster-sample-app-websocket",
+      "commit": "410a632c041f8ee50059362681b2a3a53f49361d",
+      "labels": "../fixtures/service_contracts/jhipster-sample-app-websocket.json",
+      "kinds": [
+        "http",
+        "messaging"
+      ]
     }
   ],
   "declarations_description": "C and C++ declarations from clang's AST (tools/c_declaration_truth.py). Regenerate with the entry's oracle_command run in the pinned checkout, writing to evals/ground_truth/declarations/NAME.tsv.",
