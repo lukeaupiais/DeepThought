@@ -659,6 +659,23 @@ class Folder:
             )
         if kind in ("identifier", "shorthand_property_identifier"):
             return self._name(node, depth)
+        # A conditional whose branches have the same value has that value,
+        # whatever the condition (``prod ? "//host:1" : "//host:1"``).
+        branches = None
+        if kind == "ternary_expression":
+            branches = (
+                node.child_by_field_name("consequence"),
+                node.child_by_field_name("alternative"),
+            )
+        elif kind == "conditional_expression" and self.language == "python":
+            values = [c for c in node.named_children if c.type != "comment"]
+            if len(values) == 3:
+                branches = (values[0], values[2])
+        if branches is not None:
+            first, second = (self.evaluate(b, depth) for b in branches)
+            return (
+                first if first == second and PLACEHOLDER not in first else (PLACEHOLDER)
+            )
         if self.language == "python":
             if kind == "string":
                 value = _python_string(node, content)

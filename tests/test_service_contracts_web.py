@@ -206,6 +206,21 @@ class FoldingTests(unittest.TestCase):
         source = "A = '/a'\ndef f():\n    A = '/b'\ndef g():\n    h(A)\n"
         self.assertEqual(self.fold("python", source, ".py"), ["/a"])
 
+    def test_conditionals_with_one_value(self):
+        source = (
+            "const prod = process.env.NODE_ENV === 'production';\n"
+            "const host = '//localhost:8100';\n"
+            "f(prod ? '//localhost:8100' : host);\n"
+            "f(prod ? '//a' : '//b');\n"
+            "f(prod ? x : x);\n"
+        )
+        # Equal literal branches fold; different or unknown ones do not.
+        self.assertEqual(
+            self.fold("javascript", source, ".js"), sorted(["//localhost:8100", U, U])
+        )
+        source = "g('/a' if p else '/a')\ng('/a' if p else '/b')\n"
+        self.assertEqual(self.fold("python", source, ".py"), sorted(["/a", U]))
+
     def test_javascript_and_go(self):
         source = "const a = '/a';\nlet b = a;\nb = '/x';\nf(`${a}/t`);\nf(b);\nf(a + '/' + c);\n"
         self.assertEqual(
