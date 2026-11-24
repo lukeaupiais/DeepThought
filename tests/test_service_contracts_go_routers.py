@@ -81,9 +81,43 @@ func f(client *Client, c *gin.Context) {
 }
 """
 
+ROUTES = """package routes
+
+import (
+	"example.com/orders/api"
+	"github.com/gin-gonic/gin"
+)
+
+func Register(r *gin.Engine) {
+	v1 := r.Group("/v1")
+	api.Mount(v1)
+}
+"""
+
+MORE = """package api
+
+import "github.com/gin-gonic/gin"
+
+func more() {
+	Mount(gin.New().Group("/v2"))
+}
+"""
+
+UNCALLED = """package api
+
+import "github.com/gin-gonic/gin"
+
+func Lonely(g *gin.RouterGroup) {
+	g.GET("/lonely", Health)
+}
+"""
+
 FILES = {
-    "orders/go.mod": "module example.com/orders\\n",
+    "orders/go.mod": "module example.com/orders\n",
     "orders/api/server.go": GIN,
+    "orders/api/more.go": MORE,
+    "orders/api/uncalled.go": UNCALLED,
+    "orders/routes/routes.go": ROUTES,
     "web/main.go": ECHO,
     "other/other.go": NOT_A_ROUTER,
 }
@@ -165,9 +199,13 @@ class GoRouterTests(unittest.TestCase):
                 # Use returns the router it was called on.
                 ("server.go", 26, "gin", ("DELETE",), "/orders/{id}", False, "List"),
                 ("server.go", 27, "gin", ("*",), "/files/{*path}", False, "Health"),
-                # A group passed in adds an unknown base.
-                ("server.go", 31, "gin", ("POST",), "/carts", True, "Health"),
+                # A group passed in takes the prefixes of the groups that
+                # calls in the package and in importing packages pass it.
+                ("server.go", 31, "gin", ("POST",), "/v1/carts", False, "Health"),
+                ("server.go", 31, "gin", ("POST",), "/v2/carts", False, "Health"),
                 ("server.go", 36, "gin", ("GET",), "/health", False, "Health"),
+                # With no call passing it, the base is unknown.
+                ("uncalled.go", 6, "gin", ("GET",), "/lonely", True, "Health"),
             ],
         )
         self.assertIn(

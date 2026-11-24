@@ -2065,8 +2065,13 @@ Python, JavaScript/TypeScript and Go sources are read too
   ...)` of a known router (prefixes are joined), or Gin's `Use(...)`, which
   returns its router; a local name assigned more than once is not followed.
   A parameter typed `*gin.RouterGroup`, `gin.IRouter`, `gin.IRoutes` or
-  `*echo.Group` is a group passed in: its routes have an unknown base
-  (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
+  `*echo.Group` is a group passed in. Its routes take, instead, the
+  prefixes of the known routers that calls of the function pass in that
+  position: calls in the same package directory, and `pkg.F(...)` calls
+  whose import path names the package through a `go.mod` module path in
+  the repository, followed through up to four levels of such functions;
+  one route per distinct prefix. A group no call passes (or a method's
+  parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
   route unread. Flask `<id>`, Express
