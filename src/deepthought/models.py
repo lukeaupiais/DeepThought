@@ -66,7 +66,8 @@ class Definition:
     # type parameter).
     result_type: str | None = None
     # Go struct types: (name, type) for each named field whose type is
-    # written as for ``result_type``. None elsewhere, or when there is none.
+    # written as for ``result_type``. Java types: the same for each static
+    # field and enum constant. None elsewhere, or when there is none.
     fields: tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self):
@@ -305,6 +306,10 @@ class CallSite:
     # span (line, column, end line, end column) for each such argument, None
     # for any other argument. None when no argument is a method call.
     argument_calls: tuple[tuple[int, int, int, int] | None, ...] | None = None
+    # Java calls with an argument ``X.f`` whose ``X`` no variable or field
+    # declared around the call names: (``X``, ``f``) for each such argument,
+    # None for any other argument. None when there is no such argument.
+    argument_fields: tuple[tuple[str, str] | None, ...] | None = None
 
     def __post_init__(self):
         if self.binding is not None and (
@@ -329,6 +334,21 @@ class CallSite:
             )
         ):
             raise ValueError("argument_calls must give a span for some argument")
+        if self.argument_fields is not None and (
+            type(self.argument_fields) is not tuple
+            or len(self.argument_fields) != self.arguments
+            or all(field is None for field in self.argument_fields)
+            or not all(
+                field is None
+                or (
+                    type(field) is tuple
+                    and len(field) == 2
+                    and all(isinstance(v, str) and v for v in field)
+                )
+                for field in self.argument_fields
+            )
+        ):
+            raise ValueError("argument_fields must name a field for some argument")
         if self.receiver_type is not None and (
             not isinstance(self.receiver_type, str) or not self.receiver_type
         ):
@@ -680,6 +700,8 @@ class AnalysisResult:
                 del item["binding"]
             if item["argument_calls"] is None:
                 del item["argument_calls"]
+            if item["argument_fields"] is None:
+                del item["argument_fields"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -787,6 +809,16 @@ class AnalysisResult:
                                 )
                             }
                             if isinstance(item.get("argument_calls"), list)
+                            else {}
+                        ),
+                        **(
+                            {
+                                "argument_fields": tuple(
+                                    None if field is None else tuple(field)
+                                    for field in item["argument_fields"]
+                                )
+                            }
+                            if isinstance(item.get("argument_fields"), list)
                             else {}
                         ),
                     }

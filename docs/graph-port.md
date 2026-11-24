@@ -775,7 +775,16 @@ argument that is itself a method call (`a.j(box.get(0))`, recorded by its
 span in `CallSite.argument_calls`) has the return type of the method that
 call links to (`Definition.result_type`: the class or primitive type a Java
 method declares, read where that method is declared; none for `void`,
-arrays and type parameters). The phases
+arrays and type parameters). An argument `X.f` whose `X` no variable,
+parameter or field declared around the call in its file names (recorded in
+`CallSite.argument_fields`) is the static field or enum constant `f` of the
+type `X` denotes, with the type that type declares for it
+(`Definition.fields`: each static field, interface field and enum constant
+whose type is a class or primitive). Only overloads that the other types
+leave open use it, and a link it decides carries
+`tree-sitter.java-overload-static-field-argument` (name_matched): a field
+named `X` that the enclosing class inherits would denote the variable
+instead, and inherited fields are not read. The phases
 are tried in order: without boxing, with boxing, then variable arity. In the
 first phase where some method applies, the most specific one is linked:
 each of its parameter types is a subtype of the other's. Subtypes are known
