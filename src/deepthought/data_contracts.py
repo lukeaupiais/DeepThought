@@ -5529,3 +5529,773 @@ def resolve_sequelize(models, inits, defines, scope=None, resolve=None):
             names,
         )
     return tables, unresolved
+
+
+# Mongoose: rules and uncountables of mongoose 8.9.5's lib/helpers/pluralize.js
+# (the same as mongoose-legacy-pluralize, which mongoose 5 used). Each rule
+# carries the first mongoose major that has it: 6 added "goose", 7 "human".
+_MONGOOSE_PLURALS = (
+    (r"human$", "humans", 7),
+    (r"(m)an$", "$1en", 5),
+    (r"(pe)rson$", "$1ople", 5),
+    (r"(child)$", "$1ren", 5),
+    (r"^(ox)$", "$1en", 5),
+    (r"(ax|test)is$", "$1es", 5),
+    (r"(octop|vir)us$", "$1i", 5),
+    (r"(alias|status)$", "$1es", 5),
+    (r"(bu)s$", "$1ses", 5),
+    (r"(buffal|tomat|potat)o$", "$1oes", 5),
+    (r"([ti])um$", "$1a", 5),
+    (r"sis$", "ses", 5),
+    (r"(?:([^f])fe|([lr])f)$", "$1$2ves", 5),
+    (r"(hive)$", "$1s", 5),
+    (r"([^aeiouy]|qu)y$", "$1ies", 5),
+    (r"(x|ch|ss|sh)$", "$1es", 5),
+    (r"(matr|vert|ind)ix|ex$", "$1ices", 5),
+    (r"([m|l])ouse$", "$1ice", 5),
+    (r"(kn|w|l)ife$", "$1ives", 5),
+    (r"(quiz)$", "$1zes", 5),
+    (r"^goose$", "geese", 6),
+    (r"s$", "s", 5),
+    (r"([^a-z])$", "$1", 5),
+    (r"$", "s", 5),
+)
+_MONGOOSE_PLURAL_RULES = tuple(
+    (re.compile(pattern), _js_replacement(r), since)
+    for pattern, r, since in _MONGOOSE_PLURALS
+)
+_MONGOOSE_UNCOUNTABLE = frozenset(
+    (
+        "advice energy excretion digestion cooperation health justice labour "
+        "machinery equipment information pollution sewage paper money species "
+        "series rain rice fish sheep moose deer news expertise status media"
+    ).split()
+)
+MONGOOSE_MAJORS = (5, 6, 7)  # the majors whose pluralize rules differ
+
+
+def mongoose_pluralize(name, major=7):
+    """The collection name mongoose ``major`` (5, 6, 7 or later) gives a
+    model name: ``utils.toCollectionName`` with the default pluralize."""
+    if name in ("system.profile", "system.indexes"):
+        return name
+    word = name.lower()
+    if word in _MONGOOSE_UNCOUNTABLE:
+        return word
+    for pattern, replacement, since in _MONGOOSE_PLURAL_RULES:
+        if since <= major and pattern.search(word):
+            return pattern.sub(replacement, word)
+    return word
+
+
+MONGOOSE_READS = {
+    "find", "findOne", "findById", "countDocuments", "estimatedDocumentCount",
+    "count", "distinct", "exists", "aggregate", "where",
+}  # fmt: skip
+MONGOOSE_WRITES = {
+    "create", "insertMany", "updateOne", "updateMany", "update", "deleteOne",
+    "deleteMany", "remove", "replaceOne", "bulkWrite", "bulkSave",
+}  # fmt: skip
+MONGOOSE_READ_WRITES = {
+    "findOneAndUpdate", "findByIdAndUpdate", "findOneAndDelete",
+    "findByIdAndDelete", "findOneAndRemove", "findByIdAndRemove",
+    "findOneAndReplace",
+}  # fmt: skip
+
+
+@dataclass(frozen=True)
+class MongooseModel:
+    """A ``model(name, schema, collection)`` call, or a discriminator
+    (``Base.discriminator(name, schema)``), which shares its base's
+    collection. ``collection`` is the literal third argument (UNKNOWN when
+    not fixed); ``schema`` is ("local", binding), ("import", module, name),
+    ("inline", collection option) or UNKNOWN. ``base`` is a discriminator's
+    base reference, the way a call receiver is given in MongooseUse."""
+
+    file: str
+    name: str
+    model_id: str | None
+    collection: object
+    schema: object
+    base: tuple | None
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class MongooseUse:
+    """A static model call. ``target`` is ("model", index of the file's
+    model), ("import", module, exported name) or ("name", model name)."""
+
+    file: str
+    caller_id: str | None
+    target: tuple
+    reads: bool
+    writes: bool
+    line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class MongooseFile:
+    models: tuple
+    uses: tuple
+    # {name: collection option} of the file's schemas (None: no option).
+    schemas: dict
+    # {exported name: ("model", index) | ("schema", name) | ("import",
+    # module, name)}; "default" is module.exports or export default.
+    exports: dict
+    pluralize: object  # None, "off" (pluralize(null)) or UNKNOWN
+
+
+def _unwrap(node):
+    while node is not None and node.type in (
+        "await_expression",
+        "parenthesized_expression",
+        "as_expression",
+        "satisfies_expression",
+        "non_null_expression",
+    ):
+        node = node.named_children[0] if node.named_children else None
+    return node
+
+
+def extract_mongoose(tree, content, file, definitions):
+    """The MongooseFile of one TypeScript or JavaScript file, or None when
+    it neither imports mongoose nor exports anything a model call could
+    reach."""
+    root = tree.root_node
+    bindings = script_bindings(root, content)
+    mongoose = {
+        local: name
+        for local, (source, name) in bindings.items()
+        if source == "mongoose"
+    }
+    connections = set()  # bindings of mongoose.createConnection() / useDb()
+    if mongoose:
+        namespaces = {k for k, v in mongoose.items() if v in ("default", "*")}
+        for declarator in _descendants(root, "variable_declarator"):
+            value = _unwrap(declarator.child_by_field_name("value"))
+            target = declarator.child_by_field_name("name")
+            if value is None or target is None:
+                continue
+            # const { Schema, model } = mongoose; const Schema = mongoose.Schema
+            if value.type == "identifier" and _text(value, content) in namespaces:
+                if target.type == "object_pattern":
+                    for part in target.named_children:
+                        if part.type == "shorthand_property_identifier_pattern":
+                            mongoose[_text(part, content)] = _text(part, content)
+                        elif part.type == "pair_pattern":
+                            local = part.child_by_field_name("value")
+                            if local is not None and local.type == "identifier":
+                                mongoose[_text(local, content)] = _script_key(
+                                    part.child_by_field_name("key"), content
+                                )
+                continue
+            if (
+                value.type == "member_expression"
+                and target.type == "identifier"
+                and _text(value.child_by_field_name("object"), content) in namespaces
+            ):
+                mongoose[_text(target, content)] = _text(
+                    value.child_by_field_name("property"), content
+                )
+                continue
+            if value.type != "call_expression":
+                continue
+            method, receiver, _ = _call_parts(value, content)
+            if method in ("createConnection", "useDb") and target.type == "identifier":
+                connections.add(_text(target, content))
+
+    def mongoose_root(node):
+        """Whether ``node`` is mongoose itself, a connection, or a member
+        of one (``mongoose.connection``)."""
+        while node is not None and node.type == "member_expression":
+            node = node.child_by_field_name("object")
+        if node is None or node.type != "identifier":
+            return False
+        text = _text(node, content)
+        return mongoose.get(text) in ("default", "*") or text in connections
+
+    def is_schema(node):
+        node = _unwrap(node)
+        if node is None or node.type != "new_expression":
+            return False
+        constructor = node.child_by_field_name("constructor")
+        if constructor is None:
+            return False
+        if constructor.type == "identifier":
+            return mongoose.get(_text(constructor, content)) == "Schema"
+        return (
+            constructor.type == "member_expression"
+            and _text(constructor.child_by_field_name("property"), content) == "Schema"
+            and mongoose_root(constructor.child_by_field_name("object"))
+        )
+
+    constants = {}
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        if target is not None and target.type == "identifier":
+            constants.setdefault(_text(target, content), []).append(
+                declarator.child_by_field_name("value")
+            )
+
+    def collection_in(node, depth=0):
+        """The ``collection`` key an options expression sets: None when
+        unset, UNKNOWN when the code does not fix it. Object literals,
+        spreads, constants of the file and ``Object.assign``, lodash
+        ``defaults``/``assign``/``merge``/``extend``/``clone`` are read."""
+        node = _unwrap(node)
+        if node is None or depth > 8:
+            return UNKNOWN
+        if node.type == "object":
+            found = set()
+            for pair in node.named_children:
+                if pair.type == "spread_element":
+                    inner = pair.named_children[0] if pair.named_children else None
+                    found.add(collection_in(inner, depth + 1))
+                elif pair.type == "shorthand_property_identifier":
+                    if _text(pair, content) == "collection":
+                        return UNKNOWN
+                elif pair.type == "pair":
+                    key = pair.child_by_field_name("key")
+                    if key is not None and key.type == "computed_property_name":
+                        return UNKNOWN
+                    if _script_key(key, content) == "collection":
+                        text = _script_string(
+                            pair.child_by_field_name("value"), content
+                        )
+                        found.add(text or UNKNOWN)
+            found.discard(None)
+            return found.pop() if len(found) == 1 else (UNKNOWN if found else None)
+        if node.type == "identifier":
+            values = constants.get(_text(node, content), [])
+            if len(values) != 1:
+                return UNKNOWN
+            return collection_in(values[0], depth + 1)
+        if node.type == "call_expression":
+            method, receiver, args = _call_parts(node, content)
+            merging = method in (
+                "defaults",
+                "assign",
+                "merge",
+                "extend",
+                "defaultsDeep",
+            )
+            cloning = method in ("clone", "cloneDeep")
+            if receiver is not None and _text(receiver, content) not in (
+                "_",
+                "Object",
+                "lodash",
+            ):
+                return UNKNOWN
+            if not (merging or cloning) or (cloning and len(args) != 1):
+                return UNKNOWN
+            found = {collection_in(a, depth + 1) for a in args}
+            found.discard(None)
+            return found.pop() if len(found) == 1 else (UNKNOWN if found else None)
+        return UNKNOWN
+
+    def collection_option(node):
+        """The ``collection`` option of a ``new Schema(fields, options)``."""
+        arguments = node.child_by_field_name("arguments")
+        args = [
+            a
+            for a in (arguments.named_children if arguments else ())
+            if a.type != "comment"
+        ]
+        return collection_in(args[1]) if len(args) >= 2 else None
+
+    def model_name(node):
+        """The model a receiver names directly: ``mongoose.model('User')``,
+        ``this.model('User')``, ``mongoose.models.User``."""
+        node = _unwrap(node)
+        if node is None:
+            return None
+        if node.type == "call_expression":
+            method, receiver, args = _call_parts(node, content)
+            if method == "model" and len(args) == 1 and receiver is not None:
+                if receiver.type == "this" or mongoose_root(receiver):
+                    return _script_string(args[0], content)
+            return None
+        if node.type == "member_expression":
+            target = node.child_by_field_name("object")
+            if (
+                target is not None
+                and target.type == "member_expression"
+                and _text(target.child_by_field_name("property"), content) == "models"
+                and mongoose_root(target.child_by_field_name("object"))
+            ):
+                return _text(node.child_by_field_name("property"), content)
+        return None
+
+    schemas, schema_nodes = {}, {}
+    for declarator in _descendants(root, "variable_declarator"):
+        target = declarator.child_by_field_name("name")
+        value = declarator.child_by_field_name("value")
+        if target is not None and target.type == "identifier" and is_schema(value):
+            name = _text(target, content)
+            schema_nodes[name] = _unwrap(value)
+            schemas[name] = collection_option(_unwrap(value))
+
+    models, local_models, model_nodes = [], {}, {}
+    pluralize = None
+
+    def schema_ref(node):
+        node = _unwrap(node)
+        if node is None:
+            return UNKNOWN
+        if is_schema(node):
+            return ("inline", collection_option(node))
+        if node.type == "identifier":
+            text = _text(node, content)
+            if text in schemas:
+                return ("local", text)
+            if text in bindings:
+                return ("import", *bindings[text])
+        return UNKNOWN
+
+    def as_model(node):
+        """The index of the model a ``model(...)`` or ``discriminator``
+        call defines, recording it once."""
+        node = _unwrap(node)
+        if node is None:
+            return None
+        if node.type == "binary_expression":  # mongoose.models.X || model(...)
+            for part in (
+                node.child_by_field_name("right"),
+                node.child_by_field_name("left"),
+            ):
+                found = as_model(part)
+                if found is not None:
+                    return found
+            return None
+        if node.type != "call_expression":
+            return None
+        if node.id in model_nodes:
+            return model_nodes[node.id]
+        method, receiver, args = _call_parts(node, content)
+        base = None
+        if method == "model" and len(args) >= 2:
+            if receiver is None:
+                if (
+                    mongoose.get(_text(node.child_by_field_name("function"), content))
+                    != "model"
+                ):
+                    return None
+            elif not mongoose_root(receiver):
+                return None
+        elif method == "discriminator" and len(args) >= 2 and receiver is not None:
+            base = receiver_ref(receiver)
+            if base is None:
+                return None
+        else:
+            return None
+        name = _script_string(args[0], content)
+        if not name:
+            return None
+        collection = None
+        if method == "model" and len(args) >= 3:
+            collection = _script_string(args[2], content) or UNKNOWN
+        where = node.child_by_field_name("function")
+        where = where.child_by_field_name("property") or where
+        models.append(
+            MongooseModel(
+                file,
+                name,
+                _innermost(definitions, file, node),
+                collection,
+                schema_ref(args[1]),
+                base,
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+        model_nodes[node.id] = len(models) - 1
+        return len(models) - 1
+
+    def receiver_ref(node):
+        node = _unwrap(node)
+        if node is None:
+            return None
+        direct = model_name(node)
+        if direct:
+            return ("name", direct)
+        if node.type == "identifier":
+            text = _text(node, content)
+            if text in local_models:
+                return ("model", local_models[text])
+            if text in bindings and bindings[text][0] != "mongoose":
+                return ("import", *bindings[text])
+        elif node.type == "member_expression":
+            # A member of a namespace import or a required module object.
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "identifier":
+                source, name = bindings.get(_text(target, content), (None, None))
+                if source not in (None, "mongoose") and name in ("default", "*"):
+                    prop = _text(node.child_by_field_name("property"), content)
+                    return ("import", source, prop)
+        return None
+
+    if mongoose:
+        for declarator in _descendants(root, "variable_declarator"):
+            target = declarator.child_by_field_name("name")
+            if target is None or target.type != "identifier":
+                continue
+            found = as_model(declarator.child_by_field_name("value"))
+            if found is not None:
+                local_models[_text(target, content)] = found
+        # Discriminators of discriminators need their base bound first.
+        for declarator in _descendants(root, "variable_declarator"):
+            target = declarator.child_by_field_name("name")
+            if target is None or target.type != "identifier":
+                continue
+            found = as_model(declarator.child_by_field_name("value"))
+            if found is not None:
+                local_models.setdefault(_text(target, content), found)
+
+    exports = {}
+
+    def export_value(name, node):
+        node = _unwrap(node)
+        if node is None:
+            return
+        found = as_model(node) if mongoose else None
+        if found is not None:
+            exports[name] = ("model", found)
+        elif node.type in ("identifier", "shorthand_property_identifier"):
+            text = _text(node, content)
+            if text in local_models:
+                exports[name] = ("model", local_models[text])
+            elif text in schemas:
+                exports[name] = ("schema", text)
+            elif text in bindings:
+                exports[name] = ("import", *bindings[text])
+        elif is_schema(node):
+            exports[name] = ("schema-inline", collection_option(node))
+        elif node.type == "call_expression":
+            method, receiver, args = _call_parts(node, content)
+            if method == "require" and receiver is None and len(args) == 1:
+                source = _script_string(args[0], content)
+                if source:
+                    exports[name] = ("import", source, "default")
+        elif node.type == "member_expression":
+            target = node.child_by_field_name("object")
+            if target is not None and target.type == "call_expression":
+                method, receiver, args = _call_parts(target, content)
+                source = _script_string(args[0], content) if len(args) == 1 else None
+                if method == "require" and receiver is None and source:
+                    exports[name] = (
+                        "import",
+                        source,
+                        _text(node.child_by_field_name("property"), content),
+                    )
+
+    for node in root.named_children:
+        if node.type == "export_statement":
+            value = node.child_by_field_name("value")
+            source = _script_string(node.child_by_field_name("source"), content)
+            if value is not None:
+                export_value("default", value)
+                continue
+            for child in node.named_children:
+                if child.type in ("lexical_declaration", "variable_declaration"):
+                    for declarator in child.named_children:
+                        target = declarator.child_by_field_name("name")
+                        if (
+                            declarator.type == "variable_declarator"
+                            and target is not None
+                            and target.type == "identifier"
+                        ):
+                            export_value(
+                                _text(target, content),
+                                declarator.child_by_field_name("value"),
+                            )
+                elif child.type == "export_clause":
+                    for spec in child.named_children:
+                        if spec.type != "export_specifier":
+                            continue
+                        local = _text(spec.child_by_field_name("name"), content)
+                        alias = spec.child_by_field_name("alias")
+                        exported = _text(alias, content) if alias is not None else local
+                        if source is not None:
+                            exports[exported] = ("import", source, local)
+                        elif local in local_models:
+                            exports[exported] = ("model", local_models[local])
+                        elif local in schemas:
+                            exports[exported] = ("schema", local)
+                        elif local in bindings:
+                            exports[exported] = ("import", *bindings[local])
+        elif node.type == "expression_statement":
+            expression = node.named_children[0] if node.named_children else None
+            if expression is None or expression.type != "assignment_expression":
+                continue
+            left = expression.child_by_field_name("left")
+            right = expression.child_by_field_name("right")
+            written = _text(left, content) if left is not None else ""
+            if written == "module.exports":
+                right = _unwrap(right)
+                if right is not None and right.type == "object":
+                    for pair in right.named_children:
+                        if pair.type == "shorthand_property_identifier":
+                            export_value(_text(pair, content), pair)
+                        elif pair.type == "pair":
+                            key = _script_key(pair.child_by_field_name("key"), content)
+                            if key:
+                                export_value(key, pair.child_by_field_name("value"))
+                else:
+                    export_value("default", right)
+            elif left is not None and left.type == "member_expression":
+                target = _text(left.child_by_field_name("object"), content)
+                if target in ("module.exports", "exports"):
+                    export_value(
+                        _text(left.child_by_field_name("property"), content), right
+                    )
+
+    # Functions whose ``this`` is a schema's model: statics assigned to
+    # ``schema.statics``, given to ``schema.static()``, and the static
+    # methods of a class given to ``schema.loadClass()``.
+    statics = {}
+    classes = {
+        _text(n.child_by_field_name("name"), content): n
+        for n in _descendants(root, "class_declaration")
+        if n.child_by_field_name("name") is not None
+    }
+
+    def static_functions(node, schema):
+        node = _unwrap(node)
+        if node is None:
+            return
+        if node.type in ("function_expression", "function", "generator_function"):
+            statics[node.id] = schema
+        elif node.type == "object":
+            for part in node.named_children:
+                if part.type == "method_definition":
+                    statics[part.id] = schema
+                elif part.type == "pair":
+                    static_functions(part.child_by_field_name("value"), schema)
+
+    for node in _descendants(root, "assignment_expression"):
+        left = node.child_by_field_name("left")
+        if left is None or left.type != "member_expression":
+            continue
+        target = left.child_by_field_name("object")
+        prop = _text(left.child_by_field_name("property"), content)
+        if (
+            target is not None
+            and target.type == "member_expression"
+            and _text(target.child_by_field_name("property"), content) == "statics"
+            and _text(target.child_by_field_name("object"), content) in schemas
+        ):
+            static_functions(
+                node.child_by_field_name("right"),
+                _text(target.child_by_field_name("object"), content),
+            )
+        elif prop == "statics" and _text(target, content) in schemas:
+            static_functions(node.child_by_field_name("right"), _text(target, content))
+    for call in _descendants(root, "call_expression"):
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None or receiver.type != "identifier":
+            continue
+        schema = _text(receiver, content)
+        if schema not in schemas or not args:
+            continue
+        if method == "static":
+            static_functions(args[-1], schema)
+        elif method == "loadClass" and args[0].type == "identifier":
+            body = classes.get(_text(args[0], content))
+            body = None if body is None else body.child_by_field_name("body")
+            for member in body.named_children if body is not None else ():
+                if member.type == "method_definition" and any(
+                    c.type == "static" for c in member.children
+                ):
+                    statics[member.id] = schema
+    schema_models = {}
+    for index, model in enumerate(models):
+        if model.schema is not UNKNOWN and model.schema[0] == "local":
+            schema_models.setdefault(model.schema[1], set()).add(index)
+
+    def this_model(node):
+        """The model ``this`` is at ``node``, inside a static."""
+        while node is not None:
+            if node.type in (
+                "function_expression",
+                "function",
+                "generator_function",
+                "function_declaration",
+                "generator_function_declaration",
+                "method_definition",
+            ):
+                schema = statics.get(node.id)
+                found = schema_models.get(schema, set())
+                return ("model", next(iter(found))) if len(found) == 1 else None
+            if node.type in ("class_body", "program"):
+                return None
+            node = node.parent
+        return None
+
+    uses = []
+    for call in _descendants(root, "call_expression"):
+        method, receiver, args = _call_parts(call, content)
+        if receiver is None:
+            continue
+        if method == "pluralize" and mongoose_root(receiver) and args:
+            pluralize = "off" if args[0].type in ("null", "undefined") else UNKNOWN
+            continue
+        if (
+            mongoose
+            and method == "set"
+            and receiver.type == "identifier"
+            and len(args) == 2
+        ):
+            if (
+                _script_string(args[0], content) == "collection"
+                and _text(receiver, content) in schemas
+            ):
+                text = _script_string(args[1], content)
+                schemas[_text(receiver, content)] = text or UNKNOWN
+            continue
+        if method not in MONGOOSE_READS | MONGOOSE_WRITES | MONGOOSE_READ_WRITES:
+            continue
+        target = this_model(call) if receiver.type == "this" else receiver_ref(receiver)
+        if target is None:
+            continue
+        where = call.child_by_field_name("function").child_by_field_name("property")
+        uses.append(
+            MongooseUse(
+                file,
+                _innermost(definitions, file, call),
+                target,
+                method in MONGOOSE_READS | MONGOOSE_READ_WRITES,
+                method in MONGOOSE_WRITES | MONGOOSE_READ_WRITES,
+                where.start_point.row + 1,
+                where.start_point.column,
+            )
+        )
+    if not (models or uses or exports or pluralize):
+        return None
+    return MongooseFile(tuple(models), tuple(uses), schemas, exports, pluralize)
+
+
+def mongoose_majors(specs):
+    """The pluralize variants (MONGOOSE_MAJORS) the ``mongoose`` version
+    specifiers of the package manifests allow: every major a specifier
+    names, all of them when none does."""
+    found = set()
+    for spec in specs:
+        numbers = re.findall(r"(?:^|[\s|^~>=<v]|\|\|)(\d+)(?:\.|\s|$|\b)", spec)
+        if not numbers:
+            return set(MONGOOSE_MAJORS)
+        found.update(min(max(int(n), 5), 7) for n in numbers)
+    return found or set(MONGOOSE_MAJORS)
+
+
+def resolve_mongoose(files, majors=None, resolve=None, scope=None):
+    """({(file, index): (collection, how, base key or None)}, {(file,
+    index): reason}, resolve_use) over the MongooseFile of each file.
+    ``how`` is "explicit" (the collection argument), "schema" (the schema's
+    collection option) or "default" (the model name pluralized as every
+    allowed mongoose major does). A discriminator takes its base's
+    collection. ``resolve_use(use)`` gives a use's model key, or the reason
+    it has none: "package", "not_a_model" or "ambiguous"."""
+    majors = majors or set(MONGOOSE_MAJORS)
+    resolve = resolve or (lambda file, module: None)
+    scope = scope or (lambda file: "")
+    by_name = {}
+    for file, found in sorted(files.items()):
+        for index, model in enumerate(found.models):
+            by_name.setdefault(model.name, []).append((file, index))
+    pluralize = {f.pluralize for f in files.values() if f.pluralize is not None}
+
+    def export(file, name, depth=0):
+        """What ``file`` exports as ``name``, following re-exports."""
+        found = files.get(file)
+        if found is None or depth > 8:
+            return None
+        value = found.exports.get(name)
+        if value is not None and value[0] == "import":
+            target = resolve(file, value[1])
+            return None if target is None else export(target, value[2], depth + 1)
+        return None if value is None else (file, value)
+
+    def model_key(file, ref):
+        kind = ref[0]
+        if kind == "model":
+            return (file, ref[1])
+        if kind == "name":
+            keys = by_name.get(ref[1], [])
+            own = [k for k in keys if scope(k[0]) == scope(file)]
+            keys = own or keys
+            return (
+                keys[0] if len(keys) == 1 else ("ambiguous" if keys else "not_a_model")
+            )
+        target = resolve(file, ref[1])
+        if target is None:
+            return "package"
+        value = export(target, ref[2])
+        if value is None or value[1][0] != "model":
+            return "not_a_model"
+        return (value[0], value[1][1])
+
+    def schema_collection(file, ref, depth=0):
+        if ref is UNKNOWN or depth > 8:
+            return UNKNOWN
+        if ref[0] == "inline":
+            return ref[1]
+        if ref[0] == "local":
+            return files[file].schemas.get(ref[1], UNKNOWN)
+        target = resolve(file, ref[1])
+        value = None if target is None else export(target, ref[2])
+        if value is None:
+            return UNKNOWN
+        where, (kind, *rest) = value
+        if kind == "schema":
+            return files[where].schemas.get(rest[0], UNKNOWN)
+        if kind == "schema-inline":
+            return rest[0]
+        return UNKNOWN
+
+    tables, unresolved = {}, {}
+
+    def collection(key, seen=()):
+        if key in tables or key in unresolved:
+            return tables.get(key)
+        file, index = key
+        model = files[file].models[index]
+        if model.base is not None:
+            base = model_key(file, model.base)
+            if not isinstance(base, tuple) or base in seen:
+                unresolved[key] = "base"
+                return None
+            found = collection(base, (*seen, key))
+            if found is None:
+                unresolved[key] = "base"
+                return None
+            tables[key] = (found[0], found[1], base)
+            return tables[key]
+        if model.collection is UNKNOWN:
+            unresolved[key] = "collection"
+        elif model.collection is not None:
+            tables[key] = (model.collection, "explicit", None)
+        else:
+            option = schema_collection(file, model.schema)
+            if option is UNKNOWN:
+                unresolved[key] = "schema"
+            elif option is not None:
+                tables[key] = (option, "schema", None)
+            elif UNKNOWN in pluralize:
+                unresolved[key] = "pluralize"
+            elif "off" in pluralize:
+                tables[key] = (model.name, "default", None)
+            else:
+                names = {mongoose_pluralize(model.name, m) for m in majors}
+                if len(names) == 1:
+                    tables[key] = (names.pop(), "default", None)
+                else:
+                    unresolved[key] = "version"
+        return tables.get(key)
+
+    for file, found in sorted(files.items()):
+        for index in range(len(found.models)):
+            collection((file, index))
+    return tables, unresolved, lambda use: model_key(use.file, use.target)
