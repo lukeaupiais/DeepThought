@@ -73,6 +73,53 @@ def _descriptor_name(native_id):
     return names[-1] if names else None
 
 
+_SELF_BUILTIN = re.compile(
+    r"\b(?:self|cls)\.\s*\0scip-python python python-stdlib \S+ builtins/[^#/]+(?:#|\(\)\.)$"
+)
+_ALL = re.compile(r"^__all__\s*=\s*[\[(]([^\])]*)[\])]", re.M)
+
+
+def _star_export(native_id, written, file, defined, text_of):
+    """The symbol a name re-exported by ``from .m import *`` really names.
+
+    scip-python 0.6.8 gives every name that a package re-exports from a
+    module through ``from .m import *`` one symbol of that module, whatever
+    the name: ``httpx.Response(...)`` is recorded as ``_models/Request#``.
+    When the written name differs from the symbol's, the module lists the
+    written name in ``__all__`` and the index defines that name as a
+    sibling symbol of the same module, the sibling is the one Python binds.
+    A name the referencing file binds with ``import ... as`` is an alias and
+    keeps its symbol. A differing name that cannot be placed otherwise (a
+    re-export through two star imports) returns None: the row is unjudged.
+    """
+    if (
+        not native_id.startswith("scip-python ")
+        or native_id not in defined
+        or not _NAME.fullmatch(written)
+    ):
+        return native_id
+    match = re.search(r"(`?)([A-Za-z_]\w*)\1(#|\(\)\.)$", native_id)
+    if not match or match.group(2) == written or "#" in native_id[: match.start()]:
+        return native_id
+    alias = re.compile(r"\bimport\b.*\bas\s+" + re.escape(written) + r"\b")
+    if any(alias.search(line) for line in text_of(file)):
+        return native_id
+    files = {file for file, _, _ in defined.get(native_id, ())}
+    if len(files) != 1:
+        return None
+    exported = _ALL.search("\n".join(text_of(next(iter(files)))))
+    if not exported or not re.search(
+        r"[\"']" + re.escape(written) + r"[\"']", exported.group(1)
+    ):
+        return None
+    prefix = native_id[: match.start()]
+    for suffix in ("#", "()."):
+        sibling = prefix + written + suffix
+        if sibling in defined:
+            return sibling
+    return None
+
+
 def _callable(native_id):
     return native_id.endswith(("().", "#")) and not native_id.startswith("local ")
 
@@ -246,8 +293,16 @@ def derive(workspace, index):
             # A tuple-struct pattern names a variant or struct before an
             # opening parenthesis without calling it.
             continue
-        if r.native_id in defined:
-            targets = defined[r.native_id]
+        native = _star_export(r.native_id, written, r.file, defined, text_of)
+        if native is None or _SELF_BUILTIN.search(
+            _slice(line, 0, r.column, encoding) + "\0" + r.native_id
+        ):
+            # scip-python binds `self.set(...)` in a class that defines
+            # `set` to the builtin `set`: an attribute of self is never a
+            # top-level builtin, so the row is left unjudged.
+            continue
+        if native in defined:
+            targets = defined[native]
         elif r.native_id.startswith("local "):
             # scip-typescript names a local class's constructor
             # `local N`<constructor>`().` without defining it: the call

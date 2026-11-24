@@ -1079,6 +1079,99 @@
     "unresolved_expected": 833,
     "unresolved_unjudged": 28454
   },
+  "httpx": {
+    "ambiguous_no_candidates": 1,
+    "by_rule": {
+      "tree-sitter.call-imported-name": {
+        "confirmed": 158
+      },
+      "tree-sitter.call-lexical-name": {
+        "confirmed": 267
+      },
+      "tree-sitter.call-self-method": {
+        "confirmed": 97,
+        "unjudged": 2
+      },
+      "tree-sitter.python-call-attribute-receiver": {
+        "confirmed": 10
+      },
+      "tree-sitter.python-call-result-receiver": {
+        "confirmed": 13
+      },
+      "tree-sitter.python-call-self-inherited": {
+        "confirmed": 12
+      },
+      "tree-sitter.python-call-super": {
+        "confirmed": 8
+      },
+      "tree-sitter.python-call-typed-receiver": {
+        "confirmed": 40
+      }
+    },
+    "confirmed": 605,
+    "contradicted": 0,
+    "expected": 1959,
+    "impact": {
+      "by_depth": {
+        "1": {
+          "confirmed": 82,
+          "expected": 310
+        },
+        "2": {
+          "confirmed": 70,
+          "expected": 331
+        },
+        "3": {
+          "confirmed": 42,
+          "expected": 429
+        }
+      },
+      "confirmed": 194,
+      "expected": 1070,
+      "extra": 0,
+      "missed": 876,
+      "precision": 1.0,
+      "recall": 0.1813,
+      "seeds": 203,
+      "seeds_undeclared": 0,
+      "unjudged": 0
+    },
+    "imports": {
+      "confirmed": 124,
+      "contradicted": 0,
+      "expected": 124,
+      "precision": 1.0,
+      "recall": 1.0,
+      "unresolved_external": 214,
+      "unresolved_unjudged": 2
+    },
+    "inherits": {
+      "confirmed": 56,
+      "contradicted": 0,
+      "expected": 67,
+      "missed": 11,
+      "precision": 1.0,
+      "recall": 0.8358,
+      "unresolved": 25
+    },
+    "missed": 1359,
+    "missed_by_engine_outcome": {
+      "ambiguous:multiple_bindings": 1,
+      "no_call_site": 5,
+      "unresolved:attribute_call": 10,
+      "unresolved:attribute_not_typed": 10,
+      "unresolved:attribute_type_not_declared": 6,
+      "unresolved:base_not_resolved": 11,
+      "unresolved:local_binding": 549,
+      "unresolved:module_attribute_not_declared": 758,
+      "unresolved:receiver_type_not_declared": 9
+    },
+    "precision": 1.0,
+    "recall": 0.3063,
+    "unjudged": 2,
+    "unresolved_expected": 1360,
+    "unresolved_unjudged": 2002
+  },
   "ky": {
     "by_rule": {
       "tree-sitter.call-imported-name": {

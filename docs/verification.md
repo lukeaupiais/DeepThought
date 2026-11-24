@@ -60,7 +60,19 @@ scored against a yardstick its own rules cannot move.
   `@overload` group (the implementation too), and a redefinition of a name
   in one scope, the first declaration's symbol, so a call to that symbol
   lists each of those `def` lines as a target: a link to the implementation
-  confirms.
+  confirms. scip-python 0.6.8 also mis-binds two Python patterns, and these
+  are corrected when truth is derived:
+  - **Star re-exports.** Every name a package re-exports through
+    `from .m import *` gets a single symbol of `m`: `httpx.Response(...)` is
+    recorded as `_models/Request#`. A call that spells a different
+    top-level name than its symbol is linked to that name's own symbol when
+    the module lists the name in `__all__` and defines it. Aliases written
+    with `import ... as` keep their symbol. Any other mismatch, such as a
+    re-export through two star imports, is left unjudged.
+  - **Attributes named like builtins.** `self.set(...)` or `self.type(...)` in
+    a class that defines that attribute is recorded as the builtin `set` or
+    `type`. An attribute of `self` or `cls` is never a top-level builtin, so
+    these calls are left unjudged.
 - `baseline.json` is the current score of each corpus.
 
 When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
