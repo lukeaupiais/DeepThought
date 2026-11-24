@@ -151,5 +151,29 @@ class ImpactTruthTests(unittest.TestCase):
         self.assertEqual((report["missed"], report["extra"]), (0, 0))
 
 
+@unittest.skipUnless(READY, "git and the Python grammar are required")
+class SameNameTests(unittest.TestCase):
+    def test_a_function_is_not_folded_onto_a_method_of_the_same_name(self):
+        import deepthought
+
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo)
+        (repo / "m.py").write_text(
+            "def base():\n    return 1\n\n\n"
+            "class C:\n    def run(self):\n        return base()\n\n\n"
+            "def run():\n    return 2\n\n\n"
+            "def caller():\n    return run()\n",
+            "utf-8",
+        )
+        result = deepthought.analyze_repository(
+            repo, repository_id="t", languages=("python",)
+        )
+        # The truth names only base and its caller C.run; the function `run`
+        # is in no row, so it must keep its own node, not take C.run's.
+        truth = {("m.py", 1, "base"): {("m.py", 1, "base"): 0, ("m.py", 6, "run"): 1}}
+        report, samples = impact_truth.score(result, truth)
+        self.assertEqual((report["confirmed"], report["extra"]), (1, 0), samples)
+
+
 if __name__ == "__main__":
     unittest.main()

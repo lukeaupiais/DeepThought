@@ -98,9 +98,9 @@
       },
       "confirmed": 123,
       "expected": 1151,
-      "extra": 6,
+      "extra": 0,
       "missed": 1028,
-      "precision": 0.9535,
+      "precision": 1.0,
       "recall": 0.1069,
       "seeds": 144,
       "seeds_undeclared": 0
@@ -621,20 +621,20 @@
           "expected": 368
         },
         "2": {
-          "confirmed": 301,
+          "confirmed": 294,
           "expected": 927
         },
         "3": {
-          "confirmed": 71,
+          "confirmed": 36,
           "expected": 608
         }
       },
-      "confirmed": 495,
+      "confirmed": 453,
       "expected": 1903,
-      "extra": 123,
-      "missed": 1408,
-      "precision": 0.801,
-      "recall": 0.2601,
+      "extra": 1,
+      "missed": 1450,
+      "precision": 0.9978,
+      "recall": 0.238,
       "seeds": 277,
       "seeds_undeclared": 84
     },
