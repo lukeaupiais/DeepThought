@@ -10,6 +10,7 @@ tree-sitter output joins them.
 """
 
 from hashlib import sha256
+from collections import Counter
 import importlib.util
 import json
 import os
@@ -46,6 +47,9 @@ from ..data_contracts import (
     extract_sqlalchemy,
     extract_typeorm,
     extract_sequelize,
+    extract_mongoose,
+    mongoose_majors,
+    resolve_mongoose,
     resolve_sequelize,
     merge_sequelize_defines,
     sequelize_define_options,
@@ -550,6 +554,39 @@ SEQUELIZE_CALL_RULE = register_rule(
     )
 )
 
+MONGOOSE_COLLECTION_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-collection",
+        "pattern_matched",
+        "A Mongoose model (model(name, schema) on mongoose, a connection or "
+        "the model import of mongoose) names this collection with a literal "
+        "collection argument or its schema's literal collection option. A "
+        "discriminator maps to its base model's collection.",
+    )
+)
+MONGOOSE_DEFAULT_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-default-collection",
+        "name_matched",
+        "A Mongoose model without a collection: the model name pluralized "
+        "by mongoose's default pluralize, the same under every mongoose "
+        "major the package manifests allow (5, 6 and 7 or later differ). "
+        "Left out when the code sets its own pluralize function.",
+    )
+)
+MONGOOSE_CALL_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.mongoose-call",
+        "pattern_matched",
+        "The code calls a static query (find, findOne, countDocuments, "
+        "aggregate, ...) or write (create, updateOne, deleteMany, ...) "
+        "method on a Mongoose model: a binding of the model in the file, an "
+        "import that resolves to a file exporting it, mongoose.model(name) "
+        "or mongoose.models.name. Instance methods (doc.save()) and query "
+        "chains held in variables are not read.",
+    )
+)
+
 
 def _nearest(candidates, scope):
     """The tables of (scope, table) candidates in the user's own namespace
@@ -572,6 +609,15 @@ def _is_ruby_test(path):
     gems and Composer installs packages)."""
     return any(
         part in ("test", "tests", "spec", "vendor") for part in path.split("/")[:-1]
+    )
+
+
+def _is_script_test(path):
+    """JavaScript and TypeScript test sources: test trees (test/, tests/,
+    __tests__/, spec/) and ``*.test.*`` / ``*.spec.*`` files."""
+    parts = path.split("/")
+    return any(p in ("test", "tests", "__tests__", "spec") for p in parts[:-1]) or bool(
+        re.search(r"\.(?:test|spec)\.[cm]?[jt]sx?$", parts[-1])
     )
 
 
@@ -1420,6 +1466,82 @@ class DataContractTool(AnalysisTool):
                         SEQUELIZE_CALL_RULE,
                         {"model": use.model, "line": use.line, "column": use.column},
                     )
+        # Mongoose: models, their collections and static calls.
+        mongoose_files, mongoose_specs = {}, []
+        for path in _sql_files(root, include, exclude, "package.json"):
+            if not path.endswith("package.json"):
+                continue
+            content = (root / path).read_bytes()
+            try:
+                manifest = json.loads(content)
+            except ValueError:
+                continue
+            if not isinstance(manifest, dict):
+                continue
+            for section in ("dependencies", "devDependencies", "peerDependencies"):
+                spec = (manifest.get(section) or {}).get("mongoose")
+                if isinstance(spec, str):
+                    digests[path] = sha256(content).hexdigest()
+                    mongoose_specs.append(spec)
+        for file, content, tree in script_trees:
+            if _is_script_test(file):
+                continue
+            found = extract_mongoose(tree, content, file, result.definitions)
+            if found is not None:
+                mongoose_files[file] = found
+        mongoose_tables, mongoose_unresolved, mongoose_model = resolve_mongoose(
+            mongoose_files,
+            mongoose_majors(mongoose_specs),
+            lambda file, module: (
+                resolve_script_module(file, module, script_files)
+                or resolve_script_alias(file, module, script_files, ts_paths)
+            ),
+            scope,
+        )
+        mongoose_targets = {}
+        for (file, index), (name, how, base) in sorted(mongoose_tables.items()):
+            model = mongoose_files[file].models[index]
+            target = table(file, table_key(name))
+            mongoose_targets[file, index] = target
+            extra = {"model": model.name, "line": model.line, "column": model.column}
+            if base is not None:
+                extra["discriminator_of"] = mongoose_files[base[0]].models[base[1]].name
+            link(
+                "MAPS_TO",
+                code(file, model.model_id),
+                target,
+                MONGOOSE_DEFAULT_RULE if how == "default" else MONGOOSE_COLLECTION_RULE,
+                extra,
+            )
+        mongoose_counts = {"linked": 0, "unresolved_model": 0}
+        has_models = any(found.models for found in mongoose_files.values())
+        for file, found in sorted(mongoose_files.items()):
+            for use in found.uses if has_models else ():
+                key = mongoose_model(use)
+                if not isinstance(key, tuple):
+                    if key != "package":
+                        mongoose_counts[key] = mongoose_counts.get(key, 0) + 1
+                    continue
+                target = mongoose_targets.get(key)
+                if target is None:
+                    mongoose_counts["unresolved_model"] += 1
+                    continue
+                mongoose_counts["linked"] += 1
+                model = mongoose_files[key[0]].models[key[1]]
+                source = code(use.file, use.caller_id)
+                for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                    if used:
+                        link(
+                            kind,
+                            source,
+                            target,
+                            MONGOOSE_CALL_RULE,
+                            {
+                                "model": model.name,
+                                "line": use.line,
+                                "column": use.column,
+                            },
+                        )
         # Laravel: migrations, Eloquent models and their calls.
         php_classes, php_accesses = [], []
         for file, found in php_found:
@@ -1697,6 +1819,11 @@ class DataContractTool(AnalysisTool):
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
+                    "mongoose_models": len(mongoose_tables),
+                    "mongoose_unresolved": dict(
+                        sorted(Counter(mongoose_unresolved.values()).items())
+                    ),
+                    "mongoose_access_resolution": dict(sorted(mongoose_counts.items())),
                     "eloquent_models": len(eloquent_tables),
                     "eloquent_unresolved": len(eloquent_unresolved),
                     "eloquent_access_resolution": eloquent_counts,
@@ -1708,7 +1835,8 @@ class DataContractTool(AnalysisTool):
                     "scope": "tables from CREATE TABLE, Prisma schemas, "
                     "Rails schema files, Laravel and Sequelize migrations and "
                     "JPA, Django, SQLAlchemy, GORM, TypeORM, Sequelize, "
-                    "Eloquent and ActiveRecord mappings, read and written by "
+                    "Eloquent, ActiveRecord and Mongoose mappings, read and "
+                    "written by "
                     "repositories, ORM calls and the SQL text code runs; per "
                     "datasource URL or nearest package",
                 },
