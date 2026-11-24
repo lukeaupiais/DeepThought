@@ -280,8 +280,22 @@ class CallSite:
     # each: a field name ``f``, a method call ``M()`` (its first result), or
     # ``[]`` (an element of a slice). None when the receiver is ``x`` itself.
     receiver_steps: tuple[str, ...] | None = None
+    # JavaScript and TypeScript calls of a plain name: the start (line,
+    # column) of the declaration of that name the call sees in its file,
+    # following block and function scopes; ``()`` when the file declares
+    # none the call sees. None when an import binds the name, or the scopes
+    # around the call cannot be read (``with``, a syntax error), and
+    # elsewhere.
+    binding: tuple[int, ...] | None = None
 
     def __post_init__(self):
+        if self.binding is not None and (
+            type(self.binding) is not tuple
+            or len(self.binding) not in (0, 2)
+            or not all(type(v) is int and v >= 0 for v in self.binding)
+            or (self.binding and self.binding[0] < 1)
+        ):
+            raise ValueError("binding must be (line, column), () or None")
         if self.receiver_type is not None and (
             not isinstance(self.receiver_type, str) or not self.receiver_type
         ):
@@ -619,6 +633,8 @@ class AnalysisResult:
                 del item["receiver_type"]
             if item["receiver_steps"] is None:
                 del item["receiver_steps"]
+            if item["binding"] is None:
+                del item["binding"]
         for item in data["imports"]:
             if item["block"] is None:
                 del item["block"]
@@ -711,6 +727,11 @@ class AnalysisResult:
                         **(
                             {"receiver_steps": tuple(item["receiver_steps"])}
                             if isinstance(item.get("receiver_steps"), list)
+                            else {}
+                        ),
+                        **(
+                            {"binding": tuple(item["binding"])}
+                            if isinstance(item.get("binding"), list)
                             else {}
                         ),
                     }

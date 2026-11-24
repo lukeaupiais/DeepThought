@@ -20,6 +20,13 @@ STOMP (WebSocket messaging): Spring ``@MessageMapping`` methods consume
 (``Stomp.over``/``Stomp.client``, webstomp, ``@stomp/stompjs`` ``Client``,
 AngularJS ngStomp ``$stomp``)
 ``send``/``publish`` and ``subscribe``. The broker is ``stomp``.
+
+GraphQL subscription pubsub: ``publish(topic, ...)`` and
+``asyncIterator(topic)`` (or ``asyncIterableIterator``, ``subscribe``) on a
+name bound to a ``PubSub`` (graphql-subscriptions and the servers that
+re-export it) or a ``RedisPubSub``. An in-memory PubSub's destination is
+``file#name/topic``, as it delivers only within its own instance; a
+RedisPubSub's is the Redis channel.
 """
 
 from dataclasses import dataclass
@@ -645,9 +652,9 @@ def extract_go(sites, imports):
 _STOMP_FACTORIES = {"Stomp.over", "Stomp.client", "webstomp.over", "webstomp.client"}
 
 
-def _stomp_names(root, content, modules):
-    """Names (``x`` or ``this.x``) that every assignment in the file binds to
-    a STOMP client."""
+def _bound_kinds(root, content, classify):
+    """{name: kind} for the names (``x`` or ``this.x``) that every assignment
+    in the file binds to a value ``classify`` gives the same kind."""
     found = {}
     for node in _walk(root):
         if node.type == "variable_declarator":
@@ -655,38 +662,76 @@ def _stomp_names(root, content, modules):
                 node.child_by_field_name("name"),
                 node.child_by_field_name("value"),
             )
+            written = text(name, content) if name is not None else None
         elif node.type == "assignment_expression":
             name, value = (
                 node.child_by_field_name("left"),
                 node.child_by_field_name("right"),
             )
+            written = text(name, content) if name is not None else None
+        elif node.type in ("public_field_definition", "field_definition"):
+            name = node.child_by_field_name("name") or node.child_by_field_name(
+                "property"
+            )
+            value = node.child_by_field_name("value")
+            written = "this." + text(name, content) if name is not None else None
         else:
             continue
-        if name is None or value is None:
+        if written is None or value is None:
             continue
-        written = text(name, content)
-        stomp = False
-        if value.type == "call_expression":
-            stomp = text(value.child_by_field_name("function"), content) in (
-                _STOMP_FACTORIES
-            )
-        elif value.type == "new_expression":
-            constructor = text(value.child_by_field_name("constructor"), content)
-            owner, _, member = constructor.rpartition(".")
-            stomp = modules.get(constructor) == "@stomp/stompjs.Client" or (
-                member == "Client" and modules.get(owner) == "@stomp/stompjs"
-            )
-        found[written] = found.get(written, True) and stomp
-    return {name for name, stomp in found.items() if stomp}
+        kind = classify(value)
+        found.setdefault(written, set()).add(kind)
+    return {
+        name: next(iter(kinds))
+        for name, kinds in found.items()
+        if len(kinds) == 1 and None not in kinds
+    }
+
+
+def _constructed(value, content, modules, exports):
+    """Whether ``value`` is ``new C(...)`` of a class one of ``exports``
+    ({module: class}) names, imported under any local name."""
+    if value.type != "new_expression":
+        return False
+    constructor = text(value.child_by_field_name("constructor"), content)
+    owner, _, member = constructor.rpartition(".")
+    return any(
+        modules.get(constructor) == f"{module}.{name}"
+        or (member == name and modules.get(owner) == module)
+        for module, name in exports
+    )
+
+
+_PUBSUB_CLASSES = (
+    ("graphql-subscriptions", "PubSub"),
+    ("apollo-server", "PubSub"),
+    ("apollo-server-express", "PubSub"),
+    ("graphql-yoga", "PubSub"),
+    ("@nestjs/graphql", "PubSub"),
+)
+_REDIS_PUBSUB = (("graphql-redis-subscriptions", "RedisPubSub"),)
 
 
 def extract_javascript(sites, language):
     content, root = sites.content, sites.root
     modules = _js_modules(root, content)
+
+    def classify(value):
+        if value.type == "call_expression":
+            called = text(value.child_by_field_name("function"), content)
+            return "stomp" if called in _STOMP_FACTORIES else None
+        if _constructed(value, content, modules, (("@stomp/stompjs", "Client"),)):
+            return "stomp"
+        if _constructed(value, content, modules, _PUBSUB_CLASSES):
+            return "graphql-pubsub"
+        if _constructed(value, content, modules, _REDIS_PUBSUB):
+            return "redis"
+        return None
+
+    names = _bound_kinds(root, content, classify)
     # AngularJS ngStomp's injected service, read as $http is in web.py.
-    names = _stomp_names(root, content, modules)
     if b"$stomp" in content:
-        names.add("$stomp")
+        names["$stomp"] = "stomp"
     if not names:
         return
     folder = Folder(language, root, content)
@@ -697,23 +742,54 @@ def extract_javascript(sites, language):
         arguments = node.child_by_field_name("arguments")
         if function.type != "member_expression" or arguments is None:
             continue
-        if text(function.child_by_field_name("object"), content) not in names:
+        owner = text(function.child_by_field_name("object"), content)
+        kind = names.get(owner)
+        if kind is None:
             continue
         verb = text(function.child_by_field_name("property"), content)
         positional = [c for c in arguments.named_children if c.type != "comment"]
         if not positional:
             continue
-        if verb == "publish":
-            options = _js_object(positional[0], content)
-            if "destination" not in options:
+        if kind == "stomp":
+            if verb == "publish":
+                options = _js_object(positional[0], content)
+                if "destination" not in options:
+                    continue
+                destination = folder.evaluate(options["destination"])
+            elif verb in ("send", "subscribe"):
+                destination = folder.evaluate(positional[0])
+            else:
                 continue
-            destination = folder.evaluate(options["destination"])
-        elif verb in ("send", "subscribe"):
-            destination = folder.evaluate(positional[0])
+            role = "consume" if verb == "subscribe" else "publish"
+            sites.add(node, role, "stomp", destination, "stompjs")
+            continue
+        if verb == "publish":
+            role, topics = "publish", [positional[0]]
+        elif verb in ("asyncIterator", "asyncIterableIterator", "subscribe"):
+            first = positional[0]
+            role = "consume"
+            topics = (
+                [c for c in first.named_children if c.type != "comment"]
+                if first.type == "array"
+                else [first]
+            )
         else:
             continue
-        role = "consume" if verb == "subscribe" else "publish"
-        sites.add(node, role, "stomp", destination, "stompjs")
+        for topic in topics:
+            name = folder.evaluate(topic)
+            if kind == "redis":
+                sites.add(node, role, "redis", name, "graphql-redis-subscriptions")
+            elif PLACEHOLDER in name:
+                sites.add(node, role, kind, name, "graphql-subscriptions")
+            else:
+                # An in-memory PubSub delivers only to its own instance.
+                sites.add(
+                    node,
+                    role,
+                    kind,
+                    f"{sites.file}#{owner}/{name}",
+                    "graphql-subscriptions",
+                )
 
 
 def extract_messaging(

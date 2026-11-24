@@ -148,7 +148,7 @@ arbitrary object gets no edge.
 
 | Rule | Links |
 |---|---|
-| `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes |
+| `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
 | `tree-sitter.call-imported-name` | `f()` to the top-level declaration that an import binding (aliases applied) names in its linked module file |
 | `tree-sitter.call-module-attribute` | `mod.f()` where `mod` is a module import binding (`import m`, `import a.b as m`, `import * as m`) |
 | `tree-sitter.go-call-typed-receiver` | Go (`resolved`): `x.M()` or `x.f.g.M()` where `x` is declared in the function around the call. The receiver's type is followed from what is written. The innermost visible declaration of `x` gives a type: a parameter, receiver or named result (`c *Command`; a variadic `...T` is a slice of `T`), `var x T`, a typed `const`, or a value: `T{...}`, `&e`, `*e`, `new(T)`, `make(T, ...)`, `e.(T)`, another variable, `e.f` (the field's declared type), `e.M()` (the method's first declared result; `x, err := e.M()` too), `e[i]` and `for _, x := range e` (the element of a slice or array). Fields and results are read from the declarations of the struct and method, so `Definition.fields` and `Definition.result_type` hold them, and the steps a call still needs are `CallSite.receiver_steps`. Each step must find one struct or method in the package that declares the type (the caller's, or for `pkg.T` the package that file imports as `pkg`). It links to the method `M` declared on the type, interface methods included. A step that finds nothing or more than one declaration, a map, channel or function type, a named slice type, or a type parameter leaves the call unresolved (`receiver_type_unknown`). Methods and fields promoted from embedded fields are not followed (`not_declared_on_type`), an embedded field by its own name is. A function that declares a local type of that name gets no link |
@@ -2379,6 +2379,50 @@ destination with unknown text is not read, so it never meets them.
 No meeting is wrong. On the other corpora, apssouza22's 3 edges are the only
 change.
 
+### GraphQL subscription pubsub
+
+GraphQL subscriptions are usually fed through a pubsub object: a mutation
+publishes to a topic, and the subscription resolver returns an iterator over
+that topic. These are read as messaging:
+
+- **In-memory `PubSub`.** The class comes from `graphql-subscriptions`, or the
+  copy that `apollo-server`, `apollo-server-express`, `graphql-yoga` or
+  `@nestjs/graphql` re-exports. `publish(topic, ...)` publishes (rule
+  `service-contracts.graphql-pubsub-publish`). `asyncIterator(topic)`,
+  `asyncIterableIterator(topic)` and `subscribe(topic, ...)` consume, and an
+  array of topics names each one (rule `graphql-pubsub-subscribe`). The
+  broker is `graphql-pubsub`. An in-memory PubSub delivers only to listeners
+  on the same instance, so the destination is `<file>#<name>/<topic>`, and two
+  PubSub objects never meet even when their topics match.
+- **`RedisPubSub`** from `graphql-redis-subscriptions` uses the same calls.
+  Its destination is the Redis channel, with broker `redis`, so publishers and
+  subscribers in different services meet (rules `graphql-redis-pubsub-publish`
+  and `graphql-redis-pubsub-subscribe`).
+
+The call must be on a name (`x` or a class field `this.x`) that every
+assignment in the file binds to a `new` of one of these imported classes. A
+topic with unknown text is `publish:destination_not_literal` or
+`consume:destination_not_literal`. These are not read:
+
+- a PubSub that is created in one file and imported or passed in elsewhere,
+  such as `export default new PubSub()` or `context.pubsub`;
+- a PubSub injected by Nest's dependency injection;
+- other pubsub APIs, such as mercurius's `publish({topic, payload})`.
+
+| Repository | Literal pubsub sites | Outcome |
+|---|---|---|
+| notiz-dev/nestjs-prisma-starter `225e5a9` (corpus) | 1 publish, 1 subscribe | Linked |
+| nestjs/nest `fed38a7` samples 12, 22 and 23 | 3 publishes, 3 subscribes | All 3 pairs linked |
+| nestjs/nest sample 33 (mercurius) | 1 publish | Not read: a different API |
+| the-road-to-graphql/fullstack-apollo-express-postgresql-boilerplate `77875c6` | 1 publish, 1 subscribe | Not read: the PubSub is a default export from another file |
+| howtographql/graphql-js (corpus) `e0a3a21` | 2 publishes, 2 subscribes | Not read: they go through `context.pubsub` |
+| davidyaha/graphql-redis-subscriptions `537c79d` | none (the library itself) | Nothing read, which is correct |
+
+No edge is wrong. Of the 15 literal sites, 8 are read and all 8 are linked
+correctly. Of the others, 6 use a PubSub passed in from another file and 1 is
+mercurius. Across all corpora, nestjs-prisma-starter's 2 edges are the only
+change.
+
 ### Spring Cloud Stream
 
 Spring Cloud Stream code names a binding and each service's configuration
@@ -2657,6 +2701,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-collection` | pattern_matched | a Mongoose model (`model('Name', schema)` on mongoose, a connection from `createConnection`/`useDb`, or the `model` import of mongoose) with a fixed `collection` argument, or whose schema (`new Schema(fields, options)` in the file, or imported from a repository file) sets a fixed `collection` option; options are read through literals, spreads, constants of the file or imported from a repository file, and `Object.assign`/lodash merges. NestJS models are read too: `MongooseModule.forFeature([{name, schema, collection}])` declares a model, and a schema made by `SchemaFactory.createForClass(C)` takes the `collection` of `C`'s `@Schema(options)`. A discriminator (`Base.discriminator('Name', schema)`) maps to its base's collection and carries `discriminator_of`. A MongoDB collection is a DbTable |
 | Symbol\|File -[:MAPS_TO]-> DbTable | `data-contracts.mongoose-default-collection` | name_matched | a Mongoose model without a collection: the model name lowercased and pluralized by mongoose's default pluralize (`UserHistory` is `userhistories`, `Person` is `people`), the same under every mongoose major the `package.json` files allow (mongoose 6 added `goose`, 7 added `human`); a name the allowed majors disagree on, a collection or schema the code does not fix, or a custom `mongoose.pluralize(fn)` leaves the model unresolved |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-call` | pattern_matched | a static query (`find`, `findOne`, `findById`, `countDocuments`, `aggregate`, ...) or write (`create`, `insertMany`, `updateOne`, `deleteMany`, `bulkWrite`, ...) method, `findOneAndUpdate` and its kin both, on a model: a binding of it in the file, an import or `require` that resolves (through `module.exports`, `export`, re-exports and namespace members) to the file exporting it, `mongoose.model('Name')`, `mongoose.models.Name`, `this` inside the schema's statics (`schema.statics`, `schema.static()`, static methods of a class given to `schema.loadClass()`), or `this.prop` where `prop` is a constructor parameter or field of the class decorated `@InjectModel(name)` (a string or `X.name`) from `@nestjs/mongoose` |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
@@ -2764,7 +2809,8 @@ introspection queries (`pg_class`, `sqlite_master`, `user_constraints`,
 ...).
 
 On prisma/prisma-examples, outside `node_modules`, the tool reads all 147
-`model` blocks of its 83 schemas. It links 548 client calls to their
+`model` blocks of its 83 schemas. It links 490 client calls outside the
+test sources (548 with them) to their
 example's own model and leaves 6 whose name several models of the repository
 share outside the caller's package. Against a `grep` for
 `x.model.method(` it finds 554 calls to grep's 525: the extra ones are
@@ -2851,12 +2897,12 @@ are mapped. Their superclasses (`ParanoidModel`, `IdModel`, and a local
 the `@server/*` alias of `tsconfig.json`; a second `ParanoidModel` in the
 frontend is never taken. The 41 tables (`Document` and `Template` share
 `documents`) are all created by the baseline `schema.sql` or a
-`createTable` migration. The tool links 1,862 static calls. A single-line
-`grep` for the mapped class names followed by a Sequelize method finds 1,854
-lines, and the tool links all of them but one, a model taken from a
-dynamic `await import(...)`. Its 9 extra lines are calls with type
-arguments (`Import.findAll<Import<any>>(`). The 133 calls not linked are on
-other classes (`TextSelection.create`, `Metrics.count`, ...). On
+`createTable` migration. A single-line `grep` for the mapped class names
+followed by a Sequelize method finds 1,854 lines, 821 of them outside the
+test sources, and the tool links all 821; it links 837 calls in all, the
+others split over lines or written with type arguments
+(`Import.findAll<Import<any>>(`). The 96 calls not linked are on other
+classes (`TextSelection.create`, `Metrics.count`, ...). On
 TonyMckes/conduit-realworld-example-app `5e127d8` the 4 `Model.init` models
 get their default names (`Users`, `Articles`, ...), and each is one its
 migrations create; its 23 calls are the lines `grep` finds. In
@@ -2905,6 +2951,30 @@ holds almost no pluralize cases, so the rule tables are checked against
 these names. Instance methods (`doc.save()`), query chains held in
 variables, Typegoose and the raw MongoDB driver are not read yet.
 
+Repository classes are followed across files and across workspace
+packages. An import of a sibling package by name (`@novu/dal`) resolves
+when the importing file's nearest `package.json` depends on it through the
+`workspace:` protocol and exactly one `package.json` of the repository
+carries the name. The package's entry points (`exports["."]`, `types`,
+`main`, `module`) give its file, either directly or, for a built entry
+under a tsconfig's `outDir` in the package's directory, as the source under
+`rootDir` that the compiler writes it from (`dist/index.js` from
+`src/index.ts`). `export * from` is followed, and a name that two star
+exports both give is no export, as in ES modules. Only the Mongoose reader
+resolves workspace packages so far. On novuhq/novu `d688aea` the tool links
+1,409 repository calls, where it linked none before. Of the 1,335
+`this.<x>Repository.<base method>(` lines a single-line `grep` finds
+outside the tests, 1,033 are linked. The others are methods the subclass
+declares (116, whose bodies are linked), helpers that touch no collection
+(52, such as `withTransaction`), and calls on classes that are not
+Mongoose repositories here (130: wrappers that delegate to an injected
+interface, and ClickHouse repositories), plus 4 whose repository comes from a factory
+(`getEERepository<UserRepository>(...)`). All 68 `this.MongooseModel` and `this._model` calls in
+the subclasses are linked, and a sample of 15 links named the repository's
+own collection each time. TypeScript's `await x.f<T>(...)`, which
+tree-sitter reads as a call of `await x.f`, is now read as a call of
+`x.f`.
+
 On brocoders/nestjs-boilerplate `9620f15` the 4 NestJS models are declared
 by `forFeature`, without collections, so they take default names such as
 `userschemaclasses`, and the tool links 19 calls. Every line a single-line
@@ -2914,8 +2984,16 @@ repositories. On novuhq/novu `d688aea` all 44 models resolve, several
 through schema options imported from a shared file. Its calls go through a
 `BaseRepository` that holds the model in a field set by a subclass, so
 none are linked yet. When several files declare a model of the same name
-for the same collection, as NestJS feature modules do, it is one model. JavaScript and TypeScript test sources (`test/`, `tests/`,
-`__tests__/`, `spec/`, `*.test.*`, `*.spec.*`) are skipped for Mongoose.
+for the same collection, as NestJS feature modules do, it is one model.
+
+JavaScript and TypeScript test sources (`test/`, `tests/`, `__tests__/`,
+`spec/`, `*.test.*`, `*.spec.*`) are skipped by every script reader
+(Prisma, TypeORM, Sequelize, Drizzle and Mongoose), as Ruby, PHP
+and Go tests are. A test's fixture calls are not the application's data
+access, and on outline/outline `fd66b5e` they were 1,047 of the 1,887
+Sequelize call edges. On outline and prisma/prisma-examples every edge that
+goes away comes from a test source, and on ten other JavaScript and
+TypeScript corpora nothing changes.
 
 On koel/koel `f0d5bc7` the tool maps 25 Eloquent models, and every table
 they map is one its migrations create. One `Pivot` without `$table` is left
