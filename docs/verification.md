@@ -630,6 +630,38 @@ Neither app was used to build the reader (#190). It reads nothing wrongly, but:
   that import none of `mongodb`, `mongoose` or `mongoskin`, so the import gate
   leaves almost all of its 80 collections unread.
 
+### Knex query-builder tables
+
+Knex names a table as a string argument of its query builder.
+`tools/knex_labels.py` parses every JavaScript and TypeScript file outside
+tests with tree-sitter and lists each literal table a Knex call names:
+`H('t')` on a handle, `from`, `into` and `table` on a builder started from a
+handle, the `join` family (always READS), `batchInsert` (WRITES), and
+`schema.createTable` / `createTableIfNotExists` (DECLARES). A handle is a
+name or property `knex`, `trx`, `transaction`, `connection`, `db` or
+`transacting` (`#` and `_` prefixes aside), or a name the file declares with
+the type `Knex` or `Knex.Transaction`; every file's use of those names was
+checked by hand. Access follows Knex's execution model: one query per
+execution, which writes the table when its chain calls `insert`, `update`,
+`del`, `delete`, `increment`, `decrement`, `truncate`, `upsert` or `merge`
+and reads it otherwise; a builder held in a variable takes the union over the
+chains later called on it. A name the file gives a common table expression
+(`.with('x', ...)`) is no table. Other schema calls on a table (`alterTable`,
+`hasTable`, ...) and `columnInfo` are listed under `not_counted`. Manifest
+`tables` entries with `"language": "knex"` are scored per line like the
+MongoDB driver: *found* when the engine's `data-contracts.knex-*` edges at
+that line name exactly the labelled (table, access) pairs.
+
+| Corpus | Commit | Lines | Found | Wrong | Missed | Extra |
+|---|---|---|---|---|---|---|
+| Ghost | 7ada5b0 | 800 | 0 | 0 | 800 | 0 |
+
+The labels were made without reading the engine's Knex reader. Ghost reaches
+Knex through migration callbacks whose untyped parameter is named
+`connection` or `transaction`, through `options.transacting`, and through
+its data seeders' `this.transaction` field, as well as through `knex`
+itself.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

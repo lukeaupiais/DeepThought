@@ -713,6 +713,8 @@ def score_tables(corpus, workspace, examples=10):
     language = corpus.get("language", "ruby")
     if language == "mongodb":
         return score_driver_collections(labels, workspace, examples)
+    if language == "knex":
+        return score_knex_tables(labels, workspace, examples)
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -836,6 +838,61 @@ def score_driver_collections(labels, workspace, examples=10):
     return report, samples
 
 
+def score_knex_tables(labels, workspace, examples=10):
+    """Knex query-builder table accesses against labels read by hand
+    (tools/knex_labels.py), per line.
+
+    A labelled line is *found* when the engine's Knex READS/WRITES/DECLARES
+    edges made at that line name exactly the labelled (table, access) pairs,
+    *wrong* when they name any other, and *missed* when there are none.
+    *extra* is a line the engine reads that the labels neither list nor set
+    aside under ``not_counted``.
+    """
+    import asyncio
+
+    from deepthought.analysis_tools.data_contracts import DataContractTool
+
+    output = asyncio.run(
+        DataContractTool(Path(workspace)).analyze(
+            "tables", languages=list(MONGOOSE_LANGUAGES)
+        )
+    )
+    nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
+    read = defaultdict(set)
+    for r in output.relationships:
+        if not str(r.properties.get("rule_id", "")).startswith("data-contracts.knex"):
+            continue
+        source = nodes.get(r.source_match.get("qualified_name"))
+        target = nodes.get(r.target_match.get("qualified_name"))
+        if source is None or target is None:
+            continue
+        path = source.properties.get("file_path") or source.properties.get("path")
+        table = r.properties.get("table") or target.properties.get("name")
+        read[(path, r.properties.get("line"))].add((table, r.type))
+    expected = {
+        (a["file"], a["line"]): {tuple(t) for t in a["tables"]}
+        for a in labels["accesses"]
+    }
+    ignored = {tuple(x) for x in labels.get("not_counted", ())}
+    found = sorted(k for k, v in expected.items() if read.get(k) == v)
+    wrong = sorted(k for k, v in expected.items() if read.get(k) and read[k] != v)
+    missed = sorted(k for k in expected if not read.get(k))
+    extra = sorted(k for k in read if k not in expected and k not in ignored)
+    report = {
+        "expected": len(expected),
+        "found": len(found),
+        "wrong": len(wrong),
+        "missed": len(missed),
+        "extra": len(extra),
+    }
+    samples = {
+        "wrong": [[*k, sorted(expected[k]), sorted(read[k])] for k in wrong][:examples],
+        "missed": [[*k, sorted(expected[k])] for k in missed][:examples],
+        "extra": [[*k, sorted(read[k])] for k in extra][:examples],
+    }
+    return report, samples
+
+
 def table_regressions(report, before):
     """Fewer models found, more wrong or extra ones, or changed labels."""
     problems = [
@@ -918,7 +975,7 @@ def missing_requirements(manifest, names=()):
             language = corpus.get("language", "ruby")
             for lang in (
                 MONGOOSE_LANGUAGES
-                if language in {"mongoose", "mongodb"}
+                if language in {"mongoose", "mongodb", "knex"}
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])
