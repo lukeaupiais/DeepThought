@@ -853,6 +853,23 @@ specific than every other possible one. A `private` method is not a
 candidate outside the top-level class that declares it. Otherwise the call
 stays ambiguous among the arity candidates.
 
+When the overloads are still not told apart, the JDK's own supertypes are
+used: `src/deepthought/java_platform.json` lists every public type of 21 JDK
+packages (`java.lang`, `java.io`, `java.util` and its subpackages,
+`java.time`, `java.nio.file`, `java.sql` and others) with the simple names of
+all its supertypes, taken from the JDK 21 classes themselves by
+`java tools/JavaPlatformTypes.java > src/deepthought/java_platform.json`. A
+type name that no repository type in scope denotes is looked up there when a
+single-type import names it, when it is a canonical `java.` name, or when
+`java.lang` and the file's on-demand imports, all in listed packages, give it
+exactly once; a static import of the name, or an on-demand import of any
+other package, leaves it unknown. A repository enum or record then also has
+the supertypes of `java.lang.Enum` or `java.lang.Record`, and a type whose
+bases are all repository or listed JDK types has a complete set. A link only
+this decides carries `tree-sitter.java-overload-jdk-supertypes`: on gson it
+confirmed 331 links (10,904 of 11,050 in all), none contradicted, and impact
+rose from 3,955 to 4,421 of 5,070.
+
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
 writes as the call's `receiver_type` (`Foo`, `Map.Entry`; type arguments
