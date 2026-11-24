@@ -113,9 +113,9 @@ jobs:
         with:
           go-version: '1.24'
           cache: false
-      - name: Install the pinned SCIP indexers
+      - name: Install the pinned SCIP indexers and pyright
         run: |
-          npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2
+          npm install -g @sourcegraph/scip-python@0.6.8 @sourcegraph/scip-typescript@0.6.2 pyright@1.1.409
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Check the indexers are found
