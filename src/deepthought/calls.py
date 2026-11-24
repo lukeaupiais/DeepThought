@@ -773,7 +773,9 @@ class _JavaScope:
             if near_dims > far_dims and far_dims == 0:
                 if far_base.split(".")[-1] in {"Object", "Cloneable", "Serializable"}:
                     return True
-                return None if far_base not in _JAVA_WIDENING else False
+                # An array's only supertypes that are no arrays are those
+                # three (JLS 4.10.3).
+                return False
             return None if near_dims > far_dims else False
         if near_base in _JAVA_WIDENING:
             if far_base in _JAVA_WIDENING:
@@ -2153,12 +2155,20 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         or bound by a named import of one class. None otherwise."""
         if languages.get(site.file) not in {"javascript", "typescript"}:
             return None
-        return script_named(site.file, head, site.binding)
+        found = script_named(site.file, head, site.binding)
+        # An interface is a type, never a value.
+        return found if found is not None and found.kind == "Class" else None
 
     def script_named(file, head, binding):
-        """The class ``head`` names in a JavaScript or TypeScript file where
-        ``binding`` (as ``CallSite.binding``) is its declaration."""
-        if binding is not None:
+        """The class or interface ``head`` names in a JavaScript or
+        TypeScript file where ``binding`` (as ``CallSite.binding``) is its
+        declaration. A name no scope declares (``()``) names the interface
+        the file declares at the top level, if any."""
+        if binding == ():
+            found = [
+                d for d in by_symbol.get((file, head), ()) if d.kind == "Interface"
+            ]
+        elif binding is not None:
             found = starts.get((file, *binding), [])
         else:
             bound = names.get((file, head), [])
@@ -2167,7 +2177,15 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             imported, targets = bound[0]
             linked = exported(targets, imported, CALL_IMPORTED_NAME, "not_declared")
             found = [by_id[linked.target_id]] if linked.target_id else []
-        return found[0] if len(found) == 1 and found[0].kind == "Class" else None
+            if not found:
+                # An imported interface: declared at the top level of the
+                # module the import names (re-exports are not followed).
+                found = top_level(targets, imported, {"Interface"})
+        return (
+            found[0]
+            if len(found) == 1 and found[0].kind in {"Class", "Interface"}
+            else None
+        )
 
     script_bases = None
 
@@ -2206,7 +2224,7 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
         ``extends``: written in ``Definition.fields`` and named where the
         class is declared. None when that is not one repository class."""
         seen, current = set(), cls
-        while current.id not in seen:
+        while current.id not in seen and current.kind == "Class":
             seen.add(current.id)
             written = [t for n, t in current.fields or () if n == name]
             if written:
@@ -2216,7 +2234,9 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
                 lexical = bindings.lexical(current.file, scope, written[0], _ANY)
                 if lexical:
                     found = lexical[0]
-                    return script_single(found if found.kind == "Class" else None)
+                    return script_single(
+                        found if found.kind in {"Class", "Interface"} else None
+                    )
                 return script_single(script_named(current.file, written[0], None))
             if name in (current.properties or ()) or by_symbol.get(
                 (current.file, f"{current.symbol}.{name}")
@@ -2229,11 +2249,39 @@ def resolve_calls(result: AnalysisResult) -> tuple[CallResolution, ...]:
             current = base
         return None
 
+    def script_interface_method(face, name, seen=frozenset()):
+        """``(methods, reason)``: the method signature ``name`` a TypeScript
+        interface declares, or else those that the interfaces it extends
+        have. A base that names no repository interface may declare it."""
+        if face.id in seen:
+            return [], "base_not_resolved"
+        seen = seen | {face.id}
+        own = [
+            d
+            for d in by_symbol.get((face.file, f"{face.symbol}.{name}"), ())
+            if d.kind in _METHOD
+        ]
+        if own:
+            return own, "not_declared_on_type"
+        script_base(face)
+        found = []
+        for base in script_bases.get(face.id, ()):
+            target = by_id.get(base.target_id)
+            if target is None or target.kind != "Interface":
+                return [], "base_not_resolved"
+            methods, reason = script_interface_method(target, name, seen)
+            if reason == "base_not_resolved":
+                return [], reason
+            found.extend(d for d in methods if d not in found)
+        return found, "not_declared_on_type"
+
     def script_method(cls, name):
         """``(methods, reason)``: the instance method ``name`` a JavaScript
         or TypeScript class declares, or inherits through ``extends``. A
         field of that name hides an inherited method, and a base that names
         no repository class may declare it, so either stops the lookup."""
+        if cls.kind == "Interface":
+            return script_interface_method(cls, name)
         seen, current = set(), cls
         while current.id not in seen:
             seen.add(current.id)

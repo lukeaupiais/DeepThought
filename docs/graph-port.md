@@ -156,6 +156,21 @@ and the original's SCIP tool did not write CALLS either. The original builder's 
 for a bare `obj.method` match are not carried over, and `obj.method()` on an
 arbitrary object gets no edge.
 
+A call site that no rule links to exactly one declaration is still stored: an
+`UnresolvedCall` node with its `callee`, `name` (the callee's last name, `param`
+for `c.req.param()`), file, line and column, `status` (`unresolved` or
+`ambiguous`), the `resolver` that left it unlinked (`tree-sitter`) and the
+`reason` it gives and, when ambiguous, the
+`candidates`' qualified names. Its caller (the innermost enclosing declaration,
+or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
+`tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
+query counts the linked, ambiguous and unresolved calls of a name:
+`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+returns those counts and the call sites, each linked one with its target and
+rule. Snapshots written before this change have no such nodes and answer
+`unsupported_or_unobserved`. Calls made through another name (an alias, a
+callback, dynamic dispatch) are not counted.
+
 | Rule | Links |
 |---|---|
 | `tree-sitter.call-lexical-name` | `f()` to a function or class declared in an enclosing scope of the same file; class bodies are not enclosing scopes. In JavaScript and TypeScript the scopes are blocks and functions as the language defines them (`let`, `const`, `class` and functions per block, `var` and parameters per function, `for` and `catch` bindings), so a declaration inside an anonymous callback is not seen from a sibling one. The call links only to the declaration its scopes give: a binding that declares no function (a parameter, `let f = make()`) leaves it `local_binding`, and a name no scope declares is `unbound_name`. Imports, `require`, `with`, functions declared in nested blocks (sloppy mode), names declared twice and files with syntax errors keep the name lookup |
@@ -171,8 +186,8 @@ arbitrary object gets no edge.
 | `tree-sitter.python-call-result-receiver` | Python: `x.m()` where the local `x`'s one binding in the function is `x = f(...)`, under the same conditions as `tree-sitter.python-call-typed-receiver`, and the call `f(...)` links to a function or method whose return annotation names one repository class `T` (as a parameter annotation does, looked up where that function is defined): `m` declared on `T` or inherited, with the same order and stops. Repeated while links are added, so `f(...)` may itself be such a call. On click this and allowing several same-class assignments confirmed 24 more calls (3,028), none contradicted, and raised impact from 742 to 750 of 1,080 |
 | `tree-sitter.python-call-attribute-receiver` | Python: `x.a.m()` (any number of attributes) where `x` is the first parameter of an instance method directly in a class body (not a `staticmethod` or `classmethod`, not rebound), or has a class under the conditions of `tree-sitter.python-call-typed-receiver`. Each attribute's class comes from the first class in the method resolution order that declares that name: an annotation in the class body (`a: T`) or on `self.a: T = ...` decides it; without one, every assignment the class's instance methods make must be `self.a = p` from a parameter `p: T`, `self.a = T(...)`, or `None`, all naming the same `T`, as a type checker infers a member variable; anything else assigned, or an unannotated class-body assignment, leaves the attribute untyped. A class that declares anything else of that name, or a base that is no repository class reached first, stops the lookup. A generic annotation `C[...]` names `C` (for parameters too). On click this confirmed 18 more calls (3,046), none contradicted, and raised impact from 750 to 771 of 1,080 |
 | `tree-sitter.js-call-static-method` | JavaScript/TypeScript: `C.m()` to the method `m` that the class `C` declares `static` (`Definition.static`), as ky's `Ky.create(...)` and `NonError.wrap(...)`. `C` is the class declared where the call's scopes see `C` (`CallSite.binding` records that declaration for `x.m` calls too), or the one class a named or default import binds to `C`, followed as for `call-imported-name`. A static method `C` inherits is not followed (`static_not_declared`), and a name a scope binds to anything else (a parameter, `const C = other`) leaves the call `attribute_call` |
-| `tree-sitter.js-call-typed-receiver` | JavaScript/TypeScript: `x.m()` where the declaration of `x` the call sees (`CallSite.binding`) is a variable or parameter annotated `x: C` or `x: C<...>`, or a variable initialized with `new C(...)`. `C` is found as for `js-call-static-method`, from where `x` is declared (`CallSite.receiver_type` and `receiver_binding`), and must be one class that no interface or namespace merges with. It links to the instance method `m` that `C` declares, or that it inherits through `extends`, class by class. An instance field or constructor parameter property named `m` on the way hides the method (`field_not_method`, `Definition.properties`), and a base that names no repository class stops the lookup (`base_not_resolved`), since it may declare `m`. A file that declares an interface, type alias or type parameter named `C` anywhere is not read, since that name may be the type. Member chains and `this` follow `js-call-member-chain`. Receivers typed any other way (a function's result, a callback parameter typed by its context), interfaces, private names `x.#m` and methods named on an object type stay `attribute_call` |
-| `tree-sitter.js-call-member-chain` | JavaScript/TypeScript: `x.a.b.m()` where `x` is typed as for `js-call-typed-receiver`, or is `this` in an instance method or field of a class declaration (through arrow functions); and `y.m()` where `y` is declared from such a chain (`const y = x.a`) or destructured from it (`const { a } = x`, `const { a: y } = this`). `CallSite.receiver_type` holds the class (or `"this"`, the innermost class around the call) and `CallSite.receiver_steps` the property names. Each step reads `Definition.fields`: an instance field annotated with a class or initialized with `new` of one, a constructor parameter property annotated with one, or a getter whose return type is one, declared on the class or inherited through `extends`. The written name is the class's own scopes' declaration, or else what the file's import of it names, and must be one class that no interface or namespace merges with. It links to the instance method `m` of the last class, as `js-call-typed-receiver` does. A step that is untyped, a method, external, an interface, an enum or a type parameter of the file leaves the call unresolved (`receiver_type_unknown`). Private names, computed or quoted keys, annotated patterns, static fields, `super`, a plain alias `const y = x` and the `this` of a function, a static method or a class expression are not followed |
+| `tree-sitter.js-call-typed-receiver` | JavaScript/TypeScript: `x.m()` where the declaration of `x` the call sees (`CallSite.binding`) is a variable or parameter annotated `x: C`, `x: C<...>`, `x: C | undefined` or `x: C | null`, or a variable initialized with `new C(...)`. `C` is found as for `js-call-static-method`, from where `x` is declared (`CallSite.receiver_type` and `receiver_binding`), and must be one class, or one interface declared at the top level of the file or of the module an import of `C` names (re-exports are not followed for interfaces), that nothing else of that name merges with. For a class it links to the instance method `m` that `C` declares, or that it inherits through `extends`, class by class. For an interface it links to the method signature `m` that `C` declares, or else to those the interfaces it extends declare, all of them searched and one method reached twice counted once; an extended type that is no repository interface (a class, an external type) stops the lookup (`base_not_resolved`). An instance field or constructor parameter property named `m` on the way hides the method (`field_not_method`, `Definition.properties`), and a base that names no repository class stops the lookup (`base_not_resolved`), since it may declare `m`. A file that declares a type alias or type parameter named `C` anywhere, or an interface named `C` in a namespace or function, is not read, since that name may be the type. An interface is a type, so `C.m()` on one is not followed. Member chains and `this` follow `js-call-member-chain`. Receivers typed any other way (a function's result, a callback parameter typed by its context, a union of two types), private names `x.#m` and methods named on an object type stay `attribute_call` |
+| `tree-sitter.js-call-member-chain` | JavaScript/TypeScript: `x.a.b.m()` where `x` is typed as for `js-call-typed-receiver`, or is `this` in an instance method or field of a class declaration (through arrow functions); and `y.m()` where `y` is declared from such a chain (`const y = x.a`) or destructured from it (`const { a } = x`, `const { a: y } = this`). `CallSite.receiver_type` holds the class (or `"this"`, the innermost class around the call) and `CallSite.receiver_steps` the property names. Each step reads `Definition.fields`: an instance field annotated with a class or initialized with `new` of one, a constructor parameter property annotated with one, or a getter whose return type is one, declared on the class or inherited through `extends`. The written name is the class's own scopes' declaration, or else what the file's import of it names, and must be one class or interface that nothing else of that name merges with. It links to the method `m` of the last class or interface, as `js-call-typed-receiver` does. A step that is untyped, a method, external, a property of an interface, an enum or a type parameter of the file leaves the call unresolved (`receiver_type_unknown`). Private names, computed or quoted keys, annotated patterns, static fields, `super`, a plain alias `const y = x` and the `this` of a function, a static method or a class expression are not followed |
 | `tree-sitter.js-call-private-name` | JavaScript/TypeScript: `obj.#m()` to the private method `#m` that the innermost enclosing class declares, whatever `obj` is. A private name can only name a member of a class around it, so no type is needed; one the innermost class does not declare is `not_declared_in_class`, since a private field of that name in a class between would not be seen |
 | `tree-sitter.call-package-name` | Go: `f()` to a function declared at top level by another file of the same package (same directory and package clause); build constraints are not evaluated |
 | `tree-sitter.go-call-conversion` | Go: `T(x)` whose bare name is no function of the package but one type declared at top level by a file of the package (a named type, struct, interface or alias): a conversion, linked to that type. `pkg.T(x)` is not linked yet |
@@ -289,7 +304,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS and REQUESTS, and forwards over HANDLES. A route a changed
+  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  interface method DISPATCHES_TO each implementation (see "Interface
+  implementations"), so a changed implementation reaches the interface
+  method and its callers, but not the other implementations. A route a changed
   handler HANDLES is affected, and so is every declaration (or file) that
   REQUESTS that route, so impact crosses service boundaries along the HTTP
   contracts the `service-contracts` tool records (see "Service contracts").
@@ -730,6 +748,43 @@ so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
 
+### Interface implementations
+
+Nothing in Go declares that a type implements an interface, so
+`deepthought.go_interfaces` compares method sets
+(`tree-sitter.go-interface-method-set`, `name_matched`). Each Go function,
+method and interface method records `Definition.signature`, its parameter and
+result types without names (`(string,[]byte)(error)`, `...T` for a variadic
+parameter), and each interface records `Definition.embeds`, the elements it
+embeds as written. A named type in a signature is tied to its package: a
+package of the analyzed files by its directory, another by the one import of
+the file whose alias, or conventional name (the last path element without a
+`/vN` or `.vN` suffix or `go-` prefix), is the qualifier. `byte` and `uint8`,
+`rune` and `int32`, and `any` and `interface{}` are the same type.
+
+A struct or other named type (or a pointer to it) implements an interface of
+its own module when, for every method of the interface, it declares exactly one
+method of that name with the same signature; an unexported method matches only
+in the interface's package. The interface's methods are its own and those of
+what it embeds: an interface of the same module, `error`, or an exported
+standard library interface listed in `src/deepthought/go_std_interfaces.json`
+(`go list std | grep -v -e internal -e vendor | go run
+tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
+interface, and each interface method DISPATCHES_TO the type's method, so
+impact reaches the callers of an interface method from a changed
+implementation (see "Impact").
+
+Nothing is guessed. An interface is left out when an embedded element is a
+type constraint, another module's or a third-party interface, or names no one
+interface; when a method's signature names a type parameter, an instantiated
+generic type, a struct or a non-empty interface literal; or when a named type
+cannot be tied to a package (a qualifier no import binds, a bare name in a file
+with a dot import). A type is left out when its name is declared more than
+once in its package, as files for different platforms may. Methods promoted
+from embedded fields are not counted, so a type that relies on them is missed,
+not wrongly matched. `tools/go_interface_dispatch.go` lists the pairs go/types
+gives, for comparison.
+
 ## Java
 
 Java sources (`.java`) are analyzed when `java` is selected (`--language java`)
@@ -904,6 +959,16 @@ decides carries `tree-sitter.java-overload-getclass-argument`: on gson it
 confirmed 5 more links (10,941), none contradicted, and impact rose from
 4,421 to 4,763 of 5,070, since `Gson.toJson(Object)` reaches most of the
 library's callers.
+
+A variable, parameter or field declared with an array type (`int[] xs`,
+`Elem[][] grid`) gives an argument that array type, element without type
+arguments; an array of a type parameter, and the C-style `Foo x[]`, stay
+unknown. An array is assignable to `Object`, `Cloneable` and `Serializable`,
+to an array of a supertype of its element, and to nothing else that is no
+array (JLS 4.10.3), so `toJson(Object)` is chosen over `toJson(JsonElement)`
+for one. Array types are recorded only for arguments: an array is no
+receiver type. On gson this confirmed 32 more links (10,973), none
+contradicted, and impact rose to 4,836 of 5,070.
 
 For a call `x.m()`, the analysis looks for the declaration of `x` that is in
 scope at the call, from the innermost scope out, and records the type it
@@ -2123,7 +2188,17 @@ Python, JavaScript/TypeScript and Go sources are read too
   parameter) gives an unknown base (`base_unknown`). Gin and Echo `:id` are route variables and `*rest`
   matches the rest of the path; the handler is the last argument in Gin and
   the first after the path in Echo. A method that is not literal leaves the
-  route unread. Flask `<id>`, Express
+  route unread. Next.js API routes (rule `nextjs-route`) are files of a
+  package whose `package.json` depends on `next`: `pages/api/**` (or
+  `src/pages/api/**`) is one route for any method, handled by the default
+  export, with `index` naming its directory; `app/**/route.{js,ts}` (or under
+  `src/app`) is one route per HTTP verb the module exports (a function, a
+  `const`, or `export { local as VERB }`), handled by that definition. Route
+  groups `(name)` and parallel slots `@name` add no segment; `_private`
+  directories and intercepting routes `(.)name` are not routes; `[x]` is a
+  route variable and `[...x]`/`[[...x]]` match the rest of the path. A
+  single literal `basePath` in `next.config.{js,mjs,cjs,ts}` prefixes every
+  route; rewrites and middleware are not read. Flask `<id>`, Express
   `:id` and Go `{id}` are route variables; Flask `<path:x>`, FastAPI
   `{x:path}` and Go `{x...}` match the rest of the path. A Go path after a base
   path variable (`baseUrl + "/cart"`) is matched as if the base added no
@@ -2240,7 +2315,7 @@ Each request is resolved by `deepthought.service_contracts.resolve`:
 | `service-contracts.flask-route`, `service-contracts.fastapi-route`, `service-contracts.express-route`, `service-contracts.go-handle-func` | pattern_matched | handler (or file) -> HANDLES -> HttpRoute |
 | `service-contracts.http-service-path` | pattern_matched | the request names a service (a Feign client without `url`, or the URL's literal host) equal to exactly one service's `spring.application.name` or deployment name, or to a host name only that service's deployments answer to (see "Services named by their deployments"); only that service's routes are candidates |
 | `service-contracts.locust-host-service-path`, `-path`, `-gateway` | pattern_matched | as the rule after `locust-host-`, for a Locust request written without a host that takes its deployments' `--host` (see below) |
-| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`) |
+| `service-contracts.http-path` | pattern_matched | the request names no known service; every route in the repository is a candidate, except that a request whose URL starts with unknown text (a base URL variable, sent to a host configured elsewhere) does not match the routes of its own project (the nearest directory above it with a build manifest: `package.json`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `Cargo.toml`, `Gemfile` or a `.csproj`); a file with no manifest above it, or under a `go.mod` that holds more than one `package main` directory, has no known project and excludes nothing |
 | `service-contracts.http-gateway` | pattern_matched | the request has no literal host and its path is forwarded by a gateway route; the route's target service (when known) narrows the candidates |
 
 The URL's path is compared segment by segment with each candidate's
@@ -4254,7 +4329,7 @@ register tools through the existing registry.
 For an agent, configure the stdio command `deepthought-mcp` with the same database
 environment. The three original context/search/file tools and the edge tools
 (`getFunctionCallers`, `getFunctionCalls`, `getBaseTypes`, `getSubtypes`, `getMembers`, `getOwner`, `getImpact`, `getFileImpact`, `getFileImports`, `getFileImporters`,
-`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
+`findReferences`, `findImplementations`, `getSupertypes`, `getFileDependencies`, `getFileDependents`, `explainEdge`), the component tools (`listComponents`, `getFileComponents`, `getComponentFiles`, `getComponentDependencies`, `getComponentImpact`), `getSharedTables`, `getCallSites`, `listSnapshots` and `diffSnapshots` are available by default. CLI and MCP results carry actual stored facts and bounded relationships;
 they do not dump the complete graph into the agent prompt.
 
 `searchCodeElements` (CLI `search`) queries the `code_search` fulltext index.

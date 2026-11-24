@@ -1286,6 +1286,8 @@ class TypeScriptCallTests(unittest.TestCase):
             (7, "b.route", "base.ts::Base.route"),
             (15, "local.own", "main.ts::h.App.own"),
             (21, "st.get", "app.ts::Store.get"),
+            # An interface declares the method signature called.
+            (7, "s.area", "main.ts::Shape.area"),
         ):
             with self.subTest(callee=callee):
                 self.assertEqual(
@@ -1303,10 +1305,9 @@ class TypeScriptCallTests(unittest.TestCase):
             (10, "w.go", "base_not_resolved"),
             (12, "l.toString", "not_declared_on_type"),
             (15, "local.run", "not_declared_on_type"),
-            # Map is no repository class, Shape no class, Merged has members
-            # its interface declares, and `made` and `d` write no type.
+            # Map is no repository class, Merged has members its interface
+            # declares, and `made` and `d` write no type.
             (7, "g.get", "attribute_call"),
-            (7, "s.area", "attribute_call"),
             (11, "m.a", "attribute_call"),
             (16, "made.run", "attribute_call"),
             (17, "d.run", "attribute_call"),
@@ -1349,6 +1350,129 @@ class TypeScriptCallTests(unittest.TestCase):
         for bad in ((), ("",), ["x"], (1,)):
             with self.subTest(properties=bad), self.assertRaises(ValueError):
                 replace(owner, properties=bad)
+
+    def test_receivers_typed_by_interfaces(self):
+        result = analyze(
+            {
+                "router.ts": (
+                    "export interface Router<T> {\n"
+                    "  add(path: string, h: T): void\n"
+                    "  handler: () => void\n"
+                    "}\n"
+                    "export interface Named extends Router<string> { name(): string }\n"
+                    "export interface Wide extends Named, External { wide(): void }\n"
+                    "export interface Loop extends Back {}\n"
+                    "export interface Back extends Loop {}\n"
+                    "export class Impl implements Router<string> { add() {} handler = () => {} }\n"
+                ),
+                "main.ts": (
+                    "import type { Router, Named, Wide, Loop } from './router';\n"
+                    "import { Impl } from './router';\n"
+                    "interface Local { run(): void }\n"
+                    "interface Twice { a(): void }\n"
+                    "interface Twice { b(): void }\n"  # 5
+                    "function f(r: Router<string>, n: Named, w: Wide, l: Local, t: Twice) {\n"
+                    "  r.add('/', 'x'); n.add('/', 'y'); n.name(); w.add('/', 'z');\n"
+                    "  w.wide(); l.run(); t.a(); r.handler(); r.gone();\n"
+                    "}\n"
+                    "function g(o: Router<string> | undefined, p: null | Local, q: Local | Impl) {\n"  # 10
+                    "  o.add('/', 'u'); p.run(); q.run();\n"
+                    "}\n"
+                    "function h(z: Loop) { z.spin(); Local.run() }\n"
+                    "let late: Router<number> | undefined = undefined;\n"
+                    "late.add('/', 1);\n"  # 15
+                ),
+                "bases.ts": (
+                    "interface A { m(): void }\n"
+                    "interface B extends A {}\n"
+                    "interface C extends A {}\n"
+                    "interface D extends B, C {}\n"
+                    "interface E extends B, Tail {}\n"  # 5
+                    "interface Tail { t(): void }\n"
+                    "class Base { inner: Tail; go() {} }\n"
+                    "interface X extends Base {}\n"
+                    "const Anon = class Hidden { m() {} };\n"
+                    "function f(d: D, e: E, x: X, h: Hidden) {\n"  # 10
+                    "  d.m(); e.t(); x.go(); x.inner.t(); h.m();\n"
+                    "}\n"
+                ),
+                "param.ts": (
+                    "interface Local { run(): void }\n"
+                    "function k<Local>(v: Local) { v.run() }\n"
+                ),
+                "inner.ts": (
+                    "interface Local { run(): void }\n"
+                    "namespace N { export interface Local { other(): void } }\n"
+                    "function m(l: Local) { l.run() }\n"
+                ),
+            },
+            "typescript",
+        )
+        found = links(result)
+        for line, callee, target in (
+            # An imported interface, also through `extends`.
+            (7, "r.add", "router.ts::Router.add"),
+            (7, "n.add", "router.ts::Router.add"),
+            (7, "n.name", "router.ts::Named.name"),
+            (8, "w.wide", "router.ts::Wide.wide"),
+            # A top-level interface of the file.
+            (8, "l.run", "main.ts::Local.run"),
+            # `T | undefined` and `T | null` hold a T where called.
+            (11, "o.add", "router.ts::Router.add"),
+            (11, "p.run", "main.ts::Local.run"),
+            (15, "late.add", "router.ts::Router.add"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)],
+                    ("linked", target, CALL_JS_TYPED_RECEIVER, None),
+                )
+        for line, callee, reason in (
+            # A base that is no repository interface may declare it.
+            (7, "w.add", "base_not_resolved"),
+            (13, "z.spin", "base_not_resolved"),
+            # A property of a function type, and nothing declared.
+            (8, "r.handler", "not_declared_on_type"),
+            (8, "r.gone", "not_declared_on_type"),
+            # Merged declarations, a union of two types, and an interface
+            # used as a value.
+            (8, "t.a", "attribute_call"),
+            (11, "q.run", "attribute_call"),
+            (13, "Local.run", "attribute_call"),
+        ):
+            with self.subTest(line=line, callee=callee):
+                self.assertEqual(
+                    found[("main.ts", line, callee)], ("unresolved", None, None, reason)
+                )
+        # Every interface extended is searched, and one method reached
+        # twice is one target.
+        for callee, target in (("d.m", "bases.ts::A.m"), ("e.t", "bases.ts::Tail.t")):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("bases.ts", 11, callee)],
+                    ("linked", target, CALL_JS_TYPED_RECEIVER, None),
+                )
+        # An interface extending a class, and a class expression's name,
+        # which no enclosing scope declares.
+        for callee, reason in (
+            ("x.go", "base_not_resolved"),
+            ("x.inner.t", "receiver_type_unknown"),
+            ("h.m", "attribute_call"),
+        ):
+            with self.subTest(callee=callee):
+                self.assertEqual(
+                    found[("bases.ts", 11, callee)], ("unresolved", None, None, reason)
+                )
+        # A type parameter of that name shadows the interface.
+        self.assertEqual(
+            found[("param.ts", 2, "v.run")],
+            ("unresolved", None, None, "attribute_call"),
+        )
+        # An interface of that name in a namespace may be the one meant.
+        self.assertEqual(
+            found[("inner.ts", 3, "l.run")],
+            ("unresolved", None, None, "attribute_call"),
+        )
 
     def test_a_binding_that_declares_no_callable_links_nothing(self):
         result = analyze({"main.ts": "enum E { A }\nE();\n"}, "typescript")
@@ -1644,6 +1768,8 @@ class TypeScriptCallTests(unittest.TestCase):
             (26, "c.svc.run", "main.ts::Svc.run"),
             (27, "made.run", "main.ts::Svc.run"),
             (28, "h.header", "req.ts::Req.header"),
+            # A field typed with an interface.
+            (16, "this.shape.area", "main.ts::Shape.area"),
         ):
             with self.subTest(line=line, callee=callee):
                 # The implementation runs, not an overload signature.
@@ -1652,11 +1778,10 @@ class TypeScriptCallTests(unittest.TestCase):
                     ("linked", target, CALL_JS_MEMBER_CHAIN, None),
                 )
         for line, callee, reason in (
-            # Untyped, external, an interface, a method, a parameter that is
-            # no property, and nothing declared.
+            # Untyped, external, a method, a parameter that is no property,
+            # and nothing declared.
             (16, "this.untyped.x", "receiver_type_unknown"),
             (16, "this.ext.y", "receiver_type_unknown"),
-            (16, "this.shape.area", "receiver_type_unknown"),
             (17, "this.go.call", "receiver_type_unknown"),
             (30, "c.plain.run", "receiver_type_unknown"),
             (30, "c.nope.run", "receiver_type_unknown"),
@@ -1689,7 +1814,8 @@ class TypeScriptCallTests(unittest.TestCase):
         self.assertFalse(targets[("req.ts", "Req.header", 2)].static)
         fields = {d.symbol: d.fields for d in result.definitions if d.kind == "Class"}
         self.assertEqual(
-            fields["Ctx"], (("made", "Svc"), ("ext", "Ext"), ("svc", "Svc"))
+            fields["Ctx"],
+            (("made", "Svc"), ("ext", "Ext"), ("shape", "Shape"), ("svc", "Svc")),
         )
         self.assertEqual(
             fields["Base"], (("req", "Req"), ("head", "Req"), ("alt", "Req"))
@@ -1962,6 +2088,122 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([i["element"]["name"] for i in callees["items"]], ["helper"])
         # Name matches never claim completeness: unresolved calls may exist.
         self.assertNotIn("calls", callees["capabilities"])
+
+    async def test_call_sites_of_a_snapshot_without_unlinked_calls_are_unknown(self):
+        from deepthought.analysis_tools import TreeSitterTool
+        from deepthought.graph_queries import GraphQueryService
+
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "main.py").write_text("def f(): pass\nf()\n")
+            output = await TreeSitterTool(Path(directory)).analyze(self.repo)
+        # As written before unlinked calls were stored.
+        del output.metadata.custom_metrics["unresolved_call_sites"]
+        result = await self.coordinator.write_tool_output(
+            "tree-sitter", output, self.repo
+        )
+        self.assertTrue(result.success, result.errors)
+        sites = await GraphQueryService(self.driver, self.database).get_call_sites(
+            "f", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(sites["status"], "unsupported_or_unobserved")
+        self.assertEqual(sites["counts"]["linked"], 1)
+
+    async def test_call_sites_count_linked_and_unlinked_calls_of_a_name(self):
+        from deepthought.analysis_tools import TreeSitterTool
+        from deepthought.graph_queries import GraphQueryService
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "main.py").write_text(
+                "def run(): pass\n"
+                "class A:\n    def run(self): pass\n"
+                "class B:\n    def run(self): pass\n"
+                "def go(x):\n    run()\n    x.run()\n    missing()\n"
+                "x.run()\n"
+            )
+            (root / "other.py").write_text("def f(y):\n    y.run()\n")
+            (root / "dup.py").write_text(
+                "if x:\n    def dup(): pass\nelse:\n    def dup(): pass\ndup()\n"
+            )
+            output = await TreeSitterTool(root).analyze(self.repo)
+        result = await self.coordinator.write_tool_output(
+            "tree-sitter", output, self.repo
+        )
+        self.assertTrue(result.success, result.errors)
+        service = GraphQueryService(self.driver, self.database)
+        sites = await service.get_call_sites(
+            "run", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(sites["status"], "succeeded")
+        self.assertEqual(
+            sites["counts"], {"linked": 1, "ambiguous": 0, "unresolved": 3}
+        )
+        self.assertEqual(
+            [
+                (i["file_path"], i["line"], i["callee"], i["status"], i["reason"])
+                for i in sites["items"]
+            ],
+            [
+                ("main.py", 7, "run", "linked", None),
+                ("main.py", 8, "x.run", "unresolved", "local_binding"),
+                ("main.py", 10, "x.run", "unresolved", "attribute_call"),
+                ("other.py", 2, "y.run", "unresolved", "local_binding"),
+            ],
+        )
+        self.assertTrue(
+            sites["items"][0]["target"].endswith(
+                "::run::"
+                + next(
+                    n.properties["definition_id"]
+                    for n in output.nodes
+                    if n.properties.get("name") == "run"
+                )
+            )
+        )
+        scoped = await service.get_call_sites(
+            "run",
+            self.repo,
+            snapshot_id=result.snapshot_id,
+            file_path="other.py",
+            limit=5,
+        )
+        self.assertEqual(
+            scoped["counts"], {"linked": 0, "ambiguous": 0, "unresolved": 1}
+        )
+        missing = await service.get_call_sites(
+            "missing", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(
+            [
+                (i["line"], i["status"], i["reason"], i["resolver"])
+                for i in missing["items"]
+            ],
+            [(9, "unresolved", "unbound_name", "tree-sitter")],
+        )
+        dup = await service.get_call_sites(
+            "dup", self.repo, snapshot_id=result.snapshot_id
+        )
+        self.assertEqual(dup["counts"], {"linked": 0, "ambiguous": 1, "unresolved": 0})
+        self.assertEqual(len(dup["items"][0]["candidates"]), 2)
+        # The caller holds each unlinked call by a structural edge.
+        async with self.driver.session(database=self.database) as session:
+            record = await (
+                await session.run(
+                    "MATCH (c {repo_url:$repo,snapshot_id:$snapshot})"
+                    "-[r:HAS_UNRESOLVED_CALL]->(u:UnresolvedCall {name:'missing'}) "
+                    "RETURN c.name AS caller,r.rule_id AS rule,r.evidence_type AS evidence",
+                    repo=self.repo,
+                    snapshot=result.snapshot_id,
+                )
+            ).single()
+        self.assertEqual(
+            dict(record),
+            {
+                "caller": "go",
+                "rule": "tree-sitter.call-site-unlinked",
+                "evidence": "resolved",
+            },
+        )
 
 
 if __name__ == "__main__":

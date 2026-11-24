@@ -196,7 +196,8 @@ def create_server():
     ) -> dict:
         """Get what depends on a declaration and its members, transitively.
 
-        Follows CALLS, INHERITS_FROM, IMPLEMENTS and REQUESTS backwards and
+        Follows CALLS, INHERITS_FROM, IMPLEMENTS, DISPATCHES_TO (Go interface
+        methods to implementations) and REQUESTS backwards and
         HANDLES forwards, so callers of a changed HTTP handler's route in
         other services count; each dependent has its depth, its path's edges
         and the path's weakest evidence. A truncated list continues with
@@ -437,6 +438,24 @@ def create_server():
             repository_id,
             snapshot_id=snapshot_id,
             after_path=after_path,
+            limit=max_elements,
+        )
+
+    @server.tool()
+    async def getCallSites(
+        name: str,
+        repository_id: str,
+        snapshot_id: str,
+        ctx: Context,
+        file_path: str | None = None,
+        max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
+    ) -> dict:
+        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them."""
+        return await ctx.request_context.lifespan_context.get_call_sites(
+            name,
+            repository_id,
+            snapshot_id=snapshot_id,
+            file_path=file_path,
             limit=max_elements,
         )
 
