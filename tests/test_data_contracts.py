@@ -496,7 +496,7 @@ class StatementTests(unittest.TestCase):
             "JOIN pg_catalog.pg_class c ON true JOIN pg_attribute a ON true "
             "JOIN users u ON true": (("users",), ()),
             "SELECT name FROM sqlite_master UNION SELECT name FROM sys.databases "
-            "UNION SELECT table_name FROM all_tables "
+            "UNION SELECT table_name FROM all_tables UNION SELECT mview_name FROM user_mviews "
             "UNION SELECT name FROM user_settings": (("user_settings",), ()),
             "WITH recent (id) AS (SELECT id FROM visits) SELECT * FROM recent": (
                 ("visits",),
@@ -1243,6 +1243,32 @@ type User struct{ ID int }
 
 func (User) TableName() string { return usersTable }
 """,
+    "store/built.go": """package store
+
+import "strings"
+
+// Queries built in steps: reassigned, appended to, joined over branches.
+func (q *Queries) Steps(where []string, limit bool) {
+\tquery := "SELECT count(*) FROM categories"
+\tq.db.QueryRowContext(nil, query)
+\tquery = "UPDATE feeds SET category_id = 1"
+\tq.db.ExecContext(nil, query)
+\tjobs := `SELECT id FROM jobs`
+\tif len(where) > 0 {
+\t\tjobs += " WHERE " + strings.Join(where, " AND ")
+\t}
+\tjobs += " ORDER BY id"
+\tif limit {
+\t\tjobs += " LIMIT 10"
+\t}
+\tq.db.QueryRowContext(nil, jobs)
+\tvar loop string
+\tfor _, w := range where {
+\t\tloop = "DELETE FROM " + w
+\t}
+\tq.db.ExecContext(nil, loop)
+}
+""",
     "store/migrations.go": """package store
 
 import "database/sql"
@@ -1291,19 +1317,25 @@ class GoTypeFactsTests(unittest.TestCase):
             [
                 ("MAPS_TO", "User", "users", "gorm-table-name-types"),
                 ("READS", "Queries.GetAccount", "accounts", "go-sql-types"),
+                ("READS", "Queries.Steps", "categories", "go-sql-types"),
+                ("READS", "Queries.Steps", "jobs", "go-sql-types"),
                 ("WRITES", "Purge", "tokens", "go-sql-types"),
                 ("WRITES", "Queries.Archive", "archive", "go-sql-types"),
+                ("WRITES", "Queries.Steps", "feeds", "go-sql-types"),
+                # Either table, by the path taken.
+                ("WRITES", "Queries.Twice", "audit", "go-sql-types"),
+                ("WRITES", "Queries.Twice", "sessions", "go-sql-types"),
                 ("WRITES", "store/migrations.go", "schema_version", "go-sql-types"),
             ],
         )
         metrics = output.metadata.custom_metrics
-        # Twice's query is assigned twice: its text is not fixed.
+        # The loop's query is assigned in the loop: not known.
         self.assertEqual(
             metrics["sql_text"],
-            {"statements": 4, "not_fixed": 0, "unknown_entity": 0},
+            {"statements": 8, "not_fixed": 0, "unknown_entity": 0},
         )
         self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
-        self.assertEqual(metrics["go_type_facts"]["files_checked"], 5)
+        self.assertEqual(metrics["go_type_facts"]["files_checked"], 6)
 
     def test_same_calls_without_go(self):
         # Without go/types none of these is read: the files that run SQL do

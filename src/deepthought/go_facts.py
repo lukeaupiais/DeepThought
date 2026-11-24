@@ -48,7 +48,9 @@ class GoCall:
     declared: str  # import path of the package declaring the method
     results: tuple[str, ...]  # import paths of the named result types
     receiver: tuple[str, str] | None  # (import path, type name)
-    texts: tuple[str | None, ...]  # each of the first arguments' string value
+    # Each of the first arguments' string values, one per path that reaches
+    # the call (None: not known).
+    texts: tuple[tuple[str, ...] | None, ...]
     types: tuple[tuple[str, str] | None, ...]  # and its named type
 
 
@@ -322,7 +324,9 @@ def _read(text, directory, members, facts):
                     item.get("declared", ""),
                     tuple(item.get("results") or ()),
                     _type(item.get("receiver")),
-                    tuple(a.get("text") for a in arguments),
+                    tuple(
+                        tuple(a["texts"]) if a.get("texts") else None for a in arguments
+                    ),
                     tuple(_type(a.get("type")) for a in arguments),
                 )
             )

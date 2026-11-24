@@ -219,6 +219,10 @@ ORACLE_DICTIONARY = frozenset(
         "users",
         "tables",
         "tab_columns",
+        "tab_cols",
+        "tab_identity_cols",
+        "json_columns",
+        "mviews",
         "tab_comments",
         "col_comments",
         "constraints",
@@ -2233,21 +2237,32 @@ def go_sql_from_facts(calls, definitions):
     """SQL uses of Go calls the type checker resolved (``go_facts``): a
     method of GO_SQL_METHODS declared in a Go SQL package, or returning one
     of its types (an interface such as sqlc's DBTX), passed SQL text that
-    go/types computes (constants, locals assigned once, ``+`` joins)."""
+    gofacts computes: constants, ``+`` joins and the texts a local variable
+    may hold there, one per path; the call may run any of them."""
     uses = []
     for call in calls:
         if call.method not in GO_SQL_METHODS or not (
             _sql_package(call.declared) or any(map(_sql_package, call.results))
         ):
             continue
-        text = next((t for t in call.texts[:3] if t is not None), None)
-        if text is None:
+        texts = next((t for t in call.texts[:3] if t is not None), None)
+        if texts is None:
             continue
-        words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
-        if not words or words[0].lower() not in SQL_VERBS:
+        statements = []
+        for text in texts:
+            words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+            if words and words[0].lower() in SQL_VERBS:
+                statements.append((text, statement_tables(text)))
+        if not statements:
             continue
-        statement = statement_tables(text)
-        if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+        # The tables of every path that reaches the call: it may run any.
+        statement = Statement(
+            tuple(dict.fromkeys(t for _, s in statements for t in s.reads)),
+            tuple(dict.fromkeys(t for _, s in statements for t in s.writes)),
+        )
+        if not (statement.reads or statement.writes) and any(
+            PLACEHOLDER in text for text, _ in statements
+        ):
             statement = None
         uses.append(
             SqlUse(

@@ -3861,7 +3861,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-default-table-name` | name_matched | a GORM model without `TableName`, that is a struct embedding `gorm.Model` or passed as `&T{}` to `AutoMigrate` or `Model` in a file importing `gorm.io/gorm`: GORM 1.25's `NamingStrategy` name, the snake case of the type name (common initialisms such as `ID`, `HTTP` kept together) pluralized by jinzhu/inflection 1.0.0 (`UserModel` is `user_models`, `Human` is `humen`); none when the repository configures a `NamingStrategy` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.gorm-call` | pattern_matched | `First`, `Last`, `Take`, `Find`, `FirstOrInit` (READS), `Create`, `Save`, `Delete` (WRITES) or `FirstOrCreate`, or `Model(x)` chained with a reading (`Count`, `Pluck`, `Find`, ...) or writing (`Update`, `Updates`, `Delete`, ...) method before any `Association`, whose model argument is a GORM model: `&T{}`, `T{}`, `[]T{}`, `new(T)`, `make([]T, n)`, or a parameter or local of the function declared with such a type; a qualified `pkg.T` resolves through `go.mod` module paths; the receiver is not checked to be a `*gorm.DB` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.gorm-table-name-types` | resolved | the Go type checker finds a `TableName()` method of the type with one return of a constant string (a literal, a named constant, a constant expression), in a module whose `go.mod` requires `gorm.io/gorm` or `github.com/jinzhu/gorm` |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local assigned exactly once (not reassigned, address-taken or a range variable), `+` joins (other operands unfixed) or sqlx's `Rebind`; the SQL starts with a reading or writing verb |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql-types` | pattern_matched | the Go type checker resolves a call to a method of the `go-sql` list declared in a database/sql, sqlx, pgx, GORM or bun package (also when promoted from an embedded field), or to an interface method returning one of their types (sqlc's `DBTX`), and computes SQL text for one of its first three arguments: a constant, a local whose value is followed through the function's statements (`=`, `:=`, `+=`, `if`/`switch`/`select` branches; each path's text kept), `+` joins (other operands unfixed) or sqlx's `Rebind`; one of its texts starts with a reading or writing verb, and the call links the tables of every such text |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.go-sql` | pattern_matched | SQL starting with a reading or writing verb in one of the first three arguments of a database/sql, sqlx, pgx, GORM (`Raw`, `Exec`) or bun query method (`Query*`, `Exec*`, `Prepare*`, `Select`, `Get`, `Named*`, `MustExec*`, `NewRaw`), in a file importing one of those packages or a SQL driver: string literals, `+` joins (other operands unfixed) and `x.Rebind(literal)` |
 | File -[:DECLARES]-> DbTable | `data-contracts.laravel-migration-table` | resolved | `Schema::create('name', ...)` or the target of `Schema::rename(..., 'name')` (`Illuminate\Support\Facades\Schema`) with a fixed string, in PHP outside `test/`, `tests/` and `spec/` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.eloquent-table-name` | pattern_matched | an Eloquent model (a class whose `extends` chain, resolved through `namespace` and `use` statements, reaches `Illuminate\Database\Eloquent\Model` or `Illuminate\Foundation\Auth\User`) with a fixed `protected $table`, its own or the nearest ancestor's in the repository |
@@ -4133,9 +4133,18 @@ Why not hand rules: the misses were name resolution, which the compiler
 does exactly. A file that runs SQL through a field typed in another file
 imports no SQL package (miniflux's storage, sqlc's `DBTX`), SQL text sits in
 constants and locals, and `TableName` returns constants. `go/ssa` def-use
-chains were considered for locals; a local assigned once with a constant (or
-`+` join) is folded from `go/types` constant values instead, which needs no
-module outside the standard library.
+chains were considered for locals; instead gofacts follows each local string
+through the function's statements itself, on the `go/types` objects and
+constant values, which needs no module outside the standard library. Each
+`=`, `:=` and `+=` sets the variable's texts on the current path; the paths
+of an `if`, `switch` or `select` are merged as alternatives (a `break`,
+`return` or `panic` ends its path); a variable assigned inside a loop, whose
+address is taken or which a func literal assigns is unknown; a function
+with `goto` or labels is not followed. More than 16 alternatives fold to
+their common prefix and suffix around the unfixed text. A call is linked to
+the tables of every alternative that is SQL, since any of those paths may
+run: miniflux's `category.go` builds `UPDATE`/`SELECT` text with `+=`
+under `if`, and `nav_metadata.go` picks a query in a `switch`.
 
 Measured on four Go apps outside the corpora (Go 1.26.10, dependencies
 downloaded, every package fully checked), against the tree-sitter rules
@@ -4144,7 +4153,7 @@ now left out as a catalog:
 
 | App | SQL statements | Files with READS/WRITES | GORM `TableName` links |
 |---|---|---|---|
-| miniflux/v2 | 42 → 132 | 8 → 15 | 0 → 0 |
+| miniflux/v2 | 42 → 140 | 8 → 17 | 0 → 0 |
 | techschool/simplebank (sqlc) | 0 → 20 | 0 → 6 | 0 → 0 |
 | flipped-aurora/gin-vue-admin | 2 → 19 | 2 → 30 | 2 → 23 |
 | gothinkster/golang-gin-realworld-example-app | unchanged | unchanged | unchanged |
