@@ -2127,8 +2127,51 @@ queue to it with `#`, so both sides meet at `destination/#`. Rules are
 Unread, by reason: `no_target` (a listener bound by `@Input` parameters),
 `binding_not_literal`, `no_service`, `binder_unknown` (neither binder or
 both) and `destination_not_literal` (a placeholder in the configured
-destination). The functional style (`Consumer`/`Supplier`/`Function` beans
-named by `spring.cloud.function.definition`) is not read yet.
+destination).
+
+The functional style is read too. A `@Bean` method (from
+`org.springframework.context.annotation`) that returns a
+`java.util.function` type is a binding site:
+
+- `Consumer<T>` consumes `<bean>-in-0`, and `BiConsumer` also consumes
+  `<bean>-in-1`;
+- `Supplier<T>` publishes `<bean>-out-0`;
+- `Function<T, R>` does both, and `BiFunction` consumes two inputs.
+
+The bean is the method name, or the literal `name`/`value` of `@Bean`. It is
+bound in a service that runs it when the service's
+`spring.cloud.function.definition` (or the older
+`spring.cloud.stream.function.definition`) lists it. Without that key, it
+is bound only when it is the service's only functional bean, as Spring
+Cloud Stream does. `spring.cloud.stream.function.bindings.<binding>` renames
+a binding before its destination is looked up as above. Rules are
+`service-contracts.spring-cloud-function-input` and `-output`. Further
+unread reasons:
+
+- `function_not_bound`: not in the definition, or one of several beans
+  without one;
+- `function_composed`: part of a composition such as `a|b`;
+- `function_outputs`: a `KStream[]` result, whose branch bindings are not
+  read;
+- `function_curried`: a function returning a function;
+- `function_definition_not_literal`, and `bean_name` for a `@Bean` name
+  that is not a literal.
+
+A functional bean in a module without a stream binder binds nothing and is
+not counted. One with both binders is `binder_unknown`.
+
+Checked on `spring-cloud/spring-cloud-stream-samples` (commit `2ff1168`):
+I labelled by hand every binding of the nine function-based applications
+that name a service (`spring.application.name`), 24 in all. The 16 read
+all have the configured destination. The other 8 are unread, not wrong:
+
+- the three branch outputs of `kafka-streams-branching`, one
+  `function_outputs` fact;
+- the five bindings of `kafka-streams-to-rabbitmq`, which uses both
+  binders, `binder_unknown`.
+
+Samples without a `spring.application.name` are not services here and give
+nothing.
 
 ### Validation
 
