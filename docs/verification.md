@@ -57,6 +57,13 @@ scored against a yardstick its own rules cannot move.
   oracle indexed.
 - `baseline.json` is the current score of each corpus.
 
+When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
+writes a table of every corpus and layer (calls, inheritance, imports,
+impact, declarations, contracts) to the run's summary page, with each score
+that moved since the baseline shown with its difference. A PR that raises
+call or impact recall shows by how much there, not only that the gate
+passed.
+
 Java has no SCIP indexer in this setup, so `derive-java` takes the truth from
 javac's own attribution (`tools/JavaCallTruth.java`, JDK only): every method
 invocation and `new` expression javac binds, at the line of the called name,
