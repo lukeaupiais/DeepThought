@@ -507,6 +507,16 @@ TYPEORM_DEFAULT_RULE = register_rule(
         "class name. A custom naming strategy is not read.",
     )
 )
+TYPEORM_CHILD_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-child-entity",
+        "pattern_matched",
+        "The class is decorated with TypeORM's @ChildEntity, a single-table "
+        "inheritance child, and extends by name a class mapped to this "
+        "table: the one such entity of the child's namespace, else of the "
+        "repository.",
+    )
+)
 TYPEORM_REPOSITORY_RULE = register_rule(
     EvidenceRule(
         "data-contracts.typeorm-repository",
@@ -514,8 +524,22 @@ TYPEORM_REPOSITORY_RULE = register_rule(
         "In a file importing typeorm or @nestjs/typeorm, the code calls "
         "getRepository or @InjectRepository with a TypeORM entity class "
         "name: the one such entity of the caller's namespace, else of the "
-        "repository. A repository reads and writes; which of its methods are "
-        "called is not checked.",
+        "repository. A repository called with a TypeORM read method (find, "
+        "count and the like) only reads, one called with a write method "
+        "(save, update, delete and the like) only writes, and any other "
+        "repository reads and writes.",
+    )
+)
+TYPEORM_WRAPPER_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-repository-wrapper",
+        "pattern_matched",
+        "The code calls a project's own getRepository with more arguments "
+        "than TypeORM's, or in a file that does not import typeorm, and "
+        "exactly one argument is an imported or declared class name that is "
+        "a TypeORM entity: the one such entity of the caller's namespace, "
+        "else of the repository. Reads and writes follow the chained method "
+        "as for data-contracts.typeorm-repository.",
     )
 )
 
@@ -1413,11 +1437,12 @@ class DataContractTool(AnalysisTool):
                             },
                         )
         # TypeORM entities and the repositories of them.
-        typeorm_mappings, typeorm_uses = [], []
+        typeorm_mappings, typeorm_uses, typeorm_children = [], [], []
         for file, content, tree in script_trees:
             found = extract_typeorm(tree, content, file, result.definitions)
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
+            typeorm_children.extend(found[2])
         typeorm_targets = {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
@@ -1431,20 +1456,58 @@ class DataContractTool(AnalysisTool):
                 TYPEORM_TABLE_RULE if mapping.explicit else TYPEORM_DEFAULT_RULE,
                 {"line": mapping.line, "column": mapping.column},
             )
+        # A @ChildEntity is stored in the table of the entity it extends,
+        # through any number of child levels.
+        pending = list(typeorm_children)
+        while pending:
+            waiting = []
+            for child in pending:
+                bases = _nearest(
+                    typeorm_targets.get(child.base, set()), scope(child.file)
+                )
+                if len(bases) != 1:
+                    waiting.append(child)
+                    continue
+                target = next(iter(bases))
+                typeorm_targets.setdefault(child.name, set()).add(
+                    (scope(child.file), target)
+                )
+                link(
+                    "MAPS_TO",
+                    symbol(child.model_id),
+                    target,
+                    TYPEORM_CHILD_RULE,
+                    {"base": child.base, "line": child.line, "column": child.column},
+                )
+            if len(waiting) == len(pending):
+                break
+            pending = waiting
+        typeorm_child_counts = {
+            "linked": len(typeorm_children) - len(pending),
+            "base_not_an_entity": len(pending),
+        }
         orm_counts.update(typeorm_linked=0, typeorm_not_an_entity=0)
+        # A wrapper call names no entity more often than not: count those
+        # apart so the TypeORM API's own misses stay visible.
+        orm_counts.update(typeorm_wrapper_not_an_entity=0)
         for use in typeorm_uses:
             targets = _nearest(typeorm_targets.get(use.model, set()), scope(use.file))
             if len(targets) != 1:
-                orm_counts["typeorm_not_an_entity"] += 1
+                orm_counts[
+                    "typeorm_wrapper_not_an_entity"
+                    if use.wrapper
+                    else "typeorm_not_an_entity"
+                ] += 1
                 continue
             orm_counts["typeorm_linked"] += 1
             source = code(use.file, use.caller_id)
-            for kind in ("READS", "WRITES"):
+            kinds = ("READS",) * use.reads + ("WRITES",) * use.writes
+            for kind in kinds:
                 link(
                     kind,
                     source,
                     next(iter(targets)),
-                    TYPEORM_REPOSITORY_RULE,
+                    TYPEORM_WRAPPER_RULE if use.wrapper else TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
         # Sequelize: migrations, models and their static calls.
@@ -2109,6 +2172,7 @@ class DataContractTool(AnalysisTool):
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
                     "typeorm_entities": len(typeorm_mappings),
+                    "typeorm_child_entities": typeorm_child_counts,
                     "orm_access_resolution": orm_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),

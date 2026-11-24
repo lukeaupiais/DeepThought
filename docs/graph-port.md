@@ -2780,7 +2780,9 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name |
+| Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-child-entity` | pattern_matched | a class decorated with `@ChildEntity` (single-table inheritance): the table of the entity it extends by name, through any number of child levels |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository` | pattern_matched | `getRepository(Entity)` or `@InjectRepository(Entity)` in a file importing `typeorm` or `@nestjs/typeorm`, resolved like Prisma models by class name. A repository called with a read method (`find`, `findOne`, `count` and the like) only READS, one called with a write method (`save`, `update`, `delete`, `remove` and the like) only WRITES, and any other use does both |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.typeorm-repository-wrapper` | pattern_matched | a project's own `getRepository`, called with more arguments than TypeORM's or in a file that does not import `typeorm`, where exactly one argument is an imported or declared class that is an entity (vendure's `connection.getRepository(ctx, Product)`); reads and writes as above |
 | File -[:DECLARES]-> DbTable | `data-contracts.drizzle-table` | pattern_matched | a variable holding a Drizzle table: `pgTable`, `mysqlTable`, `sqliteTable` or `singlestoreTable` imported from drizzle-orm's core modules, a schema's `.table`, or a `*TableCreator` whose function only wraps the name in fixed text (`` (name) => `app_${name}` ``), called with a literal name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.drizzle-query` | pattern_matched | `from` and the joins (READS), `insert`, `update` and `delete` (WRITES) with a table variable, and `db.query.<name>.findMany`/`findFirst` (READS); the variable is followed through the file's declarations and its imports (relative, tsconfig `paths` aliases and workspace packages), aliases, re-exports and `export *` included. A module that holds the name but no table (a client-side collection called `posts`) gives no edge. An import the reader cannot follow to its end (an outside package, or a file it could not parse), a property of an imported object (`schema.users`) or a query key resolves to the one table variable of that name in the caller's namespace, else in the repository |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.python-sql` | pattern_matched | SQL starting with a reading or writing verb passed to `execute`, `executemany`, `executescript`, `exec_driver_sql`, `fetch`, `fetchrow`, `fetchval` or `raw`, in a module importing a DB-API driver, asyncpg, SQLAlchemy or `django.db`: a literal, implicit concatenation, an f-string or a `%`/`format` template (interpolated parts unfixed), or SQLAlchemy `text(...)` of one |
@@ -2894,6 +2896,20 @@ hits it does not take are not Prisma Client calls (`db.orm.public.User`,
 or a property that names no model). On nestjs/nest's `sample/` apps it maps
 both TypeORM entities (`user`, `photo`) and links both
 `@InjectRepository` services and the 5 Prisma calls of the GraphQL sample.
+
+On vendure-ecommerce/vendure `a67242a`, most repository calls go through
+vendure's own `TransactionalConnection.getRepository(ctx, Entity)`, whose
+first argument is the request context. Reading those wrappers, the
+`@ChildEntity` classes and the abstract `@Entity` roots (`Session`,
+`AuthenticationMethod`, `OrderLineReference`) takes the linked calls from
+66 to 979 and maps 100 entities and 16 child entities, each child to its
+root's table (`Country` to `region`, `Sale` to `stock_movement`). Of the
+701 lines outside test files that a `grep` for `getRepository(` finds, 636
+are linked. The other 65 are comments, a variable or expression argument
+(`entityType`, `metadata.target`), the CLI's code templates, and one
+string entity name (`'Order'`). 20 sampled wrapper links named the right
+table and the right read or write. Seven other TypeScript corpora give the
+same edges as before.
 
 On three Rails applications, every table that the tool names for a model is
 one that the application's schema file declares, except models of tables
