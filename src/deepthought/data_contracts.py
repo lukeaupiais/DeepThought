@@ -1808,3 +1808,221 @@ def extract_prisma_client(tree, content, file, definitions, accessors):
             )
         )
     return found
+
+
+# Go: database/sql, sqlx, pgx and GORM ---------------------------------------
+
+GO_SQL_PACKAGES = (
+    "database/sql",
+    "github.com/jmoiron/sqlx",
+    "github.com/jackc/pgx",
+    "github.com/lib/pq",
+    "github.com/go-sql-driver/mysql",
+    "github.com/mattn/go-sqlite3",
+    "modernc.org/sqlite",
+    "gorm.io/gorm",
+    "github.com/jinzhu/gorm",
+    "github.com/uptrace/bun",
+)
+# Methods whose arguments hold SQL text (database/sql, sqlx, pgx, GORM Raw
+# and Exec, bun's NewRaw).
+GO_SQL_METHODS = {
+    "Query",
+    "QueryRow",
+    "QueryContext",
+    "QueryRowContext",
+    "Exec",
+    "ExecContext",
+    "Prepare",
+    "PrepareContext",
+    "Queryx",
+    "QueryRowx",
+    "QueryxContext",
+    "QueryRowxContext",
+    "Select",
+    "SelectContext",
+    "Get",
+    "GetContext",
+    "MustExec",
+    "MustExecContext",
+    "NamedExec",
+    "NamedExecContext",
+    "NamedQuery",
+    "NamedQueryContext",
+    "Preparex",
+    "PreparexContext",
+    "Raw",
+    "NewRaw",
+}
+
+
+def _go_string(node, content):
+    """The text of Go string literals joined with ``+`` (other operands are
+    PLACEHOLDER), or None when the expression holds no literal."""
+    if node is None:
+        return None
+    if node.type == "raw_string_literal":
+        return "".join(
+            _text(c, content)
+            for c in node.named_children
+            if c.type == "raw_string_literal_content"
+        )
+    if node.type == "interpreted_string_literal":
+        return "".join(
+            _text(c, content)
+            for c in node.named_children
+            if c.type in ("interpreted_string_literal_content", "escape_sequence")
+        )
+    if node.type == "parenthesized_expression" and node.named_children:
+        return _go_string(node.named_children[0], content)
+    if node.type == "call_expression":
+        # sqlx's Rebind(query) only rewrites bind markers.
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if (
+            function is not None
+            and function.type == "selector_expression"
+            and _text(function.child_by_field_name("field"), content) == "Rebind"
+            and arguments is not None
+            and len(arguments.named_children) == 1
+        ):
+            return _go_string(arguments.named_children[0], content)
+        return None
+    if (
+        node.type == "binary_expression"
+        and _text(node.child_by_field_name("operator"), content) == "+"
+    ):
+        left = _go_string(node.child_by_field_name("left"), content)
+        right = _go_string(node.child_by_field_name("right"), content)
+        if left is None and right is None:
+            return None
+        return (PLACEHOLDER if left is None else left) + (
+            PLACEHOLDER if right is None else right
+        )
+    return None
+
+
+def _go_imports(root, content):
+    paths = []
+    for node in root.named_children:
+        if node.type != "import_declaration":
+            continue
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            if current.type == "import_spec":
+                path = _go_string(current.child_by_field_name("path"), content)
+                if path:
+                    paths.append(path)
+            stack.extend(current.named_children)
+    return paths
+
+
+@dataclass(frozen=True)
+class GoTableName:
+    """A ``TableName() string`` method returning a literal (GORM)."""
+
+    file: str
+    type_name: str
+    table: str
+    line: int
+    column: int
+
+
+def extract_go_sql(tree, content, file, definitions):
+    """(table names, SQL uses) of one Go file importing a SQL package:
+    GORM ``TableName`` methods returning a literal, and SQL text passed to
+    database/sql, sqlx, pgx, GORM or bun query methods."""
+    root = tree.root_node
+    if not any(
+        p == g or p.startswith(g + "/")
+        for p in _go_imports(root, content)
+        for g in GO_SQL_PACKAGES
+    ):
+        return [], []
+    names, uses = [], []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        stack.extend(reversed(node.named_children))
+        if node.type == "method_declaration":
+            if _text(node.child_by_field_name("name"), content) != "TableName":
+                continue
+            receiver = node.child_by_field_name("receiver")
+            types = [
+                c
+                for c in (receiver.named_children if receiver else ())
+                if c.type == "parameter_declaration"
+            ]
+            written = types[0].child_by_field_name("type") if types else None
+            if written is not None and written.type == "pointer_type":
+                written = written.named_children[0] if written.named_children else None
+            body = node.child_by_field_name("body")
+            statements = [
+                s
+                for s in (body.named_children if body is not None else ())
+                for s in (s.named_children if s.type == "statement_list" else [s])
+                if s.type != "comment"
+            ]
+            if (
+                written is None
+                or written.type != "type_identifier"
+                or len(statements) != 1
+                or statements[0].type != "return_statement"
+            ):
+                continue
+            values = [
+                v
+                for e in statements[0].named_children
+                for v in (e.named_children if e.type == "expression_list" else [e])
+            ]
+            table = _go_string(values[0], content) if len(values) == 1 else None
+            if not table or PLACEHOLDER in table:
+                continue
+            names.append(
+                GoTableName(
+                    file,
+                    _text(written, content),
+                    table_key(table.rpartition(".")[2]),
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+        elif node.type == "call_expression":
+            function = node.child_by_field_name("function")
+            if function is None or function.type != "selector_expression":
+                continue
+            if _text(function.child_by_field_name("field"), content) not in (
+                GO_SQL_METHODS
+            ):
+                continue
+            arguments = node.child_by_field_name("arguments")
+            text = next(
+                (
+                    t
+                    for a in (arguments.named_children if arguments else ())[:3]
+                    for t in [_go_string(a, content)]
+                    if t is not None
+                ),
+                None,
+            )
+            if text is None:
+                continue
+            words = re.findall(r"[A-Za-z_]+", _COMMENT_OR_STRING.sub(_blank, text))
+            if not words or words[0].lower() not in SQL_VERBS:
+                continue
+            statement = statement_tables(text)
+            if not (statement.reads or statement.writes) and PLACEHOLDER in text:
+                statement = None
+            uses.append(
+                SqlUse(
+                    file,
+                    _innermost(definitions, file, node),
+                    "go-sql",
+                    False,
+                    statement,
+                    node.start_point.row + 1,
+                    node.start_point.column,
+                )
+            )
+    return names, uses
