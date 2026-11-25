@@ -7,9 +7,11 @@ It does not port the legacy confidence-scored CALLS output, CFG/data-flow
 output or claim additional languages.
 """
 
+import ast
 from hashlib import sha256
 import importlib.util
 from pathlib import Path
+import sys
 import time
 from copy import deepcopy
 
@@ -956,6 +958,15 @@ class TreeSitterTool(AnalysisTool):
             for c in result.coverage
             if c.language == "python"
         }
+        # The pytest and FastAPI rules read Python's ast, which skips a file
+        # this interpreter cannot parse (such as newer syntax): say which.
+        unparsed = {}
+        for file, text in sorted(python_files.items()):
+            try:
+                ast.parse(text)
+            except (SyntaxError, ValueError) as error:
+                unparsed[file] = str(error)
+        interpreter = "{}.{}".format(*sys.version_info[:2])
         by_line = {
             (d.file, d.line): d
             for d in result.definitions
@@ -1261,6 +1272,12 @@ class TreeSitterTool(AnalysisTool):
             if result.status == "failed"
             else [],
             warnings=[d["message"] for d in diagnostics]
+            + [
+                f"python_ast_unparsed: {file}: Python {interpreter}'s ast cannot "
+                f"parse it ({error}), so no pytest fixture or FastAPI dependency "
+                "is read from it"
+                for file, error in unparsed.items()
+            ]
             if result.status != "failed"
             else [],
             custom_metrics={
@@ -1283,6 +1300,10 @@ class TreeSitterTool(AnalysisTool):
                 },
                 "supertype_resolution": dict(sorted(base_counts.items())),
                 "go_implementations": len(implementations),
+                "python_ast_unparsed": {
+                    "python": interpreter,
+                    "files": sorted(unparsed),
+                },
                 "source_context": {
                     "declarations": len(sources),
                     "files_changed_since_analysis": changed,

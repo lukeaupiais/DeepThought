@@ -868,7 +868,9 @@ own listing (`--fixtures-per-test`) imports the project and runs its
 plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
 `getfixturevalue`, fixtures inherited from a test class's base classes,
 and `python_files` or `python_functions` settings in
-configuration are not read. `get_impact` follows USES_FIXTURE backwards, so
+configuration are not read, and neither is a file the running Python's
+`ast` cannot parse; each such file is named in the analysis warnings
+(`python_ast_unparsed`). `get_impact` follows USES_FIXTURE backwards, so
 a change to code a fixture calls reaches every test that requests it.
 
 ### FastAPI dependencies
@@ -911,7 +913,10 @@ at run time (`Depends(make_dependency())`, a loop variable); an alias of an
 alias, or an alias written inside another annotation
 (`Optional[SessionDep]`); files no scip-python index covers; and files the
 running Python's `ast` cannot parse, such as Python 3.14's
-`except A, B:` read by an older interpreter.
+`except A, B:` read by an older interpreter. Each such file is named in the
+analysis warnings (`python_ast_unparsed: FILE: ...`) and listed, with the
+interpreter version, in the `python_ast_unparsed` metric; the same applies to
+pytest fixtures.
 
 On fastapi 05e6df7 there are 412 uses: 391 `Depends` and 21 `Security`. 47
 come through aliases, 21 are on an app or router, and 14 are `Depends()`
