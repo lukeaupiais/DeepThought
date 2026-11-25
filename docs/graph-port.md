@@ -2547,7 +2547,7 @@ which only client requests are read:
   module function that callers pass it to (one route per distinct prefix,
   across packages), and the parameter of a func literal that chi's
   `Route(prefix, fn)`/`Group(fn)` or Fiber v2's `Route(prefix, fn)` calls.
-  `Group` (and chi/Fiber v3 `Route`) joins its prefix; Gin's `Use`, chi's
+  `Group` (and chi/Fiber v3 `Route`) joins its prefix; Gin's and Fiber's `Use`, chi's
   `With`, chi's `Group` and a verb that returns a router keep it. A root
   router (Gin `Engine`, Echo `Echo`, chi `Mux`, Fiber `App`) adds no
   prefix, wherever it comes from, unless the variable or field holding it

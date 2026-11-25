@@ -96,7 +96,7 @@ _FIBER_V2 = _Framework(
     {"Add": (1, 2)},
     -1,
     frozenset({"Group"}),
-    frozenset(),
+    frozenset({"Use"}),
     frozenset({"Route"}),
     types=frozenset({"App", "Group", "Router"}),
     roots=frozenset({"App"}),
@@ -113,7 +113,7 @@ _FIBER_V3 = _Framework(
     {"Add": (1, 2)},
     -1,
     frozenset({"Group", "Route"}),
-    frozenset(),
+    frozenset({"Use"}),
     types=frozenset({"App", "Group", "Router", "Register"}),
     roots=frozenset({"App"}),
 )
