@@ -580,6 +580,29 @@ class RequirementTests(unittest.TestCase):
                 ["tree_sitter_python"],
             )
 
+    def test_missing_indexer_of_a_calls_corpus_is_reported_with_scip(self):
+        from unittest import mock
+
+        manifest = {
+            "corpora": [
+                {"name": "go", "languages": ["go"]},
+                {"name": "rust", "languages": ["rust"]},
+            ]
+        }
+        with (
+            mock.patch("importlib.util.find_spec", return_value=object()),
+            mock.patch("deepthought.indexers.locate", return_value=None),
+        ):
+            # Without --scip the parser alone is scored: no indexer needed.
+            self.assertEqual(ground_truth.missing_requirements(manifest), [])
+            missing = ground_truth.missing_requirements(manifest, scip=True)
+            self.assertEqual(len(missing), 1)
+            self.assertTrue(missing[0].startswith("scip-go "), missing)
+            # A language the engine indexes with no SCIP indexer needs none.
+            self.assertEqual(
+                ground_truth.missing_requirements(manifest, {"rust"}, scip=True), []
+            )
+
     def test_check_refuses_to_score_without_them(self):
         from unittest import mock
 
@@ -591,6 +614,31 @@ class RequirementTests(unittest.TestCase):
         ):
             self.assertEqual(ground_truth.main(["check", "--corpus", "click"]), 2)
         self.assertIn("not installed: yaml", stderr.getvalue())
+
+
+class ScipRegressionTests(unittest.TestCase):
+    def test_scip_calls_and_their_impact_are_compared(self):
+        base = {
+            "expected": 3,
+            "confirmed": 3,
+            "contradicted": 0,
+            "impact": {"seeds": 1, "expected": 2, "confirmed": 2, "extra": 0},
+        }
+        worse = {
+            "expected": 3,
+            "confirmed": 2,
+            "contradicted": 1,
+            "impact": {"seeds": 1, "expected": 2, "confirmed": 1, "extra": 0},
+        }
+        self.assertEqual(ground_truth.scip_regressions(base, base), [])
+        self.assertEqual(
+            ground_truth.scip_regressions(worse, base),
+            [
+                "contradicted 0 -> 1",
+                "confirmed 3 -> 2",
+                "impact: confirmed 2 -> 1",
+            ],
+        )
 
 
 class DeclarationRegressionTests(unittest.TestCase):
