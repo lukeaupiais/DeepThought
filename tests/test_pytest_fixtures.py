@@ -48,7 +48,7 @@ def test_one(client, api, local, missing, db=1):
 async def test_async(*, db, api=2):
     pass
 
-@pt.mark.usefixtures("db", "nowhere")
+@pt.mark.usefixtures("db", "nowhere", "db")
 def test_marked():
     pass
 
