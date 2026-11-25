@@ -209,6 +209,29 @@ class InstalledPackagesTest(unittest.TestCase):
         self.assertEqual(receipt["producer"]["dependencies"]["status"], "installed")
         self.assertEqual(receipt["producer"]["arguments"][:3], ["index", "--cwd", "."])
 
+    def test_a_tsconfig_extending_a_package_indexes_once_installed(self):
+        # ky's tsconfig extends @sindresorhus/tsconfig, which exists only in
+        # node_modules: without the install, scip-typescript stops with
+        # TS6053 and every file is indexer_failed.
+        write(
+            self.root,
+            {
+                "vendor/tinylib/tsconfig.json": json.dumps(
+                    {"compilerOptions": {"strict": True}}
+                ),
+                "tsconfig.json": json.dumps(
+                    {"extends": "tinylib/tsconfig.json", "include": ["*.ts"]}
+                ),
+            },
+        )
+        report, run, symbols = self.index({"tinylib": "file:./vendor/tinylib"})
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        self.assertEqual(indexers.failed_files(report), {})
+        self.assertEqual(report["coverage"]["app.ts"]["status"], "covered")
+        self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
+        self.assertFalse((self.root / "node_modules").exists())
+
     def test_a_file_dependencys_prepare_script_does_not_run(self):
         marker = Path(self.scratch.name) / "prepare-ran"
         package = self.root / "vendor" / "tinylib" / "package.json"
