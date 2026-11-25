@@ -24,18 +24,29 @@ class InstallDirectoriesTest(unittest.TestCase):
             write(
                 scratch,
                 {
+                    "package.json": "{}",
                     "pnpm-lock.yaml": "",
+                    "packages/a/package.json": "{}",
                     "packages/a/package-lock.json": "{}",
+                    "node_modules/x/package.json": "{}",
                     "node_modules/x/package-lock.json": "{}",
                 },
             )
             self.assertEqual(install_directories(scratch), ["."])
             os.remove(Path(scratch) / "pnpm-lock.yaml")
-            write(scratch, {"server/package-lock.json": "{}"})
+            write(
+                scratch,
+                {"server/package.json": "{}", "server/package-lock.json": "{}"},
+            )
+            self.assertEqual(install_directories(scratch), ["packages/a", "server"])
+            # A lockfile with no package.json beside it installs nothing and
+            # covers nothing.
+            write(scratch, {"package-lock.json": "{}"})
+            os.remove(Path(scratch) / "package.json")
             self.assertEqual(install_directories(scratch), ["packages/a", "server"])
             for name in ("packages", "server", "node_modules"):
                 shutil.rmtree(Path(scratch) / name)
-            self.assertEqual(install_directories(scratch), ["."])
+            self.assertEqual(install_directories(scratch), [])
 
     def test_packages_that_are_not_workspaces_install_where_they_are(self):
         declares = json.dumps({"dependencies": {"x": "1"}})
@@ -66,7 +77,7 @@ class ManagerTest(unittest.TestCase):
     def manager(self, files):
         with tempfile.TemporaryDirectory() as scratch:
             write(scratch, files)
-            manager, arguments, lockfile = js_dependencies._manager(scratch)
+            manager, arguments, lockfile = js_dependencies._managers(scratch)[0]
             command = (
                 js_dependencies._yarn_berry_command(scratch, dict(os.environ))
                 if arguments is js_dependencies.YARN_BERRY
@@ -89,6 +100,14 @@ class ManagerTest(unittest.TestCase):
             self.manager({"yarn.lock": "# yarn lockfile v1\n"})[:3],
             ("yarn", ["install", "--frozen-lockfile"], "yarn.lock"),
         )
+
+    def test_every_lockfile_of_a_directory_is_tried_in_order(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            write(scratch, {"yarn.lock": "", "package-lock.json": "{}"})
+            self.assertEqual(
+                [m[2] for m in js_dependencies._managers(scratch)],
+                ["yarn.lock", "package-lock.json"],
+            )
 
     @unittest.skipUnless(shutil.which("node"), "Install node")
     def test_yarn_2_and_later_run_the_projects_own_release(self):
