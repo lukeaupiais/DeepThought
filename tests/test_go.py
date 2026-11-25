@@ -936,8 +936,12 @@ class GoTests(unittest.TestCase):
                 path = Path(directory) / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
+            # The fixture imports missing packages on purpose, which scip-go
+            # refuses to load; this checks the parser's own module layer.
             output = asyncio.run(
-                TreeSitterTool(directory).analyze("r", languages=("go",))
+                TreeSitterTool(directory).analyze(
+                    "r", languages=("go",), scip_indexes=()
+                )
             )
         modules = {
             n.properties["path"]: n.properties.get("module")
