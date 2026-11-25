@@ -849,7 +849,7 @@ TABLE_LANGUAGES = {"ruby": (".rb", "::"), "php": (".php", "\\")}
 MONGOOSE_LANGUAGES = ("javascript", "typescript")
 
 
-def score_tables(corpus, workspace, examples=10):
+def score_tables(corpus, workspace, examples=10, cache=None):
     """The table each model class maps to, against labels from the ORM's own
     rules: ActiveRecord's (tools/rails_table_oracle.rb) or, for Doctrine,
     the entity metadata checked against the schema its migrations build
@@ -880,7 +880,12 @@ def score_tables(corpus, workspace, examples=10):
         return score_go_sql_tables(labels, workspace, examples)
     if language == "python-orm":
         return score_line_tables(
-            labels, workspace, examples, "data-contracts.", ["python"]
+            labels,
+            workspace,
+            examples,
+            "data-contracts.",
+            ["python"],
+            table_indexes(corpus, workspace, cache),
         )
     if language in ("typeorm", "drizzle"):
         return score_line_tables(
@@ -1083,7 +1088,62 @@ def score_go_sql_tables(labels, workspace, examples=10):
     )
 
 
-def score_line_tables(labels, workspace, examples, rule_prefix, languages):
+# Table corpora whose engine rules read names through SCIP indexes, and the
+# languages to index: the scorer runs the engine as `deepthought index` does.
+SCIP_TABLE_LANGUAGES = {"python-orm": ("python",)}
+
+
+def table_indexes(corpus, workspace, cache):
+    """The corpus's SCIP indexes, built by the engine's own pinned indexers
+    (``deepthought index-scip``'s ``index_workspace``) and ingested as
+    ``deepthought index`` ingests them; () for a corpus whose rules read
+    none. They are kept under ``cache``, keyed by the corpus commit and the
+    indexer versions, and checked against their receipts when reused. A
+    missing or failing indexer stops the check: scores would otherwise drop
+    as if the engine had regressed."""
+    from deepthought.indexers import (
+        LANGUAGE_INDEXERS,
+        failed_files,
+        index_workspace,
+        ingest_indexed,
+    )
+
+    languages = SCIP_TABLE_LANGUAGES.get(corpus.get("language"), ())
+    if not languages or cache is None:
+        return ()
+    versions = "-".join(
+        sorted(
+            {
+                f"{LANGUAGE_INDEXERS[lang].name}-{LANGUAGE_INDEXERS[lang].version}"
+                for lang in languages
+            }
+        )
+    )
+    directory = (
+        Path(cache).resolve()
+        / "scip"
+        / f"{corpus['name']}-{corpus['commit']}-{versions}"
+    )
+    saved = directory / "report.json"
+    if saved.is_file():
+        report = json.loads(saved.read_text("utf-8"))
+    else:
+        report = index_workspace(workspace, directory, languages=languages)
+        failed = failed_files(report)
+        if failed:
+            raise RuntimeError(
+                f"{corpus['name']}: {len(failed)} files have no SCIP index "
+                f"because an indexer is missing or failed ({sorted(set(failed.values()))})"
+            )
+        staged = saved.with_suffix(".tmp")
+        staged.write_text(json.dumps(report), "utf-8")
+        staged.replace(saved)
+    return ingest_indexed(report, "tables", workspace)
+
+
+def score_line_tables(
+    labels, workspace, examples, rule_prefix, languages, scip_indexes=()
+):
     """Table accesses per line against labels.
 
     A labelled line is *found* when the engine's READS/WRITES/DECLARES edges
@@ -1098,7 +1158,9 @@ def score_line_tables(labels, workspace, examples, rule_prefix, languages):
     from deepthought.analysis_tools.data_contracts import DataContractTool
 
     output = asyncio.run(
-        DataContractTool(Path(workspace)).analyze("tables", languages=languages)
+        DataContractTool(Path(workspace)).analyze(
+            "tables", languages=languages, scip_indexes=scip_indexes
+        )
     )
     nodes = {n.properties.get("qualified_name"): n for n in output.nodes}
     read = defaultdict(set)
@@ -1318,7 +1380,19 @@ def missing_requirements(manifest, names=()):
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])
-    return sorted(m for m in modules if importlib.util.find_spec(m) is None)
+    from deepthought.indexers import LANGUAGE_INDEXERS, locate
+
+    indexers = {
+        LANGUAGE_INDEXERS[lang]
+        for corpus in manifest.get("tables", ())
+        if selected(corpus)
+        for lang in SCIP_TABLE_LANGUAGES.get(corpus.get("language"), ())
+    }
+    return sorted(m for m in modules if importlib.util.find_spec(m) is None) + sorted(
+        f"{spec.name} {spec.version} (set {spec.environment_variable} or put it on PATH)"
+        for spec in indexers
+        if locate(spec) is None
+    )
 
 
 def declaration_regressions(report, baseline):
@@ -1533,7 +1607,7 @@ def check(names, cache, update=False, examples=10):
             # on its own and its paths are relative to it.
             else fetch(corpus, cache) / corpus.get("root", ".")
         )
-        report, samples = score_tables(corpus, workspace, examples)
+        report, samples = score_tables(corpus, workspace, examples, cache)
         problems = (
             table_regressions(report, tabled[corpus["name"]])
             if (corpus["name"] in tabled and not update)

@@ -580,6 +580,25 @@ class RequirementTests(unittest.TestCase):
                 ["tree_sitter_python"],
             )
 
+    def test_missing_indexer_of_a_scip_table_corpus_is_reported(self):
+        from unittest import mock
+
+        manifest = {
+            "corpora": [],
+            "tables": [
+                {"name": "orm", "language": "python-orm"},
+                {"name": "rails", "language": "ruby"},
+            ],
+        }
+        with (
+            mock.patch("importlib.util.find_spec", return_value=object()),
+            mock.patch("deepthought.indexers.locate", return_value=None),
+        ):
+            missing = ground_truth.missing_requirements(manifest)
+            self.assertEqual(len(missing), 1)
+            self.assertTrue(missing[0].startswith("scip-python "), missing)
+            self.assertEqual(ground_truth.missing_requirements(manifest, {"rails"}), [])
+
     def test_check_refuses_to_score_without_them(self):
         from unittest import mock
 
