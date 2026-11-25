@@ -9,7 +9,7 @@ callers are the tree-sitter declarations of the same files, with the same
 identities, so a revision that also contains tree-sitter output joins them.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from hashlib import sha256
 import dataclasses
 from pathlib import PurePosixPath
@@ -29,6 +29,7 @@ from ..data_contracts import (
     resolve_script_module,
 )
 from ..engine import analyze_repository
+from .. import go_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -58,15 +59,17 @@ from ..service_contracts.graphql import (
     template_schemas,
 )
 from ..service_contracts.http import PLACEHOLDER
-from ..service_contracts.model import HttpRoute, Unread
+from ..service_contracts.model import HttpRequest, HttpRoute, Unread
 from ..service_contracts.listeners import kratos_ports
 from ..service_contracts.protoc import route_path
 from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
     extract_messaging,
+    go_broker_file,
     stomp_prefixes,
 )
+from ..service_contracts.oapi_codegen import generated_requests
 from ..service_contracts.openapi import generated_apis
 from ..service_contracts.aspnet import extract_aspnet
 from ..service_contracts.csharp_http import (
@@ -396,36 +399,36 @@ MESSAGE_RULES = {
     ),
     ("kafka-go", "publish"): _message_rule(
         "service-contracts.kafka-go-writer",
-        "A segmentio/kafka-go Writer, WriterConfig or Message literal written "
-        "with Topic names this topic; the producer is where the literal is "
-        "written." + _SAME_NAME,
+        "A segmentio/kafka-go Writer, WriterConfig or Message literal (its "
+        "type resolved by go/types) whose Topic has this value names this "
+        "topic; the producer is where the literal is written." + _SAME_NAME,
     ),
     ("kafka-go", "consume"): _message_rule(
         "service-contracts.kafka-go-reader",
-        "A segmentio/kafka-go ReaderConfig literal written with Topic or "
-        "GroupTopics names this topic; the consumer is where the literal is "
-        "written." + _SAME_NAME,
+        "A segmentio/kafka-go ReaderConfig literal (its type resolved by "
+        "go/types) whose Topic or GroupTopics has this value names this topic; "
+        "the consumer is where the literal is written." + _SAME_NAME,
     ),
     ("sarama", "publish"): _message_rule(
         "service-contracts.sarama-producer-message",
-        "A sarama ProducerMessage literal written with Topic names this "
-        "topic." + _SAME_NAME,
+        "A sarama ProducerMessage literal (its type resolved by go/types) "
+        "whose Topic has this value names this topic." + _SAME_NAME,
     ),
     ("sarama", "consume"): _message_rule(
         "service-contracts.sarama-consume",
-        "ConsumePartition(topic, ...) or a consumer group's Consume(ctx, "
-        "[]string{...}, handler), in a file importing sarama, names this "
-        "topic." + _SAME_NAME,
+        "ConsumePartition(topic, ...) or ConsumerGroup.Consume(ctx, "
+        "[]string{...}, handler), methods go/types resolves to sarama, names "
+        "this topic." + _SAME_NAME,
     ),
     ("confluent-kafka-go", "publish"): _message_rule(
         "service-contracts.confluent-kafka-go-produce",
-        "A confluent-kafka-go TopicPartition literal written with Topic names "
-        "this topic." + _SAME_NAME,
+        "A confluent-kafka-go TopicPartition literal (its type resolved by "
+        "go/types) whose Topic has this value names this topic." + _SAME_NAME,
     ),
     ("confluent-kafka-go", "consume"): _message_rule(
         "service-contracts.confluent-kafka-go-subscribe",
-        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), in a "
-        "file importing confluent-kafka-go, names this topic; a topic "
+        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), methods "
+        "go/types resolves to confluent-kafka-go, names this topic; a topic "
         "starting with ^ is a pattern and is not read." + _SAME_NAME,
     ),
     ("amqplib", "publish"): _message_rule(
@@ -473,14 +476,15 @@ MESSAGE_RULES = {
     ),
     ("go-amqp", "publish"): _message_rule(
         "service-contracts.go-amqp-publish",
-        "Publish in a file importing an amqp client package names this exchange "
-        "and routing key." + _SAME_NAME,
+        "Publish or PublishWithContext, a method go/types resolves to an amqp "
+        "client package, names this exchange and routing key." + _SAME_NAME,
     ),
     ("go-amqp", "consume"): _message_rule(
         "service-contracts.go-amqp-consume",
-        "Consume in a file importing an amqp client package consumes a queue "
-        "that receives this destination: the default exchange keyed with the "
-        "queue name, or a QueueBind of that queue in the same file." + _SAME_NAME,
+        "Consume or ConsumeWithContext, a method go/types resolves to an amqp "
+        "client package, consumes a queue that receives this destination: the "
+        "default exchange keyed with the queue name, or a QueueBind of that "
+        "queue in the same file." + _SAME_NAME,
     ),
     ("spring-stomp", "consume"): _message_rule(
         "service-contracts.spring-stomp-message-mapping",
@@ -685,6 +689,41 @@ ARGUMENT_RULE = _message_rule(
     "module, in place of the parameters. The site itself is read by the rule "
     "in site_rule; argument_from lists the calls." + _SAME_NAME,
 )
+_OAPI_CODEGEN = (
+    "oapi-codegen, run by a //go:generate directive of the repository with "
+    "client among the kinds it generates, made this request builder "
+    "(New<Operation>Request) for an operation of the spec the directive "
+    "names; the generated file declares it. The method and path are the "
+    "operation's, under the server URL the client is given at run time, "
+    "which is not read. "
+)
+OAPI_CODEGEN_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.oapi-codegen-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _OAPI_CODEGEN + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
+_ORVAL = (
+    "orval generated this file from an OpenAPI spec (its header says so) and "
+    "sends the operation through the configured mutator, called with the "
+    "request config orval builds ({url, method, ...}); the path is the one "
+    "orval wrote, under the base URL the mutator adds at run time, which is "
+    "not read. "
+)
+ORVAL_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.orval-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _ORVAL + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -1579,6 +1618,36 @@ def _go_modules(root, sources):
     return found
 
 
+def _go_messaging_facts(root, sources):
+    """({file: (calls, literals, reason)}, GOPATH-era packages) from the Go
+    type checker for the Go sources that import a broker client; reason is
+    why a file was not, or only partly, checked. go_facts downloads each module's dependencies
+    first; without the Go toolchain it raises GoMissing."""
+    files = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
+    ]
+    if not files:
+        return {}, {}
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    calls, literals = defaultdict(list), defaultdict(list)
+    for call in facts.calls:
+        calls[call.file].append(call)
+    for literal in facts.literals:
+        literals[literal.file].append(literal)
+    found = {}
+    for file in files:
+        if file in facts.uncovered:
+            reason = "not_type_checked"
+        elif file in facts.partial:
+            reason = "partly_type_checked"
+        else:
+            reason = None
+        found[file] = (calls[file], literals[file], reason)
+    return found, go_facts.gopath_report(facts)
+
+
 def _go_router_mounts(root, sources):
     """{package directory: {(function, parameter index): prefixes}}: the Gin
     and Echo routers each function's router parameters receive from calls
@@ -1998,6 +2067,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
+        go_messaging, go_gopath = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2197,6 +2267,7 @@ class ServiceContractTool(AnalysisTool):
                         if calls is not None and coverage.file in scripts.sources
                         else None
                     ),
+                    go_facts=go_messaging.get(coverage.file),
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])
@@ -2347,6 +2418,38 @@ class ServiceContractTool(AnalysisTool):
                     path=path,
                     framework="grpc-http-annotation",
                     rpc=f"{binding.service}/{binding.method}",
+                )
+            )
+        # Go clients oapi-codegen generates from a spec of the repository:
+        # each operation is sent from its request builder, read from the spec
+        # instead of the generated code's unknown URLs.
+        go_files = {c.file: content for c, content, _ in sources if c.language == "go"}
+        oapi_requests, oapi_unread = (
+            generated_requests(root, go_files) if go_files else ([], [])
+        )
+        outputs = {item.file for item in oapi_requests}
+        requests = [
+            r for r in requests if not (r.file in outputs and r.client == "go-net-http")
+        ]
+        for item in oapi_requests:
+            enclosing = [
+                d
+                for d in result.definitions
+                if d.file == item.file and d.line <= item.line <= d.end_line
+            ]
+            requests.append(
+                HttpRequest(
+                    id=identifier(repo_url, item.file, item.function, "HttpRequest", 0),
+                    file=item.file,
+                    line=item.line,
+                    column=0,
+                    caller_id=max(enclosing, key=lambda d: d.line).id
+                    if enclosing
+                    else None,
+                    method=item.http_method,
+                    url=PLACEHOLDER + item.path,
+                    client="oapi-codegen",
+                    declared_in=f"{item.spec_file}:{item.spec_line}",
                 )
             )
         gateways, gateway_unread = _gateways(root, config, sources)
@@ -2580,6 +2683,8 @@ class ServiceContractTool(AnalysisTool):
                                 else {
                                     "openapi-java": OPENAPI_REQUEST_RULES,
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
+                                    "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
+                                    "orval": ORVAL_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
@@ -2934,6 +3039,9 @@ class ServiceContractTool(AnalysisTool):
         for item in openapi_unread:
             key = f"openapi:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
+        for item in oapi_unread:
+            key = f"oapi_codegen:{item.reason}"
+            unread_counts[key] = unread_counts.get(key, 0) + 1
         for item in gateway_unread:
             key = f"gateway:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
@@ -2976,6 +3084,7 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
+                **({"go_gopath_packages": go_gopath} if go_gopath else {}),
                 "test_source_files": test_files,
                 "graphql_fields": len(graphql_fields),
                 "graphql_requests": len(graphql_requests),

@@ -1,0 +1,47 @@
+{
+  "corpus": "kafka-go-examples",
+  "repo": "https://github.com/segmentio/kafka-go",
+  "commit": "2e0b3968aa51b16beb4e221876499a6ff816cd91",
+  "license": "MIT",
+  "root": "examples",
+  "client": "kafka-go",
+  "scope": "labelled",
+  "sources": [
+    "manual reading of every broker-client call and literal under root at the pinned commit"
+  ],
+  "notes": [
+    "Each example is its own module. Every topic comes from the environment (docker-compose.yaml sets it), so no Go site has a literal topic.",
+    "A kafka.Message without Topic goes to its Writer's topic and is not a site of its own."
+  ],
+  "not_counted": [],
+  "sites": [
+    {
+      "file": "consumer-logger/main.go",
+      "line": 15,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the environment"
+    },
+    {
+      "file": "consumer-mongo-db/main.go",
+      "line": 33,
+      "role": "consume",
+      "broker": "kafka",
+      "unresolved": "the name comes from the environment"
+    },
+    {
+      "file": "producer-api/main.go",
+      "line": 33,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the environment"
+    },
+    {
+      "file": "producer-random/main.go",
+      "line": 14,
+      "role": "publish",
+      "broker": "kafka",
+      "unresolved": "the name comes from the environment"
+    }
+  ]
+}

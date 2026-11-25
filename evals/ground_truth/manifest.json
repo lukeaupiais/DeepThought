@@ -51,7 +51,8 @@
       "inherits": "inherits/ky.tsv",
       "inherits_command": "python tools/ground_truth.py derive-inherits . index.scip",
       "imports": "imports/ky.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language typescript",
+      "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/ky.tsv",
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/ky.tsv HISTORY --language typescript --revision 3541888878c4d303a8bc2ad61815f4e048f55a5d"
     },
@@ -67,7 +68,8 @@
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "scip-typescript index",
       "imports": "imports/hono.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language typescript",
+      "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language typescript",
+      "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/hono.tsv",
       "impact_command": "python tools/impact_truth.py derive index.scip evals/ground_truth/calls/hono.tsv HISTORY --language typescript --revision 9075031ea46533ae3b6e5b6c11f8333d67a7d6c2"
     },
@@ -83,7 +85,8 @@
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "git ls-files -z '*.d.ts' | xargs -0 rm && python tools/javascript_tsconfig.py . --alias preact=src/index.js --alias preact/compat=compat/src/index.js --alias preact/jsx-runtime=jsx-runtime/src/index.js --alias preact/jsx-dev-runtime=jsx-runtime/src/index.js --alias preact/debug=debug/src/index.js --alias preact/devtools=devtools/src/index.js --alias preact/hooks=hooks/src/index.js --alias preact/test-utils=test-utils/src/index.js && scip-typescript index && python tools/ground_truth.py derive . index.scip | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))' > calls.tsv",
       "imports": "imports/preact.tsv",
-      "imports_command": "python tools/ground_truth.py derive-imports . index.scip --language javascript | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))'",
+      "imports_command": "NODE_PATH=DIR python tools/ts_import_truth.py . --language javascript",
+      "imports_oracle": "enhanced-resolve 5.18.1 set up as TypeScript resolves, specifiers read by @babel/parser 7.26.10 (tools/ts_import_oracle.cjs)",
       "impact": "impact/preact.tsv",
       "impact_command": "python tools/impact_truth.py derive index.scip calls.tsv HISTORY --language javascript --revision 1fbc07f67bd841315332cac73de8ce1ae3e8b7b5"
     },
@@ -612,6 +615,91 @@
       "language": "go-sql",
       "labels": "tables/miniflux-storage.json",
       "oracle": "hand-read sample of 30 storage call sites"
+    },
+    {
+      "name": "tables-fastapi-template-sqlmodel",
+      "url": "https://github.com/fastapi/full-stack-fastapi-template",
+      "commit": "77e550a73bb49dd2967622c5ed11bf7a49603c93",
+      "license": "MIT",
+      "language": "python-orm",
+      "labels": "tables/fastapi-template-sqlmodel.json",
+      "oracle": "hand-read: every SQLModel table access under backend/"
+    },
+    {
+      "name": "tables-immich-typeorm",
+      "url": "https://github.com/immich-app/immich",
+      "commit": "8c2195c8205156f6e3168cc52fa34db334568ea9",
+      "license": "AGPL-3.0",
+      "language": "typeorm",
+      "labels": "tables/immich-typeorm.json",
+      "oracle": "hand-read: every TypeORM table access in server/src/repositories (a sample)"
+    },
+    {
+      "name": "tables-lobe-chat-drizzle",
+      "url": "https://github.com/lobehub/lobe-chat",
+      "commit": "39bd969d6fc32d48035cf3aadb7d91f55108d172",
+      "license": "LobeHub Community License",
+      "language": "drizzle",
+      "root": "packages/database",
+      "labels": "tables/lobe-chat-drizzle.json",
+      "oracle": "hand-read: every Drizzle table access in six model files of packages/database (a sample)"
+    },
+    {
+      "name": "sql-statements-sqlc-endtoend",
+      "url": "https://github.com/sqlc-dev/sqlc",
+      "commit": "3ad8b20fb02b5bea81591b673da0758b8685d951",
+      "license": "MIT",
+      "language": "sql-statements",
+      "labels": "sql/sqlc-endtoend.json",
+      "oracle": "libpg_query (pglast 8.9) for PostgreSQL, SQLite's authorizer for SQLite: tools/sql_statement_truth.py over internal/endtoend/testdata"
+    }
+  ],
+  "messages_description": "Hand-labelled Go message destinations (evals/ground_truth/messages): every broker-client call and literal under the corpus root, read by hand at the pinned commit, with the destinations it names, or marked unresolved (a flag, the environment, a server-named queue) or none (a TopicPartition given to an offset or admin call). Independent of the engine's type-checker facts. Scored with tools/ground_truth.py check.",
+  "messages": [
+    {
+      "name": "messages-confluent-kafka-go-examples",
+      "url": "https://github.com/confluentinc/confluent-kafka-go",
+      "commit": "eb0eb146321701ab7d90873f6856bc173628683a",
+      "license": "Apache-2.0",
+      "root": "examples",
+      "client": "confluent-kafka-go",
+      "labels": "messages/confluent-kafka-go-examples.json"
+    },
+    {
+      "name": "messages-go-clean-template-amqp",
+      "url": "https://github.com/evrone/go-clean-template",
+      "commit": "d6d2f93f82d11962aa97d1520da2b6920e4d4d4d",
+      "license": "MIT",
+      "root": ".",
+      "client": "amqp091-go",
+      "labels": "messages/go-clean-template-amqp.json"
+    },
+    {
+      "name": "messages-kafka-go-examples",
+      "url": "https://github.com/segmentio/kafka-go",
+      "commit": "2e0b3968aa51b16beb4e221876499a6ff816cd91",
+      "license": "MIT",
+      "root": "examples",
+      "client": "kafka-go",
+      "labels": "messages/kafka-go-examples.json"
+    },
+    {
+      "name": "messages-rabbitmq-tutorials-go",
+      "url": "https://github.com/rabbitmq/rabbitmq-tutorials",
+      "commit": "6deb41d2ab3f39166b94b0e375b9e4ee32712138",
+      "license": "Apache-2.0",
+      "root": "go",
+      "client": "amqp091-go",
+      "labels": "messages/rabbitmq-tutorials-go.json"
+    },
+    {
+      "name": "messages-sarama-examples",
+      "url": "https://github.com/IBM/sarama",
+      "commit": "66eb733b16d2448dddb501a2c58b4a3d98c0da7c",
+      "license": "MIT",
+      "root": "examples",
+      "client": "sarama",
+      "labels": "messages/sarama-examples.json"
     }
   ]
 }

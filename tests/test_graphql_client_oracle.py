@@ -1,8 +1,9 @@
 """The GraphQL client label builder: parser-based, independent of the engine."""
 
-import importlib.util
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -45,7 +46,19 @@ SERVER = """const typeDefs = gql`
 OTHER = "extend type Mutation {\n  shared: Int\n}\n"
 
 
-@unittest.skipUnless(importlib.util.find_spec("graphql"), "graphql-core is required")
+def _graphql_js():
+    """Whether node can load graphql and typescript (NODE_PATH)."""
+    node = os.environ.get("NODE") or shutil.which("node")
+    if not node:
+        return False
+    probe = subprocess.run(
+        [node, "-e", "require('graphql'); require('typescript')"],
+        capture_output=True,
+    )
+    return probe.returncode == 0
+
+
+@unittest.skipUnless(_graphql_js(), "node with graphql-js and typescript is required")
 class OracleTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

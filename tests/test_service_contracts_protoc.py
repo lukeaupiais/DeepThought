@@ -7,7 +7,6 @@ import unittest
 
 from deepthought.analysis_tools import ServiceContractTool
 
-from deepthought.service_contracts.grpc import read_proto
 from deepthought.service_contracts.protoc import available, read_protos
 
 COMMON = """
@@ -87,24 +86,30 @@ class ProtocReaderTests(unittest.TestCase):
         _, health, _ = self.read["proto/common/v1/common.proto"]
         self.assertEqual([m.full_name for m in health], ["common.v1.Health/Check"])
 
-    def test_unresolved_import_is_left_to_the_fallback(self):
+    def test_unresolved_import_is_not_read(self):
         self.assertNotIn("gateway/broken.proto", self.read)
 
-    def test_agrees_with_the_fallback_reader(self):
-        for path, (package, methods, _) in self.read.items():
-            self.assertEqual((package, methods), read_proto(self.files[path], path))
-
-    def test_metric_names_the_reader_of_each_file(self):
+    def test_rejected_file_is_unread(self):
         output = asyncio.run(ServiceContractTool(self.root).analyze("r"))
         metrics = output.metadata.custom_metrics
-        self.assertEqual(metrics["proto_readers"], {"fallback": 1, "protoc": 2})
+        self.assertEqual(metrics["proto_readers"], {"not_compiled": 1, "protoc": 2})
+        self.assertEqual(metrics["unread"].get("grpc_proto:not_compiled"), 1)
         methods = sorted(
             n.properties["qualified_name"]
             for n in output.nodes
             if "GrpcMethod" in n.labels
         )
-        # The file protoc cannot compile is still read.
-        self.assertIn("r::grpc::broken.Gateway/Get", methods)
+        # What protoc rejects declares nothing.
+        self.assertNotIn("r::grpc::broken.Gateway/Get", methods)
+
+    def test_missing_protoc_fails_loudly(self):
+        from unittest import mock
+
+        from deepthought.service_contracts import protoc
+
+        with mock.patch.object(protoc, "available", return_value=None):
+            with self.assertRaises(protoc.ProtocMissing):
+                read_protos(self.root, sorted(self.files), self.files)
 
 
 if __name__ == "__main__":

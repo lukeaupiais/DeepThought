@@ -9,7 +9,7 @@
   "Apollo Router (YAML)"
  ],
  "sources": [
-  "graphql-core parse of every gql/graphql template literal and .graphql/.gql file under the client roots, and of the server schemas; tools/graphql_client_oracle.py with the spec in evals/fixtures/service_contracts/graphql-specs.json",
+  "graphql-js parse of every gql/graphql template literal (found by the TypeScript compiler) and .graphql/.gql file under the client roots, and of the server schemas; tools/graphql_client_oracle.py with the spec in evals/fixtures/service_contracts/graphql-specs.json",
   "manual reading of docker-compose.yml, router/router.yaml and client/src/apollo at the pinned commit: the client talks to the router, which plans each root field to the subgraph that declares it"
  ],
  "services": [
