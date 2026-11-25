@@ -1,16 +1,14 @@
 """GraphQL schemas and operations parsed by graphql-core."""
 
-import importlib.util
+import builtins
 import unittest
+from unittest import mock
 
 from deepthought.service_contracts.graphql import (
-    _operation_fields_text,
-    _schema_fields_text,
+    GraphqlCoreMissing,
     operation_fields,
     schema_fields,
 )
-
-READY = importlib.util.find_spec("graphql") is not None
 
 SCHEMA = '''
 """
@@ -51,7 +49,6 @@ fragment BookParts on Book { title }
 """
 
 
-@unittest.skipUnless(READY, "graphql-core is not installed")
 class GraphqlCoreTests(unittest.TestCase):
     def test_schema_root_fields(self):
         declared, unread = schema_fields(SCHEMA, "schema.graphql")
@@ -65,9 +62,6 @@ class GraphqlCoreTests(unittest.TestCase):
             ],
         )
         self.assertEqual(unread, [])
-        self.assertEqual(
-            (declared, unread), _schema_fields_text(SCHEMA, "schema.graphql")
-        )
 
     def test_renamed_roots_are_unread(self):
         declared, unread = schema_fields(RENAMED, "schema.graphql")
@@ -88,17 +82,30 @@ class GraphqlCoreTests(unittest.TestCase):
         self.assertEqual(
             [(u.line, u.reason) for u in unread], [(16, "client_fragment_root")]
         )
-        self.assertEqual(
-            (found, unread),
-            _operation_fields_text(OPERATIONS, "client.ts", 10, 20, "c"),
-        )
 
-    def test_unparsable_text_falls_back(self):
-        source = "query { books { id }"  # unbalanced
+    def test_unparsable_text_is_unread(self):
+        found, unread = operation_fields(
+            "query { books { id }", "x.ts", line_offset=4
+        )  # unbalanced
+        self.assertEqual(found, [])
         self.assertEqual(
-            operation_fields(source, "x.graphql"),
-            _operation_fields_text(source, "x.graphql"),
+            [(u.line, u.reason) for u in unread], [(5, "operation_not_parsed")]
         )
+        declared, unread = schema_fields("type Query { books: ", "s.graphql")
+        self.assertEqual(declared, [])
+        self.assertEqual([u.reason for u in unread], ["schema_not_parsed"])
+
+    def test_missing_graphql_core_fails_loudly(self):
+        real = builtins.__import__
+
+        def without_graphql(name, *args, **kwargs):
+            if name == "graphql":
+                raise ImportError(name)
+            return real(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", without_graphql):
+            with self.assertRaises(GraphqlCoreMissing):
+                schema_fields(SCHEMA, "schema.graphql")
 
 
 if __name__ == "__main__":

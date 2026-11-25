@@ -870,12 +870,22 @@ def score_tables(corpus, workspace, examples=10):
 
     labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
     language = corpus.get("language", "ruby")
+    if language == "sql-statements":
+        return score_sql_statements(labels, examples)
     if language == "mongodb":
         return score_driver_collections(labels, workspace, examples)
     if language == "knex":
         return score_knex_tables(labels, workspace, examples)
     if language == "go-sql":
         return score_go_sql_tables(labels, workspace, examples)
+    if language == "python-orm":
+        return score_line_tables(
+            labels, workspace, examples, "data-contracts.", ["python"]
+        )
+    if language in ("typeorm", "drizzle"):
+        return score_line_tables(
+            labels, workspace, examples, "data-contracts.", ["typescript"]
+        )
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -1001,6 +1011,49 @@ def score_driver_collections(labels, workspace, examples=10):
         "extra": [[*k, sorted(read[k])] for k in extra][:examples],
     }
     return report, samples
+
+
+def score_sql_statements(labels, examples=10):
+    """The engine's SQL reader against labels from the database engines' own
+    parsers (tools/sql_statement_truth.py), per statement.
+
+    A statement is *found* when the reader gives exactly the labelled read
+    and written tables (a table it writes is not also counted as read),
+    *missed* when it gives none, and *wrong* otherwise. SQLite labels come
+    from SQLite's authorizer, which does not report a table the query
+    planner drops (an unused LEFT JOIN), so for SQLite a read the labels do
+    not name is not judged.
+    """
+    from deepthought.data_contracts import statement_tables, table_key
+
+    found = wrong = missed = 0
+    samples = {"wrong": [], "missed": [], "extra": []}
+    for row in labels["statements"]:
+        result = statement_tables(row["sql"])
+        writes = {table_key(t) for t in result.writes}
+        reads = {table_key(t) for t in result.reads} - writes
+        expected_reads, expected_writes = set(row["reads"]), set(row["writes"])
+        if row["engine"] == "sqlite":
+            reads &= expected_reads | expected_writes
+        where = f"{row['case']}:{row['name']}"
+        if (reads, writes) == (expected_reads, expected_writes):
+            found += 1
+        elif not reads and not writes:
+            missed += 1
+            samples["missed"].append([where, row["reads"], row["writes"]])
+        else:
+            wrong += 1
+            samples["wrong"].append(
+                [where, row["reads"], row["writes"], sorted(reads), sorted(writes)]
+            )
+    report = {
+        "expected": len(labels["statements"]),
+        "found": found,
+        "wrong": wrong,
+        "missed": missed,
+        "extra": 0,
+    }
+    return report, {k: v[:examples] for k, v in samples.items()}
 
 
 def score_knex_tables(labels, workspace, examples=10):
@@ -1172,6 +1225,12 @@ def missing_requirements(manifest, names=()):
                 if language in {"mongoose", "mongodb", "knex"}
                 else ("go",)
                 if language == "go-sql"
+                else ("python",)
+                if language == "python-orm"
+                else ("typescript",)
+                if language in ("typeorm", "drizzle")
+                else ()
+                if language == "sql-statements"
                 else (language,)
             ):
                 modules.add(LANGUAGES[lang][1])
@@ -1383,7 +1442,14 @@ def check(names, cache, update=False, examples=10):
     for corpus in manifest.get("tables", ()):
         if names and corpus["name"] not in names:
             continue
-        report, samples = score_tables(corpus, fetch(corpus, cache), examples)
+        workspace = (
+            None
+            if corpus.get("language") == "sql-statements"
+            # A corpus can be one package of a repository: it is analyzed
+            # on its own and its paths are relative to it.
+            else fetch(corpus, cache) / corpus.get("root", ".")
+        )
+        report, samples = score_tables(corpus, workspace, examples)
         problems = (
             table_regressions(report, tabled[corpus["name"]])
             if (corpus["name"] in tabled and not update)
