@@ -23,11 +23,53 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
-    "|REFERENCES_TABLE|CARRIES"
+    "|REFERENCES_TABLE|CARRIES|READS_COLUMN"
 )
-_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
+_IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN"
+# What provides a contract: handles a route, publishes to a destination,
+# writes, maps or declares a table or column.
+_PROVIDES = "HANDLES|PUBLISHES|WRITES|WRITES_COLUMN|MAPS_TO|DECLARES"
+# A contract's messages, for ``contract`` actions: the declarations named
+# like protoc's request and response types that the signature of each
+# client's stub method names (SIGNATURE_USES, from SCIP), found through the
+# call at the line each REQUESTS edge records. They are ``known`` when the
+# Go type checker gave the contract its ``message_types``, or when every
+# client's stub names one and every provider's signature names one.
+_CONTRACT_MESSAGES = (
+    "CALL { WITH root "
+    "WITH root, [x IN [root.request_message, root.response_message] "
+    "WHERE x IS NOT NULL | last(split(x, '.'))] AS names "
+    "OPTIONAL MATCH (client)-[r:REQUESTS]->(root) "
+    "WHERE client.repo_url=$repo_url AND client.snapshot_id=$snapshot_id "
+    "OPTIONAL MATCH (client)-[c:CALLS]->(:Symbol)-[:SIGNATURE_USES]->(m:Symbol) "
+    "WHERE r IS NOT NULL AND c.line = r.line "
+    "AND c.name = last(split(r.request, '.')) "
+    "AND last(split(m.name, '.')) IN names "
+    "WITH r, collect(DISTINCT m) AS found "
+    "RETURN collect(CASE WHEN r IS NULL THEN null ELSE found END) AS clients } "
+    "WITH root, parts, clients, "
+    "reduce(acc = [], found IN clients | acc + found) AS messages "
+    "WITH root, parts, messages, root.message_types IS NOT NULL "
+    # A column's readers and writers are its column edges, all known.
+    "OR root:DbColumn OR ("
+    "size(messages) > 0 AND all(found IN clients WHERE size(found) > 0) "
+    "AND all(p IN parts WHERE any(m IN messages WHERE (p)-[:SIGNATURE_USES]->(m)))"
+    ") AS known "
+)
+# What each dependent must do about a change (``action``), from the change's
+# kind: a declaration's ``signature`` (its parameters or results) or
+# ``behaviour`` (its body only), or a ``contract`` (its messages).
+_IMPACT_ACTIONS = {
+    None: "",
+    "signature": "CASE nearest WHEN 1 THEN 'must_change' ELSE 'retest' END AS action, ",
+    "behaviour": "'retest' AS action, ",
+    "contract": "CASE WHEN carried = 1 THEN 'must_change' "
+    "WHEN known THEN 'retest' "
+    "ELSE 'unknown' END AS action, ",
+}
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
+    "DbColumn",
     "DbTable",
     "GraphqlField",
     "GrpcMethod",
@@ -869,6 +911,7 @@ class GraphQueryService:
         timeout=5,
         offset=0,
         exclude_roles=None,
+        change="signature",
     ):
         """Declarations and files that depend on a declaration, transitively.
 
@@ -892,7 +935,14 @@ class GraphQueryService:
         change, so it needs re-testing), and lists its ``source_roles``
         (``test``, ``example``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
+
+        Each dependent also has an ``action`` for the kind of ``change``:
+        ``signature`` (default; the declaration's parameters or results:
+        ``must_change`` at one hop, ``retest`` deeper) or ``behaviour`` (its
+        body only: every dependent is ``retest``).
         """
+        if change not in ("signature", "behaviour"):
+            raise ValueError("change must be signature or behaviour")
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
@@ -910,6 +960,7 @@ class GraphQueryService:
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action=change,
         )
 
     async def search_contracts(
@@ -945,7 +996,11 @@ class GraphQueryService:
             "RETURN c.qualified_name AS qualified_name, "
             "[label IN labels(c) WHERE label IN $kinds][0] AS kind, "
             "coalesce(c.display_name, c.name) AS name, c.file_path AS file_path, "
-            "providers, clients "
+            "providers, clients, "
+            # gRPC: protoc's message types, and the Go types (see impact).
+            "c.request_message AS request_message, "
+            "c.response_message AS response_message, "
+            "c.message_types AS message_types "
             "ORDER BY kind, name, qualified_name LIMIT $fetch_limit",
             {"query": query, "kind": kind, "kinds": list(CONTRACT_KINDS)},
             repo_url,
@@ -981,6 +1036,24 @@ class GraphQueryService:
         across services. ``offset``, ``exclude_roles`` and the
         output are as for ``get_impact``; ``max_output_bytes`` is at least
         2048.
+
+        Each dependent has an ``action`` for a change of the contract's
+        messages: ``must_change`` when it uses the contract itself (one hop:
+        a client, or a provider's caller) or reaches it only through
+        declarations whose parameter or result types carry the contract's
+        messages (CARRIES_MESSAGE edges, from the Go type checker for gRPC
+        methods); otherwise ``retest`` when those types are known for the
+        contract (its ``message_types``), and ``unknown`` when they are not.
+        A caller of a wrapper that hides the messages only re-tests.
+
+        For a database column (``DbColumn``) the providers are the files
+        that declare it and the code that writes it (WRITES_COLUMN); the code
+        that reads it (READS_COLUMN) must change and their callers re-test,
+        since a statement's columns are resolved against the table's known
+        columns. Code that reads or writes the column's table where the
+        statement's columns did not all resolve, and ORM classes mapped to
+        the table, are listed under ``unresolved_users`` (absent when there
+        are none): whether they use the column is not known.
         """
         _text(qualified_name, "qualified_name")
         _bounds(limit, max_output_bytes, timeout)
@@ -990,7 +1063,7 @@ class GraphQueryService:
         found = await self._read(
             "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) "
-            "MATCH (provider)-[r:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "MATCH (provider)-[r:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
             "WITH provider, collect(DISTINCT type(r)) AS relations "
             "RETURN provider.qualified_name AS qualified_name, "
@@ -1006,13 +1079,41 @@ class GraphQueryService:
             timeout=timeout,
         )
         providers = found["items"]
-        # The providers share the output budget with the dependents.
-        while providers and max_output_bytes - len(_json(providers).encode()) < 1200:
-            providers.pop()
+        # A column's table may be read or written, or mapped by an ORM
+        # class, where the columns are not known: those users are listed,
+        # not judged.
+        unknown = await self._read(
+            "MATCH (root:DbColumn {repo_url:$repo_url,snapshot_id:$snapshot_id,"
+            "qualified_name:$subject}) "
+            "MATCH (table:DbTable)-[:HAS_COLUMN]->(root) "
+            "MATCH (user)-[r:READS|WRITES|MAPS_TO]->(table) "
+            "WHERE user.repo_url=$repo_url AND user.snapshot_id=$snapshot_id "
+            # Some reads of the column could not be told from reads of
+            # another table's column of the same shared ORM property.
+            "AND (r.columns_resolved IS NULL OR root.reads_unattributed) "
+            "WITH user, collect(DISTINCT type(r)) AS relations "
+            "RETURN user.qualified_name AS qualified_name, "
+            "coalesce(user.name, user.path) AS name, "
+            "coalesce(user.file_path, user.path) AS file_path, "
+            "user.start_line AS start_line, relations "
+            "ORDER BY file_path, start_line, qualified_name",
+            {"subject": qualified_name},
+            repo_url,
+            snapshot_id,
+            limit=10,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        unresolved = unknown["items"]
+        # Providers and unresolved users share the budget with the dependents.
+        while (providers or unresolved) and max_output_bytes - len(
+            _json([providers, unresolved]).encode()
+        ) < 1200:
+            (unresolved or providers).pop()
         response = await self._impact(
             "MATCH (root:Contract {repo_url:$repo_url,snapshot_id:$snapshot_id,"
             "qualified_name:$subject}) "
-            "OPTIONAL MATCH (provider)-[:HANDLES|PUBLISHES|WRITES|MAPS_TO|DECLARES]->(root) "
+            "OPTIONAL MATCH (provider)-[:" + _PROVIDES + "]->(root) "
             "WHERE provider.repo_url=$repo_url AND provider.snapshot_id=$snapshot_id "
             "WITH root, collect(DISTINCT provider) AS parts ",
             _IMPACT_BACKWARD,
@@ -1022,16 +1123,22 @@ class GraphQueryService:
             max_depth,
             evidence_types,
             limit,
-            max_output_bytes - len(_json(providers).encode()) - 64,
+            max_output_bytes - len(_json([providers, unresolved]).encode()) - 128,
             timeout,
             offset=offset,
             reverse=_IMPACT_FORWARD,
             exclude_roles=exclude_roles,
+            action="contract",
         )
         response["providers"] = providers
         response["providers_truncated"] = found["truncated"] or len(providers) < len(
             found["items"]
         )
+        if unknown["items"] or unknown["truncated"]:
+            response["unresolved_users"] = unresolved
+            response["unresolved_users_truncated"] = unknown["truncated"] or len(
+                unresolved
+            ) < len(unknown["items"])
         return response
 
     async def get_file_impact(
@@ -1121,6 +1228,7 @@ class GraphQueryService:
         offset=0,
         reverse=None,
         exclude_roles=None,
+        action=None,
     ):
         _text(subject, "subject")
         exclude = exclusion_pattern(exclude_roles)
@@ -1141,7 +1249,13 @@ class GraphQueryService:
             )
         statement = (
             (
-                seeds + "WITH [root] + parts AS changed "
+                seeds
+                + (
+                    _CONTRACT_MESSAGES
+                    if action == "contract"
+                    else "WITH root, parts, [] AS messages, false AS known "
+                )
+                + "WITH root, messages, known, [root] + parts AS changed "
                 "UNWIND changed AS target "
                 "MATCH path=(dependent)" + step + "(target) "
                 "WHERE NOT dependent IN changed "
@@ -1149,15 +1263,28 @@ class GraphQueryService:
                 "coalesce(dependent.file_path, dependent.path, '') =~ $exclude) "
                 "AND all(n IN nodes(path) WHERE n.repo_url=$repo_url AND n.snapshot_id=$snapshot_id) "
                 "AND all(r IN relationships(path) WHERE $evidence IS NULL OR r.evidence_type IN $evidence) "
-                "WITH dependent, target, path, "
+                # A column's dependents are found through its own edges; a
+                # path through its table says nothing about the column.
+                "AND (NOT root:DbColumn OR none(n IN nodes(path) WHERE n:DbTable)) "
+                # Columns are not code: a writer's other columns (reached
+                # forwards over WRITES_COLUMN) are neither dependents nor
+                # a way to their readers.
+                "AND none(n IN nodes(path)[..-1] WHERE n:DbColumn) "
+                "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
-                "WITH dependent, target, path, CASE "
+                "WITH root, messages, known, dependent, target, path, CASE "
                 "WHEN 'name_matched' IN kinds THEN 2 "
-                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness "
+                "WHEN 'pattern_matched' IN kinds THEN 1 ELSE 0 END AS weakness, "
+                # A path through declarations that each carry the changed
+                # contract's messages (CARRIES_MESSAGE) hands the dependent
+                # those messages: it builds or reads them.
+                "all(n IN nodes(path)[1..] WHERE n = root OR "
+                "EXISTS { (n)-[:CARRIES_MESSAGE]->(root) } OR "
+                "any(m IN messages WHERE (n)-[:SIGNATURE_USES]->(m))) AS carried "
                 "ORDER BY dependent.qualified_name, weakness, length(path), "
                 "[r IN relationships(path) | r._dt_edge_id] "
-                "WITH dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
-                "min(length(path)) AS nearest "
+                "WITH root, known, dependent, collect({target:target, path:path, weakness:weakness})[0] AS best, "
+                "min(length(path)) AS nearest, max(CASE WHEN carried THEN 1 ELSE 0 END) AS carried "
                 "RETURN dependent {.qualified_name,.name,.display_name,.kind,.path,"
                 ".file_path,.start_line,"
                 "labels:labels(dependent)} AS element, "
@@ -1165,6 +1292,7 @@ class GraphQueryService:
                 # Any one-hop path means the dependent names the change
                 # itself, even when its strongest path is longer.
                 "CASE nearest WHEN 1 THEN 'direct' ELSE 'transitive' END AS impact, "
+                "ACTION"
                 "[role IN $roles WHERE coalesce(dependent.file_path, dependent.path, '') "
                 "=~ role.pattern | role.name] AS source_roles, "
                 "['resolved','pattern_matched','name_matched'][best.weakness] AS evidence_type, "
@@ -1175,6 +1303,7 @@ class GraphQueryService:
                 "dependent.qualified_name "
                 "SKIP $offset LIMIT $fetch_limit"
             )
+            .replace("ACTION", _IMPACT_ACTIONS[action])
             .replace("REVERSE", reverse or "")
             .replace("RELATIONS", relations)
             .replace("DEPTH", str(max_depth))
@@ -1210,15 +1339,11 @@ class GraphQueryService:
         response["semantics"] = (
             # The backward relations are listed in `relations`.
             "Dependents reachable backwards over observed `relations`"
-            + (
-                " edges and forwards over " + ", ".join(reverse.split("|"))
-                if reverse
-                else ""
-            )
-            + " edges; each path's evidence is its weakest edge. Direct (one "
-            "hop): may need edits; transitive: re-test. Absence does "
-            "not prove that nothing else is affected: dynamic dispatch, "
-            "reflection, unanalyzed files and unrecorded relations are not seen."
+            + (" and forwards over `forward_relations`" if reverse else "")
+            + " edges; each path's evidence is its weakest edge. Direct: may "
+            "need edits; transitive: re-test. Absence does not prove no other "
+            "impact: dynamic dispatch, reflection, unanalyzed files and "
+            "unrecorded relations are not seen."
         )
         # Results are ordered and a snapshot does not change, so a truncated
         # list continues at `next_offset`.

@@ -88,6 +88,25 @@ class GoCall:
     declarations: tuple[tuple[str, int] | None, ...] = ()
     # Whether each argument's static type is an interface.
     interfaces: tuple[bool, ...] = ()
+    # The named type of each of the callee's results (None: not named), and
+    # where the method name is written (0-based column).
+    result_types: tuple[tuple[str, str] | None, ...] = ()
+    # The protobuf message types (a ProtoReflect method) its arguments and
+    # results are built from, type arguments included.
+    messages: tuple[tuple[str, str], ...] = ()
+    name_line: int | None = None
+    name_column: int | None = None
+
+
+@dataclass(frozen=True)
+class GoSignature:
+    """The named types a function's parameters and results are built from
+    (``namedIn`` in gofacts), at the function's name."""
+
+    file: str
+    line: int
+    column: int  # 0-based
+    types: tuple[tuple[str, str], ...]  # (import path, type name)
 
 
 @dataclass(frozen=True)
@@ -99,6 +118,30 @@ class GoTableName:
     type_name: str
     type_file: str
     table: str
+
+
+@dataclass(frozen=True)
+class GoStructField:
+    name: str
+    embedded: bool
+    tag: str  # the raw struct tag
+    line: int
+    column: int  # 0-based
+    # How GORM's schema parser takes its type: "value", "struct", "many" or
+    # "other" (gormKind in gofacts).
+    kind: str
+    type: tuple[str, str] | None  # (import path, type name), when named
+
+
+@dataclass(frozen=True)
+class GoStruct:
+    """A named struct type a file declares, with its fields."""
+
+    file: str
+    line: int
+    column: int  # 0-based, where its name is written
+    type: tuple[str, str]  # (import path, type name)
+    fields: tuple[GoStructField, ...]
 
 
 @dataclass(frozen=True)
@@ -120,6 +163,8 @@ class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
+    signatures: list[GoSignature] = field(default_factory=list)
+    structs: list[GoStruct] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
@@ -541,6 +586,24 @@ def _read(text, directory, members, facts):
                         for a in arguments
                     ),
                     tuple(bool(a.get("interface")) for a in arguments),
+                    tuple(_type(t) for t in item.get("result_types") or ()),
+                    tuple(dict.fromkeys(_type(t) for t in item.get("messages") or ())),
+                    item.get("name_line"),
+                    item["name_column"] - 1 if item.get("name_column") else None,
+                )
+            )
+        elif kind == "signature":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "signature")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.signatures.append(
+                GoSignature(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    tuple(dict.fromkeys(_type(t) for t in item["types"])),
                 )
             )
         elif kind == "literal":
@@ -556,6 +619,32 @@ def _read(text, directory, members, facts):
                     item["column"] - 1,
                     _type(item["type"]),
                     tuple((e["key"], _value(e)) for e in item.get("elements") or ()),
+                )
+            )
+        elif kind == "struct":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "struct")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.structs.append(
+                GoStruct(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    tuple(
+                        GoStructField(
+                            f["name"],
+                            bool(f.get("embedded")),
+                            f.get("tag", ""),
+                            f["line"],
+                            f["column"] - 1,
+                            f["kind"],
+                            _type(f.get("type")),
+                        )
+                        for f in item.get("fields") or ()
+                    ),
                 )
             )
         elif kind == "table_name":
