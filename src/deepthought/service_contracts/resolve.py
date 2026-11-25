@@ -16,6 +16,7 @@ HTTP_SERVICE_PATH = "service-contracts.http-service-path"
 HTTP_PATH = "service-contracts.http-path"
 HTTP_GATEWAY = "service-contracts.http-gateway"
 HTTP_LOCAL_PORT = "service-contracts.http-local-port"
+HTTP_UNKNOWN_BASE = "service-contracts.http-path-unknown-base"
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,17 @@ def resolve_requests(
     candidates. A file whose project is not known (``project`` gives
     None) excludes nothing, nor does a test's request, since tests
     usually call their own project's service.
+
+    A route declared under an unknown base written as text
+    (``base_written``, such as a FastAPI prefix read from settings, or Go's
+    ``baseUrl + "/cart"``) stores only the path after that base. A route
+    builder the reader could not follow (an ASP.NET ``app`` parameter) may
+    add nothing, so its routes do not take part. When no candidate matches the request's whole path, such a route
+    matches the request's path after one or more leading literal segments,
+    which stand for the unknown base (rule ``http-path-unknown-base``). Only
+    a route with a literal segment of its own takes part (``/{id}`` would fit
+    any path). The fewest skipped segments that fit any route win, and the
+    request links only when exactly one route fits with that many.
     """
     templates = [
         (
@@ -67,6 +79,7 @@ def resolve_requests(
         )
         for r in routes
     ]
+    unknown_base = {r.id for r in routes if r.base_unknown and r.base_written}
     services = {r.service for r in routes if r.service}
     route_files = {r.id: r.file for r in routes}
     resolutions = []
@@ -129,6 +142,18 @@ def resolve_requests(
         if forwarded:
             rule = HTTP_GATEWAY
         best = best_routes(request.method, segments, candidates)
+        if not best and not forwarded:
+            best = _under_unknown_base(
+                request.method,
+                segments,
+                [
+                    c
+                    for c in candidates
+                    if c[0] in unknown_base and any(s.kind == "literal" for s in c[2])
+                ],
+            )
+            if best:
+                rule = HTTP_UNKNOWN_BASE
         shown = "/" + "/".join(s.replace(PLACEHOLDER, "{?}") for s in segments)
         common = {
             "path": shown,
@@ -156,3 +181,21 @@ def resolve_requests(
                 )
             )
     return resolutions
+
+
+def _under_unknown_base(method, segments, candidates):
+    """The routes declared under an unknown base that match the request's
+    path once its leading literal segments are skipped, the skipped text
+    being taken as that base. The shortest skip that fits any route wins
+    (``/a/x/y`` goes to ``/x/y`` before ``/y``), and the rest of the path
+    must fix some text of its own; the keys that tie are returned sorted."""
+    for skip in range(1, len(segments)):
+        if PLACEHOLDER in segments[skip - 1]:
+            return ()
+        rest = segments[skip:]
+        if all(PLACEHOLDER in s for s in rest):
+            return ()
+        found = best_routes(method, rest, candidates)
+        if found:
+            return found
+    return ()

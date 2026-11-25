@@ -15,7 +15,9 @@ class HttpRoute:
     of the file (a closure, or a name that is not unique), and the route is
     then anchored to its file. ``base_unknown`` marks a path declared after
     unknown text (Go's ``baseUrl + "/cart"``); it is matched as if that base
-    added no segments, as a request's unknown base is.
+    added no segments, else, when the base is written text
+    (``base_written``) and nothing matches the whole request path, as if it
+    were the request's leading literal segments.
     """
 
     id: str
@@ -28,6 +30,10 @@ class HttpRoute:
     framework: str
     service: str | None = None
     base_unknown: bool = False
+    # The unknown base is text written before the path (a variable, or a
+    # prefix read from settings), not a route builder the reader could not
+    # follow, which may add nothing.
+    base_written: bool = False
     # "file:line" of the specification operation that declares the route.
     declared_in: str | None = None
     # Literal path segments match without regard to case (ASP.NET Core).
