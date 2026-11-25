@@ -2299,6 +2299,31 @@ class DjangoModel:
     m2m: tuple[tuple[str, str | None, bool], ...]  # (field, db_table, through)
     line: int
     column: int
+    fields: tuple = ()  # DjangoField, in class order
+
+
+# Django's relation fields: those holding a foreign key column, and those
+# whose column is on another table (or a join table).
+DJANGO_FOREIGN_KEYS = frozenset({"ForeignKey", "OneToOneField"})
+DJANGO_NO_COLUMN = frozenset(
+    {"ManyToManyField", "GenericForeignKey", "GenericRelation", "ForeignObject"}
+)
+
+
+@dataclass(frozen=True)
+class DjangoField:
+    """A field assigned in a Django model class body: ``kind`` is the Django
+    field class (django.db.models or django.contrib), or ``Field`` for a
+    project's own field class; ``target`` the related model's written name
+    (last dotted part, ``self`` for the model itself) for a relation."""
+
+    name: str
+    kind: str
+    db_column: str | None
+    target: str | None
+    primary: bool
+    line: int
+    column: int
 
 
 @dataclass(frozen=True)
@@ -2434,6 +2459,67 @@ def extract_django(tree, content, file, definitions):
                     meta = dict(
                         _assignments(statement.child_by_field_name("body"), content)
                     )
+        fields = []
+        for statement in body.named_children if body is not None else ():
+            if statement.type != "expression_statement" or not statement.named_children:
+                continue
+            assignment = statement.named_children[0]
+            left = assignment.child_by_field_name("left")
+            value = assignment.child_by_field_name("right")
+            if (
+                assignment.type != "assignment"
+                or left is None
+                or left.type != "identifier"
+                or value is None
+                or value.type != "call"
+            ):
+                continue
+            callee = re.sub(
+                r"\s+", "", _text(value.child_by_field_name("function"), content)
+            )
+            head = callee.partition(".")[0]
+            last = callee.rpartition(".")[2]
+            origin = imports.get(head) or ""
+            if origin.startswith("django.") or origin == "django":
+                if not (
+                    last.endswith("Field")
+                    or last in DJANGO_FOREIGN_KEYS
+                    or last in DJANGO_NO_COLUMN
+                ):
+                    continue
+                kind = last
+            elif last.endswith("Field"):
+                kind = "Field"
+            else:
+                continue
+            keywords = _keyword_arguments(value, content)
+            target = keywords.get("to")
+            if target is None:
+                arguments = value.child_by_field_name("arguments")
+                positional = [
+                    a
+                    for a in (arguments.named_children if arguments else ())
+                    if a.type not in ("keyword_argument", "comment")
+                ]
+                target = positional[0] if positional else None
+            related = None
+            if kind in DJANGO_FOREIGN_KEYS or kind in DJANGO_NO_COLUMN:
+                if target is not None and target.type == "string":
+                    related = (_string(target, content) or "").rpartition(".")[2]
+                elif target is not None and target.type in ("identifier", "attribute"):
+                    related = _text(target, content).rpartition(".")[2]
+            primary = keywords.get("primary_key")
+            fields.append(
+                DjangoField(
+                    _text(left, content),
+                    kind,
+                    _string(keywords.get("db_column"), content),
+                    related or None,
+                    primary is not None and _text(primary, content) == "True",
+                    left.start_point.row + 1,
+                    left.start_point.column,
+                )
+            )
         for field, value in _assignments(body, content):
             if value.type != "call":
                 continue
@@ -2469,6 +2555,7 @@ def extract_django(tree, content, file, definitions):
                 tuple(m2m),
                 node.start_point.row + 1,
                 node.start_point.column,
+                tuple(fields),
             )
         )
     stack = [root]
@@ -3018,6 +3105,251 @@ def _call_result_classes(references, trees, file, node, depth):
                 parent.child_by_field_name("return_type"),
                 depth - 1,
             )
+    return found
+
+
+@dataclass
+class DjangoColumns:
+    """The model fields a Django query names: ``uses`` are (model key,
+    field, writes, line, column); ``complete`` is False where an argument
+    is not read here (a variable, ``**kwargs``, an unknown method or
+    lookup); ``rows`` is True when the query returns model rows whose
+    columns are not all named (no values(), values_list(), only(), count()
+    and the like)."""
+
+    uses: list = _field(default_factory=list)
+    complete: bool = True
+    rows: bool = False
+
+
+# QuerySet methods by what their arguments name.
+_DJANGO_LOOKUPS = frozenset("filter exclude get get_or_create update_or_create".split())
+_DJANGO_FIELD_LISTS = frozenset(
+    "values values_list only defer order_by distinct select_related earliest "
+    "latest".split()
+)
+_DJANGO_SETS = frozenset("update create".split())
+_DJANGO_EXPRESSIONS = frozenset("annotate aggregate alias".split())
+_DJANGO_PLAIN = frozenset(
+    "all none count exists first last delete iterator reverse using "
+    "select_for_update prefetch_related in_bulk bulk_create".split()
+)
+_DJANGO_NOT_ROWS = frozenset(
+    "values values_list only count exists aggregate update delete in_bulk create "
+    "bulk_create bulk_update".split()
+)
+_DJANGO_AGGREGATES = frozenset(
+    "F Count Sum Avg Max Min StdDev Variance ArrayAgg StringAgg Coalesce "
+    "Lower Upper Length Trunc TruncDate TruncDay ExtractYear Cast".split()
+)
+
+
+def django_chain(node):
+    """(method, call node) of the QuerySet methods chained on ``node``
+    (a ``Model.objects`` attribute), in order."""
+    chain, current = [], node
+    while (
+        current.parent is not None
+        and current.parent.type == "attribute"
+        and current.parent.child_by_field_name("object") == current
+        and current.parent.parent is not None
+        and current.parent.parent.type == "call"
+    ):
+        name = current.parent.child_by_field_name("attribute")
+        current = current.parent.parent
+        chain.append((name.text.decode("utf-8", "replace"), current))
+    return chain
+
+
+def django_columns(chain, content, model, models, constructor=None):
+    """The ``DjangoColumns`` of a QuerySet ``chain`` (django_chain) on
+    ``model``, or of a ``constructor`` call ``Model(field=...)``.
+    ``models`` maps a model key to {"fields": {field: (column or None,
+    related model key or None)}, "pk": primary key field, "reverse":
+    {lookup name: (related model key, its foreign key field)}}. Django
+    takes lookups as keyword arguments and field paths as strings, which
+    scip-python does not resolve to the model's fields, so they are read
+    against the model's own fields."""
+    found = DjangoColumns()
+
+    def use(key, field, writes, node):
+        column, _ = models.get(key, {}).get("fields", {}).get(field, (None, None))
+        if column is not None:
+            found.uses.append(
+                (key, field, writes, node.start_point.row + 1, node.start_point.column)
+            )
+
+    def path(text, node, writes=False):
+        key, parts = model, text.split("__")
+        for index, part in enumerate(parts):
+            entry = models.get(key, {})
+            fields = entry.get("fields", {})
+            if part == "pk":
+                part = entry.get("pk") or part
+            if part in fields:
+                use(key, part, writes, node)
+                related = fields[part][1]
+                if writes or related is None or index + 1 == len(parts):
+                    return
+                key = related
+                continue
+            if part.endswith("_id") and fields.get(part[:-3], (None, None))[1]:
+                use(key, part[:-3], writes, node)
+                return
+            if part in entry.get("reverse", {}) and not writes:
+                key, foreign = entry["reverse"][part]
+                use(key, foreign, False, node)
+                continue
+            if index == 0:
+                found.complete = False
+            return
+
+    def keywords(arguments, writes=False):
+        for argument in arguments.named_children:
+            if argument.type == "keyword_argument":
+                name = argument.child_by_field_name("name")
+                path(name.text.decode("utf-8", "replace"), name, writes)
+                expression(argument.child_by_field_name("value"))
+            elif argument.type == "dictionary_splat":
+                found.complete = False
+
+    def expression(node):
+        if node is None:
+            return
+        if node.type == "call":
+            function = node.child_by_field_name("function")
+            name = (function.text or b"").decode("utf-8", "replace").rpartition(".")[2]
+            arguments = node.child_by_field_name("arguments")
+            if arguments is None:
+                return
+            if name == "Q":
+                keywords(arguments)
+                for argument in arguments.named_children:
+                    if argument.type not in ("keyword_argument", "comment"):
+                        expression(argument)
+                return
+            if name in _DJANGO_AGGREGATES:
+                first = next(
+                    (a for a in arguments.named_children if a.type != "comment"),
+                    None,
+                )
+                if first is not None and first.type == "string":
+                    text = _string(first, content)
+                    if text is not None:
+                        path(text, first)
+                elif first is not None:
+                    expression(first)
+                for argument in arguments.named_children:
+                    if argument.type == "keyword_argument":
+                        expression(argument.child_by_field_name("value"))
+                return
+            if name == "OuterRef":
+                # A field of the outer query's model.
+                found.complete = False
+                return
+            return
+        if node.type in (
+            "binary_operator",
+            "boolean_operator",
+            "unary_operator",
+            "parenthesized_expression",
+            "not_operator",
+        ):
+            for child in node.named_children:
+                expression(child)
+
+    def strings(arguments, writes=False):
+        for argument in arguments.named_children:
+            if argument.type == "string":
+                text = _string(argument, content)
+                if text is None:
+                    found.complete = False
+                    continue
+                text = text.lstrip("-")
+                if text and text != "?":
+                    path(text, argument, writes)
+            elif argument.type == "keyword_argument":
+                continue
+            elif argument.type != "comment":
+                expression(argument)
+                if argument.type != "call":
+                    found.complete = False
+
+    if constructor is not None:
+        arguments = constructor.child_by_field_name("arguments")
+        if arguments is not None:
+            keywords(arguments, True)
+            if any(
+                a.type not in ("keyword_argument", "comment")
+                for a in arguments.named_children
+            ):
+                found.complete = False
+        return found
+    rows = True
+    for method, call in chain:
+        arguments = call.child_by_field_name("arguments")
+        if arguments is None:
+            continue
+        if method in _DJANGO_NOT_ROWS:
+            rows = False
+        if method in _DJANGO_LOOKUPS:
+            for argument in arguments.named_children:
+                if argument.type == "keyword_argument":
+                    name = argument.child_by_field_name("name")
+                    text = name.text.decode("utf-8", "replace")
+                    value = argument.child_by_field_name("value")
+                    if text in ("defaults", "create_defaults"):
+                        if value is not None and value.type == "dictionary":
+                            for pair in value.named_children:
+                                key = pair.child_by_field_name("key")
+                                key_text = _string(key, content) if key else None
+                                if pair.type != "pair" or key_text is None:
+                                    found.complete = False
+                                    continue
+                                path(key_text, key, True)
+                                expression(pair.child_by_field_name("value"))
+                        else:
+                            found.complete = False
+                        continue
+                    path(text, name)
+                    expression(value)
+                elif argument.type == "dictionary_splat":
+                    found.complete = False
+                elif argument.type != "comment":
+                    expression(argument)
+                    if argument.type not in (
+                        "call",
+                        "binary_operator",
+                        "unary_operator",
+                        "parenthesized_expression",
+                    ):
+                        found.complete = False
+        elif method in _DJANGO_SETS:
+            keywords(arguments, True)
+        elif method in _DJANGO_FIELD_LISTS:
+            strings(arguments)
+        elif method in _DJANGO_EXPRESSIONS:
+            for argument in arguments.named_children:
+                if argument.type == "keyword_argument":
+                    expression(argument.child_by_field_name("value"))
+                elif argument.type != "comment":
+                    expression(argument)
+        elif method == "bulk_update":
+            positional = [a for a in arguments.named_children if a.type != "comment"]
+            if len(positional) > 1 and positional[1].type in ("list", "tuple"):
+                for element in positional[1].named_children:
+                    text = (
+                        _string(element, content) if element.type == "string" else None
+                    )
+                    if text is None:
+                        found.complete = False
+                    else:
+                        path(text, element, True)
+            else:
+                found.complete = False
+        elif method not in _DJANGO_PLAIN:
+            found.complete = False
+    found.rows = rows
     return found
 
 

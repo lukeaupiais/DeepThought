@@ -680,6 +680,7 @@ def run_indexer(
                     "packages",
                     "failed",
                     "without_dependencies",
+                    "stubs",
                 )
             }
         try:

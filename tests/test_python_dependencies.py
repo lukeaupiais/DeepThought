@@ -326,6 +326,39 @@ class InstalledDependenciesTest(unittest.TestCase):
             sorted(s for s in symbols if "needy" in s),
         )
 
+    def test_django_gets_its_type_stubs_without_their_dependencies(self):
+        for name, version, requires in (
+            ("Django", "5.2.1", ()),
+            ("django_stubs", "5.2.0", ("Django>=9",)),
+            ("django_stubs", "5.3.0", ()),
+            ("django_stubs_ext", "5.2.0", ("Django>=9",)),
+        ):
+            wheel(
+                self.wheels,
+                name,
+                version,
+                {f"{name.lower()}/__init__.py": ""},
+                requires,
+            )
+        (self.root / "requirements.txt").write_text("tinylib==1.0\nDjango==5.2.1\n")
+        report, run = self.index()
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        self.assertEqual(
+            run["dependencies"]["stubs"],
+            ["django-stubs<5.3", "django-stubs-ext<5.3"],
+        )
+        # The newest stubs of the project's Django release, and its Django.
+        self.assertEqual(
+            run["dependencies"]["packages"],
+            [
+                "Django==5.2.1",
+                "django_stubs==5.2.0",
+                "django_stubs_ext==5.2.0",
+                "tinylib==1.0",
+            ],
+        )
+
     def test_a_service_below_the_root_gets_its_declared_packages(self):
         service = self.root / "services" / "api"
         service.mkdir(parents=True)
