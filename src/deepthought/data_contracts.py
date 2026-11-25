@@ -120,6 +120,36 @@ def extract_ddl(file, content: bytes):
     read from its tokens with ``reader="tokens_not_parsed"``. Temporary
     tables are not part of the schema. None when the file is not UTF-8 or
     no dialect tokenizes it."""
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found = []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.CREATE not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        offset = text.count("\n", 0, start)
+        parsed = _sqlglot_ddl(text[start:end])
+        if parsed is None:
+            table = _token_ddl(statement)
+            if table is not None:
+                name, schema, line = table
+                found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
+            continue
+        found.extend(
+            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
+        )
+    return found
+
+
+def _ddl_statements(content: bytes):
+    """(text, statements) of a SQL file, each statement a list of sqlglot
+    tokens split at semicolons, or None when the file is not UTF-8 or no
+    dialect of DDL_DIALECTS tokenizes it."""
     import sqlglot
     from sqlglot.errors import SqlglotError
     from sqlglot.tokens import TokenType
@@ -145,24 +175,130 @@ def extract_ddl(file, content: bytes):
         else:
             current.append(token)
     statements.append(current)
-    found = []
+    return text, statements
+
+
+@dataclass(frozen=True)
+class ForeignKey:
+    """A foreign key a schema declares: ``table`` references ``references``."""
+
+    file: str
+    line: int
+    table: str
+    references: str
+    columns: tuple[str, ...] = ()
+    referenced_columns: tuple[str, ...] = ()
+    on_delete: str | None = None
+
+
+def extract_foreign_keys(file, content: bytes):
+    """(foreign keys, lines not parsed) of a SQL file's CREATE TABLE and
+    ALTER TABLE statements, read by sqlglot: a column's REFERENCES
+    constraint and a table's FOREIGN KEY constraint, inline or added by
+    ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY. A statement with a
+    REFERENCES token that no dialect parses is not read; its line is
+    returned instead. Temporary tables are left out. None when the file is
+    not UTF-8 or no dialect tokenizes it."""
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
     for statement in statements:
         types = {t.token_type for t in statement}
-        if TokenType.CREATE not in types or TokenType.TABLE not in types:
+        if (
+            TokenType.TABLE not in types
+            or TokenType.REFERENCES not in types
+            or not types & {TokenType.CREATE, TokenType.ALTER}
+        ):
             continue
         start, end = statement[0].start, statement[-1].end + 1
         offset = text.count("\n", 0, start)
-        parsed = _sqlglot_ddl(text[start:end])
-        if parsed is None:
-            table = _token_ddl(statement)
-            if table is not None:
-                name, schema, line = table
-                found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
+        keys = _sqlglot_foreign_keys(text[start:end])
+        if keys is None:
+            unparsed.append(statement[0].line)
             continue
-        found.extend(
-            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
-        )
-    return found
+        found.extend(ForeignKey(file, line + offset, *rest) for line, *rest in keys)
+    return found, unparsed
+
+
+def _sqlglot_foreign_keys(text):
+    """(line, table, references, columns, referenced columns, on delete) of
+    each foreign key a statement declares, or None when no dialect parses
+    it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    def name(table):
+        if isinstance(table, exp.Schema):
+            table = table.this
+        if not isinstance(table, exp.Table) or not isinstance(
+            table.this, exp.Identifier
+        ):
+            return None
+        return table.name.lower()
+
+    for dialect in DDL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        found = []
+        for tree in trees:
+            if isinstance(tree, exp.Create):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                properties = tree.args.get("properties")
+                if properties and any(
+                    isinstance(p, exp.TemporaryProperty) for p in properties.expressions
+                ):
+                    continue
+                owner = tree.this
+            elif isinstance(tree, exp.Alter):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                owner = tree.this
+            else:
+                continue
+            table = name(owner)
+            if table is None:
+                continue
+            for reference in tree.find_all(exp.Reference):
+                target = name(reference.this)
+                if target is None:
+                    continue
+                referenced = tuple(
+                    e.name.lower()
+                    for e in getattr(reference.this, "expressions", None) or ()
+                    if isinstance(reference.this, exp.Schema)
+                )
+                holder = reference.parent
+                if isinstance(holder, exp.ForeignKey):
+                    columns = tuple(e.name.lower() for e in holder.expressions)
+                else:
+                    column = reference.find_ancestor(exp.ColumnDef)
+                    columns = (column.name.lower(),) if column else ()
+                on_delete = next(
+                    (
+                        str(o)[len("ON DELETE ") :].upper()
+                        for o in reference.args.get("options") or ()
+                        if str(o).upper().startswith("ON DELETE ")
+                    ),
+                    None,
+                )
+                line = (
+                    reference.this.this.this.meta.get("line", 1)
+                    if isinstance(reference.this, exp.Schema)
+                    else reference.this.this.meta.get("line", 1)
+                )
+                found.append((line, table, target, columns, referenced, on_delete))
+        return found
+    return None
 
 
 def _sqlglot_ddl(text):
@@ -2276,6 +2412,9 @@ class PrismaModel:
     table: str
     explicit: bool  # named by @@map
     line: int
+    # Foreign keys this model holds: (referenced table, columns, referenced
+    # columns, onDelete), column names as @map gives them.
+    foreign_keys: tuple = ()
 
 
 @dataclass(frozen=True)

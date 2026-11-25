@@ -361,7 +361,9 @@ the chat model. The port answers from stored edges only:
   Message destinations and database tables work the same way: forwards over
   PUBLISHES and WRITES, then backwards over CONSUMES and READS, so a
   publisher or writer change reaches every consumer or reader (see
-  "Database tables").
+  "Database tables"). A table whose foreign key references a changed table
+  depends on it too (backwards over REFERENCES_TABLE), and so do that
+  table's readers.
   Those hops are `pattern_matched`, and the path's evidence says so. The
   traversal is a quantified path pattern, so this query needs Neo4j 5.9 or
   later.
@@ -374,7 +376,8 @@ the chat model. The port answers from stored edges only:
   that HANDLE, PUBLISH, WRITE, map (MAPS_TO) or DECLARE it, which the answer
   lists under `providers` (at most 10, `providers_truncated` when more).
   Dependents are then found as for `get_impact`: the code that REQUESTS,
-  CONSUMES or READS the contract (direct), and the callers of that code, also
+  CONSUMES or READS the contract or, for a table, the tables whose foreign
+  keys reference it over REFERENCES_TABLE (direct), and the callers of that code, also
   through other contracts it handles (transitive). Providers and dependents
   share the byte budget, which must be at least 2048 here. Contract nodes are
   not declarations, so `search_contracts(query)` (`deepthought-graph
@@ -4107,6 +4110,7 @@ component roll-up like HTTP routes and message destinations:
 | Edge | Rule | Evidence | Read from |
 |---|---|---|---|
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed` in the `ddl_readers` metric |
+| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed` |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-join-table` | pattern_matched | a field or getter of an entity with `@JoinTable(name = ...)` or `@CollectionTable(name = ...)`; the edge names the member |
@@ -4159,6 +4163,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.kysely-scip` | resolved | a scip-typescript index resolves the called method to Kysely's own `selectFrom`, a join (`innerJoin`, `leftJoin`, `rightJoin`, `fullJoin`, `crossJoin`, lateral joins), `insertInto`, `replaceInto`, `updateTable`, `deleteFrom` or `mergeInto`; its first argument is a string literal (alias dropped) or an array of them; selects and joins READ, the others WRITE |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.knex-query` | pattern_matched | in a file importing `knex` or below a `package.json` depending on it, a Knex query names the table by a literal, or by a name bound to one by a module-level `const` of the file or imported by name from the one project module that declares it (when no function around the use declares that name again): `K('t')` (type arguments allowed), `K.table('t')`, `K.batchInsert('t', ...)`, or `table`, `from`, `into` and the `*join` methods in a builder chain rooted at a Knex instance outside `K.schema`. An instance is a name `knex` or a `.knex`/`.#knex` property, a name bound to a call of the imported knex factory, a parameter, property or constructor parameter property typed `Knex`, `Knex.Transaction`, `Knex.QueryBuilder`, a type alias the file declares once for one of them, or a union of them (and a name destructured as such a property, or cast `as Knex.Transaction`), or the parameter of a callback passed to an instance's `transaction()`. Alias (`t as x`) and schema are dropped, and names of common table expressions the file defines (`.with('x', ...)`) are not tables. `insert`, `update`, `del`/`delete`, `truncate`, `increment`, `decrement`, `upsert` or `merge` on the chain (or on a variable holding the query, in the same function) gives WRITES, plus READS with `select`, `first`, `pluck` or an aggregate; anything else gives READS, and a joined table is always READS. Query-builder callbacks (`function () { this.from('t') }`, `qb => qb.from('t')`) and builders kept in other object fields (Ghost's seeders' `this.transaction`) are not read. The position is the table argument's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a model of a `.prisma` schema as Prisma's own schema engine reads it (`get_dmmf` of the `@prisma/prisma-schema-wasm` build the project's Prisma pins): its `@@map` name, else the model name. A schema with no Prisma version up its tree, a build npm cannot fetch, or a schema the engine rejects is unread and named in a `prisma_schema_unread` warning, and the run is partial |
+| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.prisma-foreign-key` | resolved | a relation field with `fields` and `references` as Prisma's schema engine reads it (`relationFromFields`, `relationToFields`, `relationOnDelete` of `get_dmmf`): the model's table holds a foreign key to the related model's table. Column names are the `@map` names. Implicit many-to-many join tables (`_AToB`) are not read |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-entity-name` | pattern_matched | a class decorated with TypeORM's `@Entity("name")` or `@Entity({ name })` (imported from `typeorm`, aliases followed) |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.typeorm-default-table-name` | name_matched | `@Entity()` without a name: TypeORM's DefaultNamingStrategy name, the snake case of the class name (`HTTPRequestLog` is `http_request_log`); custom naming strategies are not read |

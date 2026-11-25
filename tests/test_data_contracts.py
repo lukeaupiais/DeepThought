@@ -22,6 +22,7 @@ from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
     extract_ddl,
+    extract_foreign_keys,
     mongoose_majors,
     mongoose_pluralize,
     statement_tables,
@@ -207,6 +208,87 @@ CREATE TABLE "Ids" (
                 (4, "events", None, "sqlglot"),
                 (8, "ids", None, "tokens_not_parsed"),
             ],
+        )
+
+    def test_foreign_keys(self):
+        text = b"""CREATE TABLE users (id int PRIMARY KEY);
+CREATE TABLE orders (
+  id int,
+  user_id int REFERENCES public.users (id) ON DELETE CASCADE,
+  a int, b int,
+  CONSTRAINT pair FOREIGN KEY (a, b) REFERENCES "Pairs" (x, y)
+);
+CREATE TEMPORARY TABLE scratch (u int REFERENCES users (id));
+ALTER TABLE ONLY public.orders
+  ADD CONSTRAINT owner FOREIGN KEY (user_id) REFERENCES public.users(id);
+CREATE TABLE `m` (`x` int, FOREIGN KEY (`x`) REFERENCES `users` (`id`));
+CREATE TABLE odd (x int REFERENCES users NOT SQL AT ALL (((;
+"""
+        found, unparsed = extract_foreign_keys("m.sql", text)
+        self.assertEqual(
+            sorted(
+                (
+                    k.line,
+                    k.table,
+                    k.references,
+                    k.columns,
+                    k.referenced_columns,
+                    k.on_delete,
+                )
+                for k in found
+            ),
+            [
+                (4, "orders", "users", ("user_id",), ("id",), "CASCADE"),
+                (6, "orders", "pairs", ("a", "b"), ("x", "y"), None),
+                (10, "orders", "users", ("user_id",), ("id",), None),
+                (11, "m", "users", ("x",), ("id",), None),
+            ],
+        )
+        self.assertEqual(unparsed, [12])
+        self.assertIsNone(extract_foreign_keys("bad.sql", b"\xff\xfe"))
+
+    def test_foreign_key_edges(self):
+        files = {
+            "pyproject.toml": '[project]\nname = "shop"\n',
+            "db/schema.sql": "CREATE TABLE users (id int);\n"
+            "CREATE TABLE orders (id int, user_id int REFERENCES users (id));\n"
+            "CREATE TABLE odd (x int REFERENCES users NOT SQL (((;\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        keys = [r for r in output.relationships if r.type == "REFERENCES_TABLE"]
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.properties["rule_id"],
+                    r.properties["columns"],
+                    r.properties["line"],
+                )
+                for r in keys
+            ],
+            [
+                (
+                    "orders",
+                    "users",
+                    "data-contracts.sql-foreign-key",
+                    ["user_id"],
+                    2,
+                )
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["foreign_keys"],
+            {"sql": 1, "prisma": 0, "sql_not_parsed": 1},
+        )
+        self.assertIn(
+            "foreign_key_not_parsed: db/schema.sql:3: no sqlglot dialect parses "
+            "this statement, so its foreign keys are not read",
+            output.metadata.warnings,
         )
 
     def test_default_physical_names(self):
@@ -1876,6 +1958,8 @@ class ScriptOrmTests(unittest.TestCase):
                     "typeorm-repository",
                 ),
                 ("READS", "listUsers", "users", "prisma-client"),
+                # The profile's relation holds the foreign key to users.
+                ("REFERENCES_TABLE", "db-table", "users", "prisma-foreign-key"),
                 (
                     "WRITES",
                     "AuditService.constructor",
@@ -1988,8 +2072,8 @@ PRISMA_FOLDER = {
 """,
     "apps/api/prisma/schema/models/post.prisma": """model Post {
   id       Int    @id
-  authorId Int
-  author   Author @relation(fields: [authorId], references: [id])
+  authorId Int    @map("author_id")
+  author   Author @relation(fields: [authorId], references: [id], onDelete: Cascade)
   @@map(name: "posts")
 }
 """,
@@ -2075,10 +2159,28 @@ class PrismaSchemaTests(unittest.TestCase):
             write(directory, PRISMA_FOLDER)
             read = read_schemas(directory, files)
         self.assertEqual(
-            [(m.file, m.model, m.table, m.explicit, m.line) for m in read.models],
             [
-                ("apps/api/prisma/schema/author.prisma", "Author", "Author", False, 3),
-                ("apps/api/prisma/schema/models/post.prisma", "Post", "posts", True, 1),
+                (m.file, m.model, m.table, m.explicit, m.line, m.foreign_keys)
+                for m in read.models
+            ],
+            [
+                (
+                    "apps/api/prisma/schema/author.prisma",
+                    "Author",
+                    "Author",
+                    False,
+                    3,
+                    (),
+                ),
+                (
+                    "apps/api/prisma/schema/models/post.prisma",
+                    "Post",
+                    "posts",
+                    True,
+                    1,
+                    # Post holds the foreign key; @map names its column.
+                    (("Author", ("author_id",), ("id",), "Cascade"),),
+                ),
             ],
         )
         self.assertEqual(
