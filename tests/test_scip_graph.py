@@ -301,7 +301,14 @@ class ScipCommandTests(unittest.TestCase):
                 return json.loads(result.stdout)
 
             indexed = command(
-                "index", str(root), "--tool", "scip", "--repository-id", repo
+                "index",
+                str(root),
+                "--tool",
+                "scip",
+                "--scip-index",
+                str(root / "index.scip"),
+                "--repository-id",
+                repo,
             )
             scope = ["--repository-id", repo, "--snapshot", indexed["snapshot_id"]]
             alpha = command("search", *scope, "--query", "alpha", "--limit", "10")
@@ -335,6 +342,8 @@ class ScipCommandTests(unittest.TestCase):
                 str(root),
                 "--tool",
                 "scip",
+                "--scip-index",
+                str(root / "index.scip"),
                 "--repository-id",
                 repo,
             )

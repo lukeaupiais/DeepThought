@@ -575,6 +575,51 @@ def index_workspace(
     }
 
 
+# Reasons a file has no index because an indexer did not do its job: the run
+# must stop. Every other reason (no go.mod above the file, no platform builds
+# it, the indexer ran and left it out) is a file the compilers cannot index,
+# which the parser's rules cover.
+TOOL_FAILURES = frozenset(
+    {
+        "indexer_not_installed",
+        "indexer_failed",
+        "indexer_timeout",
+        "indexer_version_mismatch",
+        "inputs_changed_during_indexing",
+    }
+)
+
+
+def failed_files(report):
+    """Files of an ``index_workspace`` report left uncovered by a failing,
+    missing or wrong indexer, with the reason."""
+    return {
+        path: entry["reason"]
+        for path, entry in report["coverage"].items()
+        if entry["status"] != "covered" and entry["reason"] in TOOL_FAILURES
+    }
+
+
+def ingest_indexed(report, repository_id):
+    """The indexes an ``index_workspace`` report produced, ingested and each
+    paired with its receipt digest: the ``scip_indexes`` TreeSitterTool binds
+    call sites with."""
+    from .scip import ingest_scip
+
+    return [
+        (
+            ingest_scip(
+                run["index"],
+                repository_id=repository_id,
+                default_position_encoding=run["position_encoding"],
+            ),
+            run["receipt_sha256"],
+        )
+        for run in report["runs"]
+        if run["status"] == "indexed"
+    ]
+
+
 def requirements(environ=None):
     """Each pinned indexer, its version and whether it is installed here."""
     return [
