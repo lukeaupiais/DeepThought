@@ -1510,6 +1510,26 @@ class _Columns:
     def statement(self, tree):
         from sqlglot import exp
 
+        dml = (exp.Update, exp.Insert, exp.Delete)
+        if any(isinstance(c.this, dml) for c in tree.find_all(exp.CTE)):
+            # A data-modifying CTE is a statement of its own; the query
+            # around it reads what it RETURNs, from its target.
+            tree = tree.copy()
+            for cte in list(tree.find_all(exp.CTE)):
+                if not isinstance(cte.this, dml):
+                    continue
+                inner = cte.this
+                self.statement(inner)
+                target = self._target(inner)
+                returning = inner.args.get("returning")
+                stand_in = exp.Select(
+                    expressions=[e.copy() for e in returning.expressions]
+                    if returning
+                    else [exp.Literal.number(1)]
+                )
+                if target is not None:
+                    stand_in = stand_in.from_(target.copy())
+                cte.set("this", stand_in)
         if isinstance(tree, (exp.Select, exp.SetOperation)):
             self.select(tree)
             return

@@ -669,6 +669,22 @@ CREATE TABLE snapshot AS SELECT * FROM roles;
                 ["accounts", "entries"],
             ),
         )
+        # A data-modifying CTE is read as a statement; the query around it
+        # reads what it returns.
+        self.assertEqual(
+            columns(
+                "WITH c AS (UPDATE accounts SET balance = 0 WHERE owner = $1 "
+                "RETURNING id) SELECT id FROM c"
+            ),
+            (
+                [
+                    ("accounts", "balance", True),
+                    ("accounts", "id", False),
+                    ("accounts", "owner", False),
+                ],
+                ["accounts"],
+            ),
+        )
         # An INSERT without a column list writes every column; EXCLUDED is
         # the inserted row.
         self.assertEqual(
