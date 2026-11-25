@@ -22,6 +22,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 import json
 import logging
+import posixpath
 from pathlib import Path
 import re
 
@@ -191,6 +192,19 @@ class ForeignKey:
     columns: tuple[str, ...] = ()
     referenced_columns: tuple[str, ...] = ()
     on_delete: str | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ForeignKeyDrop:
+    """A statement that removes foreign keys: ALTER TABLE ``table`` DROP
+    CONSTRAINT / DROP FOREIGN KEY ``constraint``, or DROP TABLE ``table``
+    (``constraint`` None), which takes the keys of and to the table."""
+
+    file: str
+    line: int
+    table: str
+    constraint: str | None = None
 
 
 def extract_foreign_keys(file, content: bytes):
@@ -339,9 +353,165 @@ def _sqlglot_foreign_keys(text):
                     if isinstance(reference.this, exp.Schema)
                     else reference.this.this.meta.get("line", 1)
                 )
-                found.append((line, table, target, columns, referenced, on_delete))
+                named = reference.parent
+                if isinstance(named, exp.ForeignKey):
+                    named = named.parent
+                constraint = (
+                    named.this.name.lower()
+                    if isinstance(named, (exp.Constraint, exp.ColumnConstraint))
+                    and isinstance(named.this, exp.Identifier)
+                    else None
+                )
+                found.append(
+                    (line, table, target, columns, referenced, on_delete, constraint)
+                )
         return found
     return None
+
+
+def extract_foreign_key_drops(file, content: bytes):
+    """(drops, lines not parsed) of a SQL file's statements that remove
+    foreign keys, read by sqlglot: ALTER TABLE ... DROP CONSTRAINT, ALTER
+    TABLE ... DROP FOREIGN KEY (MySQL) and DROP TABLE. A statement with a
+    DROP token that no dialect parses is not read; its line is returned.
+    None when the file is not UTF-8 or no dialect tokenizes it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.DROP not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        line = statement[0].line
+        for dialect in DDL_DIALECTS:
+            try:
+                trees = [
+                    t
+                    for t in sqlglot.parse(text[start:end], read=dialect)
+                    if t is not None
+                ]
+            except (SqlglotError, ValueError, RecursionError):
+                continue
+            if not trees or any(isinstance(t, exp.Command) for t in trees):
+                continue
+            break
+        else:
+            unparsed.append(line)
+            continue
+        for tree in trees:
+            if isinstance(tree, exp.Drop):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                found.extend(
+                    ForeignKeyDrop(file, line, table.name.lower())
+                    for table in tree.args.get("tables") or ()
+                    if isinstance(table, exp.Table)
+                )
+            elif isinstance(tree, exp.Alter):
+                owner = tree.this
+                if (tree.args.get("kind") or "").upper() != "TABLE" or not (
+                    isinstance(owner, exp.Table)
+                ):
+                    continue
+                for action in tree.args.get("actions") or ():
+                    if not isinstance(action, exp.Drop) or (
+                        (action.args.get("kind") or "").upper()
+                        not in ("CONSTRAINT", "FOREIGN KEY")
+                    ):
+                        continue
+                    found.extend(
+                        ForeignKeyDrop(
+                            file, line, owner.name.lower(), named.name.lower()
+                        )
+                        for named in action.args.get("tables") or ()
+                        if isinstance(named, exp.Table)
+                    )
+    return found, unparsed
+
+
+_ROLLBACK_MIGRATION = re.compile(r"(?:^|[._-])down\.sql$", re.I)
+
+
+def is_rollback_migration(path):
+    """Whether a SQL file undoes a migration: golang-migrate and sqlx write
+    <version>_<name>.down.sql, Diesel <version>_<name>/down.sql. A rollback
+    is not part of the schema the migrations build."""
+    return bool(_ROLLBACK_MIGRATION.search(posixpath.basename(path)))
+
+
+_MIGRATION_FOLDERS = {"migrations", "migration", "migrate"}
+
+
+def migration_set(path):
+    """The folder whose SQL files apply one after another, in name order:
+    the nearest folder of the path named migrations, migration or migrate
+    (Prisma, sqlx, golang-migrate, Flyway's db/migration, Rails' db/migrate),
+    or the file itself when it is in none."""
+    parts = path.split("/")[:-1]
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index].lower() in _MIGRATION_FOLDERS:
+            return "/".join(parts[: index + 1])
+    return path
+
+
+def _natural(path):
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", path)
+    ]
+
+
+def _postgres_key_name(key):
+    """The name PostgreSQL gives an unnamed foreign key:
+    <table>_<columns>_fkey, cut to 63 bytes (ChooseConstraintName)."""
+    if not key.columns:
+        return None
+    label = f"{key.table}_{'_'.join(key.columns)}"
+    return f"{label[: 63 - len('_fkey')]}_fkey"
+
+
+def replay_foreign_keys(files):
+    """The foreign keys left once each file's statements run in order.
+
+    ``files`` holds (path, keys, drops) of the SQL files of one migration
+    set (``migration_set``); they apply in natural name order (V2 before
+    V10) and, within a file, in line order. A drop names a key by its
+    constraint name, or by the name PostgreSQL gives an unnamed key; DROP
+    TABLE takes the keys of and to the table. Returns (keys, dropped count,
+    drops that name no key read before them: DROP CONSTRAINT also drops
+    primary, unique and check constraints). Running the migrations against
+    a database would run the project's code, so their statements are
+    replayed from sqlglot's parse instead."""
+    keys, dropped, unmatched = [], 0, []
+    for _, found, drops in sorted(files, key=lambda f: _natural(f[0])):
+        events = [(k.line, 1, k) for k in found] + [(d.line, 0, d) for d in drops]
+        for _, kind, item in sorted(events, key=lambda e: (e[0], e[1])):
+            if kind:
+                keys.append(item)
+                continue
+            if item.constraint is None:
+                left = [k for k in keys if item.table not in (k.table, k.references)]
+            else:
+                left = [
+                    k
+                    for k in keys
+                    if k.table != item.table
+                    or item.constraint
+                    not in (k.name, None if k.name else _postgres_key_name(k))
+                ]
+                if len(left) == len(keys):
+                    unmatched.append(item)
+            dropped += len(keys) - len(left)
+            keys = left
+    return keys, dropped, unmatched
 
 
 def _sqlglot_ddl(text):
