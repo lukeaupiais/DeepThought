@@ -797,7 +797,8 @@ GORM_DEFAULT_RULE = register_rule(
         "data-contracts.gorm-default-table-name",
         "name_matched",
         "The Go struct is a GORM model (it embeds gorm.Model, or is passed "
-        "as &T{} to AutoMigrate or Model in a file importing gorm.io/gorm) "
+        "as &T{} or new(T), T of any package, to AutoMigrate or Model in a "
+        "file importing gorm.io/gorm) "
         "without a TableName method, and this table is GORM's default name "
         "as GORM's own schema.NamingStrategy{}.TableName computes it, built "
         "at the gorm.io/gorm and jinzhu/inflection versions the model's "
@@ -1684,7 +1685,19 @@ class DataContractTool(AnalysisTool):
                 )
             return [d.kind, "Symbol"], name
 
+        edges_linked = set()
+
         def link(kind, source, target, rule, extra, labels=("DbTable", "Contract")):
+            # One fact found twice (a string with several folded values, two
+            # calls of a chain naming one model) is one edge.
+            identity = json.dumps(
+                [kind, source[1], target, extra, rule.rule_id],
+                sort_keys=True,
+                default=str,
+            )
+            if identity in edges_linked:
+                return
+            edges_linked.add(identity)
             relationships.append(
                 RelationshipData(
                     kind,
@@ -2908,16 +2921,40 @@ class DataContractTool(AnalysisTool):
                 else GORM_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
+        modules = sorted(
+            (
+                (c.name, c.manifest.rpartition("/")[0])
+                for c in scan.components
+                if c.kind == "go_module" and c.name
+            ),
+            key=lambda m: -len(m[0]),
+        )
+
+        def package_directory(import_path):
+            for module, directory in modules:
+                if import_path == module or import_path.startswith(module + "/"):
+                    rest = import_path[len(module) :].strip("/")
+                    return "/".join(p for p in (directory, rest) if p)
+            return None
+
         # A configured NamingStrategy changes every default name.
         gorm_defaults, pending = 0, {}
         for model in sorted(
             [] if gorm_naming else gorm_models,
             key=lambda m: (m.file, m.line, m.column),
         ):
-            key = (model.file.rpartition("/")[0], model.type_name)
+            directory = (
+                model.file.rpartition("/")[0]
+                if model.package is None
+                else package_directory(model.package)
+            )
+            if directory is None:
+                continue
+            key = (directory, model.type_name)
             if key in gorm_targets or key in pending:
                 continue
-            declared = owner(model.file, model.type_name)
+            found = go_types.get(key, [])
+            declared = found[0] if len(found) == 1 else None
             if declared is not None:
                 pending[key] = (declared, model.type_name)
         # GORM's own NamingStrategy at the version each module selects.
@@ -2949,22 +2986,6 @@ class DataContractTool(AnalysisTool):
                     GORM_DEFAULT_RULE,
                     {"line": declared.line, "column": declared.column},
                 )
-        modules = sorted(
-            (
-                (c.name, c.manifest.rpartition("/")[0])
-                for c in scan.components
-                if c.kind == "go_module" and c.name
-            ),
-            key=lambda m: -len(m[0]),
-        )
-
-        def package_directory(import_path):
-            for module, directory in modules:
-                if import_path == module or import_path.startswith(module + "/"):
-                    rest = import_path[len(module) :].strip("/")
-                    return "/".join(p for p in (directory, rest) if p)
-            return None
-
         gorm_access = {"linked": 0, "not_a_model": 0}
         # Each call chain's model tables, by where the chain starts (every
         # call of a chain starts there), and the chains that write.

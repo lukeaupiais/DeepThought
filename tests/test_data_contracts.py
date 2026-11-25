@@ -4608,6 +4608,23 @@ type Order struct {
 func Migrate(db *gorm.DB) {
 	db.AutoMigrate(&User{}, &Order{})
 }
+
+type Tag struct {
+	Label string
+}
+""",
+    # A model migrated from another package, as new(T).
+    "db/migrate.go": """\
+package db
+
+import (
+	"example.com/shop/models"
+	"gorm.io/gorm"
+)
+
+func Migrate(db *gorm.DB) {
+	db.AutoMigrate(new(models.Tag))
+}
 """,
     "store/store.go": """\
 package store
@@ -4630,6 +4647,14 @@ func Strings(db *gorm.DB, u *models.User) {
 	db.Model(&models.User{}).Updates(map[string]interface{}{"api_key": "k"})
 	var names []string
 	db.Model(&models.User{}).Pluck("name", &names)
+}
+
+func Multi(db *gorm.DB, flag bool) {
+	col := "name"
+	if flag {
+		col = "visits"
+	}
+	db.Model(&models.User{}).Where(col+" = ? and seen > ?", 1, 2).First(&models.User{})
 }
 """,
 }
@@ -4776,6 +4801,7 @@ class GormTests(unittest.TestCase):
                 "orders::column::id",
                 "orders::column::total",
                 "orders::column::user_id",
+                "tags::column::label",
                 "users::column::a_audit_note",
                 "users::column::a_created_by",
                 "users::column::api_key",
@@ -4816,12 +4842,34 @@ class GormTests(unittest.TestCase):
             [
                 ("READS_COLUMN", "users::column::name", 17, "Where"),
                 ("READS_COLUMN", "users::column::name", 20, "Pluck"),
+                # Both values of col; seen once, though both strings name it.
+                ("READS_COLUMN", "users::column::name", 28, "Where"),
                 ("READS_COLUMN", "users::column::seen", 17, "Order"),
+                ("READS_COLUMN", "users::column::seen", 28, "Where"),
                 ("READS_COLUMN", "users::column::visits", 17, "Where"),
+                ("READS_COLUMN", "users::column::visits", 28, "Where"),
                 ("WRITES_COLUMN", "users::column::api_key", 18, "Updates"),
                 ("WRITES_COLUMN", "users::column::mail", 17, "Update"),
             ],
         )
+        # Every edge once, by the graph writer's identity of an edge (it
+        # refuses a snapshot with a duplicate).
+        from deepthought.storage.graph.writer import _canonical
+
+        identities = [
+            _canonical(
+                [
+                    r.type,
+                    [
+                        r.source_match["qualified_name"],
+                        r.target_match["qualified_name"],
+                    ],
+                    dict(r.properties),
+                ]
+            )
+            for r in output.relationships
+        ]
+        self.assertEqual(len(identities), len(set(identities)))
         self.assertEqual(
             access,
             [

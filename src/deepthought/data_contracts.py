@@ -6976,6 +6976,8 @@ class GormModel:
     how: str  # "embeds" (gorm.Model) or "migrated" (AutoMigrate) or "model"
     line: int
     column: int
+    # The import path of a type named from another package (models.User).
+    package: str | None = None
 
 
 @dataclass(frozen=True)
@@ -7238,7 +7240,7 @@ def extract_gorm(tree, content, file, definitions):
         if method == "AutoMigrate" and gorm:
             for value in values:
                 kind = _go_value_type(value, content, imports, {})
-                if kind is not None and kind.package is None:
+                if kind is not None:
                     models.append(
                         GormModel(
                             file,
@@ -7246,6 +7248,7 @@ def extract_gorm(tree, content, file, definitions):
                             "migrated",
                             value.start_point.row + 1,
                             value.start_point.column,
+                            kind.package,
                         )
                     )
             continue
@@ -7272,7 +7275,7 @@ def extract_gorm(tree, content, file, definitions):
                 node = node.parent.parent
             reads = any(m in GORM_CHAIN_READS | GORM_READ_WRITES for m in chain)
             writes = any(m in GORM_CHAIN_WRITES | GORM_READ_WRITES for m in chain)
-            if kind.package is None and gorm:
+            if gorm:
                 models.append(
                     GormModel(
                         file,
@@ -7280,6 +7283,7 @@ def extract_gorm(tree, content, file, definitions):
                         "model",
                         call.start_point.row + 1,
                         call.start_point.column,
+                        kind.package,
                     )
                 )
         elif method in GORM_READS | GORM_WRITES | GORM_READ_WRITES:
