@@ -17,6 +17,8 @@ from .graph_cli import connection_settings, query_observer
 
 def create_server():
     from mcp.server.fastmcp import Context, FastMCP
+    from mcp.types import CallToolResult, TextContent
+    import pydantic_core
     from pydantic import Field
     from .graph_queries import GraphQueryService
     from .storage.graph.connection import Neo4jConnectionManager
@@ -649,12 +651,14 @@ def create_server():
             ctx: Context,
             max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
             format: Literal["json", "text"] | None = None,
-        ):  # No return annotation: FastMCP would wrap a dict-or-text union.
+        ):  # No return annotation: FastMCP would wrap a dict-or-text union;
+            # JSON rows are returned with their structured content below.
             """Run bounded read-only Cypher in an explicitly dedicated snapshot database.
 
             format "text" writes the rows as short sentences: code items as
             Name (file:line), links as "A calls B at line N", chains as
-            A → B → C, with a closing coverage line. "json" returns the rows.
+            "A calls B at line 4, which calls C at line 9", with a closing
+            coverage line. "json" returns the rows.
             """
             service = ctx.request_context.lifespan_context
             if (format or default_format) == "text":
@@ -666,13 +670,25 @@ def create_server():
                     allow_database_scope=True,
                     limit=max_elements,
                 )
-            return await service.query_cypher(
+            rows = await service.query_cypher(
                 query,
                 parameters,
                 repository_id,
                 snapshot_id=snapshot_id,
                 allow_database_scope=True,
                 limit=max_elements,
+            )
+            # Rows keep their structured content, as with an annotated tool.
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=pydantic_core.to_json(
+                            rows, fallback=str, indent=2
+                        ).decode(),
+                    )
+                ],
+                structuredContent=rows,
             )
 
     return server

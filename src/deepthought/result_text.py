@@ -20,6 +20,7 @@ completely the engine found each relationship family the result touches.
 
 from collections import OrderedDict
 import json
+import re
 
 from .indexers import LANGUAGE_SUFFIXES
 from .source_roles import source_roles
@@ -65,6 +66,9 @@ def _name(node):
     return "/".join(sorted(labels))
 
 
+_PLAIN_KINDS = {"Function", "Method"}
+
+
 def _item(node, short=False):
     """One code item. ``short`` drops the location (used inside chains)."""
     p = node["properties"]
@@ -80,6 +84,10 @@ def _item(node, short=False):
     else:
         line = p.get("start_line", p.get("line"))
         details = [f"{path}:{line}" if path and line is not None else path]
+        kind = p.get("kind")
+        if isinstance(kind, str) and kind not in _PLAIN_KINDS:
+            # Functions and methods ("Owner.member") need no kind word.
+            details.insert(0, re.sub(r"(?<=[a-z])(?=[A-Z])", " ", kind).lower())
     if "UnresolvedCall" in labels:
         details.append(
             ", ".join(
@@ -174,24 +182,27 @@ class _Renderer:
         if not nodes:
             return "(empty chain)"
         names = [_name(n) for n in nodes]
+        seen = set()
 
         def step(i):
             if drop == "end" and i == len(nodes) - 1 and i > 0:
                 return "it"
             if drop == "start" and i == 0:
                 return "it"
-            if i in (0, len(nodes) - 1):
-                return _item(nodes[i])
-            if names.count(names[i]) > 1:
-                # Name repeats are ambiguous in a chain: give their file.
-                return f"{names[i]} ({_path_of(nodes[i])})"
-            return names[i]
+            ident = nodes[i]["element_id"]
+            if ident in seen:
+                return names[i]
+            seen.add(ident)
+            # First mention gives the location: later line numbers in the
+            # chain are in this item's file.
+            return _item(nodes[i])
 
-        by_id = {n["element_id"]: i for i, n in enumerate(nodes)}
         parts = [step(0)]
         for hop, link in enumerate(links):
             verb = RELATIONSHIP_SENTENCES.get(link["type"], link["type"].lower())
-            forward = by_id.get(link["source"], hop) == hop
+            # A chain may come back to an item, so the direction is read
+            # from this hop's own node, not from the item's first position.
+            forward = link["source"] == nodes[hop]["element_id"]
             line = (link.get("properties") or {}).get("line")
             if forward:
                 phrase = f"{verb} {step(hop + 1)}"
@@ -496,7 +507,17 @@ def render(response, *, nodes=None, coverage=None, query=None, limit=None):
             and not any(_is_link(row.get(c)) or _is_path(row.get(c)) for row in items)
             and len({json.dumps(row.get(c), sort_keys=True) for row in items}) == 1
         ]
+        # A column that is null in every result is said once; a null in
+        # some results only is left out of those results.
+        constant += [
+            c
+            for c in columns
+            if count == 1 and c not in drops and items[0].get(c) is None
+        ]
         for column in constant:
+            if items[0].get(column) is None:
+                shared.append(f"{column} none")
+                continue
             text = renderer.value_text(items[0].get(column))
             if text is not None:
                 if _is_node(items[0].get(column)):

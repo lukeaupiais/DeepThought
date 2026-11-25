@@ -129,25 +129,59 @@ class ResultTextTests(unittest.TestCase):
             "  - writeFlags (bash_completions.go:551) calls it at line 580", lines
         )
         self.assertIn(
-            "  - gen (bash_completions.go:652) calls writeFlags at line 675, "
+            "  - gen (bash_completions.go:652) calls writeFlags "
+            "(bash_completions.go:551) at line 675, "
             "which calls it at line 580",
             lines,
         )
         self.assertIn(
-            "  - command_test.go (file, test) calls writeFlags at line 12, "
+            "  - command_test.go (file, test) calls writeFlags "
+            "(bash_completions.go:551) at line 12, "
             "which calls it at line 580",
             lines,
         )
 
-    def test_a_repeated_name_inside_a_chain_gives_its_file(self):
+    def test_every_item_in_a_chain_gives_its_location_once(self):
+        # A hop's line is in the calling item's file, so every item is placed
+        # on first mention; same-named items are told apart the same way.
         bun = symbol("x", "toSSG", "src/adapter/bun/ssg.ts", 27)
         helper = symbol("y", "toSSG", "src/helper/ssg/ssg.ts", 375)
         fetch = symbol("z", "fetchRoutesContent", "src/helper/ssg/ssg.ts", 209)
         text = render(response([{"p": path(bun, 28, helper, 438, fetch)}]))
         self.assertIn(
-            "toSSG (src/adapter/bun/ssg.ts:27) calls toSSG (src/helper/ssg/ssg.ts) at line 28",
+            "toSSG (src/adapter/bun/ssg.ts:27) calls toSSG (src/helper/ssg/ssg.ts:375) "
+            "at line 28, which calls fetchRoutesContent (src/helper/ssg/ssg.ts:209) "
+            "at line 438",
             text,
         )
+        loop = render(response([{"p": path(bun, 28, helper, 380, bun)}]))
+        self.assertIn(
+            "- toSSG (src/adapter/bun/ssg.ts:27) calls toSSG (src/helper/ssg/ssg.ts:375) "
+            "at line 28, which calls toSSG at line 380",
+            loop,
+        )
+
+    def test_kinds_other_than_functions_and_methods_are_named(self):
+        cls = symbol("k", "Context", "src/context.ts", 293)
+        cls["properties"]["kind"] = "Class"
+        alias = symbol("m", "Handler", "src/types.ts", 12)
+        alias["properties"]["kind"] = "TypeAlias"
+        method = symbol("n", "Context.json", "src/context.ts", 700)
+        method["properties"]["kind"] = "Method"
+        text = render(response([{"n": cls}, {"n": alias}, {"n": method}]))
+        self.assertIn("- Context (class, src/context.ts:293)", text)
+        self.assertIn("- Handler (type alias, src/types.ts:12)", text)
+        self.assertIn("- Context.json (src/context.ts:700)", text)
+
+    def test_a_column_null_in_every_result_is_said_once(self):
+        rows = [{"n": TARGET, "signature": None}, {"n": HAS, "signature": None}]
+        self.assertIn("Same for every result: signature none.", render(response(rows)))
+        one = render(response([{"n": TARGET, "signature": None}]))
+        self.assertIn("signature none", one)
+        mixed = render(
+            response([{"n": TARGET, "signature": "()"}, {"n": HAS, "signature": None}])
+        )
+        self.assertNotIn("none", mixed)
 
     def test_only_numbers_merge_never_names_or_files(self):
         bun = symbol("x", "toSSG", "src/adapter/bun/ssg.ts", 27)

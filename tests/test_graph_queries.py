@@ -339,7 +339,7 @@ class GraphQueryIntegrationTests(unittest.TestCase):
                     [
                         "4 results (all of them).",
                         'Each chain below starts at src/a.py (file) ("it"):',
-                        "- it defines Base (src/a.py:1)",
+                        "- it defines Base (class, src/a.py:1)",
                     ],
                 )
                 text = await service.query_cypher_text(

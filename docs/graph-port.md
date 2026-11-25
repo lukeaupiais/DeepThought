@@ -5363,11 +5363,20 @@ The same dedicated-database checks and bounds apply. Reserved parameters
 
 `queryGraph` answers with JSON rows by default. With `format: "text"` on a call,
 or `DEEPTHOUGHT_QUERY_FORMAT=text` for the server, it writes the same rows as
-short sentences (`deepthought.result_text`): a declaration as `Name (file:line)`,
+short sentences (`deepthought.result_text`): a declaration as `Name (file:line)`
+(with its kind, such as `class` or `type alias`, unless it is a function or
+method),
 a link as `A (a.go:10) calls B (b.go:4) at line 12` from the verb its type has
 in `RELATIONSHIP_SENTENCES` (`storage/graph/schema.py`), a path as
-`A calls B at line 4, which calls C at line 9`, and other values as
-`name value` under the column name the query chose. What every row shares is
+`A (a.go:3) calls B (b.go:8) at line 4, which calls C (c.go:2) at line 9`
+(each item placed on its first mention, since a hop's line is in the calling
+item's file), and other values as `name value` under the column name the query
+chose. A column that is null in every row is said once (`signature none`); a
+null in some rows only is left out of those rows. A link's evidence is shown
+only when it is below `resolved` (`[name matched]`, `[pattern matched]`); its
+rule id, a node's qualified name and its storage keys are left out, and JSON
+rows (`format: "json"`, which keep their MCP structured content) still carry
+them. What every row shares is
 said once, repeating leading values become headings, rows that differ only in
 a number merge (`at lines 195, 209`), and rows in test files follow under
 `In tests:`. The text opens with the row count and whether the limit cut it, and
