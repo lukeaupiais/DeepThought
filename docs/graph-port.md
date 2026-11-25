@@ -3611,13 +3611,24 @@ instead, each value a call of that function passes:
 | Dario213987/TPE-TicketYa `cdf3173` (front end) | 36 `api<T>(path, { method, body })` calls of one fetch helper | 32 requests linked to the right Spring route and method, all checked by hand (none before). The other 4 append a query string built at run time and stay unresolved |
 | darbyluv2code/fullstack `e8832ee` (45 copies of an Angular `ProductService`) | `this.getProducts(searchUrl)` twice per copy | Each copy's `GET {?}` becomes the two Spring Data REST search URLs (`/api/products/search/findByCategoryId?id={?}`, `.../findByNameContaining?name={?}`), 90 in all, every one the URL the caller builds. They stay unresolved because Spring Data REST repository endpoints are not read yet |
 
-The Go Kafka clients are read in files that import them. A producer or
-consumer is placed where the literal or call is written, which is not always
+Go is read from the type checker's facts (see "Go facts from the type
+checker"), not from import patterns: a call counts when go/types resolves
+its method to the client package (`Publish` of an `amqp.Channel`, `Consume`
+of a `sarama.ConsumerGroup`, also through wrappers and embedded fields),
+and a literal when its struct type is the client's. Destinations are the
+string values gofacts gives: constants (also from other packages), locals
+assigned once, `+` joins, the elements of a `[]string` literal, `&name` as
+an element of a literal, and a queue's `Name` after `q, err :=
+ch.QueueDeclare("name", ...)`. A Go file importing a client that the type
+checker did not check is `go_types:not_type_checked` (a file of no module,
+say); one in a package it checked only in part is
+`go_types:partly_type_checked`, since an untyped call is not read. A
+producer or consumer is placed where the literal or call is written, which is not always
 where messages are sent: a kafka-go `Writer` built in a constructor publishes
 from that constructor. A confluent-kafka-go topic that starts with `^` is a
 pattern (`consume:topic_pattern`). Kafka has no empty topic, so a topic that
-folds to `""` (a package variable that a flag sets at run time, say) is
-`empty_topic` for every client.
+folds to `""` is `empty_topic` for every client; a package variable (one a
+flag sets at run time, say) has no value and is not literal.
 
 | Repository | Literal sites | Outcome |
 |---|---|---|
@@ -3635,6 +3646,15 @@ No edge is wrong. On the corpora, nothing changes.
 | confluentinc/confluent-kafka-go `eb0eb14` | 6 sites read (5 produces, 1 subscribe), all correct. 40 take their topic from arguments or flags and are unread |
 
 No Go edge is wrong. On the corpora, nothing changes.
+
+Reading Go from go/types instead of import patterns, on the 18 Go
+repositories with a broker client (the three client repositories fully
+checked out): 3 links are gained and 4 lost. The gains are confluent-kafka-go
+examples whose consumer topic is a local the old rule could not follow.
+The losses are robot-shop's `dispatch` service, a GOPATH-era program with
+no `go.mod`, counted twice because the corpus holds two copies of it. The
+type checker cannot check it, so its file is now
+`go_types:not_type_checked`.
 
 #### NestJS microservices
 
@@ -4321,23 +4341,34 @@ method calls (the package declaring each method, the packages of its
 result types, the string value of its first arguments) and the `TableName`
 methods returning a constant. It is built once per toolchain into
 `~/.cache/deepthought` (or `DEEPTHOUGHT_CACHE`) with the `go` on `PATH` (or
-`DEEPTHOUGHT_GO`). It builds and runs nothing of the analyzed repository and
-reads dependencies only from the module cache: `GOPROXY=off`,
-`-mod=readonly`, `GOTOOLCHAIN=local`, `GOWORK=off`. A dependency that is not
-in the cache (run `go mod download` first), or language features newer than
+`DEEPTHOUGHT_GO`). The Go toolchain is required: without it the analysis
+raises `GoMissing` rather than reading Go another way. Before the check,
+the engine downloads what each module's packages and tests import (`go
+list -e -deps -test ./...`, so only the modules providing imported
+packages are fetched, not the whole module graph; with `GOTOOLCHAIN=auto`,
+which also fetches the Go release the module asks for), against copies of
+its `go.mod` and `go.sum` passed with `-modfile`, so the repository's files
+are never written. The check itself builds and runs nothing of the
+analyzed repository and reads dependencies only from the module cache:
+`GOPROXY=off`, `-mod=readonly`, `GOTOOLCHAIN=local`, `GOWORK=off`. A
+dependency the download could not fetch, or language features newer than
 the toolchain, leave some calls untyped, and the package is reported as
 partly checked. A module whose `go.mod` asks for a newer Go (its
-`toolchain` line, else its `go` line) is checked with that release when the
-module cache already holds it under `golang.org/toolchain`, where `go`
-with `GOTOOLCHAIN=auto` (as `go mod download` runs) puts it; nothing is
-downloaded. The `toolchains` count of the metric says which ran.
+`toolchain` line, else its `go` line) is checked with that release from
+the module cache. The `toolchains` and `downloads` counts of the metric
+say which ran and whether the download succeeded.
+
+gofacts also prints keyed composite literals of struct types from other
+packages, with each element's value, and gives a `[]string` literal's
+element values and the call a local was assigned from (for `q.Name` after
+`q, err := ch.QueueDeclare(...)`); the message destinations read these.
 
 The tree-sitter rules (`go-sql`, `gorm-table-name`) read only what the type
-checker could not: files of no module, or with no Go toolchain, and calls
-it could not type in partly checked packages. `TableName` string literals
+checker could not: files of no module and calls it could not type in
+partly checked packages. `TableName` string literals
 in files importing a SQL package are still read everywhere. The
 `go_type_facts` metric counts modules, checked, partly checked and
-unchecked files (with the reason: `go_not_installed`, `no_go_module`,
+unchecked files (with the reason: `no_go_module`,
 `gofacts_build_failed`, `gofacts_failed`, `gofacts_timeout`,
 `not_checked` for files excluded by build constraints or not parsed).
 
