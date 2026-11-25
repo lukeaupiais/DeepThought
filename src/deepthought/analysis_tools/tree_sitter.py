@@ -1063,20 +1063,37 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(GO_INTERFACE_RULE),
                 )
             )
-        # Which families a deterministic resolver linked, per language.
+        # Which families a deterministic resolver linked, per language: the
+        # index for the calls it decided, the TypeScript compiler for the
+        # imports it resolved or left unlinked and the calls bound through
+        # them, the parser's rules for the rest.
+        call_producers = {key: value[0] for key, value in binding.producers.items()}
+        for r in binding.resolutions:
+            # The index's own calls carry its rules, never these.
+            if r.call_id in binding.compiler_kept or (r.rule_id or "").startswith(
+                "typescript."
+            ):
+                call_producers[r.call_id] = ts_modules.TYPESCRIPT_TOOL
         coverage_records = edge_coverage(
             result,
             f"tree-sitter@{__version__}",
             (
                 [(site.id, site.file) for site in result.call_sites],
                 {r.call_id: r.status for r in binding.resolutions},
-                {key: value[0] for key, value in binding.producers.items()},
+                call_producers,
             ),
             (
                 [(r.import_id, imports[r.import_id].file) for r in resolutions],
                 {r.import_id: r.status for r in resolutions},
-                # Every import is decided by the parser's rules.
-                {},
+                {
+                    r.import_id: ts_modules.TYPESCRIPT_TOOL
+                    for r in resolutions
+                    if r.reason in ts_modules.COMPILER_REASONS
+                    or any(
+                        link.rule_id == ts_modules.TYPESCRIPT_COMPILER_MODULE
+                        for link in r.links
+                    )
+                },
             ),
         )
         for record in coverage_records:

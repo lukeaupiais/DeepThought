@@ -14,7 +14,7 @@ import deepthought.calls
 from deepthought.analysis_tools.tree_sitter import TreeSitterTool
 from deepthought.engine import analyze_repository as _analyze_repository
 from deepthought import scip_calls
-from deepthought.ts_modules import with_compiler_modules
+from deepthought.ts_modules import TYPESCRIPT_TOOL, with_compiler_modules
 import test_scip_tool as fixtures
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -592,6 +592,69 @@ class ScipCallTests(unittest.TestCase):
             next(i for i, s in sites.items() if s.callee == "run"), binding.producers
         )
 
+    def test_calls_the_compiler_binds_count_as_its_coverage(self):
+        files = {
+            "lib.ts": "export function run() {}\nexport function other() {}\n",
+            "index.ts": "export { other as again } from './lib';\n",
+            # The index calls run external; the compiler's link stands.
+            "y.ts": "import { run } from './lib';\nrun();\n",
+            # No index: a call bound through the compiler's exports.
+            "x.ts": "import { again } from './index';\nagain();\n",
+            # No index: a call the parser's name rules bind, and an import
+            # the compiler finds no module for.
+            "z.ts": "import { nope } from './missing';\nfunction f() {}\nf();\n",
+        }
+        for name, text in files.items():
+            (self.root / name).write_text(text)
+        ts = self.index(
+            "ts",
+            "scip-typescript",
+            [
+                (
+                    "y.ts",
+                    [(1, "run", "scip-typescript npm self 1 lib.ts/run().", False, 0)],
+                )
+            ],
+            2,
+        )
+        output = asyncio.run(
+            TreeSitterTool(self.root).analyze(
+                "r", languages=["typescript"], scip_indexes=[ts]
+            )
+        )
+        calls = next(
+            n.properties
+            for n in output.nodes
+            if n.labels == ["EdgeCoverage"] and n.properties["family"] == "CALLS"
+        )
+        self.assertEqual(
+            {k: calls[k] for k in ("status", "resolver", "files", "files_linked")},
+            {
+                "status": "partial",
+                "resolver": [
+                    f"tree-sitter@{deepthought.__version__}",
+                    TYPESCRIPT_TOOL,
+                ],
+                "files": 3,
+                "files_linked": 2,
+            },
+        )
+        imports = next(
+            n.properties
+            for n in output.nodes
+            if n.labels == ["EdgeCoverage"] and n.properties["family"] == "IMPORTS"
+        )
+        # Resolved or not, the compiler decided every import.
+        self.assertEqual(
+            {k: imports[k] for k in ("status", "resolver", "linked", "unresolved")},
+            {
+                "status": "linked",
+                "resolver": [TYPESCRIPT_TOOL],
+                "linked": 3,
+                "unresolved": 1,
+            },
+        )
+
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)
         result = analyze_repository(
@@ -988,13 +1051,21 @@ class ScipCallTests(unittest.TestCase):
                 ],
                 "files": 3,
                 "files_linked": 2,
-                "linked": 6,
+                "linked": 5,
                 "ambiguous": 0,
-                "unresolved": 3,
+                "unresolved": 4,
             },
         )
+        # The TypeScript compiler resolved every import.
+        imports = coverage["r::edge-coverage::IMPORTS::typescript"]
         self.assertEqual(
-            coverage["r::edge-coverage::IMPORTS::typescript"]["status"], "not_linked"
+            {k: imports[k] for k in ("status", "resolver", "files", "files_linked")},
+            {
+                "status": "linked",
+                "resolver": [TYPESCRIPT_TOOL],
+                "files": 2,
+                "files_linked": 2,
+            },
         )
 
 

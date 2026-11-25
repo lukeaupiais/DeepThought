@@ -5005,7 +5005,11 @@ family, protocol and language. TreeSitterTool writes one per analyzed language
 and family, `CALLS` and `IMPORTS` (qualified name
 `<repo>::edge-coverage::<family>::<language>`); the contract tool adds its own
 families. Each says whether a deterministic resolver (a compiler-backed SCIP
-index or pyright, named in `producer` on the edges) decided the family's sites:
+index, pyright or the TypeScript compiler) decided the family's sites. The
+compiler decides a JavaScript or TypeScript import it resolves
+(`typescript.compiler-module`) or leaves unlinked (a `compiler_*` reason), and a
+call bound through its exports (`typescript.*` rules, or a covered call whose
+compiler link stands over the index):
 
 | Field | Meaning |
 |---|---|
@@ -5015,8 +5019,9 @@ index or pyright, named in `producer` on the edges) decided the family's sites:
 | `files`, `files_linked` | files of the language with such sites, and those a deterministic resolver decided wholly |
 | `linked`, `ambiguous`, `unresolved` | the sites by outcome |
 
-A file that failed to parse is not counted. Every import is decided by the
-parser's rules here, so `IMPORTS` is `not_linked` (or `no_sites`). An empty
+A file that failed to parse is not counted. Imports in other languages are
+decided by the parser's rules here, so their `IMPORTS` is `not_linked` (or
+`no_sites`). An empty
 `resolver` list is stored as JSON text (`_dt_json_fields`) as other empty
 lists are; `describeSnapshot` decodes it.
 
