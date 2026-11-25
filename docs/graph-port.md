@@ -2072,7 +2072,13 @@ environments aside): `requirements*.txt`,
 `pyproject.toml` `[project]` dependencies and optional dependencies,
 `[dependency-groups]` and Poetry's dependencies, dev-dependencies and groups
 (`^` and `~` constraints converted to PEP 440; path, git and URL entries
-skipped), and `setup.cfg` `install_requires` and `extras_require`. They are installed with
+skipped), `setup.cfg` `install_requires` and `extras_require`, and Pipenv's
+`Pipfile`. A directory with a lockfile (`uv.lock`, `poetry.lock`,
+`Pipfile.lock`, chosen in that order) gives its pins (`name==version`, with
+the lock's markers) in place of its `pyproject.toml`, `setup.cfg` and
+`Pipfile` ranges, so the index types against the versions the project runs
+and does not change when a package is released; packages from a path, a VCS
+or a URL are left out. They are installed with
 `pip install --only-binary :all:` into a scratch directory, so no package's
 build or install code runs and the project itself is never installed. The
 indexer's `python` is an empty virtual environment, so the packages of the
@@ -2080,7 +2086,7 @@ machine running the engine never reach the index. pip reads its usual
 settings (`PIP_INDEX_URL`, `PIP_FIND_LINKS`, `PIP_NO_INDEX`). The run and its
 receipt record `dependencies`: `status` (`none`, `installed`, `partial`,
 `failed`), the interpreter version, the directories that declared
-requirements (`projects`), the declared requirements, the installed
+requirements (`projects`), the lockfiles read (`lockfiles`), the declared requirements, the installed
 `name==version` set and the requirements no wheel satisfied. When any failed,
 each covered Python file's coverage entry says
 `warning: dependencies_unavailable` and is named on stderr, with the missing
@@ -2089,13 +2095,17 @@ declared, `session.add(obj)` resolves to SQLAlchemy's `Session#add`.
 
 One scip-python run indexes the whole workspace, so a monorepo's services
 share one set of packages: every directory's declarations are installed
-together. When two services pin conflicting versions, the combined install
-fails and each requirement is then installed alone, so the version installed
-last is the one the index types against. On full-stack-fastapi-template
+together. When the combined install fails, pip checks each requirement for
+a wheel (`--dry-run`), and the ones that have one are installed together
+again, so they are still resolved as one set. Only when those conflict (two
+services pin different versions) is each installed in turn, and the version
+installed last is the one the index types against. On full-stack-fastapi-template
 (77e550a), whose dependencies live in `backend/pyproject.toml`, the files of
 `backend/app` had no occurrence of a FastAPI, SQLModel or SQLAlchemy symbol
 before; now they have 205, 180 and 92. Its `emails` requirement has no wheel,
-so the run is `partial` and names it.
+so the run is `partial` and names it. Its root `uv.lock` pins 79 packages:
+the 77 with a wheel are installed at exactly the locked versions, and
+`emails` and its `dkimpy` dependency (sdist only) are named.
 
 The TypeScript compiler likewise types a call into a package only when its
 declarations are in `node_modules`. When the workspace declares packages and

@@ -560,6 +560,7 @@ def run_indexer(
                     "status",
                     "python",
                     "projects",
+                    "lockfiles",
                     "requirements",
                     "packages",
                     "failed",

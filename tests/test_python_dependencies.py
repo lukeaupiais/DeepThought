@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ import zipfile
 from pathlib import Path
 
 from deepthought import indexers
-from deepthought.python_dependencies import declared, project_directories
+from deepthought.python_dependencies import declared, lockfiles, project_directories
 
 
 def wheel(directory, name, version, files):
@@ -86,6 +87,100 @@ class NestedProjectsTest(unittest.TestCase):
                 [".", "services/api", "services/worker"],
             )
             self.assertEqual(declared(root), ["attrs", "celery", "flask", "redis"])
+
+
+@unittest.skipUnless(importlib.util.find_spec("tomllib"), "Python 3.11+")
+class LockfileTest(unittest.TestCase):
+    def declared(self, files):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            for name, text in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text)
+            return declared(root), lockfiles(root)
+
+    def test_uv_lock_pins_registry_packages_in_place_of_ranges(self):
+        found, locks = self.declared(
+            {
+                "pyproject.toml": '[project]\nname = "app"\ndependencies = ["fastapi>=0.1"]\n',
+                "uv.lock": (
+                    'version = 1\n[[package]]\nname = "app"\nversion = "0.1.0"\n'
+                    'source = { editable = "." }\n'
+                    '[[package]]\nname = "fastapi"\nversion = "0.115.0"\n'
+                    'source = { registry = "https://pypi.org/simple" }\n'
+                    '[[package]]\nname = "starlette"\nversion = "0.38.6"\n'
+                    'source = { registry = "https://pypi.org/simple" }\n'
+                    '[[package]]\nname = "tool"\nversion = "1.0"\n'
+                    'source = { git = "https://example.com/tool.git" }\n'
+                ),
+            }
+        )
+        self.assertEqual(found, ["fastapi==0.115.0", "starlette==0.38.6"])
+        self.assertEqual(locks, ["uv.lock"])
+
+    def test_poetry_lock_keeps_markers_and_private_indexes(self):
+        found, locks = self.declared(
+            {
+                "svc/pyproject.toml": '[tool.poetry.dependencies]\nflask = "^2"\n',
+                "svc/poetry.lock": (
+                    '[[package]]\nname = "flask"\nversion = "2.3.3"\n'
+                    '[[package]]\nname = "colorama"\nversion = "0.4.6"\n'
+                    "markers = \"platform_system == 'Windows'\"\n"
+                    '[[package]]\nname = "internal"\nversion = "3.0"\n'
+                    '[package.source]\ntype = "legacy"\nurl = "https://pypi.example"\n'
+                    'reference = "corp"\n'
+                    '[[package]]\nname = "local"\nversion = "0.1"\n'
+                    '[package.source]\ntype = "directory"\nurl = "../local"\n'
+                ),
+            }
+        )
+        self.assertEqual(
+            found,
+            [
+                "colorama==0.4.6 ; platform_system == 'Windows'",
+                "flask==2.3.3",
+                "internal==3.0",
+            ],
+        )
+        self.assertEqual(locks, ["svc/poetry.lock"])
+
+    def test_pipfile_lock_and_pipfile(self):
+        found, locks = self.declared(
+            {
+                "a/Pipfile.lock": json.dumps(
+                    {
+                        "default": {
+                            "requests": {"version": "==2.32.3"},
+                            "pywin32": {
+                                "version": "==306",
+                                "markers": "sys_platform == 'win32'",
+                            },
+                            "mine": {"path": ".", "editable": True},
+                        },
+                        "develop": {"pytest": {"version": "==8.3.3"}},
+                    }
+                ),
+                "b/Pipfile": (
+                    '[packages]\ndjango = ">=4.2,<5"\nrequests = "*"\n'
+                    'celery = {version = "==5.3.0", extras = ["redis"]}\n'
+                    'lib = {git = "https://example.com/lib.git"}\n'
+                    '[dev-packages]\nblack = "*"\n'
+                ),
+            }
+        )
+        self.assertEqual(
+            found,
+            [
+                "black",
+                "celery[redis]==5.3.0",
+                "django>=4.2,<5",
+                "pytest==8.3.3",
+                "pywin32==306 ; sys_platform == 'win32'",
+                "requests",
+                "requests==2.32.3",
+            ],
+        )
+        self.assertEqual(locks, ["a/Pipfile.lock"])
 
 
 class PoetryTest(unittest.TestCase):
