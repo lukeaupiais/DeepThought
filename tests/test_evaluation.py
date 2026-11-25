@@ -2,10 +2,12 @@
 
 from copy import deepcopy
 from hashlib import sha256
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from deepthought.analysis_tools import (
@@ -173,6 +175,57 @@ class EvaluationTests(unittest.TestCase):
             scenario["expected"][0]["file"] = "real.py"
             with self.assertRaises(ValueError):
                 prepare(scenario, root)
+
+    def test_tree_sitter_calls_are_bound_from_the_pinned_indexers(self):
+        self.assertEqual(
+            [
+                (run["indexer"], run["status"], len(run["receipt_sha256"]))
+                for run in self.prepared["provenance"]["scip"]["runs"]
+            ],
+            [("scip-typescript", "indexed", 64), ("scip-python", "indexed", 64)],
+        )
+        self.assertEqual(self.prepared["provenance"]["scip"]["uncovered"], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.ts").write_text(
+                "export function f() { return 1 }\nexport function g() { f() }\n"
+            )
+            # The project leaves b.ts (selected) and c.ts (not) unindexed.
+            (root / "tsconfig.json").write_text('{"include": ["a.ts"]}')
+            for name in ("b.ts", "c.ts"):
+                (root / name).write_text("export const x = 1\n")
+            scenario = deepcopy(self.scenario)
+            scenario["languages"] = ["typescript"]
+            scenario["source"] = {
+                "kind": "synthetic",
+                "files": {
+                    name: sha256((root / name).read_bytes()).hexdigest()
+                    for name in ("a.ts", "b.ts")
+                },
+            }
+            scenario["expected"] = [
+                {"file": "a.ts", "symbol": "f", "kind": "Function", "line": 1}
+            ]
+            prepared = prepare(scenario, root)
+            (receipt,) = prepared["provenance"]["scip"]["runs"]
+            self.assertEqual(prepared["provenance"]["scip"]["uncovered"], ["b.ts"])
+            calls = [
+                r["properties"]
+                for r in prepared["contexts"]["treatment"]["tool_output"][
+                    "relationships"
+                ]
+                if r["type"] == "CALLS"
+            ]
+            self.assertEqual(
+                [(c["callee"], c["rule_id"], c["receipt"]) for c in calls],
+                [("f", "scip.call-occurrence", receipt["receipt_sha256"])],
+            )
+            # A missing indexer stops the preparation.
+            with patch.dict(
+                os.environ, {"DEEPTHOUGHT_SCIP_TYPESCRIPT": str(root / "missing")}
+            ):
+                with self.assertRaisesRegex(ValueError, "a.ts"):
+                    prepare(scenario, root)
 
     def test_public_manifest_cannot_relabel_modified_or_untracked_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
