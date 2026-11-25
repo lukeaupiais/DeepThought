@@ -23,6 +23,7 @@ import time
 from .._version import __version__
 from .. import go_facts as gofacts
 from ..gorm_naming import table_names as gorm_table_names
+from ..typeorm_naming import column_names as typeorm_column_names
 from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
@@ -30,6 +31,9 @@ from ..data_contracts import (
     _owner_at,
     PRISMA_INPUT_KINDS,
     prisma_columns,
+    extract_typeorm_classes,
+    typeorm_key_access,
+    typeorm_columns as typeorm_call_columns,
     prisma_assignments,
     prisma_input_columns,
     prisma_typed_inputs,
@@ -815,6 +819,47 @@ PRISMA_COLUMN_READ_RULE = register_rule(
         "Prisma's DMMF maps that field to this column of the model's "
         "table: the one such model of the reader's namespace, else of the "
         "repository.",
+    )
+)
+TYPEORM_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-column",
+        "resolved",
+        "A property of a TypeORM entity (or of a class the entity extends) "
+        "is decorated with one of TypeORM's column decorators (@Column, "
+        "@PrimaryGeneratedColumn, @CreateDateColumn, ...), or is a "
+        "ManyToOne or a OneToOne with @JoinColumn, which holds a foreign "
+        "key. Its column is the name its options give, else the name "
+        "TypeORM's DefaultNamingStrategy (columnName, or joinColumnName of "
+        "the related entity's primary column) at the release the project "
+        "pins gives it; declared for a table whose migrations give no "
+        "columns. A project that sets a namingStrategy gets only the names "
+        "its options give.",
+    )
+)
+TYPEORM_COLUMN_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-scip-column-access",
+        "resolved",
+        "A scip-typescript index resolves a property access to a column "
+        "property of a TypeORM entity (data-contracts.typeorm-column): an "
+        "assignment to it writes the column; an object key naming it writes "
+        "it, except under a find option (where, order, select...), in the "
+        "criteria of update or in the arguments of a reading repository "
+        "method, where it reads it; any other access reads it.",
+    )
+)
+TYPEORM_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-column-key",
+        "pattern_matched",
+        "A key of a TypeORM repository call's arguments (find options "
+        "where, select and order, the criteria of findBy, delete, update "
+        "and the like, the values of save, insert, upsert and update) names "
+        "a column property of the entity the index resolves the call to "
+        "(data-contracts.typeorm-scip): the call reads it, or writes it in "
+        "values. Read by key, as scip-typescript does not resolve the keys "
+        "of TypeORM's mapped option types to the entity's properties.",
     )
 )
 TYPEORM_TABLE_RULE = register_rule(
@@ -2607,6 +2652,235 @@ class DataContractTool(AnalysisTool):
             "linked": len(typeorm_children) - len(pending),
             "base_not_an_entity": len(pending),
         }
+        # The columns of each entity's properties, through the classes it
+        # extends; a property a base class declares is shared by the
+        # entities that extend it.
+        typeorm_columns = Counter()
+        typeorm_classes = defaultdict(list)
+        for file, content, tree in script_trees:
+            for found in extract_typeorm_classes(tree, content, file):
+                typeorm_classes[found.name].append(found)
+        custom_naming = any(
+            b"namingStrategy" in content for _, content, _ in script_trees
+        )
+        if custom_naming:
+            typeorm_columns["naming_strategy_set"] = 1
+
+        def typeorm_class(name, file):
+            """The class ``name`` that ``file`` sees: its own, else the one
+            of its namespace, else the repository's only one."""
+            found = typeorm_classes.get(name, [])
+            own = [c for c in found if c.file == file] or [
+                c for c in found if scope(c.file) == scope(file)
+            ]
+            found = own or found
+            return found[0] if len(found) == 1 else None
+
+        entity_tables = [
+            (m.file, m.name, typeorm_by_model[m.model_id]) for m in typeorm_mappings
+        ]
+        entity_tables += [
+            (c.file, c.name, typeorm_by_model[c.model_id])
+            for c in typeorm_children
+            if c.model_id in typeorm_by_model
+        ]
+        # (file, line, column) of a property -> {table: column}
+        typeorm_property_at = defaultdict(dict)
+        # table -> {property: (column or None, related)}
+        typeorm_fields = {}
+        typeorm_property_name = {}
+        requests, planned = set(), []
+        for file, name, owner in entity_tables:
+            chain, seen, at = [], set(), typeorm_class(name, file)
+            while at is not None and (at.file, at.name) not in seen:
+                seen.add((at.file, at.name))
+                chain.append(at)
+                at = typeorm_class(at.base, at.file) if at.base else None
+            if not chain:
+                typeorm_columns["entity_class_not_read"] += 1
+                continue
+            properties = {}
+            for cls in reversed(chain):
+                for prop in cls.properties:
+                    properties[prop.name] = (cls, prop)
+            fields = typeorm_fields.setdefault(owner, {})
+            for cls, prop in properties.values():
+                if prop.kind == "relation":
+                    fields[prop.name] = (None, (cls.file, prop.target))
+                    if not prop.owning:
+                        continue
+                    if prop.custom is not None:
+                        planned.append((owner, cls, prop, prop.custom, None))
+                        continue
+                    referenced = prop.referenced
+                    if referenced is None:
+                        related = (
+                            typeorm_class(prop.target, cls.file)
+                            if prop.target
+                            else None
+                        )
+                        primaries = []
+                        while related is not None and not primaries:
+                            primaries = [
+                                p for p in related.properties if p.kind == "primary"
+                            ]
+                            related = (
+                                typeorm_class(related.base, related.file)
+                                if related.base and not primaries
+                                else None
+                            )
+                        if len(primaries) != 1:
+                            typeorm_columns["join_column_unknown"] += 1
+                            continue
+                        referenced = primaries[0].name
+                    request = ("join", prop.name, referenced)
+                else:
+                    request = ("column", prop.name, prop.custom, ())
+                if custom_naming and prop.custom is None:
+                    typeorm_columns["named_by_project_strategy"] += 1
+                    continue
+                requests.add((cls.file, request))
+                planned.append((owner, cls, prop, None, request))
+        column_names_found, column_naming_unread = typeorm_column_names(
+            root, sorted(requests, key=str)
+        )
+        for path, reason in sorted(column_naming_unread.items()):
+            typeorm_naming_unread.setdefault(path, reason)
+        for owner, cls, prop, custom, request in planned:
+            name = (
+                custom
+                if custom is not None
+                else column_names_found.get((cls.file, request))
+            )
+            if name is None:
+                typeorm_columns["naming_unread"] += 1
+                continue
+            known = table_columns.get(owner)
+            if known is not None:
+                column = (
+                    name
+                    if name in known
+                    else next((c for c in known if c.lower() == name.lower()), None)
+                )
+                if column is None:
+                    typeorm_columns["not_a_table_column"] += 1
+                    continue
+            else:
+                column = name
+            target = f"{owner}::column::{column}"
+            if known is None and target not in column_nodes:
+                table_label = owner.rsplit("::", 1)[-1]
+                column_nodes[target] = NodeData(
+                    ["DbColumn", "Contract"],
+                    {
+                        "qualified_name": target,
+                        "repo_url": repo_url,
+                        "name": f"{table_label}.{column}",
+                        "display_name": f"{table_label}.{column}",
+                        "table": table_label,
+                        "column": column,
+                        "protocol": "sql",
+                        "scope": scope(cls.file),
+                    },
+                )
+                link(
+                    "HAS_COLUMN",
+                    (["DbTable", "Contract"], owner),
+                    target,
+                    TYPEORM_COLUMN_RULE,
+                    {"property": prop.name},
+                    labels=("DbColumn", "Contract"),
+                )
+                link(
+                    "DECLARES",
+                    (["File"], f"{repo_url}::{cls.file}::file"),
+                    target,
+                    TYPEORM_COLUMN_RULE,
+                    {"line": prop.line, "property": prop.name},
+                    labels=("DbColumn", "Contract"),
+                )
+                typeorm_columns["columns_declared"] += 1
+            typeorm_columns["columns"] += 1
+            typeorm_property_at[(cls.file, prop.line, prop.column)][owner] = target
+            typeorm_property_name[(cls.file, prop.line, prop.column)] = prop.name
+            typeorm_fields[owner][prop.name] = (
+                target,
+                typeorm_fields[owner].get(prop.name, (None, None))[1],
+            )
+        # A relation's related entity, as its table.
+        owner_of_class = defaultdict(set)
+        for file, name, owner in entity_tables:
+            owner_of_class[name].add((file, owner))
+        for fields in typeorm_fields.values():
+            for name, (column, related) in list(fields.items()):
+                if related is None:
+                    continue
+                at, target_name = related
+                owners = owner_of_class.get(target_name, set())
+                near = [o for f, o in owners if scope(f) == scope(at)] or [
+                    o for _, o in owners
+                ]
+                fields[name] = (column, near[0] if len(set(near)) == 1 else None)
+        # Accesses of a column property, through the index.
+        typeorm_unattributed, typeorm_sites = set(), set()
+        if typeorm_property_at:
+            owners_by_file = defaultdict(list)
+            for d in result.definitions:
+                owners_by_file[d.file].append(d)
+            trees_by_file = {file: tree for file, _, tree in script_trees}
+            contents_by_file = {file: content for file, content, _ in script_trees}
+            for file, line, column, site in references.references_to(
+                typeorm_property_at
+            ):
+                holders = typeorm_property_at[site]
+                if len(holders) != 1:
+                    typeorm_columns["accesses_unattributed"] += 1
+                    typeorm_unattributed.update(holders.values())
+                    continue
+                writes = False
+                tree = trees_by_file.get(file)
+                keyed = (
+                    typeorm_key_access(tree, contents_by_file[file], line, column)
+                    if tree is not None
+                    else None
+                )
+                if keyed is not None:
+                    writes = keyed == "write"
+                    typeorm_columns["keys"] += 1
+                elif tree is not None:
+                    node = tree.root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    access = node.parent if node is not None else None
+                    holder = access.parent if access is not None else None
+                    writes = (
+                        access is not None
+                        and access.type == "member_expression"
+                        and holder is not None
+                        and holder.type
+                        in ("assignment_expression", "augmented_assignment_expression")
+                        and holder.child_by_field_name("left") == access
+                    )
+                typeorm_columns["writes" if writes else "reads"] += 1
+                typeorm_sites.add((file, line, column))
+                tool, receipt = references.tool(file)
+                link(
+                    "WRITES_COLUMN" if writes else "READS_COLUMN",
+                    code(file, _owner_at(owners_by_file[file], file, line, column)),
+                    next(iter(holders.values())),
+                    TYPEORM_COLUMN_ACCESS_RULE,
+                    {
+                        "line": line,
+                        "property": typeorm_property_name[site],
+                        "column": column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
+        for name in typeorm_unattributed:
+            if name in column_nodes:
+                column_nodes[name].properties["reads_unattributed"] = True
         orm_counts.update(typeorm_linked=0, typeorm_not_an_entity=0)
         # A wrapper call names no entity more often than not: count those
         # apart so the TypeORM API's own misses stay visible.
@@ -2716,18 +2990,57 @@ class DataContractTool(AnalysisTool):
                         continue
                     typeorm_scip_counts["linked"] += 1
                     tool, receipt = references.tool(call.file)
+                    writes = call.method in _TYPEORM_WRITES
+                    properties = {
+                        "method": call.method,
+                        "line": call.line,
+                        "column": call.column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    }
+                    fields = typeorm_fields.get(targets[0])
+                    node = tree.root_node.descendant_for_point_range(
+                        (call.line - 1, call.column), (call.line - 1, call.column)
+                    )
+                    while node is not None and node.type != "call_expression":
+                        node = node.parent
+                    if fields is not None and node is not None:
+                        keyed = typeorm_call_columns(
+                            node, content, call.method, targets[0], typeorm_fields
+                        )
+                        properties["columns_resolved"] = keyed.complete and (
+                            writes or not keyed.rows
+                        )
+                        typeorm_columns["call_keys_resolved"] += properties[
+                            "columns_resolved"
+                        ]
+                        owners = [d for d in result.definitions if d.file == call.file]
+                        for ent, name, sets, line, column in keyed.uses:
+                            if (call.file, line, column) in typeorm_sites:
+                                continue
+                            typeorm_columns["call_keys"] += 1
+                            link(
+                                "WRITES_COLUMN" if sets else "READS_COLUMN",
+                                code(
+                                    call.file,
+                                    _owner_at(owners, call.file, line, column),
+                                ),
+                                typeorm_fields[ent][name][0],
+                                TYPEORM_COLUMN_KEY_RULE,
+                                {
+                                    "line": line,
+                                    "column": column,
+                                    "method": call.method,
+                                    "property": name,
+                                },
+                                labels=("DbColumn", "Contract"),
+                            )
                     link(
-                        "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                        "WRITES" if writes else "READS",
                         code(call.file, call.caller_id),
                         targets[0],
                         TYPEORM_SCIP_RULE,
-                        {
-                            "method": call.method,
-                            "line": call.line,
-                            "column": call.column,
-                            "indexer": tool,
-                            "receipt": receipt,
-                        },
+                        properties,
                     )
         # Sequelize: migrations, models and their static calls.
         sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
@@ -3882,6 +4195,7 @@ class DataContractTool(AnalysisTool):
                     "kysely": kysely_counts,
                     "orm_access_resolution": orm_counts,
                     "typeorm_scip": typeorm_scip_counts,
+                    "typeorm_columns": dict(typeorm_columns),
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,

@@ -4043,6 +4043,203 @@ class TypeormChild:
     column: int
 
 
+# TypeORM's property decorators that map a property to a column of its
+# entity's table, and the relations that hold a foreign key column.
+_TYPEORM_COLUMNS = frozenset(
+    {
+        "Column",
+        "PrimaryColumn",
+        "PrimaryGeneratedColumn",
+        "CreateDateColumn",
+        "UpdateDateColumn",
+        "DeleteDateColumn",
+        "VersionColumn",
+        "ObjectIdColumn",
+        "ViewColumn",
+    }
+)
+_TYPEORM_PRIMARY = frozenset(
+    {"PrimaryColumn", "PrimaryGeneratedColumn", "ObjectIdColumn"}
+)
+_TYPEORM_OWNING = frozenset({"ManyToOne", "OneToOne"})
+_TYPEORM_RELATIONS = frozenset({"ManyToOne", "OneToOne", "OneToMany", "ManyToMany"})
+
+
+@dataclass(frozen=True)
+class TypeormProperty:
+    """A property of a class in a file importing typeorm, by its
+    decorators: a column (``kind`` "column" or "primary", ``custom`` the
+    name its options give), or a relation (``kind`` "relation", ``target``
+    the related class's name, ``custom`` and ``referenced`` its
+    @JoinColumn's name and referencedColumnName; ``owning`` when it holds a
+    foreign key: a ManyToOne, or a OneToOne with a @JoinColumn)."""
+
+    name: str
+    kind: str
+    custom: str | None
+    line: int
+    column: int
+    target: str | None = None
+    owning: bool = False
+    referenced: str | None = None
+
+
+@dataclass(frozen=True)
+class TypeormClass:
+    file: str
+    name: str
+    base: str | None
+    properties: tuple
+    # False where a column's name or an embedded column is not fixed in
+    # the file (a name from a variable, @Column(() => Embedded)).
+    complete: bool
+    line: int
+
+
+def _typeorm_options(args, content):
+    """The object literal of a decorator's options: its first object
+    argument (``@Column("varchar", { name })`` or ``@Column({ name })``)."""
+    return next((a for a in args if a.type == "object"), None)
+
+
+def _typeorm_option(options, key, content):
+    """(found, value): a string option of a decorator's options object;
+    found True with value None when it is written but not a string."""
+    if options is None:
+        return False, None
+    for pair in options.named_children:
+        if pair.type != "pair":
+            continue
+        name = pair.child_by_field_name("key")
+        if name is None or _text(name, content).strip("\"'") != key:
+            continue
+        return True, _script_string(pair.child_by_field_name("value"), content)
+    return False, None
+
+
+def extract_typeorm_classes(tree, content, file):
+    """The ``TypeormClass`` of each class of a file importing typeorm that
+    has a property decorated with one of its column or relation
+    decorators: entities, and the base classes entities extend."""
+    root = tree.root_node
+    imports = _script_imports(root, content)
+    typeorm = {
+        local: name
+        for local, (module, name) in imports.items()
+        if module in _TYPEORM or module.startswith("typeorm/")
+    }
+    if not typeorm:
+        return []
+    found = []
+    for node in [
+        *_descendants(root, "class_declaration"),
+        *_descendants(root, "abstract_class_declaration"),
+    ]:
+        body = node.child_by_field_name("body")
+        name = node.child_by_field_name("name")
+        if body is None or name is None:
+            continue
+        properties, complete = [], True
+        for member in body.named_children:
+            if member.type != "public_field_definition":
+                continue
+            key = member.child_by_field_name("name")
+            if key is None or key.type != "property_identifier":
+                continue
+            decorators = {}
+            for decorator in member.named_children:
+                if decorator.type != "decorator" or not decorator.named_children:
+                    continue
+                call = decorator.named_children[0]
+                if call.type == "identifier":
+                    callee, args = _text(call, content), []
+                elif call.type == "call_expression":
+                    callee, receiver, args = _call_parts(call, content)
+                    if receiver is not None:
+                        continue
+                else:
+                    continue
+                if callee in typeorm:
+                    decorators[typeorm[callee]] = args
+            columns = _TYPEORM_COLUMNS & set(decorators)
+            relations = _TYPEORM_RELATIONS & set(decorators)
+            at = (key.start_point.row + 1, key.start_point.column)
+            prop = _text(key, content)
+            if columns:
+                kind = next(iter(columns))
+                args = decorators[kind]
+                if args and args[0].type in ("arrow_function", "function_expression"):
+                    # An embedded entity's columns: not read here.
+                    complete = False
+                    continue
+                written, custom = _typeorm_option(
+                    _typeorm_options(args, content), "name", content
+                )
+                if written and custom is None:
+                    complete = False
+                    continue
+                properties.append(
+                    TypeormProperty(
+                        prop,
+                        "primary" if kind in _TYPEORM_PRIMARY else "column",
+                        custom,
+                        *at,
+                    )
+                )
+            elif relations:
+                kind = next(iter(relations))
+                args = decorators[kind]
+                target = None
+                if args and args[0].type == "arrow_function":
+                    body_node = args[0].child_by_field_name("body")
+                    if body_node is not None and body_node.type == "identifier":
+                        target = _text(body_node, content)
+                elif args and args[0].type == "string":
+                    target = _script_string(args[0], content)
+                join = decorators.get("JoinColumn")
+                owning = kind == "ManyToOne" or (
+                    kind == "OneToOne" and "JoinColumn" in decorators
+                )
+                custom = referenced = None
+                if join is not None:
+                    options = _typeorm_options(join, content)
+                    written, custom = _typeorm_option(options, "name", content)
+                    if written and custom is None:
+                        complete = False
+                    written, referenced = _typeorm_option(
+                        options, "referencedColumnName", content
+                    )
+                    if written and referenced is None:
+                        complete = False
+                    if join and join[0].type == "array":
+                        # Several join columns: not read here.
+                        complete = False
+                        continue
+                properties.append(
+                    TypeormProperty(
+                        prop,
+                        "relation",
+                        custom,
+                        *at,
+                        target=target,
+                        owning=owning,
+                        referenced=referenced,
+                    )
+                )
+        if properties or _script_base_class(node, content):
+            found.append(
+                TypeormClass(
+                    file,
+                    _text(name, content),
+                    _script_base_class(node, content),
+                    tuple(properties),
+                    complete,
+                    node.start_point.row + 1,
+                )
+            )
+    return found
+
+
 def _script_base_class(node, content):
     """The name a class declaration extends, when it is a plain name."""
     for heritage in node.named_children:
@@ -4068,6 +4265,94 @@ _TYPEORM_WRITES = frozenset(
     "save insert update upsert delete remove softDelete softRemove restore "
     "recover increment decrement clear".split()
 )
+
+
+# Keys of TypeORM's find options whose objects name columns read, not set.
+_TYPEORM_READ_OPTIONS = frozenset(
+    "where order select relations relationLoadStrategy loadRelationIds "
+    "lock withDeleted cache comment".split()
+)
+_TYPEORM_SETTERS = frozenset("create save insert upsert merge preload update".split())
+_KEY_NODES = frozenset(
+    {"property_identifier", "shorthand_property_identifier", "string_fragment"}
+)
+
+
+def typeorm_key_access(tree, content, line, column):
+    """Whether the object key or destructured name at 1-based ``line`` and
+    0-based ``column`` sets ("write") or reads ("read") the property it
+    names, or None when the site is not such a key. A key reads under one
+    of TypeORM's find options (``where``, ``order``, ``select``...), in the
+    arguments of a repository method that only reads, in the criteria of
+    ``update``, or in a destructuring pattern; any other object key sets
+    the property of the value it builds."""
+    node = tree.root_node.descendant_for_point_range(
+        (line - 1, column), (line - 1, column)
+    )
+    if node is None:
+        return None
+    if node.type == "shorthand_property_identifier_pattern":
+        return "read"
+    if node.type == "string_fragment":
+        node = node.parent
+    if node is None or node.type not in (_KEY_NODES | {"string"}):
+        return None
+    parent = node.parent
+    if node.type == "shorthand_property_identifier" and parent.type == "object":
+        current = parent
+    elif (
+        parent is not None
+        and parent.type == "pair"
+        and parent.child_by_field_name("key") == node
+    ):
+        current = parent.parent
+    elif parent is not None and parent.type == "pair_pattern":
+        return "read"
+    else:
+        return None
+    while current is not None:
+        up = current.parent
+        if up is None:
+            break
+        if up.type == "pair":
+            key = up.child_by_field_name("key")
+            name = (
+                content[key.start_byte : key.end_byte]
+                .decode("utf-8", "replace")
+                .strip("'\"`")
+            )
+            if name in _TYPEORM_READ_OPTIONS:
+                return "read"
+            current = up.parent
+            continue
+        if up.type in (
+            "array",
+            "parenthesized_expression",
+            "as_expression",
+            "satisfies_expression",
+            "spread_element",
+            "object",
+        ):
+            current = up
+            continue
+        if up.type == "arguments":
+            call = up.parent
+            function = call.child_by_field_name("function") if call else None
+            if function is not None and function.type == "member_expression":
+                prop = function.child_by_field_name("property")
+                method = content[prop.start_byte : prop.end_byte].decode(
+                    "utf-8", "replace"
+                )
+                index = [c for c in up.named_children].index(current)
+                if method == "update" and index == 0:
+                    return "read"
+                if method in _TYPEORM_SETTERS:
+                    return "write"
+                if method in _TYPEORM_READS or method in _TYPEORM_WRITES:
+                    return "read"
+            break
+        break
+    return "write"
 
 
 def _chained_method(call, content):
@@ -4297,6 +4582,212 @@ def _prisma_items(node, found):
                 continue
         items.append(node)
     return items
+
+
+@dataclass
+class TypeormColumns:
+    """The entity properties a TypeORM repository call's arguments name:
+    ``uses`` are (entity, property, writes, line, column); ``complete`` is
+    False where an argument is not an object literal or names a key that is
+    neither one of TypeORM's find options nor a property; ``rows`` is True
+    when the call returns rows of the entity without a ``select``."""
+
+    uses: list = _field(default_factory=list)
+    complete: bool = True
+    rows: bool = False
+
+
+# Find options that name no column.
+_TYPEORM_OPTIONS_IGNORED = frozenset(
+    "relations take skip cache withDeleted lock loadEagerRelations "
+    "relationLoadStrategy comment transaction loadRelationIds".split()
+)
+_TYPEORM_OPTION_METHODS = frozenset(
+    "find findOne findOneOrFail findAndCount count exist exists".split()
+)
+_TYPEORM_WHERE_METHODS = frozenset(
+    "findBy findOneBy findOneByOrFail findAndCountBy countBy existsBy exist "
+    "delete softDelete restore".split()
+)
+_TYPEORM_ROW_METHODS = frozenset(
+    "find findOne findOneOrFail findAndCount findBy findOneBy findOneByOrFail "
+    "findAndCountBy".split()
+)
+_TYPEORM_FIELD_METHODS = frozenset("sum average minimum maximum".split())
+
+
+def typeorm_columns(call, content, method, entity, entities):
+    """The ``TypeormColumns`` of a TypeORM repository ``call`` (a
+    call_expression) of ``method`` on ``entity``; ``entities`` maps an
+    entity to {property: (column or None, related entity or None)}, a
+    relation's column being its foreign key's when it holds one.
+    scip-typescript does not resolve the keys of TypeORM's mapped option
+    types (FindOptionsWhere, FindOptionsSelect, FindOptionsOrder) to the
+    entity's properties, so they are read against the entity's own
+    metadata, by the argument shapes of TypeORM's Repository API."""
+    found = TypeormColumns()
+    arguments = call.child_by_field_name("arguments")
+    args = [
+        a
+        for a in (arguments.named_children if arguments else [])
+        if a.type != "comment"
+    ]
+
+    def use(ent, name, writes, line, column):
+        column_of, _ = entities.get(ent, {}).get(name, (None, None))
+        if column_of is not None:
+            found.uses.append((ent, name, writes, line, column))
+
+    def where(node, ent):
+        for item in _prisma_items(node, found):
+            for name, line, column, value in _prisma_pairs(item, content, found):
+                fields = entities.get(ent, {})
+                if name not in fields:
+                    found.complete = False
+                    continue
+                use(ent, name, False, line, column)
+                related = fields[name][1]
+                value = _prisma_object(value)
+                if related is not None and value is not None and value.type == "object":
+                    where(value, related)
+
+    def select(node, ent):
+        for item in _prisma_alternatives(node):
+            if item.type == "array":
+                for element in item.named_children:
+                    name = (
+                        _script_string(element, content)
+                        if element.type == "string"
+                        else None
+                    )
+                    if name is None or name not in entities.get(ent, {}):
+                        found.complete = False
+                        continue
+                    use(
+                        ent,
+                        name,
+                        False,
+                        element.start_point.row + 1,
+                        element.start_point.column + 1,
+                    )
+                continue
+            for name, line, column, value in _prisma_pairs(item, content, found):
+                fields = entities.get(ent, {})
+                if name not in fields:
+                    found.complete = False
+                    continue
+                use(ent, name, False, line, column)
+                related = fields[name][1]
+                value = _prisma_object(value)
+                if related is not None:
+                    if value is not None and value.type == "object":
+                        select(value, related)
+                    else:
+                        found.complete = False
+
+    def order(node, ent):
+        for name, line, column, value in _prisma_pairs(node, content, found):
+            fields = entities.get(ent, {})
+            if name not in fields:
+                found.complete = False
+                continue
+            use(ent, name, False, line, column)
+            related = fields[name][1]
+            value = _prisma_object(value)
+            if related is not None and value is not None and value.type == "object":
+                order(value, related)
+
+    def values(node, ent):
+        for item in _prisma_items(node, found):
+            item = _prisma_object(item)
+            if (
+                item is not None
+                and item.type == "call_expression"
+                and (item.child_by_field_name("function") or item).type
+                == "member_expression"
+                and item.child_by_field_name("function")
+                .child_by_field_name("property")
+                .text
+                == b"create"
+            ):
+                inner = item.child_by_field_name("arguments")
+                inner = [a for a in inner.named_children if a.type != "comment"]
+                if len(inner) == 1:
+                    values(inner[0], ent)
+                else:
+                    found.complete = False
+                continue
+            for name, line, column, _ in _prisma_pairs(item, content, found):
+                if name not in entities.get(ent, {}):
+                    found.complete = False
+                    continue
+                # A relation sets the foreign key it holds; what its object
+                # gives the related entity is written only by a cascade.
+                use(ent, name, True, line, column)
+
+    def options(node):
+        selected = False
+        for name, line, column, value in _prisma_pairs(node, content, found):
+            if name == "where":
+                where(value, entity)
+            elif name == "select":
+                selected = True
+                select(value, entity)
+            elif name == "order":
+                order(value, entity)
+            elif name not in _TYPEORM_OPTIONS_IGNORED:
+                found.complete = False
+        return selected
+
+    def field(node, writes):
+        name = _script_string(node, content) if node.type == "string" else None
+        if name is None or name not in entities.get(entity, {}):
+            found.complete = False
+            return
+        use(entity, name, writes, node.start_point.row + 1, node.start_point.column + 1)
+
+    selected = False
+    if method in _TYPEORM_OPTION_METHODS and method not in ("exist",):
+        if args:
+            selected = options(args[0])
+    elif method in _TYPEORM_WHERE_METHODS:
+        if args:
+            where(args[0], entity)
+        else:
+            found.complete = False
+    elif method in _TYPEORM_FIELD_METHODS:
+        if args:
+            field(args[0], False)
+        if len(args) > 1:
+            where(args[1], entity)
+    elif method in ("increment", "decrement"):
+        if len(args) >= 2:
+            where(args[0], entity)
+            field(args[1], True)
+        else:
+            found.complete = False
+    elif method == "update":
+        if len(args) == 2:
+            where(args[0], entity)
+            values(args[1], entity)
+        else:
+            found.complete = False
+    elif method in ("save", "insert", "upsert"):
+        if args:
+            values(args[0], entity)
+        if method == "upsert" and len(args) > 1:
+            paths = _prisma_object(args[1])
+            if paths is not None and paths.type == "array":
+                for element in paths.named_children:
+                    field(element, False)
+            else:
+                found.complete = False
+        elif method != "upsert" and len(args) > 1:
+            pass  # SaveOptions / no further argument names a column
+    else:
+        found.complete = False
+    found.rows = method in _TYPEORM_ROW_METHODS and not selected
+    return found
 
 
 def prisma_typed_inputs(tree):
