@@ -4307,14 +4307,28 @@ _KEY_NODES = frozenset(
 )
 
 
-def typeorm_key_access(tree, content, line, column):
+def typeorm_key_access(
+    tree, content, line, column, typeorm_method=None, annotation=None, parameter=None
+):
     """Whether the object key or destructured name at 1-based ``line`` and
     0-based ``column`` sets ("write") or reads ("read") the property it
-    names, or None when the site is not such a key. A key reads under one
-    of TypeORM's find options (``where``, ``order``, ``select``...), in the
-    arguments of a repository method that only reads, in the criteria of
-    ``update``, or in a destructuring pattern; any other object key sets
-    the property of the value it builds."""
+    names, or None when the site is not such a key.
+
+    A key reads in a destructuring pattern, under one of TypeORM's find
+    options (``where``, ``order``, ``select``...), in an object a type
+    annotation, ``as`` or ``satisfies`` gives one of TypeORM's read option
+    types, and in the argument of a project function whose parameter has
+    such a type. In the arguments of a TypeORM repository or entity
+    manager method, it reads unless the method sets values (``save``,
+    ``create``, ``update``'s second argument...). Any other object key
+    sets the property of the value it builds.
+
+    The callbacks are the index's: ``typeorm_method(name node)`` the TypeORM
+    class (Repository, EntityManager...) a called method is of, else None; ``annotation(type node)`` "read", "write"
+    or None for a type TypeORM gives (FindOptions* and Find*Options read,
+    DeepPartial and QueryDeepPartialEntity write); ``parameter(name node,
+    index)`` the same for the declared type of that parameter of the
+    function called."""
     node = tree.root_node.descendant_for_point_range(
         (line - 1, column), (line - 1, column)
     )
@@ -4339,6 +4353,20 @@ def typeorm_key_access(tree, content, line, column):
         return "read"
     else:
         return None
+
+    def typed(type_node):
+        if annotation is None or type_node is None:
+            return None
+        if type_node.type == "type_annotation" and type_node.named_children:
+            type_node = type_node.named_children[0]
+        if type_node.type == "generic_type":
+            type_node = type_node.child_by_field_name("name")
+        if type_node is not None and type_node.type == "nested_type_identifier":
+            type_node = type_node.named_children[-1]
+        if type_node is None or type_node.type != "type_identifier":
+            return None
+        return annotation(type_node)
+
     while current is not None:
         up = current.parent
         if up is None:
@@ -4354,31 +4382,44 @@ def typeorm_key_access(tree, content, line, column):
                 return "read"
             current = up.parent
             continue
-        if up.type in (
-            "array",
-            "parenthesized_expression",
-            "as_expression",
-            "satisfies_expression",
-            "spread_element",
-            "object",
-        ):
+        if up.type in ("as_expression", "satisfies_expression"):
+            kind = typed(up.named_children[-1] if up.named_children else None)
+            if kind is not None:
+                return kind
             current = up
             continue
+        if up.type in ("array", "parenthesized_expression", "spread_element", "object"):
+            current = up
+            continue
+        if up.type == "variable_declarator":
+            kind = typed(up.child_by_field_name("type"))
+            if kind is not None:
+                return kind
+            break
         if up.type == "arguments":
             call = up.parent
             function = call.child_by_field_name("function") if call else None
+            index = [c for c in up.named_children if c.type != "comment"].index(current)
+            name = function
             if function is not None and function.type == "member_expression":
-                prop = function.child_by_field_name("property")
-                method = content[prop.start_byte : prop.end_byte].decode(
-                    "utf-8", "replace"
-                )
-                index = [c for c in up.named_children].index(current)
+                name = function.child_by_field_name("property")
+            if name is None:
+                break
+            method = content[name.start_byte : name.end_byte].decode("utf-8", "replace")
+            owner = "Repository" if typeorm_method is None else typeorm_method(name)
+            if owner:
+                if owner in ("EntityManager", "MongoEntityManager"):
+                    index -= 1  # the entity comes first
                 if method == "update" and index == 0:
                     return "read"
                 if method in _TYPEORM_SETTERS:
                     return "write"
                 if method in _TYPEORM_READS or method in _TYPEORM_WRITES:
                     return "read"
+                break
+            kind = parameter(name, index) if parameter is not None else None
+            if kind is not None:
+                return kind
             break
         break
     return "write"

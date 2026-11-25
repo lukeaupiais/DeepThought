@@ -33,6 +33,7 @@ from ..data_contracts import (
     prisma_columns,
     extract_typeorm_classes,
     typeorm_key_access,
+    TYPEORM_METHOD_SYMBOL,
     typeorm_columns as typeorm_call_columns,
     prisma_assignments,
     prisma_input_columns,
@@ -843,12 +844,21 @@ TYPEORM_COLUMN_ACCESS_RULE = register_rule(
         "resolved",
         "A scip-typescript index resolves a property access to a column "
         "property of a TypeORM entity (data-contracts.typeorm-column): an "
-        "assignment to it writes the column; an object key naming it writes "
-        "it, except under a find option (where, order, select...), in the "
-        "criteria of update or in the arguments of a reading repository "
-        "method, where it reads it; any other access reads it.",
+        "assignment to it writes the column; an object key naming it reads "
+        "it under a find option (where, order, select...), in an object a "
+        "TypeORM find option type is declared for (an annotation, as, "
+        "satisfies, or the parameter type of the project function called), "
+        "and in the criteria or arguments of a TypeORM repository or entity "
+        "manager method that reads; any other object key writes it (values "
+        "of save, create, update, or of a project's own method); any other "
+        "access reads it.",
     )
 )
+# scip-typescript symbols of TypeORM's query builder methods and types.
+_TYPEORM_BUILDER_METHOD_SYMBOL = re.compile(
+    r"scip-typescript npm typeorm \S+ query-builder/.*/\w*QueryBuilder#\w+\(\)\."
+)
+_TYPEORM_TYPE_SYMBOL = re.compile(r"scip-typescript npm typeorm \S+ .*/(\w+)#")
 TYPEORM_COLUMN_KEY_RULE = register_rule(
     EvidenceRule(
         "data-contracts.typeorm-column-key",
@@ -2823,6 +2833,83 @@ class DataContractTool(AnalysisTool):
                 fields[name] = (column, near[0] if len(set(near)) == 1 else None)
         # Accesses of a column property, through the index.
         typeorm_unattributed, typeorm_sites = set(), set()
+
+        def typeorm_method_owner(file, name):
+            """The TypeORM class whose method the index resolves ``name``
+            (a called method's name node) to, else None."""
+            for symbol in (
+                references.symbols(
+                    file, name.start_point.row + 1, name.start_point.column
+                )
+                or ()
+            ):
+                match = TYPEORM_METHOD_SYMBOL.fullmatch(symbol)
+                if match is not None:
+                    return match.group(1)
+                if _TYPEORM_BUILDER_METHOD_SYMBOL.fullmatch(symbol):
+                    return "QueryBuilder"
+            return None
+
+        def typeorm_type_kind(file, node):
+            """ "read" for a type the index resolves to one of TypeORM's
+            find option types, "write" for DeepPartial and
+            QueryDeepPartialEntity, else None."""
+            for symbol in (
+                references.symbols(
+                    file, node.start_point.row + 1, node.start_point.column
+                )
+                or ()
+            ):
+                match = _TYPEORM_TYPE_SYMBOL.fullmatch(symbol)
+                if match is None:
+                    continue
+                if match.group(1).startswith("Find"):
+                    return "read"
+                if match.group(1) in ("DeepPartial", "QueryDeepPartialEntity"):
+                    return "write"
+            return None
+
+        def typeorm_parameter_kind(file, name, index):
+            """typeorm_type_kind of the declared type of parameter ``index``
+            of the function the index resolves the called ``name`` to."""
+            for site in (
+                references.definition_sites(
+                    file, name.start_point.row + 1, name.start_point.column
+                )
+                or ()
+            ):
+                entry = trees_by_file.get(site[0])
+                if entry is None:
+                    continue
+                at = entry.root_node.descendant_for_point_range(
+                    (site[1] - 1, site[2]), (site[1] - 1, site[2])
+                )
+                holder = at.parent if at is not None else None
+                parameters = (
+                    holder.child_by_field_name("parameters")
+                    if holder is not None
+                    else None
+                )
+                if parameters is None:
+                    continue
+                listed = [
+                    p
+                    for p in parameters.named_children
+                    if p.type in ("required_parameter", "optional_parameter")
+                ]
+                if index >= len(listed):
+                    continue
+                annotation = listed[index].child_by_field_name("type")
+                if annotation is not None and annotation.named_children:
+                    annotation = annotation.named_children[0]
+                if annotation is not None and annotation.type == "generic_type":
+                    annotation = annotation.child_by_field_name("name")
+                if annotation is not None and annotation.type == "type_identifier":
+                    kind = typeorm_type_kind(site[0], annotation)
+                    if kind is not None:
+                        return kind
+            return None
+
         if typeorm_property_at:
             owners_by_file = defaultdict(list)
             for d in result.definitions:
@@ -2853,7 +2940,17 @@ class DataContractTool(AnalysisTool):
                 writes = False
                 tree = trees_by_file.get(file)
                 keyed = (
-                    typeorm_key_access(tree, contents_by_file[file], line, column)
+                    typeorm_key_access(
+                        tree,
+                        contents_by_file[file],
+                        line,
+                        column,
+                        lambda name, file=file: typeorm_method_owner(file, name),
+                        lambda node, file=file: typeorm_type_kind(file, node),
+                        lambda name, index, file=file: typeorm_parameter_kind(
+                            file, name, index
+                        ),
+                    )
                     if tree is not None
                     else None
                 )

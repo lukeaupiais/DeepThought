@@ -1507,7 +1507,7 @@ TYPEORM_COLUMNS = {
     "  change(id: number) { return this.repo.update({ id }, { firstName: 'b' }); }\n"
     "  dynamic(where: any) { return this.repo.find({ where }); }\n"
     "}\n",
-    "src/more.ts": "import { Repository, EntityManager } from 'typeorm';\n"
+    "src/more.ts": "import { Repository, EntityManager, FindOptionsWhere } from 'typeorm';\n"
     "import { User } from './user.entity';\n"
     "export class UserRepository extends Repository<User> {}\n"
     "export class More {\n"
@@ -1516,7 +1516,12 @@ TYPEORM_COLUMNS = {
     "  managed(m: EntityManager) { return m.delete(User, { firstName: 'c', ...(1 && { id: 2 }) }); }\n"
     "  built() { return this.repo.createQueryBuilder().update().set({ firstName: 'd' }).where({ id: 1 }).execute(); }\n"
     "  typed(u: User): typeof u.email { return ''; }\n"
-    "}\n",
+    "  own(r: Own) { return r.update({ firstName: 'e' }); }\n"
+    "  rel() { const r: FindOptionsWhere<User> = { firstName: 'f' }; return r; }\n"
+    "  byIds(o: FindOptionsWhere<User>) { return o; }\n"
+    "  call() { return this.byIds({ firstName: 'g' }); }\n"
+    "}\n"
+    "export interface Own { update(u: Partial<User>): void; }\n",
     "db/migrations/0001_init.sql": "CREATE TABLE users (id int, email_address text, "
     '"firstName" text, "createdAt" timestamp, "roleId" int);\n',
 }
@@ -6166,6 +6171,8 @@ class TypeormColumnTests(unittest.TestCase):
         service = app + "`user.service.ts`/UserService#"
         more = app + "`more.ts`/More#"
         more_repo = app + "`more.ts`/UserRepository#"
+        own = app + "`more.ts`/Own#"
+        where = typeorm + "find-options/`FindOptionsWhere.d.ts`/FindOptionsWhere#"
         manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
         builder = (
             typeorm + "query-builder/`UpdateQueryBuilder.d.ts`/UpdateQueryBuilder#"
@@ -6236,6 +6243,18 @@ class TypeormColumnTests(unittest.TestCase):
                 (7, "execute", builder + "execute().", False, 0),
                 (8, "User", user, False, 0),
                 (8, "email", user + "email.", False, 0),
+                (9, "Own", own, False, 0),
+                (9, "update", own + "update().", False, 0),
+                (9, "firstName", user + "firstName.", False, 0),
+                (10, "FindOptionsWhere", where, False, 0),
+                (10, "User", user, False, 0),
+                (10, "firstName", user + "firstName.", False, 0),
+                (11, "byIds", more + "byIds().", True, 0),
+                (11, "FindOptionsWhere", where, False, 0),
+                (12, "byIds", more + "byIds().", False, 0),
+                (12, "firstName", user + "firstName.", False, 0),
+                (14, "Own", own, True, 0),
+                (14, "update", own + "update().", True, 0),
             ],
         }
         index = wire.Index()
@@ -6281,9 +6300,12 @@ class TypeormColumnTests(unittest.TestCase):
             [e for e in edges if e[0] != "HAS_COLUMN"],
             [
                 ("READS_COLUMN", "More.built", users + "id", 8, key),
+                # A FindOptionsWhere, declared or a parameter's type, reads.
+                ("READS_COLUMN", "More.call", users + "firstName", 13, access),
                 ("READS_COLUMN", "More.managed", users + "firstName", 7, key),
                 ("READS_COLUMN", "More.managed", users + "id", 7, key),
                 ("READS_COLUMN", "More.named", users + "firstName", 6, key),
+                ("READS_COLUMN", "More.rel", users + "firstName", 11, access),
                 ("READS_COLUMN", "UserService.byEmail", roles + "name", 5, key),
                 (
                     "READS_COLUMN",
@@ -6304,6 +6326,8 @@ class TypeormColumnTests(unittest.TestCase):
                     access,
                 ),
                 ("WRITES_COLUMN", "More.built", users + "firstName", 8, key),
+                # The project's own update takes values.
+                ("WRITES_COLUMN", "More.own", users + "firstName", 10, access),
                 (
                     "WRITES_COLUMN",
                     "UserService.add",
