@@ -2014,8 +2014,26 @@ with a reason:
 | `indexer_failed`, `indexer_timeout` | The indexer exited non-zero, wrote nothing or ran past `--timeout` |
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
-| `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
+| `no_go_module` | No `go.mod` in the file's directory or any directory above it |
+| `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+scip-go indexes one module per run, so each `go.mod` in the workspace
+(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+own directory, written to `scip-go.scip` for the root module and
+`scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
+made workspace-relative and the receipt names the module. A Go file belongs to
+the innermost module above it. Global symbols name the module, so a call from
+one module into another binds across their indexes.
+
+Go runs are pinned to `linux/amd64` with `CGO_ENABLED=0`, so the files a
+module compiles do not depend on the machine or on a C toolchain; the receipt
+records the platform and `go env GOVERSION`. A file the go command ignores on
+that platform (`command_windows.go`) gets a scip-go pass for the first
+platform in `go tool dist list` (first-class ports first) whose `go list`
+compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
+files' documents; coverage says `pass: platform` and the platform. On cobra
+this covers `command_win.go`.
 
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
@@ -2031,8 +2049,8 @@ The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
 indexer is never read as a file without references. A file no compiler can
-index (`no_go_module`, `not_in_index`) is named on stderr
-with its reason and does not fail the run. On the
+index (`no_go_module`, `build_constraints`, `not_in_index`) is named on
+stderr with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
@@ -4014,6 +4032,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlmodel-default-table` | pattern_matched | a class with the `table=True` class keyword and no `__tablename__` that inherits from `sqlmodel.SQLModel` (bases followed through a SCIP index, or by name in the same file): SQLModel's default name, the class name lowercased |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.flask-sqlalchemy-model-query` | pattern_matched | Flask-SQLAlchemy's `Model.query` (an attribute read, not a call) on the one mapped class of the repository with that name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class; they replace the name rules in the files the index covers |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-instance` | resolved | `session.add(x)`, `delete(x)`, `merge(x)` (WRITES) or `refresh(x)` (READS) with one variable argument, where the scip-python index resolves the method to SQLAlchemy's `Session`, `scoped_session`, `AsyncSession` or `async_scoped_session` and `x` is a mapped class: the type scip-python documents for the local, else its declared type (a parameter's or variable's annotation, through `Annotated`, `Optional`, `T \| None` and module-level aliases, the return annotation of the function it is assigned from, or `Session.get(Model, ...)`), every name resolved through the index; there is no name rule for it |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
@@ -4568,9 +4587,27 @@ the call's first line. A resolved declaration must carry the written name,
 as in call binding. Files no index covers keep the name rules, which link
 only when one mapped class of the repository has the name; `.get` and
 `.select_from` are linked only through an index, since `get` is the
-method of every mapping. The metric `sqlalchemy_access_resolution` counts
-`linked`, `linked_scip`, `not_a_mapped_class` and
-`scip_not_a_mapped_class`.
+method of every mapping. An instance passed to a session (`session.add(user)`) is linked only
+through the index: the method must resolve to one of SQLAlchemy's session
+classes, and the variable to a local whose type scip-python documents
+(`app.models.User`, as `Definition.value_type`), which names the class
+through that class's own SCIP symbol. scip-python documents no type for
+parameters or for values pyright infers as a union (`User | None`), so for
+those the declared type is read where the index defines the variable: a
+parameter's or annotated variable's annotation, or for `x = f(...)` the
+return annotation of the function the index resolves `f` to, or the model
+of SQLAlchemy's `Session.get(Model, key)`. `Annotated[T, ...]` and
+`Optional[T]` (resolved to `typing`'s own symbols), `T | None` and a
+module-level alias (`CurrentUser = Annotated[User, Depends(...)]`, as
+FastAPI writes them) give `T`; every name in them is resolved through the
+index. Types only inference gives (`db.exec(select(User)).first()`) are not
+linked. The metric
+`sqlalchemy_access_resolution` counts `linked`, `linked_scip`,
+`not_a_mapped_class`, `scip_not_a_mapped_class`, and for instances
+`instance_no_scip_index`, `instance_method_unresolved` (the index resolves
+the method to nothing outside the file, as when the app's dependencies
+were not installed for the indexer), `instance_not_session` and
+`instance_type_unknown`.
 
 Why not hand rules: the misses were name resolution. Superset's migrations
 redefine `Slice`, `Dashboard` and other models under the same names, so the
@@ -4590,8 +4627,7 @@ link made by name was lost or moved to another table):
 Without an index, Redash gets the same 92 links by name and the SQLModel
 template 16 of its 28. 30 sampled new Superset links and every `get` call
 whose receiver is not named like a session were read in the source and are
-right. Still not read: `session.add`/`delete` of an instance (the index
-records no types of locals), `cls.query` in a model's class methods, and
+right. Still not read: `cls.query` in a model's class methods, and
 Superset's index is 124 MB, past `ingest_scip`'s default 50 MB cap.
 
 **Kysely.** Kysely queries name tables as string literals typed against
