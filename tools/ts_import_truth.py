@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from ground_truth import write_truth
+from ground_truth import write_truth  # noqa: E402
 
 HELPER = Path(__file__).with_name("ts_import_oracle.cjs")
 EXTENSIONS = {

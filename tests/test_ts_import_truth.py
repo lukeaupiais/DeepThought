@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-import ts_import_truth
+import ts_import_truth  # noqa: E402
 
 
 def _node_ready():
