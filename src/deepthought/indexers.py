@@ -245,12 +245,18 @@ def python_source_roots(root):
     return ["."] + (["src"] if (Path(root) / "src").is_dir() else [])
 
 
-def _environment(spec, root, environ, platform=None):
+def _environment(spec, root, environ, platform=None, dependencies=None):
     env = dict(os.environ if environ is None else environ)
     if spec.name == "scip-python":
-        env["PYTHONPATH"] = os.pathsep.join(
-            str((root / r).resolve()) for r in python_source_roots(root)
-        )
+        roots = [str((root / r).resolve()) for r in python_source_roots(root)]
+        if dependencies is not None:
+            # pyright asks the first `python` on PATH for its import paths:
+            # an empty environment, plus the project's installed packages.
+            roots.append(dependencies["site"])
+            env["PATH"] = dependencies["bin"] + os.pathsep + env.get("PATH", "")
+            env.pop("VIRTUAL_ENV", None)
+            env["PYTHONNOUSERSITE"] = "1"
+        env["PYTHONPATH"] = os.pathsep.join(roots)
     if spec.name == "scip-go":
         env.update(_go_environment(platform or GO_PLATFORM))
     return env
@@ -389,6 +395,7 @@ class IndexRun:
     wall_seconds: float = 0.0
     module: str | None = None
     platform: str | None = None
+    dependencies: dict | None = None
 
     def to_dict(self):
         return {
@@ -405,6 +412,11 @@ class IndexRun:
             "wall_seconds": round(self.wall_seconds, 3),
             **({"module": self.module} if self.module is not None else {}),
             **({"platform": self.platform} if self.platform is not None else {}),
+            **(
+                {"dependencies": self.dependencies}
+                if self.dependencies is not None
+                else {}
+            ),
         }
 
 
@@ -487,6 +499,15 @@ def run_indexer(
             )
             argv = [a for a in argv[:5] if a != "--infer-tsconfig"]
             argv += ["--no-progress-bar", str(config)]
+        dependencies = None
+        if spec.name == "scip-python":
+            from .python_dependencies import install
+
+            dependencies = install(root, scratch, environ=environ, timeout=timeout)
+            run.dependencies = {
+                k: dependencies[k]
+                for k in ("status", "python", "requirements", "packages", "failed")
+            }
         # --infer-tsconfig writes a tsconfig.json into the workspace; the run
         # must leave the workspace as it found it.
         inferred = root / "tsconfig.json" if "--infer-tsconfig" in argv else None
@@ -498,7 +519,7 @@ def run_indexer(
                 text=True,
                 timeout=timeout,
                 check=False,
-                env=_environment(spec, root, environ, platform),
+                env=_environment(spec, root, environ, platform, dependencies),
             )
         except subprocess.TimeoutExpired:
             run.reason = "indexer_timeout"
@@ -580,6 +601,11 @@ def run_indexer(
                 ],
                 **({"project": project} if project is not None else {}),
                 **({"module": module} if module is not None else {}),
+                **(
+                    {"dependencies": run.dependencies}
+                    if run.dependencies is not None
+                    else {}
+                ),
                 **(
                     {
                         "platform": platform or GO_PLATFORM,
@@ -853,6 +879,13 @@ def index_workspace(
                 "language": language,
                 "status": "covered",
                 "indexer": run.indexer,
+                # Covered, but library calls may bind nowhere: say so.
+                **(
+                    {"warning": "dependencies_unavailable"}
+                    if run.dependencies is not None
+                    and run.dependencies["status"] in {"partial", "failed"}
+                    else {}
+                ),
             }
         elif path in passes:
             coverage[path] = {

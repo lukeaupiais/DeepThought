@@ -323,9 +323,19 @@ def _report_coverage(report):
                 f"({run['reason']})" + (f": {run['detail']}" if run["detail"] else ""),
                 file=sys.stderr,
             )
+        dependencies = run.get("dependencies") or {}
+        if dependencies.get("failed"):
+            print(
+                f"{run['indexer']}: no wheel installed for "
+                + ", ".join(dependencies["failed"])
+                + "; calls into them bind nowhere",
+                file=sys.stderr,
+            )
     for path, entry in sorted(report["coverage"].items()):
         if entry["status"] != "covered":
             print(f"{path}: no SCIP index ({entry['reason']})", file=sys.stderr)
+        elif entry.get("warning"):
+            print(f"{path}: {entry['warning']}", file=sys.stderr)
 
 
 async def execute(args):
