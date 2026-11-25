@@ -2024,7 +2024,18 @@ producer and version, the indexer executable's digest and the arguments
 without paths. `deepthought.indexers.validate_receipt` rejects an index whose
 bytes or inputs changed. Run settings keep symbols stable: scip-python gets
 `--project-version 0` and the workspace and `src` on `PYTHONPATH` (so a
-src-layout package resolves without being installed), scip-go gets
+src-layout package resolves without being installed), plus the `src` of each
+Python project below the root (a directory with a `pyproject.toml`,
+`setup.cfg`, `Pipfile`, lockfile or requirements file), so a service's tests
+bind to its src-layout package. Two of those `src` directories with a
+top-level module or regular package of the same name are both left off, so
+one module name never names two files; namespace packages (no `__init__`)
+merge across them as Python merges them. A project's own directory is not
+added, since pyright already resolves a flat layout from the importing
+file's directory. On haystack-core-integrations (47d359e; `chroma`,
+`pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
+references from the integrations' tests to definitions in their `src` go
+from 5,403 to 6,473. scip-go gets
 `--module-version 0`, and scip-typescript gets `--pnpm-workspaces`,
 `--yarn-workspaces` or `--infer-tsconfig` from the workspace's manifests.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
