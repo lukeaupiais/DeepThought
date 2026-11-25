@@ -2066,7 +2066,9 @@ pass leaves out.
 
 scip-python types a call into a library only when the library is importable,
 so before it runs the project's declared dependencies are installed
-(`deepthought.python_dependencies`): the workspace root's `requirements*.txt`,
+(`deepthought.python_dependencies`), read from the workspace root and every
+directory below it (hidden directories, `node_modules` and virtual
+environments aside): `requirements*.txt`,
 `pyproject.toml` `[project]` dependencies and optional dependencies,
 `[dependency-groups]` and Poetry's dependencies, dev-dependencies and groups
 (`^` and `~` constraints converted to PEP 440; path, git and URL entries
@@ -2077,12 +2079,23 @@ indexer's `python` is an empty virtual environment, so the packages of the
 machine running the engine never reach the index. pip reads its usual
 settings (`PIP_INDEX_URL`, `PIP_FIND_LINKS`, `PIP_NO_INDEX`). The run and its
 receipt record `dependencies`: `status` (`none`, `installed`, `partial`,
-`failed`), the interpreter version, the declared requirements, the installed
+`failed`), the interpreter version, the directories that declared
+requirements (`projects`), the declared requirements, the installed
 `name==version` set and the requirements no wheel satisfied. When any failed,
 each covered Python file's coverage entry says
 `warning: dependencies_unavailable` and is named on stderr, with the missing
 requirements; the run does not fail, since the indexer ran. With SQLModel
 declared, `session.add(obj)` resolves to SQLAlchemy's `Session#add`.
+
+One scip-python run indexes the whole workspace, so a monorepo's services
+share one set of packages: every directory's declarations are installed
+together. When two services pin conflicting versions, the combined install
+fails and each requirement is then installed alone, so the version installed
+last is the one the index types against. On full-stack-fastapi-template
+(77e550a), whose dependencies live in `backend/pyproject.toml`, the files of
+`backend/app` had no occurrence of a FastAPI, SQLModel or SQLAlchemy symbol
+before; now they have 205, 180 and 92. Its `emails` requirement has no wheel,
+so the run is `partial` and names it.
 
 The TypeScript compiler likewise types a call into a package only when its
 declarations are in `node_modules`. When the workspace declares packages and

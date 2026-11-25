@@ -8,12 +8,15 @@ package's build or install code runs. The indexer's interpreter is an empty
 virtual environment, so packages of the machine running the engine never
 reach the index.
 
-Declared means the workspace root's ``requirements*.txt`` files;
+Declared means, in the workspace root and in every directory below it (a
+service, a package of a monorepo), the ``requirements*.txt`` files;
 ``pyproject.toml`` ``[project]`` dependencies and optional dependencies,
 ``[dependency-groups]``, and Poetry's dependencies, dev-dependencies and
 groups (``^`` and ``~`` constraints converted to PEP 440); and ``setup.cfg``
-``install_requires`` and ``extras_require``. The project itself
-is never installed. pip reads its usual configuration (``PIP_INDEX_URL``,
+``install_requires`` and ``extras_require``. Hidden directories,
+``node_modules`` and virtual environments are not read. One scip-python run
+indexes the workspace, so it gets one set of packages: every directory's
+declarations, installed together. The project itself is never installed. pip reads its usual configuration (``PIP_INDEX_URL``,
 ``PIP_FIND_LINKS``, ``PIP_NO_INDEX``), so an offline mirror works unchanged.
 """
 
@@ -38,14 +41,43 @@ def requirement_files(root):
     )
 
 
-def declared(root):
-    """The requirement strings the workspace root declares, in a fixed order."""
+_SKIP = {"node_modules", "site-packages", "__pycache__"}
+
+
+def project_directories(root):
+    """Workspace-relative directories that declare Python dependencies, in a
+    fixed order: the root (``.``) and every directory below it with a
+    ``requirements*.txt``, ``pyproject.toml`` or ``setup.cfg``."""
     root = Path(root)
     found = []
-    for name in requirement_files(root):
-        found += _requirement_lines(root / name, root)
-    found += _pyproject(root / "pyproject.toml")
-    found += _setup_cfg(root / "setup.cfg")
+    for directory, names, filenames in os.walk(root):
+        names[:] = sorted(
+            n
+            for n in names
+            if n not in _SKIP
+            and not n.startswith(".")
+            # A virtual environment's packages are not the project's.
+            and not (Path(directory) / n / "pyvenv.cfg").is_file()
+        )
+        if any(
+            f in {"pyproject.toml", "setup.cfg"}
+            or (f.startswith("requirements") and f.endswith(".txt"))
+            for f in filenames
+        ):
+            found.append(Path(directory).relative_to(root).as_posix())
+    return found
+
+
+def declared(root):
+    """The requirement strings the workspace declares, in a fixed order."""
+    root = Path(root)
+    found = []
+    for relative in project_directories(root):
+        directory = root / relative
+        for name in requirement_files(directory):
+            found += _requirement_lines(directory / name, root)
+        found += _pyproject(directory / "pyproject.toml")
+        found += _setup_cfg(directory / "setup.cfg")
     return sorted(set(found))
 
 
@@ -161,8 +193,9 @@ def _setup_cfg(path):
 def install(root, scratch, *, environ=None, timeout=600):
     """Install the declared dependencies under ``scratch``.
 
-    Returns ``{"status", "python", "requirements", "packages", "failed",
-    "detail", "bin", "site"}``. ``status`` is ``none`` (nothing declared),
+    Returns ``{"status", "python", "projects", "requirements", "packages",
+    "failed", "detail", "bin", "site"}``; ``projects`` names the directories
+    the requirements were read from. ``status`` is ``none`` (nothing declared),
     ``installed``, ``partial`` (some requirements have no installable wheel)
     or ``failed`` (none could be installed, or pip is unavailable). ``bin``
     holds the empty interpreter scip-python runs, ``site`` the packages.
@@ -180,6 +213,7 @@ def install(root, scratch, *, environ=None, timeout=600):
     )
     requirements = declared(root)
     outcome = {
+        "projects": project_directories(root),
         "status": "none",
         "python": "{}.{}.{}".format(*sys.version_info[:3]),
         "requirements": requirements,

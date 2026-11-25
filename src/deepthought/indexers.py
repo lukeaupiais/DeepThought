@@ -556,7 +556,14 @@ def run_indexer(
             dependencies = install(root, scratch, environ=environ, timeout=timeout)
             run.dependencies = {
                 k: dependencies[k]
-                for k in ("status", "python", "requirements", "packages", "failed")
+                for k in (
+                    "status",
+                    "python",
+                    "projects",
+                    "requirements",
+                    "packages",
+                    "failed",
+                )
             }
         # --infer-tsconfig writes a tsconfig.json into the workspace; the run
         # must leave the workspace as it found it.

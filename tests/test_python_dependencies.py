@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 
 from deepthought import indexers
-from deepthought.python_dependencies import declared
+from deepthought.python_dependencies import declared, project_directories
 
 
 def wheel(directory, name, version, files):
@@ -62,6 +62,30 @@ class DeclaredTest(unittest.TestCase):
         if importlib.util.find_spec("tomllib"):
             expected += ["psycopg", "sqlalchemy[asyncio]>=2"]
         self.assertEqual(found, sorted(expected))
+
+
+class NestedProjectsTest(unittest.TestCase):
+    def test_every_service_declares_but_not_hidden_dirs_or_environments(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            (root / "requirements.txt").write_text("flask\n")
+            for service, requirement in (("api", "attrs"), ("worker", "celery")):
+                (root / "services" / service).mkdir(parents=True)
+                (root / "services" / service / "requirements.txt").write_text(
+                    requirement + "\n"
+                )
+            (root / "services" / "worker" / "setup.cfg").write_text(
+                "[options]\ninstall_requires =\n    redis\n"
+            )
+            for skipped in (".tox/py", "node_modules/x", "venv/lib"):
+                (root / skipped).mkdir(parents=True)
+                (root / skipped / "requirements.txt").write_text("unwanted\n")
+            (root / "venv" / "pyvenv.cfg").write_text("home = /usr/bin\n")
+            self.assertEqual(
+                project_directories(root),
+                [".", "services/api", "services/worker"],
+            )
+            self.assertEqual(declared(root), ["attrs", "celery", "flask", "redis"])
 
 
 class PoetryTest(unittest.TestCase):
@@ -169,6 +193,20 @@ class InstalledDependenciesTest(unittest.TestCase):
             report["coverage"]["main.py"]["warning"], "dependencies_unavailable"
         )
         self.assertEqual(indexers.failed_files(report), {})
+
+    def test_a_service_below_the_root_gets_its_declared_packages(self):
+        service = self.root / "services" / "api"
+        service.mkdir(parents=True)
+        (self.root / "main.py").rename(service / "main.py")
+        (service / "requirements.txt").write_text("tinylib==1.0\n")
+        report, run = self.index()
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["projects"], ["services/api"])
+        self.assertEqual(run["dependencies"]["packages"], ["tinylib==1.0"])
+        self.assertTrue(
+            any(s.endswith("Thing#go().") for s in self.external_symbols(run)),
+            self.external_symbols(run),
+        )
 
     def test_undeclared_libraries_stay_unresolved(self):
         # Nothing declared, so nothing is installed for the indexer.
