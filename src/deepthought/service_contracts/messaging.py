@@ -78,6 +78,9 @@ class MessageEndpoint:
     # Values the site sends that its reader could not read for types (a
     # kafkajs message value not written as JSON.stringify(x)).
     payloads_unread: int = 0
+    # (direction, (declaring file, type name, line)) of the types the Go
+    # type checker gives for what the site sends (CARRIES).
+    types: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,7 @@ class _Sites:
         argument_from=(),
         payloads=(),
         payloads_unread=0,
+        types=(),
     ):
         line = node.start_point.row + 1
         if PLACEHOLDER in destination:
@@ -160,6 +164,7 @@ class _Sites:
                 argument_from=tuple(argument_from),
                 payloads=tuple(payloads),
                 payloads_unread=payloads_unread,
+                types=tuple(types),
             )
         )
 
@@ -736,11 +741,52 @@ def extract_go(sites, facts):
         """The QueueDeclare result field a queue argument reads, or None."""
         if item is None or item.text is not None or item.result is None:
             return None
-        line, column, _, _ = item.result
+        line, column, _, field = item.result
         call = at.get((line, column))
-        if call is None or call.declared not in _GO_AMQP:
+        if call is None or call.declared not in _GO_AMQP or not field:
             return None
         return item.result if call.method == "QueueDeclare" else None
+
+    def marshalled(item):
+        """The type a message value serializes: b after b, err :=
+        json.Marshal(v) (through conversions), as go/types gives v's named
+        type and its declaration; () when not known."""
+        if item is None or item.result is None:
+            return ()
+        line, column, index, field = item.result
+        call = at.get((line, column))
+        if (
+            call is None
+            or call.declared != "encoding/json"
+            or call.method not in ("Marshal", "MarshalIndent")
+            or (index, field) != (0, "")
+            or not call.types
+            or call.types[0] is None
+            or not call.declarations
+            or call.declarations[0] is None
+        ):
+            return ()
+        file, line = call.declarations[0]
+        return (("request", (file, call.types[0][1], line)),)
+
+    literal_at = {(literal.line, literal.column): literal for literal in literals}
+
+    def message_value(node, client, literal):
+        """The Value element of the message a publish literal belongs to:
+        its own, or, for confluent-kafka-go's TopicPartition, that of the
+        Message literal around it."""
+        elements = dict(literal.elements)
+        if client != "confluent-kafka-go":
+            return elements.get("Value")
+        outer = node.parent
+        while outer is not None and outer.type != "composite_literal":
+            outer = outer.parent
+        if outer is None:
+            return None
+        around = literal_at.get((outer.start_point.row + 1, outer.start_point.column))
+        if around is None or around.type[1] != "Message":
+            return None
+        return dict(around.elements).get("Value")
 
     def argument(call, index):
         return call.values[index] if index < len(call.values) else None
@@ -825,7 +871,18 @@ def extract_go(sites, facts):
                 sites.add(node, role, "kafka", text_of(item), client)
         # A kafka-go Message without Topic goes to its Writer's topic.
         if field in elements:
-            sites.add(node, role, "kafka", value(elements[field]), client)
+            sites.add(
+                node,
+                role,
+                "kafka",
+                value(elements[field]),
+                client,
+                types=(
+                    marshalled(message_value(node, client, literal))
+                    if role == "publish"
+                    else ()
+                ),
+            )
 
 
 # -- JavaScript / TypeScript -------------------------------------------------

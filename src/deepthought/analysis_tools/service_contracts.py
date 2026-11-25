@@ -228,6 +228,24 @@ SENT_PAYLOAD_RULES = {
     },
 }
 
+_GO_KAFKA_VALUE_RULE = register_rule(
+    EvidenceRule(
+        "service-contracts.go-kafka-message-value-type",
+        "resolved",
+        "A Go Kafka message (a kafka-go Message, a sarama ProducerMessage or "
+        "a confluent-kafka-go Message) whose Value is the result of "
+        "encoding/json's Marshal of a value of this type, held in a variable "
+        "assigned once and read through conversions; the Go type checker "
+        "gives the type and its declaration.",
+    )
+)
+SENT_PAYLOAD_RULES.update(
+    {
+        client: {"request": _GO_KAFKA_VALUE_RULE}
+        for client in ("kafka-go", "sarama", "confluent-kafka-go")
+    }
+)
+
 GO_PAYLOAD_RULES = {
     "request": register_rule(
         EvidenceRule(
@@ -2861,9 +2879,9 @@ class ServiceContractTool(AnalysisTool):
         # A route or message destination carries the types its handler
         # writes for the request and the response, as the TypeScript
         # compiler resolves them.
-        declared = defaultdict(list)
+        type_declarations = defaultdict(list)
         for d in definitions.values():
-            declared[(d.file, d.symbol.rsplit(".", 1)[-1])].append(d)
+            type_declarations[(d.file, d.symbol.rsplit(".", 1)[-1])].append(d)
         carried = 0
         carried_edges = set()
         payload_unresolved = 0
@@ -2895,7 +2913,7 @@ class ServiceContractTool(AnalysisTool):
         def declaration(file, type_name, line):
             found = [
                 d
-                for d in declared.get((file, type_name), ())
+                for d in type_declarations.get((file, type_name), ())
                 if d.line <= line <= d.end_line
             ]
             return found[0].id if len(found) == 1 else None
@@ -3368,6 +3386,20 @@ class ServiceContractTool(AnalysisTool):
                         if endpoint.role == "publish"
                         else MESSAGE_PAYLOAD_RULES
                     ),
+                )
+            for direction, (type_file, type_name, type_line) in endpoint.types:
+                found = declaration(type_file, type_name, type_line)
+                if found is None:
+                    payload_unresolved += 1
+                    continue
+                carry(
+                    ["MessageDestination", "Contract"],
+                    name,
+                    endpoint.file,
+                    endpoint.line,
+                    direction,
+                    found,
+                    SENT_PAYLOAD_RULES[endpoint.client][direction],
                 )
             if endpoint.declaration_id is None:
                 source = file_node(endpoint.file)
