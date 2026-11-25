@@ -23,6 +23,9 @@
 //     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
+//   - "struct": every named struct type the file declares, with each field's
+//     name, tag, whether it is embedded, and how GORM's schema parser would
+//     take its type (see gormKind).
 //   - "error": a package that did not type-check completely; its facts are
 //     still printed where go/types could type them.
 //
@@ -81,6 +84,68 @@ type element struct {
 	argument
 }
 
+// structField is one field of a "struct" fact.
+type structField struct {
+	Name     string     `json:"name"`
+	Embedded bool       `json:"embedded,omitempty"`
+	Tag      string     `json:"tag,omitempty"`
+	Line     int        `json:"line"`
+	Column   int        `json:"column"`
+	Kind     string     `json:"kind"`
+	Type     *namedType `json:"type,omitempty"`
+}
+
+// gormKind says how GORM's schema parser takes a field of type t (through
+// pointers): "value" when it gets a data type (a bool, number or string
+// kind, []byte, time.Time or a type converting to it, or a type with a
+// Value or GormDataType method); "struct" for another struct, an
+// embedded struct or a relation; "many" for a slice of structs, a relation;
+// "other" for anything else (no column unless a tag gives a type).
+func gormKind(t types.Type) string {
+	for {
+		p, ok := types.Unalias(t).(*types.Pointer)
+		if !ok {
+			break
+		}
+		t = p.Elem()
+	}
+	for _, name := range []string{"Value", "GormDataType"} {
+		if obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(t), false, nil, name); obj != nil {
+			if _, ok := obj.(*types.Func); ok {
+				return "value"
+			}
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		if u.Info()&(types.IsBoolean|types.IsInteger|types.IsFloat|types.IsString) != 0 {
+			return "value"
+		}
+	case *types.Struct:
+		// time.Time, or a type defined on it (its fields are time's).
+		if u.NumFields() > 0 && u.Field(0).Pkg() != nil && u.Field(0).Pkg().Path() == "time" {
+			return "value"
+		}
+		return "struct"
+	case *types.Slice:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return "value"
+		}
+		elem := u.Elem()
+		if p, ok := types.Unalias(elem).(*types.Pointer); ok {
+			elem = p.Elem()
+		}
+		if _, ok := elem.Underlying().(*types.Struct); ok {
+			return "many"
+		}
+	case *types.Array:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return "value"
+		}
+	}
+	return "other"
+}
+
 type fact struct {
 	Kind      string     `json:"kind"`
 	File      string     `json:"file,omitempty"`
@@ -105,6 +170,8 @@ type fact struct {
 	NameLine    int          `json:"name_line,omitempty"`
 	NameColumn  int          `json:"name_column,omitempty"`
 	Types       []*namedType `json:"types,omitempty"`
+	// struct: its fields.
+	Fields []structField `json:"fields,omitempty"`
 }
 
 func ignored(name string) bool {
@@ -378,6 +445,45 @@ func messagesIn(t types.Type, named func(types.Type) *namedType) []*namedType {
 
 // facts prints the call, signature and TableName facts of one file.
 func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string, fixed map[*types.Var]string) {
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			obj, ok := info.Defs[ts.Name].(*types.TypeName)
+			if !ok || ts.TypeParams != nil {
+				continue
+			}
+			st, ok := obj.Type().Underlying().(*types.Struct)
+			if !ok {
+				continue
+			}
+			out := fact{Kind: "struct", Type: named(obj.Type())}
+			if out.Type == nil {
+				continue
+			}
+			out.File, out.Line, out.Column = where(ts.Name.Pos())
+			for i := 0; i < st.NumFields(); i++ {
+				v := st.Field(i)
+				_, line, column := where(v.Pos())
+				out.Fields = append(out.Fields, structField{
+					Name:     v.Name(),
+					Embedded: v.Embedded(),
+					Tag:      st.Tag(i),
+					Line:     line,
+					Column:   column,
+					Kind:     gormKind(v.Type()),
+					Type:     named(v.Type()),
+				})
+			}
+			emit(out)
+		}
+	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok {

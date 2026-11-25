@@ -7134,6 +7134,40 @@ def _go_variables(function, content, imports):
     return {k: v for k, v in found.items() if v is not None}
 
 
+# NamingStrategy settings that change GORM's column names (ColumnName's
+# toDBName): table settings (SingularTable, TablePrefix) do not.
+GORM_COLUMN_NAMING = {"NoLowerCase", "NameReplacer"}
+
+
+def gorm_column_naming(tree, content):
+    """Whether a file configures a NamingStrategy that may rename columns:
+    one that is not a ``schema.NamingStrategy{...}`` literal, or one setting
+    NoLowerCase or NameReplacer."""
+    for element in _descendants(tree.root_node, "keyed_element"):
+        children = element.named_children
+        if len(children) < 2 or _text(children[0], content) != "NamingStrategy":
+            continue
+        value = children[1]
+        if value.type == "literal_element" and value.named_children:
+            value = value.named_children[0]
+        written = (
+            value.child_by_field_name("type")
+            if value.type == "composite_literal"
+            else None
+        )
+        if written is None or _text(written, content).rpartition(".")[2] != (
+            "NamingStrategy"
+        ):
+            return True
+        body = value.child_by_field_name("body")
+        for keyed in _descendants(body, "keyed_element") if body else ():
+            if keyed.named_children and _text(keyed.named_children[0], content) in (
+                GORM_COLUMN_NAMING
+            ):
+                return True
+    return False
+
+
 def extract_gorm(tree, content, file, definitions):
     """(models, uses, naming) of one Go file. In a file importing
     gorm.io/gorm: structs that embed ``gorm.Model``, types passed to
