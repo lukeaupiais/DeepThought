@@ -318,11 +318,14 @@ def install(root, scratch, *, environ=None, timeout=600):
     """Install the declared dependencies under ``scratch``.
 
     Returns ``{"status", "python", "projects", "lockfiles", "requirements",
-    "packages", "failed", "detail", "bin", "site"}``; ``projects`` names the
-    directories the requirements were read from, ``lockfiles`` those pinned
-    by a lockfile. ``status`` is ``none`` (nothing declared),
-    ``installed``, ``partial`` (some requirements have no installable wheel)
-    or ``failed`` (none could be installed, or pip is unavailable). ``bin``
+    "packages", "failed", "without_dependencies", "detail", "bin", "site"}``;
+    ``projects`` names the directories the requirements were read from,
+    ``lockfiles`` those pinned by a lockfile. ``without_dependencies`` names
+    the requirements installed from their own wheel although one of their
+    dependencies has none: the indexer reads their source, nothing runs it.
+    ``status`` is ``none`` (nothing declared), ``installed``, ``partial``
+    (some requirements, or their dependencies, have no installable wheel) or
+    ``failed`` (none could be installed, or pip is unavailable). ``bin``
     holds the empty interpreter scip-python runs, ``site`` the packages.
     """
     scratch = Path(scratch)
@@ -345,6 +348,7 @@ def install(root, scratch, *, environ=None, timeout=600):
         "requirements": requirements,
         "packages": [],
         "failed": [],
+        "without_dependencies": [],
         "detail": None,
         "bin": str(environment / ("Scripts" if os.name == "nt" else "bin")),
         "site": str(site),
@@ -372,7 +376,7 @@ def install(root, scratch, *, environ=None, timeout=600):
         except subprocess.TimeoutExpired:
             return None
 
-    def install_all(items):
+    def install_all(items, *options):
         return pip(
             "install",
             "--only-binary",
@@ -380,6 +384,7 @@ def install(root, scratch, *, environ=None, timeout=600):
             "--target",
             str(site),
             "--upgrade",
+            *options,
             *items,
         )
 
@@ -393,10 +398,28 @@ def install(root, scratch, *, environ=None, timeout=600):
         for requirement in requirements:
             alone = pip("install", "--dry-run", "--only-binary", ":all:", requirement)
             if alone is None or alone.returncode:
-                outcome["failed"].append(requirement)
+                # Its own wheel may still exist when a dependency has none
+                # (instana needs fysom, a source-only package): its source
+                # is what the indexer reads, so it is installed on its own.
+                own = pip(
+                    "install",
+                    "--dry-run",
+                    "--only-binary",
+                    ":all:",
+                    "--no-deps",
+                    requirement,
+                )
+                if own is None or own.returncode:
+                    outcome["failed"].append(requirement)
+                else:
+                    outcome["without_dependencies"].append(requirement)
         # The rest are installed together, so pip resolves them as one set
         # and a lockfile's pins stay the versions installed.
-        rest = [r for r in requirements if r not in outcome["failed"]]
+        rest = [
+            r
+            for r in requirements
+            if r not in outcome["failed"] and r not in outcome["without_dependencies"]
+        ]
         together = install_all(rest) if rest else None
         if rest and (together is None or together.returncode):
             # They conflict (two services pin different versions): each is
@@ -405,6 +428,11 @@ def install(root, scratch, *, environ=None, timeout=600):
                 alone = install_all([requirement])
                 if alone is None or alone.returncode:
                     outcome["failed"].append(requirement)
+        for requirement in list(outcome["without_dependencies"]):
+            own = install_all([requirement], "--no-deps")
+            if own is None or own.returncode:
+                outcome["without_dependencies"].remove(requirement)
+                outcome["failed"].append(requirement)
     listed = pip("list", "--path", str(site), "--format", "freeze")
     if listed is not None and not listed.returncode:
         outcome["packages"] = sorted(
@@ -413,5 +441,6 @@ def install(root, scratch, *, environ=None, timeout=600):
     if outcome["failed"] == requirements:
         outcome["status"] = "failed"
     else:
-        outcome["status"] = "partial" if outcome["failed"] else "installed"
+        incomplete = outcome["failed"] or outcome["without_dependencies"]
+        outcome["status"] = "partial" if incomplete else "installed"
     return outcome

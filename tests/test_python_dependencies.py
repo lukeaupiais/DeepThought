@@ -12,12 +12,13 @@ from deepthought import indexers
 from deepthought.python_dependencies import declared, lockfiles, project_directories
 
 
-def wheel(directory, name, version, files):
+def wheel(directory, name, version, files, requires=()):
     """A minimal pure-Python wheel, written by hand so no build runs."""
     dist = f"{name}-{version}.dist-info"
     entries = dict(files)
     entries[f"{dist}/METADATA"] = (
         f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+        + "".join(f"Requires-Dist: {r}\n" for r in requires)
     )
     entries[f"{dist}/WHEEL"] = (
         "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
@@ -288,6 +289,42 @@ class InstalledDependenciesTest(unittest.TestCase):
             report["coverage"]["main.py"]["warning"], "dependencies_unavailable"
         )
         self.assertEqual(indexers.failed_files(report), {})
+
+    def test_a_wheel_whose_dependency_has_none_still_types_calls(self):
+        # Like instana, whose wheel needs fysom, which has no wheel.
+        wheel(
+            self.wheels,
+            "needy",
+            "1.0",
+            {
+                "needy/__init__.py": "class Probe:\n    def ping(self):\n        return 1\n"
+            },
+            requires=["nowheel"],
+        )
+        (self.root / "requirements.txt").write_text("tinylib==1.0\nneedy==1.0\n")
+        (self.root / "probe.py").write_text(
+            "from needy import Probe\n\n\ndef run():\n    return Probe().ping()\n"
+        )
+        report, run = self.index()
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["status"], "partial")
+        self.assertEqual(run["dependencies"]["failed"], [])
+        self.assertEqual(run["dependencies"]["without_dependencies"], ["needy==1.0"])
+        self.assertEqual(
+            run["dependencies"]["packages"], ["needy==1.0", "tinylib==1.0"]
+        )
+        self.assertEqual(
+            report["coverage"]["probe.py"]["warning"], "dependencies_unavailable"
+        )
+        from deepthought._scip import scip_pb2
+
+        index = scip_pb2.Index()
+        index.ParseFromString(Path(run["index"]).read_bytes())
+        symbols = {o.symbol for d in index.documents for o in d.occurrences}
+        self.assertTrue(
+            any("needy" in s and s.endswith("Probe#ping().") for s in symbols),
+            sorted(s for s in symbols if "needy" in s),
+        )
 
     def test_a_service_below_the_root_gets_its_declared_packages(self):
         service = self.root / "services" / "api"

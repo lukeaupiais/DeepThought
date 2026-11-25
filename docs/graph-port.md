@@ -2123,7 +2123,8 @@ settings (`PIP_INDEX_URL`, `PIP_FIND_LINKS`, `PIP_NO_INDEX`). The run and its
 receipt record `dependencies`: `status` (`none`, `installed`, `partial`,
 `failed`), the interpreter version, the directories that declared
 requirements (`projects`), the lockfiles read (`lockfiles`), the declared requirements, the installed
-`name==version` set and the requirements no wheel satisfied. When any failed,
+`name==version` set, the requirements no wheel satisfied (`failed`) and
+those installed without their dependencies (`without_dependencies`). When any failed,
 each covered Python file's coverage entry says
 `warning: dependencies_unavailable` and is named on stderr, with the missing
 requirements; the run does not fail, since the indexer ran. With SQLModel
@@ -2142,6 +2143,15 @@ before; now they have 205, 180 and 92. Its `emails` requirement has no wheel,
 so the run is `partial` and names it. Its root `uv.lock` pins 79 packages:
 the 77 with a wheel are installed at exactly the locked versions, and
 `emails` and its `dkimpy` dependency (sdist only) are named.
+
+A requirement whose own wheel exists but one of whose dependencies has none
+is installed from its wheel alone (`--no-deps`) and named in
+`without_dependencies`; the run is `partial`. Its source is what the indexer
+reads, and nothing runs it. On instana/robot-shop (pinned corpus), `payment`
+declares `instana`, whose wheel needs `fysom`, which has no wheel. Before,
+`instana` was named as failed and `import instana` bound to nothing; now
+instana 3.21.0 is installed and the import binds to it. `uwsgi` and
+`opentracing` ship only sources, so they are still named in `failed`.
 
 The TypeScript compiler likewise types a call into a package only when its
 declarations are in `node_modules`. When the workspace declares packages and
