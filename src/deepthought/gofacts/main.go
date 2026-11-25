@@ -668,6 +668,9 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if i < 3 {
 				a = describe(arg)
 				a.Type = named(info.TypeOf(arg))
+				if t := info.TypeOf(arg); t != nil && types.IsInterface(t) {
+					a.Interface = true
+				}
 			}
 			a.Ref = reference(arg)
 			a.Function = function(arg)

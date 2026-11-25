@@ -3004,9 +3004,11 @@ class ServiceContractTool(AnalysisTool):
             if function is None:
                 continue
             inside = [c for c in calls if handler.line <= c.line <= handler.end_line]
-            for direction, (_, type_name), where in handler_payloads(
-                function, content, inside
-            ):
+            for direction, sent, where in handler_payloads(function, content, inside):
+                if sent is None:
+                    payload_unresolved += 1  # an interface value
+                    continue
+                type_name = sent[1]
                 if where is None:
                     continue  # a type of a library, outside the module tree
                 found = declaration(where[0], type_name, where[1])

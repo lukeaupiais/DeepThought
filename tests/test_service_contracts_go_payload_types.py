@@ -98,6 +98,7 @@ class GoPayloadTypeTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        self.unresolved = output.metadata.custom_metrics["payload_types_unresolved"]
         return sorted(
             (
                 r.source_match["qualified_name"].split("::")[1],
@@ -157,6 +158,7 @@ class GoPayloadTypeTests(unittest.TestCase):
         )
 
     def test_fiber_v3_binds_the_body_and_writes_json(self):
+        # A body bound into an any (raw) is not known: unresolved.
         found = self.carried(
             {
                 **go_stub_files(),
@@ -172,6 +174,7 @@ class GoPayloadTypeTests(unittest.TestCase):
                 ("Order", "response", "service-contracts.go-response-body-type"),
             ],
         )
+        self.assertEqual(self.unresolved, 1)
 
 
 FIBER_V3 = """package main
@@ -190,9 +193,15 @@ func create(c fiber.Ctx) error {
 \treturn c.JSON(api.Order{ID: in.Item})
 }
 
+func raw(c fiber.Ctx) error {
+\tvar body any = &api.CreateOrder{}
+\treturn c.Bind().Body(body)
+}
+
 func main() {
 \tapp := fiber.New()
 \tapp.Post("/orders", create)
+\tapp.Put("/orders", raw)
 }
 """
 

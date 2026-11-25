@@ -202,6 +202,10 @@ def handler_payloads(function, content, calls):
                 continue
         else:
             continue
+        if index < len(call.interfaces) and call.interfaces[index]:
+            # An interface value (body any): what it holds is not known.
+            found.append((direction, None, None))
+            continue
         if index >= len(call.types) or call.types[index] is None:
             continue
         declaration = (
