@@ -73,6 +73,25 @@ FILES = {
     # The compiler includes one file per name: the .jsx beside d.js is left
     # out of the project, and resolved with its options in a program of
     # its own.
+    # Excluded from a project that does not allow JavaScript: allowed here.
+    "tsonly/tsconfig.json": (
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@t/*": ["*"]}},'
+        ' "include": ["v.ts"]}'
+    ),
+    "tsonly/s.js": 'import { v } from "@t/v";\n',
+    "tsonly/v.ts": "export const v = 1;\n",
+    # Of two configs in a directory, the tsconfig.json is the nearest.
+    "both/tsconfig.json": (
+        '{"compilerOptions": {"allowJs": true, "baseUrl": ".",'
+        ' "paths": {"@b/*": ["ts/*"]}}, "include": ["ts"]}'
+    ),
+    "both/jsconfig.json": (
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@b/*": ["js/*"]}},'
+        ' "include": ["js"]}'
+    ),
+    "both/f.js": 'import { t } from "@b/t";\n',
+    "both/ts/t.js": "export const t = 1;\n",
+    "both/js/t.js": "export const t = 1;\n",
     "js/d.js": "export const d = 1;\n",
     "js/d.jsx": 'import { w } from "~/w";\n',
     # A solution config includes its files through references, to a file
@@ -232,6 +251,8 @@ class CompilerImportTests(unittest.TestCase):
             ("js/a.js", "js/w.js"),
             ("js/b.js", "packages/linkedpkg/index.d.ts"),
             ("js/d.jsx", "js/w.js"),
+            ("tsonly/s.js", "tsonly/v.ts"),
+            ("both/f.js", "both/ts/t.js"),
         ):
             self.assertEqual(outcomes[(key, 1)][3], ((target, rule),))
         # Both statements on a line are bound, each at its own specifier.
