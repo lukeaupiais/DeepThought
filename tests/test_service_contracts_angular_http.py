@@ -13,6 +13,7 @@ from deepthought.analysis_tools import ServiceContractTool
 from deepthought import ts_facts
 from deepthought.service_contracts.script_constants import angular_defines
 from deepthought.syntax import make_parser
+from typescript_ready import needs_typescript
 
 READY = (
     importlib.util.find_spec("tree_sitter")
@@ -139,6 +140,7 @@ FILES = {
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_typescript
 class AngularHttpTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -215,6 +217,7 @@ def _compiled(files, defines=()):
     }
 
 
+@needs_typescript
 class CompilerValueTests(unittest.TestCase):
     """What the hand-written module reader did, now the compiler's."""
 
