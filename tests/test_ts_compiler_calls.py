@@ -229,7 +229,7 @@ class CompilerCallTests(unittest.TestCase):
     def test_graph_calls_carry_the_compiler_rules(self):
         output = asyncio.run(
             TreeSitterTool(self.root).analyze(
-                "r", languages=("typescript", "javascript")
+                "r", languages=("typescript", "javascript"), scip_indexes=()
             )
         )
         rules = {
