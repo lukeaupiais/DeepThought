@@ -249,10 +249,13 @@ class Reference:
 # or an extern crate. "script_config", "path_alias" and "package_entry": a
 # tsconfig.json or jsconfig.json and its ``paths`` entries, and the entry
 # files a package.json names; module resolution reads them. "include": a C
-# `#include "path"`.
+# `#include "path"`. "require" and "dynamic_import": a JavaScript
+# `require("x")` or a JavaScript or TypeScript `import("x")` call.
 IMPORT_KINDS = frozenset(
     {
         "import",
+        "require",
+        "dynamic_import",
         "from_import",
         "export_from",
         "module",

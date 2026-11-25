@@ -495,7 +495,7 @@ class ImportSchemaTests(unittest.TestCase):
                 imports=(Import("i2", "b.py", "os", "import", 1, 0, 1, 9),),
             )
         for bad in (
-            dict(kind="require"),
+            dict(kind="load"),
             dict(specifier=""),
             dict(names=["x"]),
             dict(names=("",)),

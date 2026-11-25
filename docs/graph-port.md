@@ -107,8 +107,14 @@ revision with `--snapshot` or use a fresh database.
 
 Tree-sitter extraction records each static import statement as an `Import` fact
 (analysis schema 3): Python `import` and `from ... import`, and TypeScript and
-JavaScript `import ... from` and `export ... from`. Dynamic loads such as `require()`,
-`import()` and `importlib` are not facts here. `deepthought.imports.resolve_imports`
+JavaScript `import ... from` and `export ... from`. A TypeScript or JavaScript
+`import("x")` call (kind `dynamic_import`) and a JavaScript `require("x")` call
+(kind `require`) are facts too, binding no names, when the specifier is a string
+literal or a template without substitutions: the calls the TypeScript compiler
+records as imports. It records `require()` in JavaScript files only, so the
+parser does too. Other dynamic loads, such as `importlib`, are not facts here. Calls are numbered
+apart from statements in their IDs, so each statement keeps the ID it had
+before calls were recorded. `deepthought.imports.resolve_imports`
 then matches specifiers against the analyzed files of the same result, without
 reading files, and TreeSitterTool writes File -> IMPORTS -> File for each link
 with the specifier, names, line, import ID and rule:
@@ -173,8 +179,7 @@ repository. When it gets no edge, the reason is one of these:
 - `compiler_no_import`: the parser sees an import that the compiler does
   not record.
 
-`require()` and `import()` calls that the compiler resolves have no import
-fact yet, so they get no edge. The TypeScript and JavaScript rules above
+The TypeScript and JavaScript rules above
 still resolve imports for call binding (`deepthought.calls`) and for the
 ground-truth import scorer. Moving those onto the compiler, and removing the
 rules, is the next step.
@@ -726,8 +731,8 @@ that select no language keep their Python/TypeScript output byte for byte, and
 TypeScript repositories that ship compiled `.js` next to their sources are not
 analyzed twice by default. Declarations, call sites and call rules are the same
 as for TypeScript. ES module `import ... from` and `export ... from` statements
-are import facts. CommonJS `require()` and dynamic `import()` are not, so a
-CommonJS module has declarations and calls but no IMPORTS edges.
+are import facts, and so are CommonJS `require("x")` and dynamic `import("x")`
+calls, so a CommonJS module gets IMPORTS edges as well.
 
 A variable declared with an arrow function or an anonymous function
 expression (`const walk = function* () {}`) is a `Function` declaration with

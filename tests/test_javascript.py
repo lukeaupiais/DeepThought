@@ -24,6 +24,7 @@ from deepthought.imports import (
     TYPESCRIPT_RELATIVE_MODULE,
     resolve_imports,
 )
+from deepthought.syntax import identifier
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_javascript"
@@ -143,6 +144,9 @@ class JavaScriptImportTests(unittest.TestCase):
                 ("../lib/c.mjs", "export_from", ("c",), ()),
                 ("./missing.js", "import", ("m",), ("m",)),
                 ("react", "import", ("default",), ("React",)),
+                # The module a require() or import() call loads.
+                ("./a.js", "require", (), ()),
+                ("./a.js", "dynamic_import", (), ()),
             ],
         )
         links = resolved(result)
@@ -165,6 +169,60 @@ class JavaScriptImportTests(unittest.TestCase):
         self.assertEqual(
             links[("src/main.js", "react")],
             ("unresolved", (), "non_relative_specifier"),
+        )
+
+    def test_only_a_call_of_one_string_literal_loads_a_module(self):
+        source = (
+            "require('./a.js');\n"
+            "import { a } from './a.js';\n"
+            "import('./a.js');\n"
+            "load('./a.js');\n"
+            "obj.require('./a.js');\n"
+            "require('./a.js', 'x');\n"
+            "require(name);\n"
+            "require(`./a.js`);\n"
+            "require(`./a${name}`);\n"
+            "require('./a' + name);\n"
+            "import(name);\n"
+            "import('./a.js', { with: {} });\n"
+            "require();\n"
+            "import();\n"
+            "require(`${name}`);\n"
+        )
+        result = analyze({"main.js": source, "a.js": ""})
+        self.assertEqual(
+            [(i.kind, i.line) for i in result.imports],
+            [
+                ("require", 1),
+                ("import", 2),
+                ("dynamic_import", 3),
+                ("require", 8),
+                ("dynamic_import", 12),
+            ],
+        )
+        # Calls are numbered apart from statements, so the statement keeps the
+        # identity it has without the calls.
+        ids = {i.kind: i.id for i in result.imports[:3]}
+        self.assertEqual(
+            ids["import"], identifier("fixture", "main.js", "./a.js", "Import", 0)
+        )
+        self.assertEqual(
+            ids["require"],
+            identifier("fixture", "main.js", "./a.js", "ImportCall", 0),
+        )
+        self.assertEqual(
+            ids["dynamic_import"],
+            identifier("fixture", "main.js", "./a.js", "ImportCall", 1),
+        )
+
+    @unittest.skipUnless(TYPESCRIPT_READY, "Provision the typescript extra")
+    def test_typescript_records_import_calls_but_not_require(self):
+        result = analyze(
+            {"main.ts": "require('./a');\nimport('./a');\n", "a.ts": ""},
+            languages=("typescript",),
+        )
+        self.assertEqual(
+            [(i.kind, i.line) for i in result.imports], [("dynamic_import", 2)]
         )
 
     def test_extensionless_lookup_prefers_js_then_jsx_mjs_cjs_then_index(self):

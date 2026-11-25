@@ -200,6 +200,12 @@ class CompilerImportTests(unittest.TestCase):
                     (),
                 ),
                 ("src/a.ts", 6): ("./b", "linked", None, (("src/b.ts", rule),)),
+                ("src/a.ts", 7): (
+                    "./lazy",
+                    "linked",
+                    None,
+                    (("src/lazy.ts", rule),),
+                ),
                 ("src/a.ts", 8): (
                     "typed",
                     "linked",
@@ -273,10 +279,8 @@ class CompilerImportTests(unittest.TestCase):
         by_parser = self.outcomes(result, parsed)
         for key in (("p.py", 1), ("tsconfig.json", 1), ("typed/package.json", 1)):
             self.assertEqual(outcomes[key], by_parser[key])
-        # The compiler records require() and import() too; the parser has
-        # no import fact for them, so they get no edge yet.
-        self.assertIn(("src/c.js", "./b"), {(r.file, r.specifier) for r in found})
-        self.assertIn(("src/a.ts", "./lazy"), {(r.file, r.specifier) for r in found})
+        # require() in JavaScript and import() are bound like statements.
+        self.assertEqual(outcomes[("src/c.js", 1)][3], (("src/b.ts", rule),))
         self.assertNotIn("src/j.tsx", {r.file for r in found})
         projects = {(row.file, row.project) for row in found}
         self.assertIn(("src/a.ts", "tsconfig.json"), projects)
