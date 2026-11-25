@@ -265,6 +265,10 @@ def parser():
                 "--name", required=True, help="Last name of the callee (param)"
             )
             q.add_argument("--file", help="Only calls written in this file")
+            q.add_argument(
+                "--target",
+                help="Only calls of this declaration (qualified name or file:line)",
+            )
         if name == "components":
             q.add_argument("--kind", help="Only components of this kind")
         if name == "file-components":
@@ -638,7 +642,11 @@ async def _execute(args, scip_report, scip_indexes):
             return await service.get_shared_tables(args.repository_id, **kwargs)
         if args.command == "call-sites":
             return await service.get_call_sites(
-                args.name, args.repository_id, file_path=args.file, **kwargs
+                args.name,
+                args.repository_id,
+                file_path=args.file,
+                target=args.target,
+                **kwargs,
             )
         if args.command == "component-files":
             return await service.get_component_files(

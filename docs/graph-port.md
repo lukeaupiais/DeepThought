@@ -170,7 +170,7 @@ for `c.req.param()`), file, line and column, `status` (`unresolved` or
 or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
 `tree-sitter.call-site-unlinked`. Every CALLS edge also carries `name`. So one
 query counts the linked, ambiguous and unresolved calls of a name:
-`get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
+`get_call_sites` (CLI `call-sites --name N [--file F] [--target T]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
 rule. Each call site names its `caller`, the function, method or file around
 it (qualified name, name, kind, `file_path`, `start_line`, `end_line` and
@@ -180,9 +180,26 @@ every declaration (module-level calls, anonymous callbacks) has its file as
 caller, named `(top level of file)` with no line span and `top_level: true`;
 the call keeps its own line. `get_function_callers`, `get_function_calls`,
 `get_base_types` and `get_subtypes` describe each declaration they return the
-same way, with its `source_roles`. Snapshots written before this change have no such nodes and answer
+same way, with its `source_roles`. Snapshots written before unlinked calls were stored have no UnresolvedCall nodes and answer
 `unsupported_or_unobserved`. Calls made through another name (an alias, a
 callback, dynamic dispatch) are not counted.
+
+`target` keeps the call sites of one declaration, so a name shared by
+members of other types (a `run` on two classes, `arrayBuffer` on a platform
+type) does not mix their calls in: calls linked to it, and ambiguous calls
+that list it among their candidates. Unresolved calls of the name may be
+calls of it too, so `counts` still counts them; the items leave them out.
+
+Every query about one declaration (`get_call_sites`'s `target`,
+`get_function_callers`, `get_function_calls`, `get_impact`, `get_members`,
+`get_owner`, `get_base_types`, `get_subtypes` and `get_class_hierarchy`)
+takes its qualified name or a place, `file:line` (`src/app.py:42`): the
+declaration named on that line, or else the innermost declaration around
+it, so a line read in the source, a stack trace or a diff names exactly one
+declaration. Qualified names always hold `::`, so the two never clash. More
+than one declaration named on that line (`class P { a() {} b() {} }`) is
+refused as ambiguous, listing their qualified names; a line no declaration
+spans is refused too.
 
 Python, JavaScript, TypeScript and Go call sites in a file that a SCIP index
 covers are bound from the index (`deepthought.scip_calls.bind_calls`).

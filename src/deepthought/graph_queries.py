@@ -40,6 +40,10 @@ def _json(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
 
 
+# A declaration given by place rather than name: "path/to/file.py:42".
+_PLACE = re.compile(r"(?P<file>[^:]+):(?P<line>[1-9][0-9]*)")
+
+
 def _text(value, name):
     if not isinstance(value, str) or not value.strip():
         raise ValueError(name + " must be a nonempty string")
@@ -190,6 +194,40 @@ class GraphQueryService:
         if marker is None:
             raise ValueError("Selected repository snapshot is missing or incomplete")
         return marker
+
+    async def _anchor(self, subject, repo_url, snapshot_id, timeout):
+        """The qualified name a query is about. A qualified name is kept; a
+        place, ``file:line``, names the declaration whose name is on that
+        line, or else the innermost declaration around it. Several declared
+        on that line are ambiguous: a ValueError lists them."""
+        place = _PLACE.fullmatch(subject)
+        if place is None:
+            return subject
+        found = await self._read(
+            "MATCH (d:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,file_path:$file}) "
+            "WHERE d.start_line <= $line AND $line <= coalesce(d.end_line, d.start_line) "
+            # Declarations named on the line start last of all around it.
+            "WITH d, d.start_line = $line AS named "
+            "ORDER BY d.start_line DESC, d.end_line, d.qualified_name "
+            "RETURN d.qualified_name AS qualified_name, named LIMIT $fetch_limit",
+            {"file": place["file"], "line": int(place["line"])},
+            repo_url,
+            snapshot_id,
+            limit=100,
+            timeout=timeout,
+        )
+        items = found["items"]
+        if not items:
+            raise ValueError("no declaration at " + subject)
+        named = [item["qualified_name"] for item in items if item["named"]]
+        if len(named) > 1:
+            raise ValueError(
+                "ambiguous place "
+                + subject
+                + ": several declarations are named on that line: "
+                + ", ".join(named)
+            )
+        return items[0]["qualified_name"]
 
     async def _read(
         self,
@@ -787,6 +825,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "function_qname")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:CALLS]->(func)" if incoming else "(func)-[r:CALLS]->(other)"
@@ -825,6 +864,7 @@ class GraphQueryService:
         *,
         snapshot_id,
         file_path=None,
+        target=None,
         limit=20,
         max_output_bytes=16000,
         timeout=5,
@@ -834,18 +874,29 @@ class GraphQueryService:
         target, the others with the reason no rule linked them, and how many
         there are of each. Each names its ``caller``, the function, method or
         file around it (qualified name, name, kind and line span), and the
-        ``source_roles`` of its file (``test``, ``example``)."""
+        ``source_roles`` of its file (``test``, ``example``).
+
+        ``target`` (a qualified name or a ``file:line`` place) keeps the
+        calls linked to that one declaration and the ambiguous ones that
+        list it among their candidates; same-named calls of anything else
+        are left out. Unresolved calls of the name could be calls of it, so
+        they stay in the counts, not the items."""
         _text(name, "name")
         if file_path is not None:
             _text(file_path, "file_path")
         _bounds(limit, max_output_bytes, timeout)
-        parameters = {"name": name, "file_path": file_path}
+        if target is not None:
+            _text(target, "target")
+            target = await self._anchor(target, repo_url, snapshot_id, timeout)
+        parameters = {"name": name, "file_path": file_path, "target": target}
         linked = """MATCH (caller)-[r:CALLS {name:$name}]->(target)
             WHERE caller.repo_url=$repo_url AND caller.snapshot_id=$snapshot_id
               AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
-              AND ($file_path IS NULL OR caller.file_path=$file_path)"""
+              AND ($file_path IS NULL OR caller.file_path=$file_path)
+              AND ($target IS NULL OR target.qualified_name=$target)"""
         unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
-            WHERE $file_path IS NULL OR call.file_path=$file_path
+            WHERE ($file_path IS NULL OR call.file_path=$file_path)
+              AND ($target IS NULL OR $target IN coalesce(call.candidates, [])KEPT)
             OPTIONAL MATCH (caller)-[:HAS_UNRESOLVED_CALL]->(call)"""
         # The function, method or file around the call, and whether its file
         # is a test or an example.
@@ -858,7 +909,7 @@ class GraphQueryService:
             "CALL () { "
             + linked
             + " RETURN 'linked' AS status,count(r) AS calls UNION ALL "
-            + unlinked
+            + unlinked.replace("KEPT", " OR call.status='unresolved'")
             + " RETURN call.status AS status,count(call) AS calls } "
             "RETURN status,sum(calls) AS calls ORDER BY status",
             parameters,
@@ -876,7 +927,7 @@ class GraphQueryService:
             + enclosing
             + "null AS reason,null AS resolver,"
             "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
-            + unlinked
+            + unlinked.replace("KEPT", "")
             + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
             "call.line AS line,call.column AS column,"
             + enclosing
@@ -947,6 +998,8 @@ class GraphQueryService:
         (``test``, ``example``; see ``source_roles``). ``exclude_roles``
         leaves dependents with any of those roles out.
         """
+        _text(qname, "qualified_name")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         return await self._impact(
             "MATCH (root:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id,qualified_name:$subject}) "
             "OPTIONAL MATCH (root)-[:CONTAINS*1..10]->(part:Symbol) "
@@ -1333,6 +1386,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, limit, budget, timeout
     ):
         _text(qname, "qualified_name")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         pattern = (
             "(other:Symbol)-[r:CONTAINS]->(d)"
             if incoming
@@ -1404,6 +1458,7 @@ class GraphQueryService:
         self, qname, repo_url, snapshot_id, incoming, evidence, limit, budget, timeout
     ):
         _text(qname, "type_qname")
+        qname = await self._anchor(qname, repo_url, snapshot_id, timeout)
         evidence = _evidence_filter(evidence)
         pattern = (
             "(other)-[r:INHERITS_FROM]->(t)"
@@ -2070,6 +2125,7 @@ class GraphQueryService:
         interface ``extends`` edges are followed too.
         """
         _text(class_qname, "class_qname")
+        class_qname = await self._anchor(class_qname, repo_url, snapshot_id, timeout)
         if type(max_depth) is not int or not 1 <= max_depth <= 10:
             raise ValueError("max_depth must be an integer from 1 to 10")
         statement = """MATCH (c:Symbol {qualified_name:$qname,repo_url:$repo_url,snapshot_id:$snapshot_id})
