@@ -3736,10 +3736,21 @@ Reading Go from go/types instead of import patterns, on the 18 Go
 repositories with a broker client (the three client repositories fully
 checked out): 3 links are gained and 4 lost. The gains are confluent-kafka-go
 examples whose consumer topic is a local the old rule could not follow.
-The losses are robot-shop's `dispatch` service, a GOPATH-era program with
-no `go.mod`, counted twice because the corpus holds two copies of it. The
-type checker cannot check it, so its file is now
-`go_types:not_type_checked`.
+The losses were robot-shop's `dispatch` service, a GOPATH-era program with
+no `go.mod`, counted twice because the corpus holds two copies of it. They
+are kept by checking such packages as modules of their own:
+
+- **GOPATH-era packages.** The Go files of a directory outside every module
+  are copied to a temporary module with a generated `go.mod`, and their
+  imports resolve to the latest versions when the analysis runs, which is
+  what `go get` gave such a package.
+- **Recorded resolution.** Because those versions change over time, each
+  such directory is listed in the run metadata (`go_gopath_packages` for
+  service contracts, `go_type_facts.gopath_packages` for data contracts)
+  with status `gopath_latest`, the module versions the check required and
+  the SHA-256 of the `go.sum` it produced, so a result can be traced and
+  reproduced. For robot-shop's `dispatch` these include
+  `github.com/streadway/amqp v1.1.0`.
 
 #### NestJS microservices
 
