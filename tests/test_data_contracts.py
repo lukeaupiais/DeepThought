@@ -732,6 +732,197 @@ class SqlModelTests(unittest.TestCase):
         )
 
 
+TYPEORM_SCIP = {
+    "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    "src/user.entity.ts": "import { Entity } from 'typeorm';\n"
+    "@Entity('users')\n"
+    "export class User {}\n",
+    "src/user.service.ts": "import { Repository, DataSource, EntityManager } from 'typeorm';\n"
+    "import { InjectRepository } from '@nestjs/typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserService {\n"
+    "  constructor(@InjectRepository(User) private repo: Repository<User>, private ds: DataSource, private em: EntityManager) {}\n"
+    "  list() { return this.repo.find(); }\n"
+    "  add(u: User) { return this.repo.save(u); }\n"
+    "  build() { return this.repo.create({}); }\n"
+    "  count() { return this.ds.getRepository(User).count(); }\n"
+    "  held() { const r = this.ds.getRepository(User); return r.delete(1); }\n"
+    "  managed() { return this.em.findOneBy(User, {}); }\n"
+    "  other(c: any) { return c.find(); }\n"
+    "}\n"
+    "export class UserRepo extends Repository<User> {\n"
+    "  mine() { return this.findBy({}); }\n"
+    "}\n",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class TypeormScipTests(unittest.TestCase):
+    def analyze(self, with_index, unresolved=()):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, TYPEORM_SCIP)
+            indexes = (self.index(directory, unresolved),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        metrics = output.metadata.custom_metrics
+        return edges, metrics["typeorm_scip"], metrics["orm_access_resolution"]
+
+    def index(self, directory, unresolved=()):
+        """A scip-typescript index of TYPEORM_SCIP's names: TypeORM's
+        repository, data source and entity manager methods, except
+        other()'s find. The names in ``unresolved`` get no symbol, as in a
+        file whose imports the indexer could not follow."""
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        typeorm = "scip-typescript npm typeorm 0.3.28 "
+        repository = typeorm + "repository/`Repository.d.ts`/Repository#"
+        source = typeorm + "data-source/`DataSource.d.ts`/DataSource#getRepository()."
+        manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        nest = (
+            "scip-typescript npm @nestjs/typeorm 11.0.1 "
+            "dist/common/`typeorm.decorators.d.ts`/InjectRepository."
+        )
+        app = "scip-typescript npm app 1 src/"
+        user = app + "`user.entity.ts`/User#"
+        service = app + "`user.service.ts`/UserService#"
+        documents = {
+            "src/user.entity.ts": [(2, "User", user, True, 0)],
+            "src/user.service.ts": [
+                (2, "User", user, False, 0),
+                (4, "InjectRepository", nest, False, 0),
+                (4, "User", user, False, 0),
+                (4, "repo", service + "repo.", True, 0),
+                (4, "Repository", repository, False, 0),
+                (4, "User", user, False, 1),
+                (4, "ds", service + "ds.", True, 0),
+                (4, "em", service + "em.", True, 0),
+                (5, "repo", service + "repo.", False, 0),
+                (5, "find", repository + "find().", False, 0),
+                (6, "repo", service + "repo.", False, 0),
+                (6, "save", repository + "save().", False, 0),
+                (8, "ds", service + "ds.", False, 0),
+                (8, "getRepository", source, False, 0),
+                (8, "User", user, False, 0),
+                (8, "count", repository + "count().", False, 1),
+                (9, "r", "local 1", True, 0),
+                (9, "ds", service + "ds.", False, 0),
+                (9, "getRepository", source, False, 0),
+                (9, "User", user, False, 0),
+                (9, "r", "local 1", False, 1),
+                (9, "delete", repository + "delete().", False, 0),
+                (10, "em", service + "em.", False, 0),
+                (10, "findOneBy", manager + "findOneBy().", False, 0),
+                (10, "User", user, False, 0),
+                (
+                    11,
+                    "find",
+                    "scip-typescript npm other 1 `c.d.ts`/C#find().",
+                    False,
+                    0,
+                ),
+                (13, "Repository", repository, False, 0),
+                (13, "User", user, False, 0),
+                (14, "findBy", repository + "findBy().", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = TYPEORM_SCIP[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_calls_resolved_through_a_scip_index(self):
+        edges, counts, orm = self.analyze(True)
+        # Each call is read where its method is written; create() touches
+        # no table and other()'s find is not TypeORM's.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "UserRepo.mine", "users", "typeorm-scip"),
+                ("READS", "UserService.count", "users", "typeorm-scip"),
+                ("READS", "UserService.list", "users", "typeorm-scip"),
+                ("READS", "UserService.managed", "users", "typeorm-scip"),
+                ("WRITES", "UserService.add", "users", "typeorm-scip"),
+                ("WRITES", "UserService.held", "users", "typeorm-scip"),
+            ],
+        )
+        self.assertEqual(
+            counts,
+            {
+                "linked": 6,
+                "no_scip_index": 0,
+                "not_typeorm": 1,
+                "entity_unknown": 0,
+                "not_an_entity": 0,
+            },
+        )
+        # The decorator and getRepository name rule gives way in the file.
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 3)
+        self.assertEqual(orm["typeorm_linked"], 0)
+
+    def test_calls_the_index_could_not_type_are_counted(self):
+        # Without symbols at the repository's names, the index read nothing
+        # there: those uses are counted, and the name rule reads them.
+        edges, counts, orm = self.analyze(
+            True, unresolved=("InjectRepository", "getRepository")
+        )
+        self.assertEqual(orm["typeorm_index_unresolved"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+        self.assertIn(
+            ("READS", "UserService.constructor", "users", "typeorm-repository"),
+            edges,
+        )
+
+    def test_without_an_index_the_name_rule_reads_repositories(self):
+        edges, counts, orm = self.analyze(False)
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "UserService.constructor", "users", "typeorm-repository"),
+                ("READS", "UserService.count", "users", "typeorm-repository"),
+                ("READS", "UserService.held", "users", "typeorm-repository"),
+                ("WRITES", "UserService.constructor", "users", "typeorm-repository"),
+                ("WRITES", "UserService.held", "users", "typeorm-repository"),
+            ],
+        )
+        self.assertEqual(counts["no_scip_index"], 7)
+        self.assertEqual(orm["typeorm_linked"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+
+
 KYSELY = {
     "package.json": '{"name": "app", "dependencies": {"kysely": "0.29.8"}}',
     "src/repo.ts": "import { Kysely } from 'kysely';\n"
@@ -1349,6 +1540,8 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_linked": 2,
                 "typeorm_not_an_entity": 1,
                 "typeorm_wrapper_not_an_entity": 0,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:
@@ -1403,6 +1596,8 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_linked": 5,
                 "typeorm_not_an_entity": 0,
                 "typeorm_wrapper_not_an_entity": 1,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:

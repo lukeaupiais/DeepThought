@@ -54,6 +54,9 @@ from ..data_contracts import (
     annotated_classes,
     sqlmodel_default_mappings,
     extract_typeorm,
+    extract_typeorm_calls,
+    typeorm_call_entities,
+    _TYPEORM_WRITES,
     extract_sequelize,
     extract_mongodb_collections,
     extract_knex,
@@ -668,6 +671,22 @@ TYPEORM_WRAPPER_RULE = register_rule(
         "a TypeORM entity: the one such entity of the caller's namespace, "
         "else of the repository. Reads and writes follow the chained method "
         "as for data-contracts.typeorm-repository.",
+    )
+)
+
+TYPEORM_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to a read "
+        "(find, count and the like: READS) or write (save, update, delete "
+        "and the like: WRITES) method of TypeORM's Repository, "
+        "TreeRepository, MongoRepository or EntityManager, and the entity "
+        "class to a TypeORM entity: the receiver's declared type "
+        "Repository<E> (a property, parameter or variable, or this in a "
+        "class extending it), a TypeORM getRepository(E) call or a variable "
+        "holding one, or an entity manager method's first argument; every "
+        "name resolved through the index.",
     )
 )
 
@@ -1820,9 +1839,10 @@ class DataContractTool(AnalysisTool):
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
             typeorm_children.extend(found[2])
-        typeorm_targets = {}
+        typeorm_targets, typeorm_by_model = {}, {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
+            typeorm_by_model[mapping.model_id] = target
             typeorm_targets.setdefault(mapping.name, set()).add(
                 (scope(mapping.file), target)
             )
@@ -1849,6 +1869,7 @@ class DataContractTool(AnalysisTool):
                 typeorm_targets.setdefault(child.name, set()).add(
                     (scope(child.file), target)
                 )
+                typeorm_by_model[child.model_id] = target
                 link(
                     "MAPS_TO",
                     symbol(child.model_id),
@@ -1867,7 +1888,24 @@ class DataContractTool(AnalysisTool):
         # A wrapper call names no entity more often than not: count those
         # apart so the TypeORM API's own misses stay visible.
         orm_counts.update(typeorm_wrapper_not_an_entity=0)
+        # In files a scip-typescript index covers, TypeORM's own repository
+        # and entity manager calls are read through the index (below), and
+        # the decorator-level name rule is not used.
+        # Where the index records no symbol, or only a local one, at the
+        # getRepository or InjectRepository name, it could not type the call
+        # (its imports did not resolve, as in a package importing its own
+        # unbuilt dist): the index read nothing there, and the run counts
+        # it (typeorm_index_unresolved).
+        orm_counts.update(typeorm_name_rule_replaced=0, typeorm_index_unresolved=0)
         for use in typeorm_uses:
+            if not use.wrapper and references.covers(use.file):
+                called = references.symbols(
+                    use.file, use.callee_line, use.callee_column
+                )
+                if any(not c.startswith("local ") for c in called or ()):
+                    orm_counts["typeorm_name_rule_replaced"] += 1
+                    continue
+                orm_counts["typeorm_index_unresolved"] += 1
             targets = _nearest(typeorm_targets.get(use.model, set()), scope(use.file))
             if len(targets) != 1:
                 orm_counts[
@@ -1887,6 +1925,49 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_WRAPPER_RULE if use.wrapper else TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        typeorm_scip_counts = {
+            "linked": 0,
+            "no_scip_index": 0,
+            "not_typeorm": 0,
+            "entity_unknown": 0,
+            "not_an_entity": 0,
+        }
+        if typeorm_mappings or typeorm_children:
+            ts_trees = {file: (content, tree) for file, content, tree in script_trees}
+            for file, content, tree in script_trees:
+                for call in extract_typeorm_calls(
+                    tree, content, file, result.definitions
+                ):
+                    status, entities = typeorm_call_entities(references, ts_trees, call)
+                    if status != "resolved":
+                        typeorm_scip_counts[status] += 1
+                        continue
+                    targets = sorted(
+                        {
+                            typeorm_by_model[e.id]
+                            for e in entities
+                            if e.id in typeorm_by_model
+                        },
+                        key=str,
+                    )
+                    if len(targets) != 1:
+                        typeorm_scip_counts["not_an_entity"] += 1
+                        continue
+                    typeorm_scip_counts["linked"] += 1
+                    tool, receipt = references.tool(call.file)
+                    link(
+                        "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                        code(call.file, call.caller_id),
+                        targets[0],
+                        TYPEORM_SCIP_RULE,
+                        {
+                            "method": call.method,
+                            "line": call.line,
+                            "column": call.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                    )
         # Sequelize: migrations, models and their static calls.
         sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
         for path in _sql_files(root, include, exclude, ".json"):
@@ -2731,6 +2812,7 @@ class DataContractTool(AnalysisTool):
                     "knex": knex_counts,
                     "kysely": kysely_counts,
                     "orm_access_resolution": orm_counts,
+                    "typeorm_scip": typeorm_scip_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
