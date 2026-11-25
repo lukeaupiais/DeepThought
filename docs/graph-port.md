@@ -3289,7 +3289,7 @@ link to their mutations, and `subscribeWebPush` is
 
 ### Payload types
 
-A route or message destination CARRIES the types its handler writes for
+A route or message destination CARRIES the types its handler, or a producer, writes for
 what goes over it, so a change to such a type reaches the contract and,
 through it, the clients that must change with it (`get_impact` follows
 CARRIES backwards):
@@ -3304,6 +3304,8 @@ CARRIES backwards):
 | HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.fastapi-response-type` | resolved | the decorator's `response_model`, else the handler's return annotation; `response_model=None` carries nothing |
 | MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
 | MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-client-data-type` | resolved | the value a NestJS `ClientProxy` sends with `send(pattern, data)` or `emit(pattern, data)`: the type written where `data`'s name is declared, else the compiler's type of it, and the types of an object or array literal's members (`{ shipment, audit }` carries both) |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.kafkajs-message-value-type` | resolved | the value a kafkajs producer's `send()` message serializes: `JSON.stringify(x)` as the message's `value`, directly or inside `Buffer.from(...)`; x's types as for `nestjs-client-data-type` |
 
 The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
 name written in such a type, through imports, re-exports and the project's

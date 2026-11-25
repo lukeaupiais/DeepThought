@@ -158,13 +158,21 @@ class _Sites:
             )
         )
 
-    def add_folded(self, node, role, broker, compute, client, folder):
+    def add_folded(self, node, role, broker, compute, client, folder, payloads=()):
         """Add the sites of the destination ``compute(folder)`` gives; one
         built from parameters of the module-level function around the site
         takes, instead, each value that calls of the function give
         (``self.calls_of``)."""
         for destination, calls in fold_through_calls(folder, compute, self.calls_of):
-            self.add(node, role, broker, destination, client, argument_from=calls)
+            self.add(
+                node,
+                role,
+                broker,
+                destination,
+                client,
+                argument_from=calls,
+                payloads=payloads,
+            )
 
     def consume_queue(
         self, node, queue, bindings, client, declaration_id=None, identity=None
@@ -867,6 +875,37 @@ _PUBSUB_CLASSES = (
 _REDIS_PUBSUB = (("graphql-redis-subscriptions", "RedisPubSub"),)
 
 
+def _kafkajs_values(messages, content):
+    """(direction, start, end, None) of what each kafkajs message's ``value``
+    serializes: the argument of ``JSON.stringify(x)``, written as the value
+    or inside ``Buffer.from(...)``. The TypeScript compiler gives the types
+    of the value at that span (ts_facts)."""
+    found = []
+    items = (
+        [] if messages is None or messages.type != "array" else messages.named_children
+    )
+    for item in items:
+        value = _js_object(item, content).get("value")
+        while value is not None and value.type == "call_expression":
+            function = value.child_by_field_name("function")
+            arguments = [
+                a
+                for a in value.child_by_field_name("arguments").named_children
+                if a.type != "comment"
+            ]
+            called = text(function, content)
+            if called == "JSON.stringify" and arguments:
+                found.append(
+                    ("request", arguments[0].start_byte, arguments[0].end_byte, None)
+                )
+                break
+            if called == "Buffer.from" and arguments:
+                value = arguments[0]
+                continue
+            break
+    return tuple(found)
+
+
 _KAFKAJS = (("kafkajs", "Kafka"),)
 _AMQPLIB = ("amqplib", "amqplib/callback_api")
 _CHANNEL_FACTORIES = ("createChannel", "createConfirmChannel")
@@ -1063,20 +1102,29 @@ def extract_javascript_brokers(sites, language):
         if kind == "producer" and verb in ("send", "sendBatch") and positional:
             options = _js_object(positional[0], content)
             if verb == "send":
-                topics = [options.get("topic")]
+                sent = [(options.get("topic"), options.get("messages"))]
             else:
                 batch = options.get("topicMessages")
                 if batch is None or batch.type != "array":
-                    topics = [None]
+                    sent = [(None, None)]
                 else:
-                    topics = [
-                        _js_object(item, content).get("topic")
+                    sent = [
+                        (
+                            _js_object(item, content).get("topic"),
+                            _js_object(item, content).get("messages"),
+                        )
                         for item in batch.named_children
                         if item.type != "comment"
                     ]
-            for topic in topics:
+            for topic, messages in sent:
                 sites.add_folded(
-                    node, "publish", "kafka", _evaluator(topic), "kafkajs", folder
+                    node,
+                    "publish",
+                    "kafka",
+                    _evaluator(topic),
+                    "kafkajs",
+                    folder,
+                    payloads=_kafkajs_values(messages, content),
                 )
         elif kind == "consumer" and verb == "subscribe" and positional:
             options = _js_object(positional[0], content)
@@ -1400,6 +1448,9 @@ def extract_nest_microservices(sites, language):
         if not arguments:
             continue
         kind = "message" if found[1] == "send" else "event"
+        # The data the client sends; its types come from the TypeScript
+        # compiler, by the span (ts_facts).
+        data = arguments[1] if len(arguments) > 1 else None
         sites.add_folded(
             node,
             "publish",
@@ -1409,6 +1460,11 @@ def extract_nest_microservices(sites, language):
             ),
             "nestjs-microservices",
             folder,
+            payloads=(
+                ()
+                if data is None
+                else (("request", data.start_byte, data.end_byte, None),)
+            ),
         )
 
 
