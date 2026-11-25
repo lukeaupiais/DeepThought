@@ -2245,8 +2245,6 @@ def extract_python_sql(tree, content, file, definitions):
 
 # TypeScript and JavaScript: Prisma and TypeORM -----------------------------
 
-_PRISMA_MODEL = re.compile(r"^[ \t]*model[ \t]+([A-Za-z_]\w*)[ \t]*\{", re.MULTILINE)
-_PRISMA_MAP = re.compile(r'@@map\(\s*(?:name\s*:\s*)?"([^"]+)"\s*\)')
 PRISMA_READS = {
     "findUnique",
     "findUniqueOrThrow",
@@ -2296,36 +2294,6 @@ class ModelUse:
     # column).
     callee_line: int = 0
     callee_column: int = 0
-
-
-def extract_prisma_schema(file, content: bytes):
-    """The models a Prisma schema declares, each with its table: the
-    ``@@map`` name, else the model name. None if the file is not UTF-8."""
-    try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    # Comments (// and ///) blanked; Prisma has no block comments.
-    text = re.sub(
-        r'"(?:[^"\\\n]|\\.)*"|//[^\n]*',
-        lambda m: m.group(0) if m.group(0)[0] == '"' else _blank(m),
-        text,
-    )
-    found = []
-    for match in _PRISMA_MODEL.finditer(text):
-        end = re.search(r"^[ \t]*\}", text[match.end() :], re.MULTILINE)
-        body = text[match.end() : match.end() + end.start()] if end else ""
-        mapped = _PRISMA_MAP.search(body)
-        found.append(
-            PrismaModel(
-                file,
-                match.group(1),
-                mapped.group(1) if mapped else match.group(1),
-                mapped is not None,
-                text.count("\n", 0, match.start()) + 1,
-            )
-        )
-    return found
 
 
 def prisma_accessor(model):
@@ -2418,7 +2386,11 @@ def extract_typeorm(tree, content, file, definitions):
     root = tree.root_node
     imports = _script_imports(root, content)
     typeorm = {
-        local: name for local, (module, name) in imports.items() if module in _TYPEORM
+        local: name
+        for local, (module, name) in imports.items()
+        # A deep import (``typeorm/decorator/entity/Entity.js``) exports the
+        # same decorator.
+        if module in _TYPEORM or module.startswith("typeorm/")
     }
     # A class name a getRepository argument may name: an imported binding
     # or a class this file declares, never a local variable or parameter.
@@ -2600,7 +2572,11 @@ def extract_typeorm_calls(tree, content, file, definitions):
         if name is None:
             continue
         method = _text(name, content)
-        if method not in _TYPEORM_READS and method not in _TYPEORM_WRITES:
+        if (
+            method not in _TYPEORM_READS
+            and method not in _TYPEORM_WRITES
+            and method != "createQueryBuilder"
+        ):
             continue
         found.append(
             TypeormCall(
@@ -2647,6 +2623,135 @@ def typeorm_call_entities(references, trees, call):
         )
     entities = tuple(sorted(found, key=lambda d: d.id))
     return ("resolved" if entities else "entity_unknown"), entities
+
+
+# scip-typescript symbols of the methods that start a TypeORM query builder,
+# and of the query builder's own methods: (class, method).
+_TYPEORM_BUILDER_START = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/"
+    r"(Repository|TreeRepository|MongoRepository|EntityManager|MongoEntityManager"
+    r"|DataSource|Connection|QueryRunner)#createQueryBuilder\(\)\."
+)
+_TYPEORM_BUILDER_METHOD = re.compile(
+    r"scip-typescript npm typeorm \S+ query-builder/.*/(\w*QueryBuilder)#(\w+)\(\)\."
+)
+# Builder methods that make it a write, and those that name its root table.
+_TYPEORM_BUILDER_WRITES = frozenset("insert update delete softDelete restore".split())
+_TYPEORM_BUILDER_ROOT = frozenset("from into update".split())
+
+
+@dataclass(frozen=True)
+class TypeormBuilder:
+    """A TypeORM query builder resolved through the index: its root table as
+    entity classes or a literal table name, and whether it writes."""
+
+    entities: tuple
+    table: str | None
+    writes: bool
+
+
+def typeorm_builder(references, trees, call):
+    """(status, TypeormBuilder or None) of a ``createQueryBuilder`` call, as
+    typeorm_call_entities: the index must resolve the call to TypeORM's
+    createQueryBuilder. The root table is the repository's entity (its
+    receiver, as for repository calls), the entity argument of an entity
+    manager's or data source's builder, else the entity class or literal
+    table name the chain's first ``from``, ``into`` or ``update`` names.
+    The builder writes when the chain calls TypeORM's ``insert``,
+    ``update``, ``delete``, ``softDelete`` or ``restore``,
+    every method resolved through the index; otherwise it reads."""
+    called = references.symbols(call.file, call.line, call.column)
+    if called is None:
+        return "no_scip_index", None
+    owners = {
+        m.group(1)
+        for m in (_TYPEORM_BUILDER_START.fullmatch(c) for c in called)
+        if m is not None
+    }
+    if not owners:
+        return "not_typeorm", None
+    content, tree = trees[call.file]
+    point = (call.line - 1, call.column)
+    name = tree.root_node.descendant_for_point_range(point, point)
+    member = name.parent if name is not None else None
+    if member is None or member.type != "member_expression":
+        return "entity_unknown", None
+    start = member.parent
+    # The chain of builder methods called on the builder, in order.
+    chain, node = [], start
+    while (
+        node.parent is not None
+        and node.parent.type == "member_expression"
+        and node.parent.child_by_field_name("object") == node
+        and node.parent.parent is not None
+        and node.parent.parent.type == "call_expression"
+    ):
+        prop = node.parent.child_by_field_name("property")
+        node = node.parent.parent
+        if prop is None:
+            break
+        method = _text(prop, content)
+        symbols = references.symbols(
+            call.file, prop.start_point.row + 1, prop.start_point.column
+        )
+        if any(
+            (m := _TYPEORM_BUILDER_METHOD.fullmatch(c)) and m.group(2) == method
+            for c in symbols or ()
+        ):
+            chain.append((method, node))
+    if any(method == "relation" for method, _ in chain):
+        # A relation builder writes the related side (its foreign key, or a
+        # many-to-many junction table), not the root: left unread
+        # (relation_builders).
+        return "relation_builders", None
+    writes = any(method in _TYPEORM_BUILDER_WRITES for method, _ in chain)
+    found = set()
+    if owners & {"Repository", "TreeRepository", "MongoRepository"}:
+        found |= _typeorm_receiver_entity(
+            references, trees, call.file, member.child_by_field_name("object"), 3
+        )
+    if not found and owners & {
+        "EntityManager",
+        "MongoEntityManager",
+        "DataSource",
+        "Connection",
+    }:
+        found |= _typeorm_argument_entity(references, trees, call.file, start)
+    table = None
+    if not found:
+        root = next((c for m, c in chain if m in _TYPEORM_BUILDER_ROOT), None)
+        if root is not None:
+            found |= _typeorm_argument_entity(references, trees, call.file, root)
+            if not found:
+                table = _typeorm_literal_table(root, content)
+        # A name the chain declares as a common table expression is no
+        # table (``addCommonTableExpression(qb, "_variants")``).
+        declared = {
+            _typeorm_literal_table(c, content, 1)
+            for m, c in chain
+            if m == "addCommonTableExpression"
+        }
+        if table in declared:
+            table = None
+    entities = tuple(sorted(found, key=lambda d: d.id))
+    if not entities and table is None:
+        return "entity_unknown", None
+    return "resolved", TypeormBuilder(entities, table, writes)
+
+
+def _typeorm_literal_table(call, content, position=0):
+    """The table name a builder method's argument at ``position`` writes as a
+    string literal (``from("albums_assets_assets", "a")``), else None."""
+    arguments = call.child_by_field_name("arguments")
+    given = [
+        a
+        for a in (arguments.named_children if arguments else ())
+        if a.type != "comment"
+    ]
+    first = given[position] if len(given) > position else None
+    if first is None or first.type != "string":
+        return None
+    return _script_string(first, content)
 
 
 def _typeorm_argument_entity(references, trees, file, call):
@@ -4433,6 +4538,10 @@ class DrizzleUse:
     writes: bool
     line: int
     column: int
+    # Where the table's name is written: the argument, the property of
+    # ``schema.users`` or the query key of ``db.query.users``.
+    ref_line: int = 0
+    ref_column: int = 0
 
 
 @dataclass(frozen=True)
@@ -4655,10 +4764,16 @@ def extract_drizzle(tree, content, file, definitions):
         if receiver is None:
             continue
         if method in DRIZZLE_READS | DRIZZLE_WRITES:
-            ref = reference(args[0] if args else None)
+            argument = args[0] if args else None
+            ref = reference(argument)
             if ref is None:
                 continue
             reads, writes = method in DRIZZLE_READS, method in DRIZZLE_WRITES
+            written = (
+                argument.child_by_field_name("property")
+                if argument.type == "member_expression"
+                else argument
+            )
         elif method in DRIZZLE_QUERY_READS and receiver.type == "member_expression":
             query = receiver.child_by_field_name("object")
             if (
@@ -4667,9 +4782,8 @@ def extract_drizzle(tree, content, file, definitions):
                 or _text(query.child_by_field_name("property"), content) != "query"
             ):
                 continue
-            ref = DrizzleRef(
-                "query", _text(receiver.child_by_field_name("property"), content), None
-            )
+            written = receiver.child_by_field_name("property")
+            ref = DrizzleRef("query", _text(written, content), None)
             reads, writes = True, False
         else:
             continue
@@ -4684,6 +4798,8 @@ def extract_drizzle(tree, content, file, definitions):
                 # The method's own line: a chain starts lines earlier.
                 where.start_point.row + 1,
                 where.start_point.column,
+                written.start_point.row + 1,
+                written.start_point.column,
             )
         )
     return tables, uses, module
@@ -9862,13 +9978,26 @@ def _script_sql_text(node, content, depth=0):
     return None
 
 
-def extract_script_sql(tree, content, file, definitions):
+# scip-typescript symbols of TypeORM's raw query methods.
+TYPEORM_QUERY_SYMBOL = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/"
+    r"(Repository|TreeRepository|EntityManager|DataSource|Connection|QueryRunner)"
+    r"#query\(\)\."
+)
+
+
+def extract_script_sql(tree, content, file, definitions, references=None):
     """SQL that one JavaScript or TypeScript file passes to a Node driver's
-    query method, in a file importing a SQL driver or knex. The text must
-    start with a statement verb; the receiver's type is not checked."""
+    query method, in a file importing a SQL driver or knex
+    (``script-sql``: the receiver's type is not checked), or to TypeORM's
+    ``query`` where a scip-typescript index (``references``) resolves the
+    method to it (``typeorm-sql``). The text must start with a statement
+    verb."""
     root = tree.root_node
     bindings = script_bindings(root, content)
-    if not any(source in SCRIPT_SQL_MODULES for source, _ in bindings.values()):
+    driver = any(source in SCRIPT_SQL_MODULES for source, _ in bindings.values())
+    covered = references is not None and references.covers(file)
+    if not driver and not covered:
         return []
     found = []
     for call in _descendants(root, "call_expression"):
@@ -9877,6 +10006,15 @@ def extract_script_sql(tree, content, file, definitions):
             continue
         name = function.child_by_field_name("property")
         if name is None or _text(name, content) not in SCRIPT_SQL_METHODS:
+            continue
+        how = "script-sql"
+        if covered and _text(name, content) == "query":
+            called = references.symbols(
+                file, name.start_point.row + 1, name.start_point.column
+            )
+            if any(TYPEORM_QUERY_SYMBOL.fullmatch(c) for c in called or ()):
+                how = "typeorm-sql"
+        if how == "script-sql" and not driver:
             continue
         arguments = call.child_by_field_name("arguments")
         first = (
@@ -9898,7 +10036,7 @@ def extract_script_sql(tree, content, file, definitions):
             SqlUse(
                 file,
                 _innermost(definitions, file, call),
-                "script-sql",
+                how,
                 False,
                 statement,
                 call.start_point.row + 1,
