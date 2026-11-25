@@ -549,6 +549,23 @@ def run_indexer(
             )
             argv = [a for a in argv[:5] if a != "--infer-tsconfig"]
             argv += ["--no-progress-bar", str(config)]
+        elif "--infer-tsconfig" in argv:
+            # A workspace without a tsconfig.json (JavaScript): the project is
+            # written here, not inferred. --infer-tsconfig writes a
+            # tsconfig.json into the workspace, which may be read-only and
+            # must be left as it was.
+            project = _javascript_project()
+            config = Path(scratch) / "tsconfig.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        **project,
+                        "include": [str(base / i) for i in project["include"]],
+                        "exclude": [str(base / x) for x in project["exclude"]],
+                    }
+                )
+            )
+            argv = [a for a in argv if a != "--infer-tsconfig"] + [str(config)]
         dependencies = None
         if spec.name == "scip-python":
             from .python_dependencies import install
@@ -565,11 +582,6 @@ def run_indexer(
                     "failed",
                 )
             }
-        # --infer-tsconfig writes a tsconfig.json into the workspace; the run
-        # must leave the workspace as it found it.
-        inferred = (
-            indexed_root / "tsconfig.json" if "--infer-tsconfig" in argv else None
-        )
         try:
             result = subprocess.run(
                 [str(executable), *argv],
@@ -584,9 +596,6 @@ def run_indexer(
             run.reason = "indexer_timeout"
             run.wall_seconds = time.monotonic() - started
             return run
-        finally:
-            if inferred is not None:
-                inferred.unlink(missing_ok=True)
         log = (result.stdout + result.stderr)[-4000:]
         if result.returncode or not temporary.is_file():
             run.reason, run.detail = "indexer_failed", log
@@ -712,6 +721,17 @@ def _prepared_packages(root, directory, environ, timeout):
     prepared = prepare(root, target, environ=environ, timeout=timeout)
     record.write_text(json.dumps(prepared))
     return prepared
+
+
+def _javascript_project():
+    """The project of a workspace without a tsconfig.json, with paths
+    relative to it: every JavaScript and TypeScript file outside
+    node_modules."""
+    return {
+        "compilerOptions": {"allowJs": True, "noEmit": True},
+        "include": ["**/*"],
+        "exclude": ["**/node_modules"],
+    }
 
 
 def _uncovered_project(root, files):
