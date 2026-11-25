@@ -1264,6 +1264,10 @@ class GraphQueryService:
                 # A column's dependents are found through its own edges; a
                 # path through its table says nothing about the column.
                 "AND (NOT root:DbColumn OR none(n IN nodes(path) WHERE n:DbTable)) "
+                # Columns are not code: a writer's other columns (reached
+                # forwards over WRITES_COLUMN) are neither dependents nor
+                # a way to their readers.
+                "AND none(n IN nodes(path)[..-1] WHERE n:DbColumn) "
                 "WITH root, messages, known, dependent, target, path, "
                 "[r IN relationships(path) | r.evidence_type] AS kinds "
                 "WITH root, messages, known, dependent, target, path, CASE "

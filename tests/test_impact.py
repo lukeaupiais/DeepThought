@@ -943,7 +943,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             '    return conn.execute("SELECT name FROM users")\n'
             "\n"
             "def set_email(conn, value):\n"
-            '    conn.execute("UPDATE users SET email = ?", (value,))\n'
+            '    conn.execute("UPDATE users SET email = ?, name = ?", (value, value))\n'
             "\n"
             "def odd(conn):\n"
             '    return conn.execute("SELECT nope FROM users")\n'
@@ -992,6 +992,17 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("page", 2, "retest"),
                 ("save", 1, "retest"),
             ],
+        )
+        # The writer's other column (name) is not a dependent, nor a way to
+        # its readers (names).
+        self.assertEqual(
+            [
+                item["element"]["name"]
+                for item in impact["items"]
+                if "DbColumn" in item["element"]["labels"]
+                or item["element"]["name"] == "names"
+            ],
+            [],
         )
         # odd names no column of users: whether it uses email is unknown.
         self.assertEqual(
