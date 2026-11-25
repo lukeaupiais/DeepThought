@@ -1302,6 +1302,9 @@ renamed with their implementation. TypeScript outside the project is
 `blocked`. On ky, 40 declarations give 124 call rows, all confirmed; on hono,
 with a project over `src` and its type packages installed without scripts,
 38 give 431, all confirmed, and 6 fall outside the project.
+JavaScript declarations are sampled too: with `allowJs` and `checkJs` in
+the project, tsc reports their uses at `.js`, `.mjs` and `.cjs` paths, and
+JavaScript outside the project is `blocked` like TypeScript.
 
 `tools/py_check_truth.py WORKSPACE CALLS --targets DIR...` does the same for
 Python with mypy (`--check-untyped-defs`, no configuration file, so no
