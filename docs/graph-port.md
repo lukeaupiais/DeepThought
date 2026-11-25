@@ -2014,15 +2014,43 @@ with a reason:
 | `indexer_failed`, `indexer_timeout` | The indexer exited non-zero, wrote nothing or ran past `--timeout` |
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
-| `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
-| `not_in_index` | The indexer ran but has no document for the file, e.g. a file outside every tsconfig |
+| `no_go_module` | No `go.mod` in the file's directory or any directory above it |
+| `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
+| `not_in_index` | The indexer ran but has no document for the file |
+
+scip-go indexes one module per run, so each `go.mod` in the workspace
+(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+own directory, written to `scip-go.scip` for the root module and
+`scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
+made workspace-relative and the receipt names the module. A Go file belongs to
+the innermost module above it. Global symbols name the module, so a call from
+one module into another binds across their indexes.
+
+Go runs are pinned to `linux/amd64` with `CGO_ENABLED=0`, so the files a
+module compiles do not depend on the machine or on a C toolchain; the receipt
+records the platform and `go env GOVERSION`. A file the go command ignores on
+that platform (`command_windows.go`) gets a scip-go pass for the first
+platform in `go tool dist list` (first-class ports first) whose `go list`
+compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
+files' documents; coverage says `pass: platform` and the platform. On cobra
+this covers `command_win.go`.
+
+TypeScript and JavaScript files outside every tsconfig.json of the workspace
+(Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
+pass, written to `scip-typescript-uncovered.scip`: one project of exactly
+those files that extends the root tsconfig.json when there is one, with
+`allowJs`, `allowImportingTsExtensions` and `noEmit`. Its receipt records that
+project with workspace-relative paths, its coverage entries say
+`pass: outside_tsconfig`, and it keeps only those files' documents, so the two
+indexes never cover the same file. On hono it covers the 75 files the first
+pass leaves out.
 
 The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
 indexer is never read as a file without references. A file no compiler can
-index (`no_go_module`, `not_in_index`) is named on stderr
-with its reason and does not fail the run. On the
+index (`no_go_module`, `build_constraints`, `not_in_index`) is named on
+stderr with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
@@ -2924,21 +2952,21 @@ field, or else to the one that declares it. A `.graphql` document with
 requests gets a `File` node (language `graphql`) that the repository
 `CONTAINS` (rule `service-contracts.repository-contains-graphql`).
 
-Schemas and operations are parsed by graphql-core (`graphql-core`, the
-`graphql` extra, also in `languages`), the reference GraphQL parser for
-Python: root fields are the fields of the parsed object type definitions
-and extensions, and of the parsed operations' first selection level, with
-the lines and columns of their names. Template substitutions (`${...}`)
-are blanked before parsing. A source graphql-core does not parse, and
-every source when it is not installed, is read by the fallback reader, a
-tokenizer that skips strings, comments, arguments and directives; it gets
-no new features. On the 220 `.graphql`/`.gql` files of the validation
-repositories and corpora (the gqlgen repository, Prisma examples, the
-Apollo and howtographql corpora and others) both readers give the same
-fields, lines and unread facts; one deliberately invalid gqlgen test
-schema is left to the fallback.
+Schemas and operations are parsed by graphql-core (`graphql-core`, a
+required dependency), the reference GraphQL parser for Python, and by
+nothing else: root fields are the fields of the parsed object type
+definitions and extensions, and of the parsed operations' first selection
+level, with the lines and columns of their names. Template substitutions
+(`${...}`) are blanked before parsing. Without graphql-core the tool raises
+`GraphqlCoreMissing` instead of reading GraphQL another way; a source
+graphql-core rejects is unread. On the 32 GraphQL validation repositories
+removing the tokenizer fallback changes no link; one deliberately invalid
+gqlgen test schema is now counted as `graphql:schema_not_parsed`.
 
 Counted as unread:
+- `graphql:schema_not_parsed` and `graphql:operation_not_parsed`: a schema
+  file or an operation document (a `.graphql` file or a `gql` template)
+  that graphql-core does not parse;
 - `graphql:schema_root_renamed`: a schema definition that names a root
   type other than `Query`, `Mutation` or `Subscription`;
 - `graphql:field_not_literal`: a resolver name that is not literal;
@@ -3327,21 +3355,24 @@ Java, JavaScript and C# sources (`deepthought.service_contracts.grpc`).
   kinds and the lines of the rpc names come from the descriptor. protoc
   needs the files a proto imports, under include roots the repository does
   not name: an import `a/b.proto` is matched against the repository's
-  `.proto` paths, and what is left in front of it is a root. A file that
+  `.proto` paths, and what is left in front of it is a root; the roots the
+  imported files' own imports need are added too, since protoc opens
+  them as well (Envoy and xDS protos vendored in grpc-java import across
+  five roots). A file that
   another file imports takes that importer's root as its own, else its
   directory; the well-known types come from `grpcio-tools`. Files under the
   same root compile in one run, split in halves when it fails, so a broken
-  file costs only itself. A file protoc does not compile (an import the
-  repository does not hold, such as an unvendored
-  `google/api/annotations.proto`, or a syntax error), and every file when
-  `grpcio-tools` is not installed, is read by the fallback reader: `rpc`
-  statements of top-level `service` blocks, comments removed and strings
-  kept. It gets no new features. The `proto_readers` metric counts the files
-  each reader read. On 639 `.proto` files across the validation
-  repositories, protoc compiled 615 and gave the same rpcs, lines and
-  streaming kinds as the fallback reader on every one; the rest import
-  protos the repositories do not vendor or are deliberately broken test
-  inputs.
+  file costs only itself. protoc is the only reader of `.proto` files:
+  `grpcio-tools` and `protobuf` are required, and without them the
+  analysis fails with `ProtocMissing` instead of reading nothing. A file
+  protoc does not compile (an import the repository and the include
+  directories do not hold, or a syntax error) declares nothing and is
+  counted as `grpc_proto:not_compiled`. The `proto_readers` metric counts
+  compiled and rejected files. On the 441 `.proto` files of the 26 gRPC
+  validation repositories, protoc compiles 437: three are proto-loader and
+  reflection test inputs, and Prisma's gRPC example names an rpc and a
+  message `Post`, which protoc rejects (protobuf.js loads it at run time),
+  so that example's 14 server links are no longer drawn.
 - **HTTP annotations.** An rpc's `google.api.http` option, read from its
   protoc descriptor (with `googleapis-common-protos` supplying
   `google/api/annotations.proto` when the repository does not vendor it),
@@ -4033,6 +4064,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongoose-repository-call` | pattern_matched | a model held in a field of a repository class: a subclass's constructor passes the model to `super(...)` and a base class sets the field from that constructor parameter (`constructor(protected model: Model<T>)` or `this.f = model`). It links `this.field.find()` in the subclass, and a method the subclass inherits, called on `this` or on a property whose declared type is the class (a typed constructor parameter or field, or `= new X()`), with the reads and writes of that method's body and of the methods it calls on `this`, dispatched from the subclass. `const doc = new this.field(data)` followed by `doc.save()` is a write. The base class's own calls are not linked, since they act on every subclass's model; a method the subclass declares is not linked at its callers, because its body carries the edges |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.mongodb-collection` | pattern_matched | a MongoDB driver collection opened by its literal name, `<db>.collection('name')`, in a file importing `mongodb`, `mongoose` or `mongoskin` (or typing `typeof import('mongoose')`) or below a `package.json` that depends on one (Node resolves the module from there; NodeBB keeps its manifest in `install/package.json` and stays unread), on a database handle: `x.db`, `x.db(...)`, `x.connection`, `a \|\| b` or `a ?? b` of handles, or a name the file binds (declarations and plain assignments; `let db;` alone binds nothing) only to handles or types as mongodb's `Db`. The method on the collection, directly, through a variable holding it in the same function, or through `this.f` anywhere in the file when the collection is assigned to `this.f`, gives READS (`find`, `aggregate`, `watch`, `stats`, ...) or WRITES (`insertOne`, `updateMany`, `drop`, `ensureIndex`, `initializeUnorderedBulkOp`, ...), and any other use both. On Countly (labels of #197) this links 577 of 1,148 accesses with 0 wrong, up from 16; the rest go through function parameters and names bound to values the file cannot see (`countlyDb = dbs[0]`). The collection is the same DbTable as a Mongoose model's |
 | File -[:DECLARES]-> DbTable | `data-contracts.knex-create-table` | pattern_matched | `K.schema.createTable('t', ...)` or `createTableIfNotExists` (also after `withSchema`) on a Knex instance as `data-contracts.knex-query` defines one; `K.schema.table` (an alter) is not a declaration |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.kysely-scip` | resolved | a scip-typescript index resolves the called method to Kysely's own `selectFrom`, a join (`innerJoin`, `leftJoin`, `rightJoin`, `fullJoin`, `crossJoin`, lateral joins), `insertInto`, `replaceInto`, `updateTable`, `deleteFrom` or `mergeInto`; its first argument is a string literal (alias dropped) or an array of them; selects and joins READ, the others WRITE |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.knex-query` | pattern_matched | in a file importing `knex` or below a `package.json` depending on it, a Knex query names the table by a literal, or by a name bound to one by a module-level `const` of the file or imported by name from the one project module that declares it (when no function around the use declares that name again): `K('t')` (type arguments allowed), `K.table('t')`, `K.batchInsert('t', ...)`, or `table`, `from`, `into` and the `*join` methods in a builder chain rooted at a Knex instance outside `K.schema`. An instance is a name `knex` or a `.knex`/`.#knex` property, a name bound to a call of the imported knex factory, a parameter, property or constructor parameter property typed `Knex`, `Knex.Transaction`, `Knex.QueryBuilder`, a type alias the file declares once for one of them, or a union of them (and a name destructured as such a property, or cast `as Knex.Transaction`), or the parameter of a callback passed to an instance's `transaction()`. Alias (`t as x`) and schema are dropped, and names of common table expressions the file defines (`.with('x', ...)`) are not tables. `insert`, `update`, `del`/`delete`, `truncate`, `increment`, `decrement`, `upsert` or `merge` on the chain (or on a variable holding the query, in the same function) gives WRITES, plus READS with `select`, `first`, `pluck` or an aggregate; anything else gives READS, and a joined table is always READS. Query-builder callbacks (`function () { this.from('t') }`, `qb => qb.from('t')`) and builders kept in other object fields (Ghost's seeders' `this.transaction`) are not read. The position is the table argument's |
 | File -[:DECLARES]-> DbTable | `data-contracts.prisma-model` | resolved | a `model` block of a `.prisma` schema: its `@@map` name, else the model name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.prisma-client` | pattern_matched | `<client>.<model>.<method>(...)` in TypeScript or JavaScript, `<model>` being a model's client name (first letter lower case) and `<method>` a reading (`findMany`, `findUnique`, `count`, ...) or writing (`create`, `update`, `upsert`, `delete`, ...) method; the model of the caller's own namespace wins, else the one model of the repository with that name |
@@ -4569,6 +4601,43 @@ whose receiver is not named like a session were read in the source and are
 right. Still not read: `session.add`/`delete` of an instance (the index
 records no types of locals), `cls.query` in a model's class methods, and
 Superset's index is 124 MB, past `ingest_scip`'s default 50 MB cap.
+
+**Kysely.** Kysely queries name tables as string literals typed against
+the database interface: `db.selectFrom('asset as a').innerJoin('user', ...)`,
+`insertInto('album')`. A call counts only when the scip-typescript index
+(the `scip_indexes` the SQLAlchemy reader takes) resolves the method to
+Kysely's own (`scip-typescript npm kysely ... QueryCreator#selectFrom().`,
+`SelectQueryBuilder#innerJoin().`, ...), so the compiler checks the
+receiver. The index is required: in a file that imports `kysely` and that
+no index covers, no call is read, the `kysely` metric counts the calls
+under `no_scip_index`, and the run is `partial` with a warning naming the
+missing index. Common table expressions are not tables: a read of a name
+that a `with`, `withRecursive` (or `with((cte) => cte('name'), ...)`) of
+the same statement declares is left out, except inside a non-recursive
+CTE's own body, where the name is the table. A write always names a table,
+since SQL writes no CTE. The metric also counts `calls_scip` and
+`not_kysely` (a method the index resolves to another declaration).
+
+Why not hand rules: whether `x.selectFrom` is Kysely's is a question of the
+receiver's type, which the compiler answers; the table names themselves
+are literals.
+
+The TypeScript grammar fails on a tagged template whose type arguments
+hold an object or array type (``sql<{ a: string }>`...` ``,
+``sql<string[]>`...` ``), Kysely's raw SQL helper, and dropped the whole
+file. `parse_source` now reads such type arguments as blanks (line breaks
+kept, so every offset stays) on rows an error spans, and keeps that tree
+when it has fewer errors, as it does for generic call signatures. On
+immich-app/immich this parses 9 of the 11 TypeScript files that failed; the
+other 2 fail for other reasons. Files still parsed only partly are read for
+Kysely calls, since the index confirms each call.
+
+On immich-app/immich (server, scip-typescript 0.6.2 with the workspace's
+dependencies installed by `pnpm install --ignore-scripts`), main links no
+Kysely query; the tool now links 754 calls in 45 files (542 READS, 212
+WRITES), and every linked name is a table its schema declares (`@Table`) or
+Kysely's own `kysely_migrations`. Not read: table names passed as variables
+(`selectFrom(table)`, `db.dynamic.table(...)`), and test sources.
 
 ## Commit-linked snapshots
 

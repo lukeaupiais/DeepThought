@@ -19,7 +19,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 FAKE = textwrap.dedent(
     """\
     #!{python}
-    import os, sys
+    import json, os, sys
     sys.path.insert(0, {src!r})
     from deepthought._scip import scip_pb2
     argv = sys.argv[1:]
@@ -31,7 +31,21 @@ FAKE = textwrap.dedent(
     index = scip_pb2.Index()
     index.metadata.tool_info.name = os.environ["FAKE_NAME"]
     index.metadata.tool_info.version = os.environ["FAKE_VERSION"]
-    for path in reversed(os.environ["FAKE_DOCUMENTS"].split(",")):
+    documents = os.environ["FAKE_DOCUMENTS"].split(",")
+    if argv[-1].endswith("tsconfig.json"):
+        # A pass over chosen files: its project names them, absolute.
+        with open(argv[-1]) as config:
+            project = json.load(config)
+        documents = [os.path.relpath(f) for f in project["files"]] + documents
+    # Only files under the directory it runs in, as a real indexer.
+    documents = [path for path in documents if os.path.isfile(path)]
+    # As scip-go: a file for another platform builds only there.
+    documents = [
+        path
+        for path in documents
+        if not path.endswith("_windows.go") or os.environ.get("GOOS") == "windows"
+    ]
+    for path in reversed(documents):
         document = index.documents.add()
         document.relative_path = path
         for line in (0,):
@@ -43,6 +57,32 @@ FAKE = textwrap.dedent(
     with open(output, "wb") as stream:
         stream.write(index.SerializeToString())
     sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
+    """
+)
+
+# Stands in for the go command: two platforms, and files whose name ends in
+# _windows.go build only for windows/amd64; ignore.go builds nowhere.
+FAKE_GO = textwrap.dedent(
+    """\
+    #!{python}
+    import json, os, sys
+    argv = sys.argv[1:]
+    platform = os.environ["GOOS"] + "/" + os.environ["GOARCH"]
+    if argv[:2] == ["tool", "dist"]:
+        print(json.dumps([
+            {{"GOOS": "linux", "GOARCH": "amd64", "FirstClass": True}},
+            {{"GOOS": "windows", "GOARCH": "amd64", "FirstClass": True}},
+        ]))
+    elif argv[:2] == ["env", "GOVERSION"]:
+        print("go1.24.7")
+    elif argv[0] == "list":
+        names = sorted(n for n in os.listdir(".") if n.endswith(".go"))
+        def builds(name):
+            if name == "ignore.go":
+                return False
+            return name.endswith("_windows.go") == (platform == "windows/amd64")
+        print(os.getcwd() + "\\t" + " ".join(n for n in names if builds(n))
+              + "\\t" + " ".join(n for n in names if not builds(n)))
     """
 )
 
@@ -166,6 +206,137 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(report["runs"][0]["status"], "indexed")
         self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
         self.assertFalse((self.root / "tsconfig.json").exists())
+
+    def test_files_outside_every_tsconfig_get_a_second_pass(self):
+        (self.root / "tsconfig.json").write_text("{}")
+        (self.root / "web.ts").write_text("export const a = 1;\n")
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts" / "deno.ts").write_text("export const b = 1;\n")
+        self.fake("scip-typescript")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("typescript",),
+            environ=self.environ(
+                FAKE_NAME="scip-typescript",
+                FAKE_VERSION="0.6.2",
+                FAKE_DOCUMENTS="web.ts",
+            ),
+        )
+        self.assertEqual(report["uncovered"], 0)
+        self.assertEqual(
+            report["coverage"]["scripts/deno.ts"],
+            {
+                "language": "typescript",
+                "status": "covered",
+                "indexer": "scip-typescript",
+                "pass": "outside_tsconfig",
+            },
+        )
+        self.assertNotIn("pass", report["coverage"]["web.ts"])
+        first, second = report["runs"]
+        self.assertEqual((first["documents"], second["documents"]), (1, 1))
+        receipt = indexers.validate_receipt(self.root, second["index"])
+        self.assertEqual(receipt["documents"], ["scripts/deno.ts"])
+        self.assertEqual(
+            receipt["producer"]["project"],
+            {
+                "compilerOptions": {
+                    "allowImportingTsExtensions": True,
+                    "allowJs": True,
+                    "noEmit": True,
+                },
+                "extends": "tsconfig.json",
+                "files": ["scripts/deno.ts"],
+            },
+        )
+        # The passes cover disjoint files, so the scip tool reads both.
+        import asyncio
+
+        from deepthought.analysis_tools.scip import ScipAnalysisTool
+
+        tool = ScipAnalysisTool(
+            self.root, index_paths=[first["index"], second["index"]]
+        )
+        self.assertEqual(asyncio.run(tool.analyze("repo")).metadata.files_processed, 2)
+        with self.assertRaisesRegex(ValueError, "scip-typescript"):
+            indexers.run_indexer(
+                indexers.INDEXERS["scip-python"], self.root, self.out / "p", files=[]
+            )
+
+    def test_each_go_module_is_indexed_from_its_own_directory(self):
+        for module in ("lib", "svc"):
+            (self.root / module).mkdir()
+            (self.root / module / "go.mod").write_text(f"module example.com/{module}\n")
+        (self.root / "lib" / "lib.go").write_text("package lib\n")
+        (self.root / "svc" / "main.go").write_text("package main\n")
+        (self.root / "svc" / "testdata").mkdir()
+        (self.root / "svc" / "testdata" / "go.mod").write_text("module fixture\n")
+        (self.root / "tools").mkdir()
+        (self.root / "tools" / "gen.go").write_text("package tools\n")
+        self.assertEqual(indexers.go_modules(self.root), ["lib", "svc"])
+        self.fake("scip-go")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("go",),
+            environ=self.environ(
+                FAKE_NAME="scip-go",
+                FAKE_VERSION="0.1.26",
+                FAKE_DOCUMENTS="lib.go,main.go",
+            ),
+        )
+        self.assertEqual(
+            [
+                (run["module"], run["status"], run["documents"])
+                for run in report["runs"]
+            ],
+            [("lib", "indexed", 1), ("svc", "indexed", 1)],
+        )
+        self.assertEqual(report["coverage"]["lib/lib.go"]["status"], "covered")
+        self.assertEqual(report["coverage"]["svc/main.go"]["status"], "covered")
+        self.assertEqual(report["coverage"]["tools/gen.go"]["reason"], "no_go_module")
+        receipt = indexers.validate_receipt(self.root, self.out / "scip-go-svc.scip")
+        self.assertEqual(receipt["documents"], ["svc/main.go"])
+        self.assertEqual(receipt["producer"]["module"], "svc")
+
+    def test_go_files_for_another_platform_get_a_pass_for_it(self):
+        (self.root / "go.mod").write_text("module example.com/m\n")
+        for name in ("main.go", "term_windows.go", "ignore.go"):
+            (self.root / name).write_text("package main\n")
+        self.fake("scip-go")
+        go = self.bin / "go"
+        go.write_text(FAKE_GO.format(python=sys.executable))
+        go.chmod(go.stat().st_mode | stat.S_IXUSR)
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("go",),
+            environ=self.environ(
+                FAKE_NAME="scip-go",
+                FAKE_VERSION="0.1.26",
+                FAKE_DOCUMENTS="main.go,term_windows.go",
+            ),
+        )
+        coverage = report["coverage"]
+        self.assertEqual(coverage["main.go"]["status"], "covered")
+        self.assertEqual(
+            coverage["term_windows.go"],
+            {
+                "language": "go",
+                "status": "covered",
+                "indexer": "scip-go",
+                "pass": "platform",
+                "platform": "windows/amd64",
+            },
+        )
+        self.assertEqual(coverage["ignore.go"]["reason"], "build_constraints")
+        receipt = indexers.validate_receipt(
+            self.root, self.out / "scip-go-windows-amd64.scip"
+        )
+        self.assertEqual(receipt["documents"], ["term_windows.go"])
+        self.assertEqual(receipt["producer"]["platform"], "windows/amd64")
+        self.assertEqual(receipt["producer"]["go_version"], "go1.24.7")
 
     def test_canonical_bytes_do_not_depend_on_emission_order(self):
         def build(order):
