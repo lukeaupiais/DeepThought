@@ -2186,6 +2186,15 @@ directory with several lockfiles tries them in the order above until one
 installs: a stale `yarn.lock` fails its frozen install, and the directory's
 `package-lock.json` is tried next (nestjs-realworld-example-app). The
 install record names the lockfile used and the `failed_attempts` before it.
+`npm ci` is first run with `--replace-registry-host=always`, so every
+pinned tarball comes from the configured registry and is still checked
+against the lockfile's integrity hash; if that fails, it runs again with the
+hosts the lockfile names, for packages only a private host serves.
+nestjs-realworld-example-app (c1c2cc4) pins 194 tarballs to a third-party
+mirror that does not answer; npm retried it until the install timed out
+after 15 minutes, and all 35 files were covered with
+`dependencies_unavailable`. Now its 660 packages install in seconds and the
+warning is gone.
 scip-typescript then indexes
 the copy, so the workspace is left as it was and document paths are the
 same. Packages are installed once per `index_workspace`, for both

@@ -1,8 +1,14 @@
+import base64
+import hashlib
+import http.server
 import importlib.util
+import io
 import json
 import os
 import shutil
+import tarfile
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -106,7 +112,15 @@ class ManagerTest(unittest.TestCase):
             write(scratch, {"yarn.lock": "", "package-lock.json": "{}"})
             self.assertEqual(
                 [m[2] for m in js_dependencies._managers(scratch)],
-                ["yarn.lock", "package-lock.json"],
+                ["yarn.lock", "package-lock.json", "package-lock.json"],
+            )
+
+    def test_npm_tries_the_configured_registry_then_the_lockfiles_hosts(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            write(scratch, {"package-lock.json": "{}"})
+            self.assertEqual(
+                [m[1][-1] for m in js_dependencies._managers(scratch)],
+                ["--replace-registry-host=always", "--no-fund"],
             )
 
     @unittest.skipUnless(shutil.which("node"), "Install node")
@@ -272,6 +286,120 @@ class InstalledPackagesTest(unittest.TestCase):
             report["coverage"]["app.ts"]["warning"], "dependencies_unavailable"
         )
         self.assertEqual(indexers.failed_files(report), {})
+
+
+def tarball(files):
+    """An npm package tarball, every file under ``package/``."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, content in files.items():
+            data = content.encode()
+            info = tarfile.TarInfo(f"package/{name}")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+@unittest.skipUnless(shutil.which("npm"), "Install npm")
+class UnreachableLockfileHostTest(unittest.TestCase):
+    """A lockfile pinning tarballs to a host that is gone still installs
+    from the configured registry, checked against its integrity hash."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        base = Path(self.scratch.name)
+        self.root, self.out = base / "work", base / "out"
+        data = tarball(
+            {
+                "package.json": json.dumps(
+                    {"name": "tinylib", "version": "1.0.0", "types": "index.d.ts"}
+                ),
+                "index.d.ts": "export declare class Thing { go(): number; }\n",
+            }
+        )
+        integrity = "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
+
+        class Registry(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/tinylib/-/tinylib-1.0.0.tgz":
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Registry)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        registry = f"http://127.0.0.1:{server.server_port}/"
+        gone = "http://127.0.0.1:9/tinylib/-/tinylib-1.0.0.tgz"
+        write(
+            self.root,
+            {
+                "package.json": json.dumps(
+                    {
+                        "name": "app",
+                        "private": True,
+                        "dependencies": {"tinylib": "1.0.0"},
+                    }
+                ),
+                "package-lock.json": json.dumps(
+                    {
+                        "name": "app",
+                        "lockfileVersion": 3,
+                        "requires": True,
+                        "packages": {
+                            "": {"name": "app", "dependencies": {"tinylib": "1.0.0"}},
+                            "node_modules/tinylib": {
+                                "version": "1.0.0",
+                                "resolved": gone,
+                                "integrity": integrity,
+                            },
+                        },
+                    }
+                ),
+                "tsconfig.json": json.dumps(
+                    {"compilerOptions": {"strict": True}, "include": ["*.ts"]}
+                ),
+                "app.ts": (
+                    'import { Thing } from "tinylib";\n'
+                    "export function run() {\n  return new Thing().go();\n}\n"
+                ),
+            },
+        )
+        self.environ = {
+            **os.environ,
+            "npm_config_registry": registry,
+            "npm_config_cache": str(base / "cache"),
+            "npm_config_fetch_retries": "0",
+            "npm_config_fetch_timeout": "2000",
+            "NO_PROXY": "127.0.0.1",
+            "no_proxy": "127.0.0.1",
+        }
+
+    def test_the_configured_registry_serves_the_pinned_tarball(self):
+        report = indexers.index_workspace(
+            self.root, self.out, languages=("typescript",), environ=self.environ
+        )
+        (run,) = report["runs"]
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        install = run["dependencies"]["installs"][0]
+        self.assertEqual(install["status"], "installed", install)
+        self.assertIn("--replace-registry-host=always", install["command"])
+        self.assertNotIn("warning", report["coverage"]["app.ts"])
+        from deepthought._scip import scip_pb2
+
+        index = scip_pb2.Index()
+        index.ParseFromString(Path(run["index"]).read_bytes())
+        symbols = {o.symbol for d in index.documents for o in d.occurrences}
+        self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
 
 
 if __name__ == "__main__":
