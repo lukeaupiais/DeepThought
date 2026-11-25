@@ -1619,9 +1619,9 @@ def _go_modules(root, sources):
 
 
 def _go_messaging_facts(root, sources):
-    """{file: (calls, literals, reason)} from the Go type checker for the Go
-    sources that import a broker client; reason is why a file was not, or
-    only partly, checked. go_facts downloads each module's dependencies
+    """({file: (calls, literals, reason)}, GOPATH-era packages) from the Go
+    type checker for the Go sources that import a broker client; reason is
+    why a file was not, or only partly, checked. go_facts downloads each module's dependencies
     first; without the Go toolchain it raises GoMissing."""
     files = [
         c.file
@@ -1629,7 +1629,7 @@ def _go_messaging_facts(root, sources):
         if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
     ]
     if not files:
-        return {}
+        return {}, {}
     facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
     calls, literals = defaultdict(list), defaultdict(list)
     for call in facts.calls:
@@ -1645,7 +1645,7 @@ def _go_messaging_facts(root, sources):
         else:
             reason = None
         found[file] = (calls[file], literals[file], reason)
-    return found
+    return found, go_facts.gopath_report(facts)
 
 
 def _go_router_mounts(root, sources):
@@ -2067,7 +2067,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
-        go_messaging = _go_messaging_facts(root, sources)
+        go_messaging, go_gopath = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2082,8 +2082,8 @@ class ServiceContractTool(AnalysisTool):
         axios_exported = {}
 
         def axios_imported(file):
-            """{local name: base URL} of the axios instances ``file``
-            imports from repository modules."""
+            """{local name: base URL} of the axios instances and
+            openapi-fetch clients ``file`` imports from repository modules."""
             if scripts is None or file not in scripts.sources:
                 return None
             tree, content, _ = scripts.sources[file]
@@ -2098,7 +2098,7 @@ class ServiceContractTool(AnalysisTool):
                     t, c, language = scripts.sources[target]
                     axios_exported[target] = (
                         axios_exports(t, c, language, scripts.externals(target))
-                        if b"axios" in c
+                        if b"axios" in c or b"openapi-fetch" in c
                         else {}
                     )
                 return axios_exported[target]
@@ -3084,6 +3084,7 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
+                **({"go_gopath_packages": go_gopath} if go_gopath else {}),
                 "test_source_files": test_files,
                 "graphql_fields": len(graphql_fields),
                 "graphql_requests": len(graphql_requests),

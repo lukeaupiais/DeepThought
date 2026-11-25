@@ -1162,7 +1162,7 @@
       "by_depth": {
         "1": {
           "confirmed": 34,
-          "expected": 35
+          "expected": 36
         },
         "2": {
           "confirmed": 42,
@@ -1174,11 +1174,11 @@
         }
       },
       "confirmed": 102,
-      "expected": 108,
+      "expected": 109,
       "extra": 0,
-      "missed": 6,
+      "missed": 7,
       "precision": 1.0,
-      "recall": 0.9444,
+      "recall": 0.9358,
       "seeds": 40,
       "seeds_undeclared": 0,
       "unjudged": 48
@@ -1487,7 +1487,7 @@
     "messages-confluent-kafka-go-examples": {
       "expected": 13,
       "extra": 0,
-      "found": 6,
+      "found": 13,
       "unresolved_sites": 26,
       "wrong": 0
     },
@@ -1496,7 +1496,7 @@
       "extra": 0,
       "found": 0,
       "unresolved_sites": 2,
-      "wrong": 1
+      "wrong": 0
     },
     "messages-kafka-go-examples": {
       "expected": 0,
@@ -1508,9 +1508,9 @@
     "messages-rabbitmq-tutorials-go": {
       "expected": 8,
       "extra": 0,
-      "found": 3,
+      "found": 8,
       "unresolved_sites": 9,
-      "wrong": 4
+      "wrong": 0
     },
     "messages-sarama-examples": {
       "expected": 2,

@@ -1183,6 +1183,9 @@ scip-python gives a span only to the first `@overload` of a function, so its
 other `def`s (implementation included) are folded into that node with spans
 found by indentation; and scip-typescript records `const f = () => ...` as a
 variable, so a variable whose initializer is a function counts as a callable.
+A class field holding an arrow function (`fetch = async (...) => { ... }`)
+gets no enclosing range from scip-typescript at all; its span is read from
+the source, from the field's `=` to the end of the arrow's body.
 
 `check` runs the same reverse search over the engine's linked CALLS edges at
 the pin. An engine dependent the oracle also reaches is *confirmed*; one it

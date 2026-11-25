@@ -49,7 +49,7 @@ _HELPER_PLACEHOLDER = "\ue000"
 # compose.yaml, docker-compose.yml and variants such as docker-compose-kafka.yml
 # or compose.override.yaml.
 COMPOSE_FILE = re.compile(r"^(?:docker-)?compose(?:[.-][A-Za-z0-9_.-]+)?\.ya?ml$")
-_KUSTOMIZATION = ("kustomization.yaml", "kustomization.yml", "Kustomization")
+KUSTOMIZATION_FILES = ("kustomization.yaml", "kustomization.yml", "Kustomization")
 _SKIPPED = frozenset({"node_modules", "target", "build", "vendor"})
 _SOURCES = ("main.go", "go.mod", "go.sum")
 
@@ -204,11 +204,19 @@ def build(timeout=1200):
     return binary
 
 
-def _walk(root):
-    """Repository-relative (directory, file names), skipping hidden and
-    build directories."""
+def _walk(root, skipped=None):
+    """Repository-relative (directory, file names), skipping the directories
+    named in ``skipped``, or by default hidden and build directories."""
     for directory, dirs, names in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in _SKIPPED)
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if (
+                d not in skipped
+                if skipped is not None
+                else not d.startswith(".") and d not in _SKIPPED
+            )
+        )
         relative = Path(directory).relative_to(root).as_posix()
         yield ("" if relative == "." else relative), sorted(names)
 
@@ -217,10 +225,10 @@ def _join(directory, name):
     return f"{directory}/{name}" if directory else name
 
 
-def requests(root):
+def requests(root, skipped=None):
     """What to render: Compose projects, charts and kustomizations."""
     found, charts = [], set()
-    for directory, names in _walk(root):
+    for directory, names in _walk(root, skipped):
         compose = [n for n in names if COMPOSE_FILE.match(n)]
         if compose:
             # The helper splits them into projects as docker compose does.
@@ -233,7 +241,7 @@ def requests(root):
             )
         if "Chart.yaml" in names:
             charts.add(directory)
-        kustomization = next((n for n in _KUSTOMIZATION if n in names), None)
+        kustomization = next((n for n in KUSTOMIZATION_FILES if n in names), None)
         if (
             kustomization is not None
             and _kind_of(Path(root), _join(directory, kustomization)) != "Component"
@@ -253,10 +261,10 @@ def requests(root):
     return found
 
 
-def _signature(root):
+def _signature(root, skipped):
     """Sizes and modification times of the files ``requests`` would read."""
     items = []
-    for directory, names in _walk(root):
+    for directory, names in _walk(root, skipped):
         for name in names:
             if name.endswith((".yaml", ".yml", ".env", ".tpl")) or name in (
                 "Kustomization",
@@ -267,18 +275,20 @@ def _signature(root):
     return tuple(items)
 
 
-def collect(root, *, timeout=1800):
-    """DeployFacts of the repository at ``root``."""
+def collect(root, *, skipped=None, timeout=1800):
+    """DeployFacts of the repository at ``root``. ``skipped`` names the
+    directories not entered (by default hidden and build directories)."""
     root = Path(root).resolve()
-    return _collect(str(root), _signature(root), timeout)
+    skipped = None if skipped is None else frozenset(skipped)
+    return _collect(str(root), skipped, _signature(root, skipped), timeout)
 
 
 @lru_cache(maxsize=8)
-def _collect(root, signature, timeout):
+def _collect(root, skipped, signature, timeout):
     import yaml
 
     facts = DeployFacts()
-    wanted = requests(Path(root))
+    wanted = requests(Path(root), skipped)
     if not wanted:
         return facts
     for item in wanted:
