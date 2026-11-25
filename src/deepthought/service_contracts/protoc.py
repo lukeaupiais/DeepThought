@@ -19,7 +19,7 @@ descriptor as ``HttpBinding`` records, with its ``additional_bindings``.
 
 A file protoc cannot compile (an import that is not in the repository or
 the include directories, or a syntax error) has no descriptor here; the
-caller reads it another way.
+caller counts it as unread. Nothing else reads .proto files.
 """
 
 from dataclasses import dataclass
@@ -58,6 +58,10 @@ class HttpBinding:
     line: int
 
 
+class ProtocMissing(RuntimeError):
+    """protoc (grpcio-tools) or protobuf is not installed."""
+
+
 def available():
     """The include directories (the well-known types, then googleapis'
     common protos when installed) when grpcio-tools and protobuf are
@@ -80,7 +84,8 @@ def available():
 
 
 def _roots(protos, texts):
-    """{path: [include roots, its own first]} of the .proto paths."""
+    """{path: [include roots, its own first]} of the .proto paths: the roots
+    under which its imports, and theirs, are found."""
     imports = {path: _IMPORT.findall(texts[path]) for path in protos}
 
     def providers(imported):
@@ -114,7 +119,25 @@ def _roots(protos, texts):
                 if root not in listed:
                     listed.append(root)
         roots[path] = listed
-    return roots
+    # protoc also opens the imports of imports: add the roots those need,
+    # nearest first.
+    closed = {}
+    for path in protos:
+        listed, seen, queue = list(roots[path]), {path}, [path]
+        while queue:
+            current = queue.pop(0)
+            for imported in imports[current]:
+                for provider in sorted(
+                    providers(imported),
+                    key=lambda p: -len(os.path.commonpath([p, current])),
+                ):
+                    if provider in seen:
+                        continue
+                    seen.add(provider)
+                    queue.append(provider)
+                    listed += [r for r in roots[provider] if r not in listed]
+        closed[path] = listed
+    return closed
 
 
 def _compile(root, paths, includes, well_known):
@@ -238,12 +261,17 @@ def _methods(descriptor, path):
 
 def read_protos(root, protos, texts):
     """{path: (package, [ProtoMethod], [HttpBinding])} of the .proto files
-    protoc compiles;
-    ``texts`` are their contents. Empty when grpcio-tools is not
-    installed."""
+    protoc compiles; ``texts`` are their contents. grpcio-tools and
+    protobuf are required: without them this raises ``ProtocMissing``
+    rather than reading nothing."""
+    if not protos:
+        return {}
     well_known = available()
     if well_known is None:
-        return {}
+        raise ProtocMissing(
+            "grpcio-tools and protobuf are required to read .proto files; "
+            "install deepthought with its dependencies"
+        )
     roots = _roots(protos, texts)
     # Files under the same own root compile in one protoc run, with every
     # root their imports need (``_split`` isolates the files that fail).

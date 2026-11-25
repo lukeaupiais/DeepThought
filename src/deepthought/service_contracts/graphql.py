@@ -138,12 +138,18 @@ def _blank(match):
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
+class GraphqlCoreMissing(RuntimeError):
+    """graphql-core, the only reader of GraphQL documents, is not installed."""
+
+
 def _graphql_core():
-    """The graphql-core package, or None when it is not installed."""
+    """The graphql-core package; GraphqlCoreMissing when it is not installed."""
     try:
         import graphql
-    except ImportError:
-        return None
+    except ImportError as error:
+        raise GraphqlCoreMissing(
+            "graphql-core is required to read GraphQL schemas and operations"
+        ) from error
     return graphql
 
 
@@ -152,11 +158,9 @@ _INTERPOLATION = re.compile(r"\$\{[^{}]*\}")
 
 
 def _parsed(source):
-    """graphql-core's document of ``source``, else None (not installed, or
-    not a GraphQL document it parses)."""
+    """graphql-core's document of ``source``, else None when it is not a
+    GraphQL document graphql-core parses."""
     graphql = _graphql_core()
-    if graphql is None:
-        return None
     try:
         return graphql.parse(_INTERPOLATION.sub(_blank, source))
     except graphql.GraphQLError:
@@ -173,11 +177,10 @@ def _line_column(source, offset):
 def schema_fields(source, file):
     """Root fields a GraphQL schema file declares, and unread facts.
 
-    graphql-core parses the schema; when it is not installed or cannot
-    parse the file, ``_schema_fields_text`` reads it."""
+    graphql-core parses the schema; a file it cannot parse is unread."""
     document = _parsed(source)
     if document is None:
-        return _schema_fields_text(source, file)
+        return [], [Unread(file, 1, "graphql", "schema_not_parsed")]
     graphql = _graphql_core()
     roots = {"query": "Query", "mutation": "Mutation", "subscription": "Subscription"}
     for definition in document.definitions:
@@ -203,63 +206,6 @@ def schema_fields(source, file):
         for field in definition.fields or ():
             line, _ = _line_column(source, field.name.loc.start)
             declared.append(GraphqlDeclaration(file, line, operation, field.name.value))
-    return declared, []
-
-
-def _schema_fields_text(source, file):
-    """Root fields a GraphQL schema file declares, and unread facts, read
-    without a parser: the fallback of ``schema_fields``. Kept as it is."""
-    # Descriptions, strings and comments carry no fields; keep line numbers.
-    stripped = re.sub(r'"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*', _blank, source)
-    # A directive's name is not a field; its arguments are skipped by depth.
-    stripped = re.sub(r"@[_A-Za-z]\w*", _blank, stripped)
-    # A schema definition that names its root types other than Query,
-    # Mutation and Subscription renames them: nothing here is read then.
-    for match in re.finditer(r"\bschema\s*\{([^}]*)\}", stripped):
-        roots = re.findall(
-            r"\b(query|mutation|subscription)\s*:\s*(\w+)", match.group(1)
-        )
-        if any(name != operation.capitalize() for operation, name in roots):
-            line = stripped.count("\n", 0, match.start()) + 1
-            return [], [Unread(file, line, "graphql", "schema_root_renamed")]
-    declared = []
-    for match in re.finditer(
-        r"\btype\s+(Query|Mutation|Subscription)\b[^{]*\{",
-        stripped,
-    ):
-        operation = match.group(1)
-        depth, index = 0, match.end()
-        start = index
-        while index < len(stripped):
-            char = stripped[index]
-            if char in "([":
-                depth += 1
-            elif char in ")]":
-                depth -= 1
-            elif char == "}" and depth == 0:
-                break
-            index += 1
-        body = stripped[start:index]
-        depth = 0
-        position = 0
-        for token in re.finditer(r"[()\[\]]|[_A-Za-z]\w*\s*(?=[(:])", body):
-            value = token.group(0)
-            if value in "([":
-                depth += 1
-                continue
-            if value in ")]":
-                depth -= 1
-                continue
-            if depth != 0:
-                continue
-            # A name followed by ':' or '(' at depth 0 starts a field, unless
-            # it is the type after a previous field's ':'.
-            before = body[position : token.start()].rstrip()
-            position = token.end()
-            if before.endswith(":"):
-                continue
-            line = stripped.count("\n", 0, start + token.start()) + 1
-            declared.append(GraphqlDeclaration(file, line, operation, value.strip()))
     return declared, []
 
 
@@ -749,9 +695,6 @@ class GraphqlOperation:
     name: str | None  # the operation's name
 
 
-_TOKEN = re.compile(r"\.\.\.|[{}()\[\]:=$!@,]|[_A-Za-z]\w*|-?\d[\w.+-]*")
-
-
 def operation_fields(source, file, line_offset=0, column_offset=0, caller_id=None):
     """Root fields selected by the operations of an executable GraphQL
     document, and unread facts. Fragments are skipped; a fragment spread or
@@ -759,13 +702,10 @@ def operation_fields(source, file, line_offset=0, column_offset=0, caller_id=Non
     marked ``@client`` (Apollo Client resolves it locally) and ``__``
     meta-fields are not requests.
 
-    graphql-core parses the document; when it is not installed or cannot
-    parse it, ``_operation_fields_text`` reads it."""
+    graphql-core parses the document; one it cannot parse is unread."""
     document = _parsed(source)
     if document is None:
-        return _operation_fields_text(
-            source, file, line_offset, column_offset, caller_id
-        )
+        return [], [Unread(file, 1 + line_offset, "graphql", "operation_not_parsed")]
     graphql = _graphql_core()
 
     def position(offset):
@@ -794,122 +734,6 @@ def operation_fields(source, file, line_offset=0, column_offset=0, caller_id=Non
             found.append(
                 GraphqlOperation(file, line, column, caller_id, operation, field, name)
             )
-    return found, unread
-
-
-def _operation_fields_text(
-    source, file, line_offset=0, column_offset=0, caller_id=None
-):
-    """``operation_fields`` read without a parser: its fallback. Kept as
-    it is."""
-    stripped = re.sub(r'"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*', _blank, source)
-    tokens = list(_TOKEN.finditer(stripped))
-    found, unread = [], []
-    index, previous = 0, None
-
-    def position(token):
-        start = token.start()
-        line = stripped.count("\n", 0, start)
-        column = start - (stripped.rfind("\n", 0, start) + 1)
-        return line + 1 + line_offset, column + (column_offset if line == 0 else 0)
-
-    def skip_group(i, opening, closing):
-        level = 0
-        while i < len(tokens):
-            value = tokens[i].group(0)
-            if value == opening:
-                level += 1
-            elif value == closing:
-                level -= 1
-                if level == 0:
-                    return i + 1
-            i += 1
-        return i
-
-    while index < len(tokens):
-        value = tokens[index].group(0)
-        # A definition starts the document or follows another's closing brace.
-        starts = previous in (None, "}")
-        if starts and value in ("query", "mutation", "subscription", "{"):
-            if value == "{":
-                operation, name = "Query", None
-            else:
-                operation, name = value.capitalize(), None
-                index += 1
-                if index < len(tokens) and re.fullmatch(
-                    r"[_A-Za-z]\w*", tokens[index].group(0)
-                ):
-                    name = tokens[index].group(0)
-                    index += 1
-                # Variables and directives, up to the selection set.
-                while index < len(tokens) and tokens[index].group(0) != "{":
-                    if tokens[index].group(0) == "(":
-                        index = skip_group(index, "(", ")")
-                    else:
-                        index += 1
-            # The selection set: names at its first level are root fields.
-            index += 1
-            level = 1
-            while index < len(tokens) and level > 0:
-                token = tokens[index]
-                value = token.group(0)
-                if value == "{":
-                    level += 1
-                elif value == "}":
-                    level -= 1
-                elif value == "(":
-                    index = skip_group(index, "(", ")")
-                    continue
-                elif value == "@" and index + 1 < len(tokens):
-                    index += 2  # a directive's name; its arguments are skipped
-                    continue
-                elif level == 1 and value == "...":
-                    line, _ = position(token)
-                    unread.append(Unread(file, line, "graphql", "client_fragment_root"))
-                    # Skip the spread's name, or the inline fragment.
-                    index += 1
-                    if index < len(tokens) and tokens[index].group(0) == "on":
-                        index += 2
-                    if index < len(tokens) and tokens[index].group(0) == "{":
-                        index = skip_group(index, "{", "}")
-                    elif index < len(tokens) and tokens[index].group(0) != "@":
-                        index += 1
-                    continue
-                elif level == 1 and re.fullmatch(r"[_A-Za-z]\w*", value):
-                    if index + 1 < len(tokens) and tokens[index + 1].group(0) == ":":
-                        # An alias: the field is the name after the colon.
-                        index += 2
-                        if index >= len(tokens):
-                            break
-                        token = tokens[index]
-                        value = token.group(0)
-                    # Apollo Client resolves a field marked @client locally.
-                    ahead = index + 1
-                    if ahead < len(tokens) and tokens[ahead].group(0) == "(":
-                        ahead = skip_group(ahead, "(", ")")
-                    local = False
-                    while ahead + 1 < len(tokens) and tokens[ahead].group(0) == "@":
-                        local = local or tokens[ahead + 1].group(0) == "client"
-                        ahead += 2
-                        if ahead < len(tokens) and tokens[ahead].group(0) == "(":
-                            ahead = skip_group(ahead, "(", ")")
-                    if not value.startswith("__") and not local:
-                        line, column = position(token)
-                        found.append(
-                            GraphqlOperation(
-                                file, line, column, caller_id, operation, value, name
-                            )
-                        )
-                index += 1
-            previous = "}"
-            continue
-        if value == "{":
-            # Any other braces (a fragment's selection, a type definition).
-            index = skip_group(index, "{", "}")
-            previous = "}"
-            continue
-        previous = value
-        index += 1
     return found, unread
 
 
