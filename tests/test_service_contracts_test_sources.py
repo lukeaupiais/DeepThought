@@ -18,6 +18,8 @@ PROTO = """\
 syntax = "proto3";
 package shop;
 service CartService { rpc AddItem(A) returns (B) {} }
+message A {}
+message B {}
 """
 
 GO_SERVER = """\

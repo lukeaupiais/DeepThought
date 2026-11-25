@@ -210,6 +210,27 @@ class ScipReferences:
         view = self.covering.get(file)
         return None if view is None else (view.tool, view.receipt)
 
+    def symbols(self, file, line, column):
+        """The SCIP symbols referenced at ``line`` and UTF-8 byte ``column``
+        of ``file``: None when no index covers the file, else a tuple (empty
+        when the index records no reference there)."""
+        view = self.covering.get(file)
+        if view is None:
+            return None
+        text = self.lines.get(file, line)
+        return tuple(
+            sorted(
+                {
+                    r.native_id
+                    for encoding in sorted(view.encodings.get(file, ()))
+                    for r in view.references.get(
+                        (file, line, _to_index(text, column, encoding)), ()
+                    )
+                    if view.encoding(r) == encoding
+                }
+            )
+        )
+
     def declarations(self, file, line, column, name):
         """The parsed declarations named ``name`` that the reference written
         at ``line`` and UTF-8 byte ``column`` of ``file`` resolves to: None
