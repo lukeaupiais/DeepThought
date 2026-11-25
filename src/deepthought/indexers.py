@@ -573,7 +573,14 @@ def run_indexer(
             dependencies = install(root, scratch, environ=environ, timeout=timeout)
             run.dependencies = {
                 k: dependencies[k]
-                for k in ("status", "python", "requirements", "packages", "failed")
+                for k in (
+                    "status",
+                    "python",
+                    "projects",
+                    "requirements",
+                    "packages",
+                    "failed",
+                )
             }
         try:
             result = subprocess.run(
