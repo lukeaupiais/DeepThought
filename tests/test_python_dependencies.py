@@ -64,6 +64,36 @@ class DeclaredTest(unittest.TestCase):
         self.assertEqual(found, sorted(expected))
 
 
+class PoetryTest(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("tomllib"), "Python 3.11+")
+    def test_poetry_and_dependency_groups_become_pep_508(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            (Path(scratch) / "pyproject.toml").write_text(
+                "[tool.poetry.dependencies]\n"
+                'python = "^3.10"\n'
+                'flask = "^2.3.1"\n'
+                'pydantic = "^0.10"\n'
+                'celery = { version = "~5.3", extras = ["redis"] }\n'
+                'local = { path = "../local" }\n'
+                'tool = { git = "https://example.com/tool.git" }\n'
+                "[tool.poetry.group.test.dependencies]\n"
+                'pytest = "*"\n'
+                "[dependency-groups]\n"
+                'lint = ["ruff==0.15.18", { include-group = "test" }]\n'
+            )
+            found = declared(scratch)
+        self.assertEqual(
+            found,
+            [
+                "celery[redis]>=5.3,<5.4",
+                "flask>=2.3.1,<3",
+                "pydantic>=0.10,<0.11",
+                "pytest",
+                "ruff==0.15.18",
+            ],
+        )
+
+
 @unittest.skipUnless(
     indexers.locate(indexers.INDEXERS["scip-python"])
     and importlib.util.find_spec("google.protobuf"),
