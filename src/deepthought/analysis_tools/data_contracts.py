@@ -2833,6 +2833,19 @@ class DataContractTool(AnalysisTool):
                 typeorm_property_at
             ):
                 holders = typeorm_property_at[site]
+                tree = trees_by_file.get(file)
+                at = (
+                    tree.root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    if tree is not None
+                    else None
+                )
+                while at is not None and at.type not in ("type_query", "program"):
+                    at = at.parent
+                if at is not None and at.type == "type_query":
+                    # ``typeof row.kind`` names a type, not a value.
+                    continue
                 if len(holders) != 1:
                     typeorm_columns["accesses_unattributed"] += 1
                     typeorm_unattributed.update(holders.values())
@@ -2931,6 +2944,35 @@ class DataContractTool(AnalysisTool):
             "builders": 0,
             "relation_builders": 0,
         }
+
+        def typeorm_keys(call, content, node, method, owner, chain, manager=False):
+            """Read a repository call's (or query builder's) keys and link
+            the columns they name; returns the TypeormColumns."""
+            keyed = typeorm_call_columns(
+                node, content, method, owner, typeorm_fields, manager, chain
+            )
+            owners = [d for d in result.definitions if d.file == call.file]
+            for ent, name, sets, line, column in keyed.uses:
+                if (call.file, line, column) in typeorm_sites:
+                    continue
+                typeorm_columns["call_keys"] += 1
+                link(
+                    "WRITES_COLUMN" if sets else "READS_COLUMN",
+                    code(call.file, _owner_at(owners, call.file, line, column)),
+                    typeorm_fields[ent][name][0],
+                    TYPEORM_COLUMN_KEY_RULE,
+                    {
+                        "line": line,
+                        "column": column,
+                        "method": call.method
+                        if method != "builder"
+                        else "createQueryBuilder",
+                        "property": name,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
+            return keyed
+
         if typeorm_mappings or typeorm_children:
             ts_trees = {file: (content, tree) for file, content, tree in script_trees}
             for file, content, tree in script_trees:
@@ -2959,18 +3001,32 @@ class DataContractTool(AnalysisTool):
                         typeorm_scip_counts["linked"] += 1
                         typeorm_scip_counts["builders"] += 1
                         tool, receipt = references.tool(call.file)
+                        properties = {
+                            "method": call.method,
+                            "line": call.line,
+                            "column": call.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        }
+                        if targets[0] in typeorm_fields:
+                            keyed = typeorm_keys(
+                                call,
+                                content,
+                                None,
+                                "builder",
+                                targets[0],
+                                builder.chain,
+                            )
+                            # A reading builder's columns are SQL text, not read here.
+                            properties["columns_resolved"] = (
+                                keyed.complete and builder.writes
+                            )
                         link(
                             "WRITES" if builder.writes else "READS",
                             code(call.file, call.caller_id),
                             targets[0],
                             TYPEORM_SCIP_RULE,
-                            {
-                                "method": call.method,
-                                "line": call.line,
-                                "column": call.column,
-                                "indexer": tool,
-                                "receipt": receipt,
-                            },
+                            properties,
                         )
                         continue
                     status, entities = typeorm_call_entities(references, ts_trees, call)
@@ -2998,15 +3054,21 @@ class DataContractTool(AnalysisTool):
                         "indexer": tool,
                         "receipt": receipt,
                     }
-                    fields = typeorm_fields.get(targets[0])
                     node = tree.root_node.descendant_for_point_range(
                         (call.line - 1, call.column), (call.line - 1, call.column)
                     )
                     while node is not None and node.type != "call_expression":
                         node = node.parent
-                    if fields is not None and node is not None:
-                        keyed = typeorm_call_columns(
-                            node, content, call.method, targets[0], typeorm_fields
+                    if targets[0] in typeorm_fields and node is not None:
+                        manager = any(
+                            "/`EntityManager.d.ts`/EntityManager#" in symbol
+                            for symbol in references.symbols(
+                                call.file, call.line, call.column
+                            )
+                            or ()
+                        )
+                        keyed = typeorm_keys(
+                            call, content, node, call.method, targets[0], (), manager
                         )
                         properties["columns_resolved"] = keyed.complete and (
                             writes or not keyed.rows
@@ -3014,27 +3076,6 @@ class DataContractTool(AnalysisTool):
                         typeorm_columns["call_keys_resolved"] += properties[
                             "columns_resolved"
                         ]
-                        owners = [d for d in result.definitions if d.file == call.file]
-                        for ent, name, sets, line, column in keyed.uses:
-                            if (call.file, line, column) in typeorm_sites:
-                                continue
-                            typeorm_columns["call_keys"] += 1
-                            link(
-                                "WRITES_COLUMN" if sets else "READS_COLUMN",
-                                code(
-                                    call.file,
-                                    _owner_at(owners, call.file, line, column),
-                                ),
-                                typeorm_fields[ent][name][0],
-                                TYPEORM_COLUMN_KEY_RULE,
-                                {
-                                    "line": line,
-                                    "column": column,
-                                    "method": call.method,
-                                    "property": name,
-                                },
-                                labels=("DbColumn", "Contract"),
-                            )
                     link(
                         "WRITES" if writes else "READS",
                         code(call.file, call.caller_id),

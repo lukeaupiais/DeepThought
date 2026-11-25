@@ -3788,6 +3788,7 @@ class TypeormBuilder:
     entities: tuple
     table: str | None
     writes: bool
+    chain: tuple = ()  # (method, call node) of TypeORM's builder methods
 
 
 def typeorm_builder(references, trees, call):
@@ -3876,7 +3877,7 @@ def typeorm_builder(references, trees, call):
     entities = tuple(sorted(found, key=lambda d: d.id))
     if not entities and table is None:
         return "entity_unknown", None
-    return "resolved", TypeormBuilder(entities, table, writes)
+    return "resolved", TypeormBuilder(entities, table, writes, tuple(chain))
 
 
 def _typeorm_literal_table(call, content, position=0):
@@ -3995,14 +3996,42 @@ def _enclosing_class_extends(node):
     return None
 
 
-def _typeorm_type_entity(references, trees, file, node):
+def _typeorm_type_entity(references, trees, file, node, depth=3):
     """Entity classes of a type ``Repository<E>`` (also an ``extends``
     clause ``Repository<E>``), where the index resolves the type to
-    TypeORM's repository class and E to a class."""
-    if node is None:
+    TypeORM's repository class and E to a class; or of a project class the
+    index resolves the type to, through what it extends (``class
+    UserRepository extends Repository<User>``)."""
+    if node is None or depth <= 0:
         return set()
     if node.type == "type_annotation" and node.named_children:
         node = node.named_children[0]
+    if node.type == "type_identifier":
+        found = set()
+        for site in (
+            references.definition_sites(
+                file, node.start_point.row + 1, node.start_point.column
+            )
+            or ()
+        ):
+            entry = trees.get(site[0])
+            if entry is None:
+                continue
+            point = (site[1] - 1, site[2])
+            target = entry[1].root_node.descendant_for_point_range(point, point)
+            if target is None or target.parent is None:
+                continue
+            found |= _typeorm_type_entity(
+                references,
+                trees,
+                site[0],
+                _enclosing_class_extends(target.parent.child_by_field_name("body"))
+                if target.parent.type
+                in ("class_declaration", "abstract_class_declaration")
+                else None,
+                depth - 1,
+            )
+        return found
     if node.type == "extends_clause":
         value = node.child_by_field_name("value")
         arguments = node.child_by_field_name("type_arguments")
@@ -4476,6 +4505,13 @@ def _prisma_alternatives(node):
         return _prisma_alternatives(
             node.child_by_field_name("consequence")
         ) + _prisma_alternatives(node.child_by_field_name("alternative"))
+    if (
+        node.type == "binary_expression"
+        and node.child_by_field_name("operator") is not None
+        and node.child_by_field_name("operator").type == "&&"
+    ):
+        # ``...(cond && { key })``: the object, or nothing.
+        return _prisma_alternatives(node.child_by_field_name("right"))
     return [node]
 
 
@@ -4616,7 +4652,7 @@ _TYPEORM_ROW_METHODS = frozenset(
 _TYPEORM_FIELD_METHODS = frozenset("sum average minimum maximum".split())
 
 
-def typeorm_columns(call, content, method, entity, entities):
+def typeorm_columns(call, content, method, entity, entities, manager=False, chain=()):
     """The ``TypeormColumns`` of a TypeORM repository ``call`` (a
     call_expression) of ``method`` on ``entity``; ``entities`` maps an
     entity to {property: (column or None, related entity or None)}, a
@@ -4624,14 +4660,17 @@ def typeorm_columns(call, content, method, entity, entities):
     scip-typescript does not resolve the keys of TypeORM's mapped option
     types (FindOptionsWhere, FindOptionsSelect, FindOptionsOrder) to the
     entity's properties, so they are read against the entity's own
-    metadata, by the argument shapes of TypeORM's Repository API."""
+    metadata, by the argument shapes of TypeORM's Repository API; an
+    EntityManager call (``manager``) takes the entity first."""
     found = TypeormColumns()
-    arguments = call.child_by_field_name("arguments")
+    arguments = call.child_by_field_name("arguments") if call is not None else None
     args = [
         a
         for a in (arguments.named_children if arguments else [])
         if a.type != "comment"
     ]
+    if manager:
+        args = args[1:]
 
     def use(ent, name, writes, line, column):
         column_of, _ = entities.get(ent, {}).get(name, (None, None))
@@ -4725,6 +4764,21 @@ def typeorm_columns(call, content, method, entity, entities):
                 # gives the related entity is written only by a cascade.
                 use(ent, name, True, line, column)
 
+    def relations(node, ent):
+        # Joining a relation reads the foreign key the entity holds; a
+        # string array names relations too.
+        for item in _prisma_alternatives(node):
+            if item.type == "array":
+                continue
+            for name, line, column, value in _prisma_pairs(item, content, found):
+                fields = entities.get(ent, {})
+                if name not in fields or fields[name][1] is None:
+                    continue
+                use(ent, name, False, line, column)
+                value = _prisma_object(value)
+                if value is not None and value.type == "object":
+                    relations(value, fields[name][1])
+
     def options(node):
         selected = False
         for name, line, column, value in _prisma_pairs(node, content, found):
@@ -4735,6 +4789,8 @@ def typeorm_columns(call, content, method, entity, entities):
                 select(value, entity)
             elif name == "order":
                 order(value, entity)
+            elif name == "relations":
+                relations(value, entity)
             elif name not in _TYPEORM_OPTIONS_IGNORED:
                 found.complete = False
         return selected
@@ -4747,6 +4803,33 @@ def typeorm_columns(call, content, method, entity, entities):
         use(entity, name, writes, node.start_point.row + 1, node.start_point.column + 1)
 
     selected = False
+    if method == "builder":
+        # A query builder's values() and set() objects write; an object
+        # given to where() and its kin reads; SQL text is not read here.
+        for name, node in chain:
+            inner = node.child_by_field_name("arguments")
+            first = next(
+                (
+                    a
+                    for a in (inner.named_children if inner else ())
+                    if a.type != "comment"
+                ),
+                None,
+            )
+            if first is None:
+                continue
+            if name in ("values", "set"):
+                values(first, entity)
+            elif name in ("where", "andWhere", "orWhere"):
+                alternatives = _prisma_alternatives(first)
+                if alternatives and all(
+                    a.type in ("object", "array") for a in alternatives
+                ):
+                    where(first, entity)
+                else:
+                    found.complete = False
+        found.rows = False
+        return found
     if method in _TYPEORM_OPTION_METHODS and method not in ("exist",):
         if args:
             selected = options(args[0])

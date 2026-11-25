@@ -1507,6 +1507,16 @@ TYPEORM_COLUMNS = {
     "  change(id: number) { return this.repo.update({ id }, { firstName: 'b' }); }\n"
     "  dynamic(where: any) { return this.repo.find({ where }); }\n"
     "}\n",
+    "src/more.ts": "import { Repository, EntityManager } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserRepository extends Repository<User> {}\n"
+    "export class More {\n"
+    "  constructor(private users: UserRepository, private repo: Repository<User>) {}\n"
+    "  named() { return this.users.findBy({ firstName: 'c' }); }\n"
+    "  managed(m: EntityManager) { return m.delete(User, { firstName: 'c', ...(1 && { id: 2 }) }); }\n"
+    "  built() { return this.repo.createQueryBuilder().update().set({ firstName: 'd' }).where({ id: 1 }).execute(); }\n"
+    "  typed(u: User): typeof u.email { return ''; }\n"
+    "}\n",
     "db/migrations/0001_init.sql": "CREATE TABLE users (id int, email_address text, "
     '"firstName" text, "createdAt" timestamp, "roleId" int);\n',
 }
@@ -6154,6 +6164,12 @@ class TypeormColumnTests(unittest.TestCase):
         user = app + "`user.entity.ts`/User#"
         role = app + "`role.entity.ts`/Role#"
         service = app + "`user.service.ts`/UserService#"
+        more = app + "`more.ts`/More#"
+        more_repo = app + "`more.ts`/UserRepository#"
+        manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        builder = (
+            typeorm + "query-builder/`UpdateQueryBuilder.d.ts`/UpdateQueryBuilder#"
+        )
         documents = {
             "src/base.entity.ts": [
                 (2, "createdAt", app + "`base.entity.ts`/Base#createdAt.", True, 0)
@@ -6188,6 +6204,38 @@ class TypeormColumnTests(unittest.TestCase):
                 (7, "update", repository + "update().", False, 0),
                 (8, "repo", service + "repo.", False, 0),
                 (8, "find", repository + "find().", False, 0),
+            ],
+            "src/more.ts": [
+                (1, "User", user, False, 0),
+                (2, "UserRepository", more_repo, True, 0),
+                (2, "Repository", repository, False, 0),
+                (2, "User", user, False, 0),
+                (4, "users", more + "users.", True, 0),
+                (4, "UserRepository", more_repo, False, 0),
+                (4, "repo", more + "repo.", True, 0),
+                (4, "Repository", repository, False, 0),
+                (4, "User", user, False, 0),
+                (5, "users", more + "users.", False, 0),
+                (5, "findBy", repository + "findBy().", False, 0),
+                (6, "EntityManager", manager, False, 0),
+                (6, "m", "local 1", True, 0),
+                (6, "m", "local 1", False, 1),
+                (6, "delete", manager + "delete().", False, 0),
+                (6, "User", user, False, 0),
+                (7, "repo", more + "repo.", False, 0),
+                (
+                    7,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (7, "update", builder + "update().", False, 0),
+                (7, "set", builder + "set().", False, 0),
+                (7, "where", builder + "where().", False, 0),
+                (7, "execute", builder + "execute().", False, 0),
+                (8, "User", user, False, 0),
+                (8, "email", user + "email.", False, 0),
             ],
         }
         index = wire.Index()
@@ -6232,6 +6280,10 @@ class TypeormColumnTests(unittest.TestCase):
         self.assertEqual(
             [e for e in edges if e[0] != "HAS_COLUMN"],
             [
+                ("READS_COLUMN", "More.built", users + "id", 8, key),
+                ("READS_COLUMN", "More.managed", users + "firstName", 7, key),
+                ("READS_COLUMN", "More.managed", users + "id", 7, key),
+                ("READS_COLUMN", "More.named", users + "firstName", 6, key),
                 ("READS_COLUMN", "UserService.byEmail", roles + "name", 5, key),
                 (
                     "READS_COLUMN",
@@ -6251,6 +6303,7 @@ class TypeormColumnTests(unittest.TestCase):
                     6,
                     access,
                 ),
+                ("WRITES_COLUMN", "More.built", users + "firstName", 8, key),
                 (
                     "WRITES_COLUMN",
                     "UserService.add",
@@ -6279,6 +6332,9 @@ class TypeormColumnTests(unittest.TestCase):
         self.assertEqual(
             resolved,
             {
+                "More.built": True,
+                "More.managed": True,
+                "More.named": False,
                 "UserService.byEmail": True,
                 "UserService.add": True,
                 "UserService.change": True,
