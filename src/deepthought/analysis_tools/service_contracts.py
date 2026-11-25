@@ -9,7 +9,7 @@ callers are the tree-sitter declarations of the same files, with the same
 identities, so a revision that also contains tree-sitter output joins them.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from hashlib import sha256
 import contextlib
 import dataclasses
@@ -27,8 +27,8 @@ from .._version import __version__
 from ..data_contracts import (
     resolve_script_module,
 )
-from ..engine import analyze_repository
-from .. import ts_facts
+from ..engine import analyze_repository, source_languages
+from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -66,6 +66,7 @@ from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
     extract_messaging,
+    go_broker_file,
     stomp_prefixes,
 )
 from ..service_contracts.oapi_codegen import generated_requests
@@ -398,36 +399,36 @@ MESSAGE_RULES = {
     ),
     ("kafka-go", "publish"): _message_rule(
         "service-contracts.kafka-go-writer",
-        "A segmentio/kafka-go Writer, WriterConfig or Message literal written "
-        "with Topic names this topic; the producer is where the literal is "
-        "written." + _SAME_NAME,
+        "A segmentio/kafka-go Writer, WriterConfig or Message literal (its "
+        "type resolved by go/types) whose Topic has this value names this "
+        "topic; the producer is where the literal is written." + _SAME_NAME,
     ),
     ("kafka-go", "consume"): _message_rule(
         "service-contracts.kafka-go-reader",
-        "A segmentio/kafka-go ReaderConfig literal written with Topic or "
-        "GroupTopics names this topic; the consumer is where the literal is "
-        "written." + _SAME_NAME,
+        "A segmentio/kafka-go ReaderConfig literal (its type resolved by "
+        "go/types) whose Topic or GroupTopics has this value names this topic; "
+        "the consumer is where the literal is written." + _SAME_NAME,
     ),
     ("sarama", "publish"): _message_rule(
         "service-contracts.sarama-producer-message",
-        "A sarama ProducerMessage literal written with Topic names this "
-        "topic." + _SAME_NAME,
+        "A sarama ProducerMessage literal (its type resolved by go/types) "
+        "whose Topic has this value names this topic." + _SAME_NAME,
     ),
     ("sarama", "consume"): _message_rule(
         "service-contracts.sarama-consume",
-        "ConsumePartition(topic, ...) or a consumer group's Consume(ctx, "
-        "[]string{...}, handler), in a file importing sarama, names this "
-        "topic." + _SAME_NAME,
+        "ConsumePartition(topic, ...) or ConsumerGroup.Consume(ctx, "
+        "[]string{...}, handler), methods go/types resolves to sarama, names "
+        "this topic." + _SAME_NAME,
     ),
     ("confluent-kafka-go", "publish"): _message_rule(
         "service-contracts.confluent-kafka-go-produce",
-        "A confluent-kafka-go TopicPartition literal written with Topic names "
-        "this topic." + _SAME_NAME,
+        "A confluent-kafka-go TopicPartition literal (its type resolved by "
+        "go/types) whose Topic has this value names this topic." + _SAME_NAME,
     ),
     ("confluent-kafka-go", "consume"): _message_rule(
         "service-contracts.confluent-kafka-go-subscribe",
-        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), in a "
-        "file importing confluent-kafka-go, names this topic; a topic "
+        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), methods "
+        "go/types resolves to confluent-kafka-go, names this topic; a topic "
         "starting with ^ is a pattern and is not read." + _SAME_NAME,
     ),
     ("amqplib", "publish"): _message_rule(
@@ -475,14 +476,15 @@ MESSAGE_RULES = {
     ),
     ("go-amqp", "publish"): _message_rule(
         "service-contracts.go-amqp-publish",
-        "Publish in a file importing an amqp client package names this exchange "
-        "and routing key." + _SAME_NAME,
+        "Publish or PublishWithContext, a method go/types resolves to an amqp "
+        "client package, names this exchange and routing key." + _SAME_NAME,
     ),
     ("go-amqp", "consume"): _message_rule(
         "service-contracts.go-amqp-consume",
-        "Consume in a file importing an amqp client package consumes a queue "
-        "that receives this destination: the default exchange keyed with the "
-        "queue name, or a QueueBind of that queue in the same file." + _SAME_NAME,
+        "Consume or ConsumeWithContext, a method go/types resolves to an amqp "
+        "client package, consumes a queue that receives this destination: the "
+        "default exchange keyed with the queue name, or a QueueBind of that "
+        "queue in the same file." + _SAME_NAME,
     ),
     ("spring-stomp", "consume"): _message_rule(
         "service-contracts.spring-stomp-message-mapping",
@@ -701,6 +703,23 @@ OAPI_CODEGEN_REQUEST_RULES = {
             f"service-contracts.oapi-codegen-client-{rule.rpartition('.http-')[2]}",
             "pattern_matched",
             _OAPI_CODEGEN + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
+_ORVAL = (
+    "orval generated this file from an OpenAPI spec (its header says so) and "
+    "sends the operation through the configured mutator, called with the "
+    "request config orval builds ({url, method, ...}); the path is the one "
+    "orval wrote, under the base URL the mutator adds at run time, which is "
+    "not read. "
+)
+ORVAL_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.orval-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _ORVAL + REQUEST_RULES[rule].description,
         )
     )
     for rule in REQUEST_RULES
@@ -1584,6 +1603,97 @@ def _go_modules(root, sources):
     return found
 
 
+# The languages each contract family has a reader for in this tool. A
+# language of the repository outside a family's set is stated as not read,
+# so that the sites found for a family are not taken as all of them.
+_WEB_LANGUAGES = frozenset(
+    {"python", "javascript", "typescript", "go", "java", "csharp", "php"}
+)
+CONTRACT_READERS = {
+    "http_routes": _WEB_LANGUAGES,
+    "http_requests": _WEB_LANGUAGES,
+    "grpc_handlers": frozenset(grpc_contracts.SERVER_LANGUAGES),
+    "grpc_calls": frozenset(grpc_contracts.CALL_LANGUAGES),
+    "graphql_resolvers": frozenset({"javascript", "typescript"}),
+    "graphql_requests": frozenset({"javascript", "typescript"}),
+    "message_endpoints": frozenset(
+        {"java", "python", "go", "javascript", "typescript"}
+    ),
+}
+
+
+def contract_coverage(repo_url, languages, coverage, sites):
+    """One ContractCoverage node per (contract family, language of the
+    repository's source files): whether this tool reads that family in that
+    language (status ``read``, or ``not_read`` with reason ``no_reader``),
+    how many files of the language there are (``languages``, from
+    ``source_languages``), and how many sites it found (and, for client
+    calls, linked). ``sites`` maps each family to (file, linked or None) per
+    site."""
+    language_of = {item.file: item.language for item in coverage}
+    nodes = []
+    for family in sorted(CONTRACT_READERS):
+        found, linked = {}, {}
+        for file, link in sites.get(family, ()):
+            language = language_of.get(file)
+            found[language] = found.get(language, 0) + 1
+            if link:
+                linked[language] = linked.get(language, 0) + 1
+        clients = family in ("http_requests", "grpc_calls")
+        for language in sorted(languages):
+            read = language in CONTRACT_READERS[family]
+            nodes.append(
+                NodeData(
+                    ["ContractCoverage"],
+                    {
+                        "qualified_name": (
+                            f"{repo_url}::contract-coverage::{family}::{language}"
+                        ),
+                        "repo_url": repo_url,
+                        "name": f"{family} {language}",
+                        "family": family,
+                        "language": language,
+                        "status": "read" if read else "not_read",
+                        **({} if read else {"reason": "no_reader"}),
+                        "files": languages[language],
+                        "sites": found.get(language, 0),
+                        **({"linked": linked.get(language, 0)} if clients else {}),
+                    },
+                )
+            )
+    return nodes
+
+
+def _go_messaging_facts(root, sources):
+    """({file: (calls, literals, reason)}, GOPATH-era packages) from the Go
+    type checker for the Go sources that import a broker client; reason is
+    why a file was not, or only partly, checked. go_facts downloads each module's dependencies
+    first; without the Go toolchain it raises GoMissing."""
+    files = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
+    ]
+    if not files:
+        return {}, {}
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    calls, literals = defaultdict(list), defaultdict(list)
+    for call in facts.calls:
+        calls[call.file].append(call)
+    for literal in facts.literals:
+        literals[literal.file].append(literal)
+    found = {}
+    for file in files:
+        if file in facts.uncovered:
+            reason = "not_type_checked"
+        elif file in facts.partial:
+            reason = "partly_type_checked"
+        else:
+            reason = None
+        found[file] = (calls[file], literals[file], reason)
+    return found, go_facts.gopath_report(facts)
+
+
 def _go_router_mounts(root, sources):
     """{package directory: {(function, parameter index): prefixes}}: the Gin
     and Echo routers each function's router parameters receive from calls
@@ -2011,6 +2121,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
+        go_messaging, go_gopath = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2034,8 +2145,8 @@ class ServiceContractTool(AnalysisTool):
         axios_exported = {}
 
         def axios_imported(file):
-            """{local name: base URL} of the axios instances ``file``
-            imports from repository modules."""
+            """{local name: base URL} of the axios instances and
+            openapi-fetch clients ``file`` imports from repository modules."""
             if scripts is None or file not in scripts.sources:
                 return None
             tree, content, _ = scripts.sources[file]
@@ -2050,7 +2161,7 @@ class ServiceContractTool(AnalysisTool):
                     t, c, language = scripts.sources[target]
                     axios_exported[target] = (
                         axios_exports(t, c, language, scripts.externals(target))
-                        if b"axios" in c
+                        if b"axios" in c or b"openapi-fetch" in c
                         else {}
                     )
                 return axios_exported[target]
@@ -2219,6 +2330,7 @@ class ServiceContractTool(AnalysisTool):
                         if calls is not None and coverage.file in scripts.sources
                         else None
                     ),
+                    go_facts=go_messaging.get(coverage.file),
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])
@@ -2635,6 +2747,7 @@ class ServiceContractTool(AnalysisTool):
                                     "openapi-java": OPENAPI_REQUEST_RULES,
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
                                     "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
+                                    "orval": ORVAL_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
@@ -3001,10 +3114,33 @@ class ServiceContractTool(AnalysisTool):
         for item in messaging_unread:
             key = f"{item.role}:{item.reason}"
             unread_counts[key] = unread_counts.get(key, 0) + 1
+        linked_requests = {r.request_id for r in resolutions if r.route_id}
+        coverage_nodes = contract_coverage(
+            repo_url,
+            source_languages(
+                self.repo_path,
+                ("*",) if file_patterns is None else tuple(file_patterns),
+                () if skip_patterns is None else tuple(skip_patterns),
+            ),
+            result.coverage,
+            {
+                "http_routes": [(r.file, None) for r in routes],
+                "http_requests": [(q.file, q.id in linked_requests) for q in requests],
+                "grpc_handlers": [(h.file, None) for h in grpc.handlers],
+                "grpc_calls": [
+                    (grpc_calls[r.call_id].file, r.status == "linked")
+                    for r in grpc.resolutions
+                ],
+                "graphql_resolvers": [(r.file, None) for r in graphql_resolvers],
+                "graphql_requests": [(r.file, None) for r in graphql_requests],
+                "message_endpoints": [(e.file, None) for e in endpoints],
+            },
+        )
         nodes = (
             sorted(files.values(), key=lambda n: n.properties["qualified_name"])
             + sorted(symbols.values(), key=lambda n: n.properties["qualified_name"])
             + nodes
+            + coverage_nodes
         )
         artifact = result.to_dict()
         diagnostics = artifact["diagnostics"]
@@ -3034,6 +3170,7 @@ class ServiceContractTool(AnalysisTool):
                 "gateway_routes": len(gateways),
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
+                **({"go_gopath_packages": go_gopath} if go_gopath else {}),
                 "test_source_files": test_files,
                 "graphql_fields": len(graphql_fields),
                 "graphql_requests": len(graphql_requests),

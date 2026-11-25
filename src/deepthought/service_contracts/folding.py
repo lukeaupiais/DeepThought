@@ -685,7 +685,14 @@ class Folder:
             value = self.compiler.get((node.start_byte, node.end_byte))
             if value is not None:
                 return value
-        if kind == "parenthesized_expression":
+        # TypeScript's type assertions and checks (``x as T``,
+        # ``x satisfies T``, ``x!``) have the value of their expression.
+        if kind in (
+            "parenthesized_expression",
+            "as_expression",
+            "satisfies_expression",
+            "non_null_expression",
+        ):
             return (
                 self.evaluate(node.named_children[0], depth)
                 if node.named_children

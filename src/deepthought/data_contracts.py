@@ -20,6 +20,10 @@ and JdbcClient) name the tables they read and write (``SqlUse``).
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
+import json
+import logging
+import posixpath
+from pathlib import Path
 import re
 
 from .service_contracts.http import PLACEHOLDER
@@ -31,6 +35,10 @@ from .service_contracts.spring import (
     _package,
     _text,
 )
+
+# sqlglot warns on every statement it passes through as text; those are
+# counted in the run's metrics (sql_text, ddl_readers) instead.
+logging.getLogger("sqlglot").setLevel(logging.ERROR)
 
 _PERSISTENCE = ("jakarta.persistence", "javax.persistence")
 _SPRING_DATA = "org.springframework.data"
@@ -48,13 +56,6 @@ READ_ONLY_REPOSITORIES = {
     "ReactiveSortingRepository",
 }
 
-_NAME = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)'
-_CREATE_TABLE = re.compile(
-    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL|LOCAL)\s+)?"
-    r"(TEMP(?:ORARY)?\s+)?(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
-    rf"({_NAME}(?:\s*\.\s*{_NAME}){{0,2}})",
-    re.IGNORECASE,
-)
 _COMMENT_OR_STRING = re.compile(r"--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'", re.DOTALL)
 
 
@@ -64,6 +65,8 @@ class Ddl:
     line: int
     name: str
     schema: str | None = None
+    # "sqlglot", or "tokens_not_parsed" for a CREATE TABLE no dialect parses.
+    reader: str = "sqlglot"
 
 
 @dataclass(frozen=True)
@@ -104,27 +107,495 @@ def _blank(match):
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
+# Dialects sqlglot tries for schema files, in order. ClickHouse is read
+# here only: its DDL (engines, codecs) is in migrations, its queries are not.
+DDL_DIALECTS = ("postgres", "mysql", "sqlite", "tsql", "oracle", "clickhouse", None)
+
+
 def extract_ddl(file, content: bytes):
-    """The permanent tables a SQL file's CREATE TABLE statements declare."""
+    """The permanent tables a SQL file's CREATE TABLE statements declare.
+
+    The file is split into statements by sqlglot's tokenizer (so semicolons
+    in strings, comments and dollar-quoted bodies do not split it) and each
+    statement holding CREATE and TABLE tokens is parsed by sqlglot in the
+    first of DDL_DIALECTS that accepts it. A CREATE TABLE statement no
+    dialect parses (syntax sqlglot does not know yet, or invalid SQL) is
+    read from its tokens with ``reader="tokens_not_parsed"``. Temporary
+    tables are not part of the schema. None when the file is not UTF-8 or
+    no dialect tokenizes it."""
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found = []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.CREATE not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        offset = text.count("\n", 0, start)
+        parsed = _sqlglot_ddl(text[start:end])
+        if parsed is None:
+            table = _token_ddl(statement)
+            if table is not None:
+                name, schema, line = table
+                found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
+            continue
+        found.extend(
+            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
+        )
+    return found
+
+
+def _ddl_statements(content: bytes):
+    """(text, statements) of a SQL file, each statement a list of sqlglot
+    tokens split at semicolons, or None when the file is not UTF-8 or no
+    dialect of DDL_DIALECTS tokenizes it."""
+    import sqlglot
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    text = _COMMENT_OR_STRING.sub(_blank, text)
-    found = []
-    for match in _CREATE_TABLE.finditer(text):
-        if match.group(1):
-            continue  # Temporary tables are not part of the schema.
-        parts = [p.strip() for p in re.split(rf"\s*\.\s*(?={_NAME})", match.group(2))]
-        found.append(
-            Ddl(
-                file,
-                text.count("\n", 0, match.start()) + 1,
-                table_key(parts[-1]),
-                table_key(parts[-2]) if len(parts) > 1 else None,
-            )
-        )
-    return found
+    tokens = None
+    for dialect in DDL_DIALECTS:
+        try:
+            tokens = sqlglot.Dialect.get_or_raise(dialect).tokenize(text)
+        except (SqlglotError, ValueError):
+            continue
+        break
+    if tokens is None:
+        return None
+    statements, current = [], []
+    for token in tokens:
+        if token.token_type == TokenType.SEMICOLON:
+            statements.append(current)
+            current = []
+        else:
+            current.append(token)
+    statements.append(current)
+    return text, statements
+
+
+@dataclass(frozen=True)
+class ForeignKey:
+    """A foreign key a schema declares: ``table`` references ``references``."""
+
+    file: str
+    line: int
+    table: str
+    references: str
+    columns: tuple[str, ...] = ()
+    referenced_columns: tuple[str, ...] = ()
+    on_delete: str | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ForeignKeyDrop:
+    """A statement that removes foreign keys: ALTER TABLE ``table`` DROP
+    CONSTRAINT / DROP FOREIGN KEY ``constraint``, or DROP TABLE ``table``
+    (``constraint`` None), which takes the keys of and to the table."""
+
+    file: str
+    line: int
+    table: str
+    constraint: str | None = None
+
+
+def extract_foreign_keys(file, content: bytes):
+    """(foreign keys, lines not parsed) of a SQL file's CREATE TABLE and
+    ALTER TABLE statements, read by sqlglot: a column's REFERENCES
+    constraint and a table's FOREIGN KEY constraint, inline or added by
+    ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY. A statement with a
+    REFERENCES token that no dialect parses is not read; its line is
+    returned instead. Temporary tables are left out. None when the file is
+    not UTF-8 or no dialect tokenizes it."""
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if (
+            TokenType.TABLE not in types
+            or TokenType.REFERENCES not in types
+            or not types & {TokenType.CREATE, TokenType.ALTER}
+        ):
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        offset = text.count("\n", 0, start)
+        keys = _sqlglot_foreign_keys(text[start:end])
+        if keys is None:
+            unparsed.append(statement[0].line)
+            continue
+        found.extend(ForeignKey(file, line + offset, *rest) for line, *rest in keys)
+    return found, unparsed
+
+
+def drizzle_foreign_keys(root, folder):
+    """The foreign keys of the schema state drizzle-kit records for a
+    migrations ``folder`` (relative to ``root``): the snapshot of the last
+    entry of ``meta/_journal.json``, which drizzle-kit writes as the schema
+    after every migration, so keys later migrations drop are not in it.
+    Returns (snapshot path, keys), or (None, reason) when the journal or its
+    last snapshot cannot be read."""
+    meta = f"{folder}/meta" if folder else "meta"
+    try:
+        journal = json.loads((Path(root) / meta / "_journal.json").read_text("utf-8"))
+        last = journal["entries"][-1]["idx"]
+        snapshot = f"{meta}/{last:04d}_snapshot.json"
+        text = (Path(root) / snapshot).read_text("utf-8")
+        tables = json.loads(text)["tables"]
+        keys = []
+        for table in tables.values():
+            for name, key in sorted((table.get("foreignKeys") or {}).items()):
+                position = text.find(json.dumps(name))
+                keys.append(
+                    ForeignKey(
+                        snapshot,
+                        text.count("\n", 0, position) + 1 if position >= 0 else 1,
+                        key["tableFrom"].lower(),
+                        key["tableTo"].lower(),
+                        tuple(c.lower() for c in key.get("columnsFrom") or ()),
+                        tuple(c.lower() for c in key.get("columnsTo") or ()),
+                        (key.get("onDelete") or "").upper() or None,
+                    )
+                )
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+        AttributeError,
+    ) as error:
+        return None, f"drizzle-kit snapshot of {folder or '.'}: {error!r}"
+    return snapshot, keys
+
+
+def _sqlglot_foreign_keys(text):
+    """(line, table, references, columns, referenced columns, on delete) of
+    each foreign key a statement declares, or None when no dialect parses
+    it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    def name(table):
+        if isinstance(table, exp.Schema):
+            table = table.this
+        if not isinstance(table, exp.Table) or not isinstance(
+            table.this, exp.Identifier
+        ):
+            return None
+        return table.name.lower()
+
+    for dialect in DDL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        found = []
+        for tree in trees:
+            if isinstance(tree, exp.Create):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                properties = tree.args.get("properties")
+                if properties and any(
+                    isinstance(p, exp.TemporaryProperty) for p in properties.expressions
+                ):
+                    continue
+                owner = tree.this
+            elif isinstance(tree, exp.Alter):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                owner = tree.this
+            else:
+                continue
+            table = name(owner)
+            if table is None:
+                continue
+            for reference in tree.find_all(exp.Reference):
+                target = name(reference.this)
+                if target is None:
+                    continue
+                referenced = tuple(
+                    e.name.lower()
+                    for e in getattr(reference.this, "expressions", None) or ()
+                    if isinstance(reference.this, exp.Schema)
+                )
+                holder = reference.parent
+                if isinstance(holder, exp.ForeignKey):
+                    columns = tuple(e.name.lower() for e in holder.expressions)
+                else:
+                    column = reference.find_ancestor(exp.ColumnDef)
+                    columns = (column.name.lower(),) if column else ()
+                on_delete = next(
+                    (
+                        str(o)[len("ON DELETE ") :].upper()
+                        for o in reference.args.get("options") or ()
+                        if str(o).upper().startswith("ON DELETE ")
+                    ),
+                    None,
+                )
+                line = (
+                    reference.this.this.this.meta.get("line", 1)
+                    if isinstance(reference.this, exp.Schema)
+                    else reference.this.this.meta.get("line", 1)
+                )
+                named = reference.parent
+                if isinstance(named, exp.ForeignKey):
+                    named = named.parent
+                constraint = (
+                    named.this.name.lower()
+                    if isinstance(named, (exp.Constraint, exp.ColumnConstraint))
+                    and isinstance(named.this, exp.Identifier)
+                    else None
+                )
+                found.append(
+                    (line, table, target, columns, referenced, on_delete, constraint)
+                )
+        return found
+    return None
+
+
+def extract_foreign_key_drops(file, content: bytes):
+    """(drops, lines not parsed) of a SQL file's statements that remove
+    foreign keys, read by sqlglot: ALTER TABLE ... DROP CONSTRAINT, ALTER
+    TABLE ... DROP FOREIGN KEY (MySQL) and DROP TABLE. A statement with a
+    DROP token that no dialect parses is not read; its line is returned.
+    None when the file is not UTF-8 or no dialect tokenizes it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.DROP not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        line = statement[0].line
+        for dialect in DDL_DIALECTS:
+            try:
+                trees = [
+                    t
+                    for t in sqlglot.parse(text[start:end], read=dialect)
+                    if t is not None
+                ]
+            except (SqlglotError, ValueError, RecursionError):
+                continue
+            if not trees or any(isinstance(t, exp.Command) for t in trees):
+                continue
+            break
+        else:
+            unparsed.append(line)
+            continue
+        for tree in trees:
+            if isinstance(tree, exp.Drop):
+                if (tree.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                found.extend(
+                    ForeignKeyDrop(file, line, table.name.lower())
+                    for table in tree.args.get("tables") or ()
+                    if isinstance(table, exp.Table)
+                )
+            elif isinstance(tree, exp.Alter):
+                owner = tree.this
+                if (tree.args.get("kind") or "").upper() != "TABLE" or not (
+                    isinstance(owner, exp.Table)
+                ):
+                    continue
+                for action in tree.args.get("actions") or ():
+                    if not isinstance(action, exp.Drop) or (
+                        (action.args.get("kind") or "").upper()
+                        not in ("CONSTRAINT", "FOREIGN KEY")
+                    ):
+                        continue
+                    found.extend(
+                        ForeignKeyDrop(
+                            file, line, owner.name.lower(), named.name.lower()
+                        )
+                        for named in action.args.get("tables") or ()
+                        if isinstance(named, exp.Table)
+                    )
+    return found, unparsed
+
+
+_ROLLBACK_MIGRATION = re.compile(r"(?:^|[._-])down\.sql$", re.I)
+
+
+def is_rollback_migration(path):
+    """Whether a SQL file undoes a migration: golang-migrate and sqlx write
+    <version>_<name>.down.sql, Diesel <version>_<name>/down.sql. A rollback
+    is not part of the schema the migrations build."""
+    return bool(_ROLLBACK_MIGRATION.search(posixpath.basename(path)))
+
+
+_MIGRATION_FOLDERS = {"migrations", "migration", "migrate"}
+
+
+def migration_set(path):
+    """The folder whose SQL files apply one after another, in name order:
+    the nearest folder of the path named migrations, migration or migrate
+    (Prisma, sqlx, golang-migrate, Flyway's db/migration, Rails' db/migrate),
+    or the file itself when it is in none."""
+    parts = path.split("/")[:-1]
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index].lower() in _MIGRATION_FOLDERS:
+            return "/".join(parts[: index + 1])
+    return path
+
+
+def _natural(path):
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", path)
+    ]
+
+
+def _postgres_key_name(key):
+    """The name PostgreSQL gives an unnamed foreign key:
+    <table>_<columns>_fkey, cut to 63 bytes (ChooseConstraintName)."""
+    if not key.columns:
+        return None
+    label = f"{key.table}_{'_'.join(key.columns)}"
+    return f"{label[: 63 - len('_fkey')]}_fkey"
+
+
+def replay_foreign_keys(files):
+    """The foreign keys left once each file's statements run in order.
+
+    ``files`` holds (path, keys, drops) of the SQL files of one migration
+    set (``migration_set``); they apply in natural name order (V2 before
+    V10) and, within a file, in line order. A drop names a key by its
+    constraint name, or by the name PostgreSQL gives an unnamed key; DROP
+    TABLE takes the keys of and to the table. Returns (keys, dropped count,
+    drops that name no key read before them: DROP CONSTRAINT also drops
+    primary, unique and check constraints). Running the migrations against
+    a database would run the project's code, so their statements are
+    replayed from sqlglot's parse instead."""
+    keys, dropped, unmatched = [], 0, []
+    for _, found, drops in sorted(files, key=lambda f: _natural(f[0])):
+        events = [(k.line, 1, k) for k in found] + [(d.line, 0, d) for d in drops]
+        for _, kind, item in sorted(events, key=lambda e: (e[0], e[1])):
+            if kind:
+                keys.append(item)
+                continue
+            if item.constraint is None:
+                left = [k for k in keys if item.table not in (k.table, k.references)]
+            else:
+                left = [
+                    k
+                    for k in keys
+                    if k.table != item.table
+                    or item.constraint
+                    not in (k.name, None if k.name else _postgres_key_name(k))
+                ]
+                if len(left) == len(keys):
+                    unmatched.append(item)
+            dropped += len(keys) - len(left)
+            keys = left
+    return keys, dropped, unmatched
+
+
+def _sqlglot_ddl(text):
+    """(line, name, schema) of each permanent table a statement creates, or
+    None when no dialect parses it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    for dialect in DDL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        found = []
+        for tree in trees:
+            for create in tree.find_all(exp.Create):
+                if (create.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                properties = create.args.get("properties")
+                if properties and any(
+                    isinstance(p, exp.TemporaryProperty) for p in properties.expressions
+                ):
+                    continue
+                table = create.this
+                if isinstance(table, exp.Schema):
+                    table = table.this
+                if not isinstance(table, exp.Table) or not isinstance(
+                    table.this, exp.Identifier
+                ):
+                    continue
+                found.append(
+                    (
+                        table.this.meta.get("line", 1),
+                        table.name.lower(),
+                        table.db.lower() or None,
+                    )
+                )
+        return found
+    return None
+
+
+def _token_ddl(statement):
+    """(name, schema, line) of the table a CREATE TABLE statement no dialect
+    parses names, read from sqlglot's tokens: CREATE, modifiers, TABLE, an
+    optional IF NOT EXISTS, then a dotted name. None for a temporary table
+    or another statement."""
+    from sqlglot.tokens import TokenType
+
+    words = iter(statement)
+    if next(words).token_type != TokenType.CREATE:
+        return None
+    for token in words:
+        if token.token_type == TokenType.TABLE:
+            break
+        if token.text.upper() in ("TEMP", "TEMPORARY"):
+            return None
+        if token.text.upper() not in ("OR", "REPLACE", "GLOBAL", "LOCAL", "UNLOGGED"):
+            return None
+    else:
+        return None
+    rest = list(words)
+    if [t.text.upper() for t in rest[:3]] == ["IF", "NOT", "EXISTS"]:
+        rest = rest[3:]
+    parts = []
+    for token in rest:
+        if parts and len(parts) % 2 == 1:
+            if token.token_type != TokenType.DOT:
+                break
+            parts.append(token)
+        elif token.token_type in (TokenType.VAR, TokenType.IDENTIFIER):
+            parts.append(token)
+        else:
+            break
+    names = parts[::2]
+    if not names:
+        return None
+    return (
+        names[-1].text.lower(),
+        names[-2].text.lower() if len(names) > 1 else None,
+        names[-1].line,
+    )
 
 
 # Words that end a table reference list or cannot be a table or an alias.
@@ -191,6 +662,10 @@ class Statement:
 
     reads: tuple[str, ...]
     writes: tuple[str, ...]
+    # Who read it: "sqlglot"; "tokens" for SQL with text the code does not
+    # fix, or JPQL, which no SQL parser reads; "tokens_not_parsed" for SQL
+    # sqlglot rejects in every dialect.
+    reader: str = "sqlglot"
 
 
 def _word(token):
@@ -249,7 +724,115 @@ def is_catalog(parts):
     )
 
 
+# Dialects sqlglot tries, in order; the first that parses the text reads it.
+SQL_DIALECTS = ("postgres", "mysql", "sqlite", "tsql", "oracle", None)
+
+
 def statement_tables(text, jpql=False):
+    """The tables a SQL statement reads and writes, from sqlglot.
+
+    SQL that holds text the code does not fix (PLACEHOLDER), which no
+    parser accepts, and JPQL, which is not SQL, are read by the token
+    reader (``_token_statement_tables``). Other SQL is parsed by sqlglot in
+    the first of SQL_DIALECTS that accepts it; SQL no dialect accepts is
+    read by the token reader with ``reader="tokens_not_parsed"``.
+
+    INSERT/REPLACE/MERGE targets, UPDATE and DELETE targets (an alias in a
+    multi-table DELETE resolved to its table) and TRUNCATE are written;
+    every other table is read. Common table expression names, ``dual`` and
+    system catalogs (is_catalog) are left out; ``schema.table`` gives
+    ``table``."""
+    if jpql or PLACEHOLDER in text:
+        return replace(_token_statement_tables(text, jpql), reader="tokens")
+    # JDBC and JPA positional parameters (?1), which no dialect reads, are
+    # bind markers like ``?``.
+    masked = _COMMENT_OR_STRING.sub(_blank, text)
+    for match in reversed(list(re.finditer(r"\?\d+", masked))):
+        text = (
+            text[: match.start()]
+            + "?"
+            + " " * (len(match.group()) - 1)
+            + text[match.end() :]
+        )
+    found = _sqlglot_tables(text)
+    if found is None:
+        # Syntax sqlglot does not know yet (PostgreSQL 18's RETURNING WITH
+        # (OLD AS o), SQLite's VARYING CHARACTER): read by the token
+        # reader and counted as such.
+        return replace(_token_statement_tables(text), reader="tokens_not_parsed")
+    return Statement(*found)
+
+
+def _sqlglot_tables(text):
+    """(reads, writes) of SQL text by sqlglot, or None."""
+    # sqlglot is a required dependency, imported when SQL is first read so
+    # that importing the package stays free of it (a core-only install).
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    for dialect in SQL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        reads, writes = [], []
+        for tree in trees:
+            ctes = {table_key(c.alias_or_name) for c in tree.find_all(exp.CTE)}
+            aliases = {
+                table_key(t.alias): t
+                for t in tree.find_all(exp.Table)
+                if t.alias and t.name
+            }
+            written = set()
+            for node in tree.walk():
+                targets = []
+                if isinstance(node, (exp.Insert, exp.Update, exp.Merge)):
+                    targets = [node.this]
+                elif isinstance(node, exp.Delete):
+                    targets = [node.this, *(node.args.get("tables") or ())]
+                elif isinstance(node, exp.TruncateTable):
+                    targets = list(node.expressions)
+                for target in targets:
+                    if isinstance(target, exp.Schema):
+                        target = target.this
+                    if not isinstance(target, exp.Table) or not target.name:
+                        continue
+                    written.add(id(target))
+                    if not target.db and table_key(target.name) in aliases:
+                        target = aliases[table_key(target.name)]
+                        written.add(id(target))
+                    name = _sqlglot_name(target, ctes)
+                    if name is not None:
+                        writes.append(name)
+            for table in tree.find_all(exp.Table):
+                if id(table) in written or table.find_ancestor(exp.Lock):
+                    continue  # FOR UPDATE OF t names a table already read.
+                name = _sqlglot_name(table, ctes)
+                if name is not None:
+                    reads.append(name)
+        return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes))
+    return None
+
+
+def _sqlglot_name(table, ctes):
+    """The table key of a sqlglot Table, or None for a CTE, ``dual``, a
+    catalog or a table-valued function."""
+    from sqlglot import exp
+
+    if not table.name or not isinstance(table.this, exp.Identifier):
+        return None
+    parts = [table_key(p) for p in (table.catalog, table.db, table.name) if p]
+    if len(parts) == 1 and parts[0] in ctes:
+        return None
+    if parts[-1] == "dual" or is_catalog(parts):
+        return None
+    return parts[-1]
+
+
+def _token_statement_tables(text, jpql=False):
     """The tables a SQL statement (or entities a JPQL one) names after FROM,
     JOIN, USING, INTO, UPDATE and TRUNCATE.
 
@@ -1285,11 +1868,16 @@ class SaAccess:
     caller_id: str | None
     model: str
     writes: bool
-    how: str  # "query", "model_query", "get" or "statement"
+    how: str  # "query", "model_query", "get", "statement" or "instance"
     line: int
     column: int
     model_line: int = 0  # where the model's name is written (byte column)
     model_column: int = 0
+    # "instance": the Session method called (add, delete, merge, refresh)
+    # and where its name is written; ``model`` is the variable passed.
+    method: str = ""
+    method_line: int = 0
+    method_column: int = 0
 
 
 @dataclass(frozen=True)
@@ -1309,6 +1897,20 @@ class SaClass:
 
 
 SQLMODEL_BASE = "sqlmodel.SQLModel"
+# Session methods taking a mapped instance, and whether they write it.
+SESSION_INSTANCE_METHODS = {
+    "add": True,
+    "delete": True,
+    "merge": True,
+    "refresh": False,
+}
+# The scip-python symbols of those methods on SQLAlchemy's sessions.
+SESSION_METHOD_SYMBOL = re.compile(
+    r"scip-python python \S+ \S+ `sqlalchemy\.(?:orm\.session|orm\.scoping|"
+    r"ext\.asyncio\.session|ext\.asyncio\.scoping)`/"
+    r"(?:Session|scoped_session|AsyncSession|async_scoped_session)#"
+    r"(add|delete|merge|refresh)\(\)\."
+)
 
 
 def _module_aliases(root, content):
@@ -1427,7 +2029,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                 )
             )
 
-    def access(node, model, writes, how):
+    def access(node, model, writes, how, method=None):
         accesses.append(
             SaAccess(
                 file,
@@ -1439,6 +2041,15 @@ def extract_sqlalchemy(tree, content, file, definitions):
                 node.start_point.column,
                 model.start_point.row + 1,
                 model.start_point.column,
+                *(
+                    (
+                        _text(method, content),
+                        method.start_point.row + 1,
+                        method.start_point.column,
+                    )
+                    if method is not None
+                    else ()
+                ),
             )
         )
 
@@ -1500,6 +2111,18 @@ def extract_sqlalchemy(tree, content, file, definitions):
             )
         elif method == "query":
             how, writes, considered = "query", False, positional
+        elif method in SESSION_INSTANCE_METHODS:
+            # session.add(user): linked only where a SCIP index resolves the
+            # method to SQLAlchemy's Session and infers the variable's type.
+            if len(positional) == 1 and positional[0].type == "identifier":
+                access(
+                    node,
+                    positional[0],
+                    SESSION_INSTANCE_METHODS[method],
+                    "instance",
+                    function.child_by_field_name("attribute"),
+                )
+            continue
         elif method in ("get", "select_from"):
             # Session.get(Model, key) and select_from(Model): linked only
             # where a SCIP index resolves the name to a mapped class.
@@ -1512,6 +2135,232 @@ def extract_sqlalchemy(tree, content, file, definitions):
             if argument.type == "identifier":
                 access(node, argument, writes, how)
     return mappings, tables, accesses, classes
+
+
+# typing's forms that wrap one type: Annotated[T, ...] and Optional[T].
+_TYPING_WRAPPER = re.compile(
+    r"scip-python python \S+ \S+ (?:typing|typing_extensions)/(Annotated|Optional)\."
+)
+
+
+def annotated_classes(references, trees, file, line, column, depth=4):
+    """The parsed classes a variable referenced at ``line`` and UTF-8 byte
+    ``column`` of ``file`` is declared as, read from the annotation where a
+    SCIP index defines it: a parameter or annotated assignment. Every name
+    in the annotation is resolved through the index (``references``, a
+    ``ScipReferences``); ``Annotated[T, ...]``, ``Optional[T]`` and
+    ``T | None`` give T, and a name the index resolves to a module-level
+    ``Alias = <annotation>`` gives the alias's annotation. ``trees`` maps a
+    file to its (content, tree). None when no index covers the file or
+    nothing is declared."""
+    sites = references.definition_sites(file, line, column)
+    if not sites:
+        return None
+    found = set()
+    for site_file, site_line, site_column in sites:
+        node = _python_node_at(trees, site_file, site_line, site_column)
+        if node is None:
+            continue
+        parent = node.parent
+        annotation = None
+        if parent is not None and parent.type in (
+            "typed_parameter",
+            "typed_default_parameter",
+        ):
+            annotation = parent.child_by_field_name("type")
+        elif (
+            parent is not None
+            and parent.type == "assignment"
+            and parent.child_by_field_name("left") == node
+        ):
+            annotation = parent.child_by_field_name("type")
+            if annotation is None:
+                found |= _call_result_classes(
+                    references,
+                    trees,
+                    site_file,
+                    parent.child_by_field_name("right"),
+                    depth,
+                )
+        if annotation is not None:
+            found |= _annotation_classes(
+                references, trees, site_file, annotation, depth
+            )
+    return tuple(sorted(found, key=lambda d: d.id)) if found else None
+
+
+# SQLAlchemy's Session.get(Model, key), which returns a Model or None.
+_SESSION_GET = re.compile(
+    r"scip-python python \S+ \S+ `sqlalchemy\.(?:orm\.session|orm\.scoping|"
+    r"ext\.asyncio\.session|ext\.asyncio\.scoping)`/"
+    r"(?:Session|scoped_session|AsyncSession|async_scoped_session)#get\(\)\."
+)
+
+
+def _call_result_classes(references, trees, file, node, depth):
+    """Parsed classes the value of ``x = f(...)`` is declared as: the return
+    annotation of the function the index resolves ``f`` to, or for
+    SQLAlchemy's ``Session.get(Model, key)`` (``await`` too) the class
+    ``Model`` names."""
+    if node is not None and node.type == "await" and node.named_child_count == 1:
+        node = node.named_children[0]
+    if depth <= 0 or node is None or node.type != "call":
+        return set()
+    function = node.child_by_field_name("function")
+    last = function
+    if function is not None and function.type == "attribute":
+        last = function.child_by_field_name("attribute")
+    if last is None or last.type != "identifier":
+        return set()
+    line, column = last.start_point.row + 1, last.start_point.column
+    called = references.symbols(file, line, column) or ()
+    if any(_SESSION_GET.fullmatch(c) for c in called):
+        arguments = node.child_by_field_name("arguments")
+        positional = [
+            c
+            for c in (arguments.named_children if arguments else ())
+            if c.type not in ("keyword_argument", "comment")
+        ]
+        if not positional:
+            return set()
+        return _annotation_classes(references, trees, file, positional[0], depth - 1)
+    found = set()
+    for site in references.definition_sites(file, line, column) or ():
+        target = _python_node_at(trees, *site)
+        parent = target.parent if target is not None else None
+        if parent is not None and parent.type == "function_definition":
+            found |= _annotation_classes(
+                references,
+                trees,
+                site[0],
+                parent.child_by_field_name("return_type"),
+                depth - 1,
+            )
+    return found
+
+
+def django_historical_model(references, trees, file, line, column):
+    """(app label, model name) of a historical model: the name written at
+    ``line`` and ``column`` of ``file`` that a scip-python index resolves to
+    a variable assigned ``<registry>.get_model("label", "Model")`` or
+    ``get_model("label.Model")``, as data migrations take their models from
+    the migration state's app registry. None otherwise.
+
+    Why not a tool: the registry is the migration state Django builds at
+    run time, which no index types; get_model's arguments name the model."""
+    found = set()
+    for site in references.definition_sites(file, line, column) or ():
+        target = _python_node_at(trees, *site)
+        assignment = target.parent if target is not None else None
+        if (
+            assignment is None
+            or assignment.type != "assignment"
+            or assignment.child_by_field_name("left") != target
+        ):
+            return None
+        call = assignment.child_by_field_name("right")
+        function = call.child_by_field_name("function") if call else None
+        if call is None or call.type != "call" or function is None:
+            return None
+        content = trees[site[0]][0]
+        name = (
+            function.child_by_field_name("attribute")
+            if function.type == "attribute"
+            else function
+        )
+        if name is None or _text(name, content) != "get_model":
+            return None
+        arguments = call.child_by_field_name("arguments")
+        values = [
+            _string(c, content)
+            for c in (arguments.named_children if arguments else ())
+            if c.type != "comment"
+        ]
+        if len(values) == 1 and values[0] and values[0].count(".") == 1:
+            values = values[0].split(".")
+        if len(values) != 2 or not all(values):
+            return None
+        found.add((values[0], values[1]))
+    return found.pop() if len(found) == 1 else None
+
+
+def _python_node_at(trees, file, line, column):
+    entry = trees.get(file)
+    if entry is None:
+        return None
+    point = (line - 1, column)
+    node = entry[1].root_node.descendant_for_point_range(point, point)
+    return node if node is not None and node.type == "identifier" else None
+
+
+def _annotation_classes(references, trees, file, node, depth):
+    """Parsed classes an annotation expression names (see annotated_classes)."""
+    if depth <= 0 or node is None:
+        return set()
+    content = trees[file][0]
+    if node.type == "type" and node.named_child_count == 1:
+        node = node.named_children[0]
+    if node.type in ("identifier", "attribute"):
+        last = (
+            node if node.type == "identifier" else node.child_by_field_name("attribute")
+        )
+        line, column = last.start_point.row + 1, last.start_point.column
+        declared = references.declarations(file, line, column, _text(last, content))
+        classes = {d for d in declared or () if d.kind == "Class"}
+        if classes:
+            return classes
+        # An alias: ``CurrentUser = Annotated[User, Depends(...)]``.
+        found = set()
+        for site in references.definition_sites(file, line, column) or ():
+            target = _python_node_at(trees, *site)
+            parent = target.parent if target is not None else None
+            if (
+                parent is not None
+                and parent.type == "assignment"
+                and parent.child_by_field_name("left") == target
+                and parent.parent is not None
+                and parent.parent.type == "expression_statement"
+                and parent.parent.parent is not None
+                and parent.parent.parent.type == "module"
+            ):
+                found |= _annotation_classes(
+                    references,
+                    trees,
+                    site[0],
+                    parent.child_by_field_name("right"),
+                    depth - 1,
+                )
+        return found
+    if node.type == "subscript":
+        value = node.child_by_field_name("value")
+        last = value
+        if value is not None and value.type == "attribute":
+            last = value.child_by_field_name("attribute")
+        if last is None or last.type != "identifier":
+            return set()
+        wrapped = any(
+            _TYPING_WRAPPER.fullmatch(s)
+            for s in references.symbols(
+                file, last.start_point.row + 1, last.start_point.column
+            )
+            or ()
+        )
+        subscripts = node.children_by_field_name("subscript")
+        if not wrapped or not subscripts:
+            return set()
+        return _annotation_classes(references, trees, file, subscripts[0], depth - 1)
+    if (
+        node.type == "binary_operator"
+        and _text(node.child_by_field_name("operator"), content) == "|"
+    ):
+        operands = [
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+        ]
+        operands = [o for o in operands if o is not None and o.type != "none"]
+        if len(operands) == 1:
+            return _annotation_classes(references, trees, file, operands[0], depth - 1)
+    return set()
 
 
 def sqlmodel_default_mappings(classes, references, mappings):
@@ -1745,8 +2594,6 @@ def extract_python_sql(tree, content, file, definitions):
 
 # TypeScript and JavaScript: Prisma and TypeORM -----------------------------
 
-_PRISMA_MODEL = re.compile(r"^[ \t]*model[ \t]+([A-Za-z_]\w*)[ \t]*\{", re.MULTILINE)
-_PRISMA_MAP = re.compile(r'@@map\(\s*(?:name\s*:\s*)?"([^"]+)"\s*\)')
 PRISMA_READS = {
     "findUnique",
     "findUniqueOrThrow",
@@ -1778,6 +2625,9 @@ class PrismaModel:
     table: str
     explicit: bool  # named by @@map
     line: int
+    # Foreign keys this model holds: (referenced table, columns, referenced
+    # columns, onDelete), column names as @map gives them.
+    foreign_keys: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -1792,48 +2642,15 @@ class ModelUse:
     line: int
     column: int
     wrapper: bool = False  # TypeORM: through a project's getRepository
-
-
-def extract_prisma_schema(file, content: bytes):
-    """The models a Prisma schema declares, each with its table: the
-    ``@@map`` name, else the model name. None if the file is not UTF-8."""
-    try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    # Comments (// and ///) blanked; Prisma has no block comments.
-    text = re.sub(
-        r'"(?:[^"\\\n]|\\.)*"|//[^\n]*',
-        lambda m: m.group(0) if m.group(0)[0] == '"' else _blank(m),
-        text,
-    )
-    found = []
-    for match in _PRISMA_MODEL.finditer(text):
-        end = re.search(r"^[ \t]*\}", text[match.end() :], re.MULTILINE)
-        body = text[match.end() : match.end() + end.start()] if end else ""
-        mapped = _PRISMA_MAP.search(body)
-        found.append(
-            PrismaModel(
-                file,
-                match.group(1),
-                mapped.group(1) if mapped else match.group(1),
-                mapped is not None,
-                text.count("\n", 0, match.start()) + 1,
-            )
-        )
-    return found
+    # TypeORM: where getRepository or InjectRepository is written (byte
+    # column).
+    callee_line: int = 0
+    callee_column: int = 0
 
 
 def prisma_accessor(model):
     """The Prisma Client property of a model: its name, first letter lower."""
     return model[:1].lower() + model[1:]
-
-
-def typeorm_table_name(entity):
-    """TypeORM's DefaultNamingStrategy table name: snakeCase of the class
-    name (``UserProfile`` is ``user_profile``, ``HTTPLog`` is ``http_log``)."""
-    name = re.sub(r"([A-Z])([A-Z])([a-z])", r"\1_\2\3", entity)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
 
 
 def _script_string(node, content):
@@ -1914,7 +2731,11 @@ def extract_typeorm(tree, content, file, definitions):
     root = tree.root_node
     imports = _script_imports(root, content)
     typeorm = {
-        local: name for local, (module, name) in imports.items() if module in _TYPEORM
+        local: name
+        for local, (module, name) in imports.items()
+        # A deep import (``typeorm/decorator/entity/Entity.js``) exports the
+        # same decorator.
+        if module in _TYPEORM or module.startswith("typeorm/")
     }
     # A class name a getRepository argument may name: an imported binding
     # or a class this file declares, never a local variable or parameter.
@@ -1998,7 +2819,9 @@ def extract_typeorm(tree, content, file, definitions):
                         file,
                         model_id,
                         entity,
-                        table_key(name) if name else typeorm_table_name(entity),
+                        # Without a name, TypeORM's own naming strategy
+                        # gives it (deepthought.typeorm_naming).
+                        table_key(name) if name else None,
                         node.start_point.row + 1,
                         node.start_point.column,
                         explicit=bool(name),
@@ -2017,16 +2840,20 @@ def extract_typeorm(tree, content, file, definitions):
                 and args[0].type == "identifier"
                 and (injected or len(args) == 1)
             ):
-                entity, wrapper = _text(args[0], content), False
+                written, wrapper = args[0], False
             else:
                 named = [
-                    _text(a, content)
+                    a
                     for a in args
                     if a.type == "identifier" and _text(a, content) in bindings
                 ]
                 if len(named) != 1 or injected:
                     continue
-                entity, wrapper = named[0], True
+                written, wrapper = named[0], True
+            entity = _text(written, content)
+            callee_name = _call_function(node)
+            if callee_name is not None and callee_name.type == "member_expression":
+                callee_name = callee_name.child_by_field_name("property")
             method = _chained_method(node, content)
             reads = method not in _TYPEORM_WRITES
             writes = method not in _TYPEORM_READS
@@ -2040,9 +2867,374 @@ def extract_typeorm(tree, content, file, definitions):
                     node.start_point.row + 1,
                     node.start_point.column,
                     wrapper,
+                    callee_name.start_point.row + 1,
+                    callee_name.start_point.column,
                 )
             )
     return mappings, uses, children
+
+
+# scip-typescript symbols of TypeORM's repository and entity manager
+# methods: (class, method).
+TYPEORM_METHOD_SYMBOL = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/"
+    r"(Repository|TreeRepository|MongoRepository|EntityManager|MongoEntityManager)"
+    r"#(\w+)\(\)\."
+)
+# TypeORM's repository classes, as a type (``Repository<User>``).
+_TYPEORM_REPOSITORY_TYPE = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/(Repository|TreeRepository|MongoRepository)#"
+)
+# The methods that return a repository of the entity their first argument
+# names: DataSource's, Connection's and EntityManager's getRepository.
+_TYPEORM_GET_REPOSITORY = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/"
+    r"(DataSource|Connection|EntityManager|MongoEntityManager)"
+    r"#(getRepository|getTreeRepository|getMongoRepository)\(\)\."
+)
+
+
+@dataclass(frozen=True)
+class TypeormCall:
+    """A method called on a receiver in a TypeScript or JavaScript file:
+    ``receiver.method(args)``, a candidate TypeORM repository call."""
+
+    file: str
+    caller_id: str | None
+    method: str
+    line: int  # where the method's name is written (byte column)
+    column: int
+
+
+def extract_typeorm_calls(tree, content, file, definitions):
+    """Every ``receiver.method(...)`` call of one file whose method is one
+    of TypeORM's that read or write (_TYPEORM_READS, _TYPEORM_WRITES): the
+    candidates a scip-typescript index resolves (typeorm_call_entities)."""
+    found = []
+    for node in _descendants(tree.root_node, "call_expression"):
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "member_expression":
+            continue
+        name = function.child_by_field_name("property")
+        if name is None:
+            continue
+        method = _text(name, content)
+        if (
+            method not in _TYPEORM_READS
+            and method not in _TYPEORM_WRITES
+            and method != "createQueryBuilder"
+        ):
+            continue
+        found.append(
+            TypeormCall(
+                file,
+                _innermost(definitions, file, node),
+                method,
+                name.start_point.row + 1,
+                name.start_point.column,
+            )
+        )
+    return found
+
+
+def typeorm_call_entities(references, trees, call):
+    """(status, parsed entity classes) of a candidate call: status is
+    ``no_scip_index``, ``not_typeorm`` (the index resolves the method to no
+    TypeORM repository or entity manager method), ``entity_unknown`` or
+    ``resolved``. The entity is read through the index: the receiver's
+    declared type ``Repository<E>`` (a property, parameter or variable, or
+    ``this`` in a class extending it), a ``getRepository(E)`` call or a
+    variable holding one, or an entity manager method's first argument."""
+    called = references.symbols(call.file, call.line, call.column)
+    if called is None:
+        return "no_scip_index", ()
+    owners = {
+        m.group(1)
+        for m in (TYPEORM_METHOD_SYMBOL.fullmatch(c) for c in called)
+        if m is not None and m.group(2) == call.method
+    }
+    if not owners:
+        return "not_typeorm", ()
+    content, tree = trees[call.file]
+    point = (call.line - 1, call.column)
+    name = tree.root_node.descendant_for_point_range(point, point)
+    member = name.parent if name is not None else None
+    if member is None or member.type != "member_expression":
+        return "entity_unknown", ()
+    found = set()
+    if owners & {"EntityManager", "MongoEntityManager"}:
+        found |= _typeorm_argument_entity(references, trees, call.file, member.parent)
+    if owners & {"Repository", "TreeRepository", "MongoRepository"}:
+        found |= _typeorm_receiver_entity(
+            references, trees, call.file, member.child_by_field_name("object"), 3
+        )
+    entities = tuple(sorted(found, key=lambda d: d.id))
+    return ("resolved" if entities else "entity_unknown"), entities
+
+
+# scip-typescript symbols of the methods that start a TypeORM query builder,
+# and of the query builder's own methods: (class, method).
+_TYPEORM_BUILDER_START = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/"
+    r"(Repository|TreeRepository|MongoRepository|EntityManager|MongoEntityManager"
+    r"|DataSource|Connection|QueryRunner)#createQueryBuilder\(\)\."
+)
+_TYPEORM_BUILDER_METHOD = re.compile(
+    r"scip-typescript npm typeorm \S+ query-builder/.*/(\w*QueryBuilder)#(\w+)\(\)\."
+)
+# Builder methods that make it a write, and those that name its root table.
+_TYPEORM_BUILDER_WRITES = frozenset("insert update delete softDelete restore".split())
+_TYPEORM_BUILDER_ROOT = frozenset("from into update".split())
+
+
+@dataclass(frozen=True)
+class TypeormBuilder:
+    """A TypeORM query builder resolved through the index: its root table as
+    entity classes or a literal table name, and whether it writes."""
+
+    entities: tuple
+    table: str | None
+    writes: bool
+
+
+def typeorm_builder(references, trees, call):
+    """(status, TypeormBuilder or None) of a ``createQueryBuilder`` call, as
+    typeorm_call_entities: the index must resolve the call to TypeORM's
+    createQueryBuilder. The root table is the repository's entity (its
+    receiver, as for repository calls), the entity argument of an entity
+    manager's or data source's builder, else the entity class or literal
+    table name the chain's first ``from``, ``into`` or ``update`` names.
+    The builder writes when the chain calls TypeORM's ``insert``,
+    ``update``, ``delete``, ``softDelete`` or ``restore``,
+    every method resolved through the index; otherwise it reads."""
+    called = references.symbols(call.file, call.line, call.column)
+    if called is None:
+        return "no_scip_index", None
+    owners = {
+        m.group(1)
+        for m in (_TYPEORM_BUILDER_START.fullmatch(c) for c in called)
+        if m is not None
+    }
+    if not owners:
+        return "not_typeorm", None
+    content, tree = trees[call.file]
+    point = (call.line - 1, call.column)
+    name = tree.root_node.descendant_for_point_range(point, point)
+    member = name.parent if name is not None else None
+    if member is None or member.type != "member_expression":
+        return "entity_unknown", None
+    start = member.parent
+    # The chain of builder methods called on the builder, in order.
+    chain, node = [], start
+    while (
+        node.parent is not None
+        and node.parent.type == "member_expression"
+        and node.parent.child_by_field_name("object") == node
+        and node.parent.parent is not None
+        and node.parent.parent.type == "call_expression"
+    ):
+        prop = node.parent.child_by_field_name("property")
+        node = node.parent.parent
+        if prop is None:
+            break
+        method = _text(prop, content)
+        symbols = references.symbols(
+            call.file, prop.start_point.row + 1, prop.start_point.column
+        )
+        if any(
+            (m := _TYPEORM_BUILDER_METHOD.fullmatch(c)) and m.group(2) == method
+            for c in symbols or ()
+        ):
+            chain.append((method, node))
+    if any(method == "relation" for method, _ in chain):
+        # A relation builder writes the related side (its foreign key, or a
+        # many-to-many junction table), not the root: left unread
+        # (relation_builders).
+        return "relation_builders", None
+    writes = any(method in _TYPEORM_BUILDER_WRITES for method, _ in chain)
+    found = set()
+    if owners & {"Repository", "TreeRepository", "MongoRepository"}:
+        found |= _typeorm_receiver_entity(
+            references, trees, call.file, member.child_by_field_name("object"), 3
+        )
+    if not found and owners & {
+        "EntityManager",
+        "MongoEntityManager",
+        "DataSource",
+        "Connection",
+    }:
+        found |= _typeorm_argument_entity(references, trees, call.file, start)
+    table = None
+    if not found:
+        root = next((c for m, c in chain if m in _TYPEORM_BUILDER_ROOT), None)
+        if root is not None:
+            found |= _typeorm_argument_entity(references, trees, call.file, root)
+            if not found:
+                table = _typeorm_literal_table(root, content)
+        # A name the chain declares as a common table expression is no
+        # table (``addCommonTableExpression(qb, "_variants")``).
+        declared = {
+            _typeorm_literal_table(c, content, 1)
+            for m, c in chain
+            if m == "addCommonTableExpression"
+        }
+        if table in declared:
+            table = None
+    entities = tuple(sorted(found, key=lambda d: d.id))
+    if not entities and table is None:
+        return "entity_unknown", None
+    return "resolved", TypeormBuilder(entities, table, writes)
+
+
+def _typeorm_literal_table(call, content, position=0):
+    """The table name a builder method's argument at ``position`` writes as a
+    string literal (``from("albums_assets_assets", "a")``), else None."""
+    arguments = call.child_by_field_name("arguments")
+    given = [
+        a
+        for a in (arguments.named_children if arguments else ())
+        if a.type != "comment"
+    ]
+    first = given[position] if len(given) > position else None
+    if first is None or first.type != "string":
+        return None
+    return _script_string(first, content)
+
+
+def _typeorm_argument_entity(references, trees, file, call):
+    """Classes the first argument of a call names, through the index."""
+    arguments = call.child_by_field_name("arguments") if call is not None else None
+    first = next(
+        (
+            a
+            for a in (arguments.named_children if arguments else ())
+            if a.type != "comment"
+        ),
+        None,
+    )
+    if first is None or first.type != "identifier":
+        return set()
+    content = trees[file][0]
+    declared = references.declarations(
+        file, first.start_point.row + 1, first.start_point.column, _text(first, content)
+    )
+    return {d for d in declared or () if d.kind == "Class"}
+
+
+def _typeorm_receiver_entity(references, trees, file, receiver, depth):
+    """Entity classes of a repository receiver (see typeorm_call_entities)."""
+    if receiver is None or depth <= 0:
+        return set()
+    while receiver.type in (
+        "parenthesized_expression",
+        "await_expression",
+        "non_null_expression",
+    ):
+        if not receiver.named_children:
+            return set()
+        receiver = receiver.named_children[0]
+    if receiver.type == "this":
+        heritage = _enclosing_class_extends(receiver)
+        return _typeorm_type_entity(references, trees, file, heritage)
+    if receiver.type == "call_expression":
+        function = receiver.child_by_field_name("function")
+        last = function
+        if function is not None and function.type == "member_expression":
+            last = function.child_by_field_name("property")
+        if last is None:
+            return set()
+        called = references.symbols(
+            file, last.start_point.row + 1, last.start_point.column
+        )
+        if any(_TYPEORM_GET_REPOSITORY.fullmatch(c) for c in called or ()):
+            return _typeorm_argument_entity(references, trees, file, receiver)
+        return set()
+    last = receiver
+    if receiver.type == "member_expression":
+        last = receiver.child_by_field_name("property")
+    if last is None or last.type not in ("identifier", "property_identifier"):
+        return set()
+    found = set()
+    for site in (
+        references.definition_sites(
+            file, last.start_point.row + 1, last.start_point.column
+        )
+        or ()
+    ):
+        entry = trees.get(site[0])
+        if entry is None:
+            continue
+        point = (site[1] - 1, site[2])
+        target = entry[1].root_node.descendant_for_point_range(point, point)
+        parent = target.parent if target is not None else None
+        if parent is None:
+            continue
+        annotation = parent.child_by_field_name("type")
+        if annotation is not None:
+            found |= _typeorm_type_entity(references, trees, site[0], annotation)
+        elif parent.type == "variable_declarator":
+            found |= _typeorm_receiver_entity(
+                references,
+                trees,
+                site[0],
+                parent.child_by_field_name("value"),
+                depth - 1,
+            )
+    return found
+
+
+def _enclosing_class_extends(node):
+    """The ``extends`` value of the class around ``node``, or None."""
+    while node is not None and node.type not in (
+        "class_declaration",
+        "abstract_class_declaration",
+        "class",
+    ):
+        node = node.parent
+    if node is None:
+        return None
+    for heritage in node.named_children:
+        if heritage.type != "class_heritage":
+            continue
+        for clause in heritage.named_children:
+            if clause.type == "extends_clause":
+                return clause
+    return None
+
+
+def _typeorm_type_entity(references, trees, file, node):
+    """Entity classes of a type ``Repository<E>`` (also an ``extends``
+    clause ``Repository<E>``), where the index resolves the type to
+    TypeORM's repository class and E to a class."""
+    if node is None:
+        return set()
+    if node.type == "type_annotation" and node.named_children:
+        node = node.named_children[0]
+    if node.type == "extends_clause":
+        value = node.child_by_field_name("value")
+        arguments = node.child_by_field_name("type_arguments")
+    elif node.type == "generic_type":
+        value = node.child_by_field_name("name")
+        arguments = node.child_by_field_name("type_arguments")
+    else:
+        return set()
+    if value is None or arguments is None:
+        return set()
+    if value.type in ("nested_type_identifier", "member_expression"):
+        value = value.named_children[-1]
+    named = references.symbols(
+        file, value.start_point.row + 1, value.start_point.column
+    )
+    if not any(_TYPEORM_REPOSITORY_TYPE.match(c) for c in named or ()):
+        return set()
+    first = next((a for a in arguments.named_children if a.type != "comment"), None)
+    if first is None or first.type != "type_identifier":
+        return set()
+    content = trees[file][0]
+    declared = references.declarations(
+        file, first.start_point.row + 1, first.start_point.column, _text(first, content)
+    )
+    return {d for d in declared or () if d.kind == "Class"}
 
 
 @dataclass(frozen=True)
@@ -3181,149 +4373,7 @@ def apply_rails_inflections(tree, content, inflections):
     return supported
 
 
-# GORM (gorm.io/gorm 1.25, schema.NamingStrategy) default table names --------
-
-# github.com/jinzhu/inflection v1.0.0, the version GORM requires.
-_GO_PLURALS = (
-    ("([a-z])$", "${1}s"),
-    ("s$", "s"),
-    ("^(ax|test)is$", "${1}es"),
-    ("(octop|vir)us$", "${1}i"),
-    ("(octop|vir)i$", "${1}i"),
-    ("(alias|status)$", "${1}es"),
-    ("(bu)s$", "${1}ses"),
-    ("(buffal|tomat)o$", "${1}oes"),
-    ("([ti])um$", "${1}a"),
-    ("([ti])a$", "${1}a"),
-    ("sis$", "ses"),
-    ("(?:([^f])fe|([lr])f)$", "${1}${2}ves"),
-    ("(hive)$", "${1}s"),
-    ("([^aeiouy]|qu)y$", "${1}ies"),
-    ("(x|ch|ss|sh)$", "${1}es"),
-    ("(matr|vert|ind)(?:ix|ex)$", "${1}ices"),
-    ("^(m|l)ouse$", "${1}ice"),
-    ("^(m|l)ice$", "${1}ice"),
-    ("^(ox)$", "${1}en"),
-    ("^(oxen)$", "${1}"),
-    ("(quiz)$", "${1}zes"),
-)
-_GO_IRREGULARS = (
-    ("person", "people"),
-    ("man", "men"),
-    ("child", "children"),
-    ("sex", "sexes"),
-    ("move", "moves"),
-    ("mombie", "mombies"),
-)
-_GO_UNCOUNTABLES = (
-    "equipment",
-    "information",
-    "rice",
-    "money",
-    "species",
-    "series",
-    "fish",
-    "sheep",
-    "jeans",
-    "police",
-)
-
-
-def _go_replacement(template):
-    return re.sub(r"\$\{(\d+)\}", r"\\g<\1>", template)
-
-
-def _go_title(word):
-    # strings.Title: upper-cases the first letter of each word.
-    return re.sub(r"(?:^|(?<=[^A-Za-z0-9_]))[a-z]", lambda m: m.group(0).upper(), word)
-
-
-def _compile_go_plurals():
-    """inflection's compile(): uncountables, then irregulars (upper case,
-    title case, as written), then the plural rules last-defined first, each
-    upper-cased, as written and case-insensitive."""
-    rules = [
-        (re.compile(f"^(?i:({u}))$"), _go_replacement("${1}")) for u in _GO_UNCOUNTABLES
-    ]
-    for singular, plural in _GO_IRREGULARS:
-        rules += [
-            (re.compile(singular.upper() + "$"), plural.upper()),
-            (re.compile(_go_title(singular) + "$"), _go_title(plural)),
-            (re.compile(singular + "$"), plural),
-        ]
-    for find, template in reversed(_GO_PLURALS):
-        rules += [
-            (re.compile(find.upper()), _go_replacement(template.upper())),
-            (re.compile(find), _go_replacement(template)),
-            (re.compile(f"(?i:{find})"), _go_replacement(template)),
-        ]
-    return rules
-
-
-_GO_PLURAL_RULES = _compile_go_plurals()
-
-
-def go_inflection_plural(word):
-    """jinzhu/inflection's ``Plural``: the first rule that matches replaces
-    all its matches."""
-    for rule, replacement in _GO_PLURAL_RULES:
-        if rule.search(word):
-            return rule.sub(replacement, word)
-    return word
-
-
-_GORM_INITIALISMS = (
-    "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS",
-    "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SSH",
-    "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF",
-    "XSS",
-)  # fmt: skip
-
-
-def gorm_db_name(name):
-    """GORM's ``NamingStrategy.toDBName`` with the default options: common
-    initialisms title-cased (first in list order at each position, as
-    ``strings.Replacer`` does), then snake case."""
-    if not name:
-        return ""
-    out, i = [], 0
-    while i < len(name):
-        for initialism in _GORM_INITIALISMS:
-            if name.startswith(initialism, i):
-                out.append(initialism[0] + initialism[1:].lower())
-                i += len(initialism)
-                break
-        else:
-            out.append(name[i])
-            i += 1
-    value = "".join(out)
-    upper = [c.isascii() and c.isupper() for c in value]
-    digit = [c.isascii() and c.isdigit() for c in value]
-    buffer, last, current = [], False, upper[0]
-    for i, v in enumerate(value[:-1]):
-        following, number = upper[i + 1], digit[i + 1]
-        if current:
-            if not (last and (following or number)) and (
-                i > 0 and value[i - 1] != "_" and value[i + 1] != "_"
-            ):
-                buffer.append("_")
-            buffer.append(v.lower())
-        else:
-            buffer.append(v)
-        last, current = current, following
-    if current:
-        if not last and len(value) > 1:
-            buffer.append("_")
-        buffer.append(value[-1].lower())
-    else:
-        buffer.append(value[-1])
-    return "".join(buffer)
-
-
-def gorm_table_name(type_name):
-    """GORM's default table name of a model type: ``inflection.Plural`` of
-    its snake-case name (``UserModel`` is ``user_models``)."""
-    return go_inflection_plural(gorm_db_name(type_name))
+# GORM default table names come from GORM's own code (deepthought.gorm_naming).
 
 
 @dataclass(frozen=True)
@@ -3693,6 +4743,10 @@ class DrizzleUse:
     writes: bool
     line: int
     column: int
+    # Where the table's name is written: the argument, the property of
+    # ``schema.users`` or the query key of ``db.query.users``.
+    ref_line: int = 0
+    ref_column: int = 0
 
 
 @dataclass(frozen=True)
@@ -3915,10 +4969,16 @@ def extract_drizzle(tree, content, file, definitions):
         if receiver is None:
             continue
         if method in DRIZZLE_READS | DRIZZLE_WRITES:
-            ref = reference(args[0] if args else None)
+            argument = args[0] if args else None
+            ref = reference(argument)
             if ref is None:
                 continue
             reads, writes = method in DRIZZLE_READS, method in DRIZZLE_WRITES
+            written = (
+                argument.child_by_field_name("property")
+                if argument.type == "member_expression"
+                else argument
+            )
         elif method in DRIZZLE_QUERY_READS and receiver.type == "member_expression":
             query = receiver.child_by_field_name("object")
             if (
@@ -3927,9 +4987,8 @@ def extract_drizzle(tree, content, file, definitions):
                 or _text(query.child_by_field_name("property"), content) != "query"
             ):
                 continue
-            ref = DrizzleRef(
-                "query", _text(receiver.child_by_field_name("property"), content), None
-            )
+            written = receiver.child_by_field_name("property")
+            ref = DrizzleRef("query", _text(written, content), None)
             reads, writes = True, False
         else:
             continue
@@ -3944,6 +5003,8 @@ def extract_drizzle(tree, content, file, definitions):
                 # The method's own line: a chain starts lines earlier.
                 where.start_point.row + 1,
                 where.start_point.column,
+                written.start_point.row + 1,
+                written.start_point.column,
             )
         )
     return tables, uses, module
@@ -9122,13 +10183,26 @@ def _script_sql_text(node, content, depth=0):
     return None
 
 
-def extract_script_sql(tree, content, file, definitions):
+# scip-typescript symbols of TypeORM's raw query methods.
+TYPEORM_QUERY_SYMBOL = re.compile(
+    r"scip-typescript npm typeorm \S+ .*/"
+    r"(Repository|TreeRepository|EntityManager|DataSource|Connection|QueryRunner)"
+    r"#query\(\)\."
+)
+
+
+def extract_script_sql(tree, content, file, definitions, references=None):
     """SQL that one JavaScript or TypeScript file passes to a Node driver's
-    query method, in a file importing a SQL driver or knex. The text must
-    start with a statement verb; the receiver's type is not checked."""
+    query method, in a file importing a SQL driver or knex
+    (``script-sql``: the receiver's type is not checked), or to TypeORM's
+    ``query`` where a scip-typescript index (``references``) resolves the
+    method to it (``typeorm-sql``). The text must start with a statement
+    verb."""
     root = tree.root_node
     bindings = script_bindings(root, content)
-    if not any(source in SCRIPT_SQL_MODULES for source, _ in bindings.values()):
+    driver = any(source in SCRIPT_SQL_MODULES for source, _ in bindings.values())
+    covered = references is not None and references.covers(file)
+    if not driver and not covered:
         return []
     found = []
     for call in _descendants(root, "call_expression"):
@@ -9137,6 +10211,15 @@ def extract_script_sql(tree, content, file, definitions):
             continue
         name = function.child_by_field_name("property")
         if name is None or _text(name, content) not in SCRIPT_SQL_METHODS:
+            continue
+        how = "script-sql"
+        if covered and _text(name, content) == "query":
+            called = references.symbols(
+                file, name.start_point.row + 1, name.start_point.column
+            )
+            if any(TYPEORM_QUERY_SYMBOL.fullmatch(c) for c in called or ()):
+                how = "typeorm-sql"
+        if how == "script-sql" and not driver:
             continue
         arguments = call.child_by_field_name("arguments")
         first = (
@@ -9158,7 +10241,7 @@ def extract_script_sql(tree, content, file, definitions):
             SqlUse(
                 file,
                 _innermost(definitions, file, call),
-                "script-sql",
+                how,
                 False,
                 statement,
                 call.start_point.row + 1,
@@ -9166,3 +10249,187 @@ def extract_script_sql(tree, content, file, definitions):
             )
         )
     return found
+
+
+# Kysely query builder ---------------------------------------------------------
+KYSELY_MODULE = "kysely"
+# Kysely methods whose first argument names tables: (reads, writes).
+KYSELY_METHODS = {
+    **dict.fromkeys(
+        ("insertInto", "replaceInto", "updateTable", "mergeInto"), (False, True)
+    ),
+    "deleteFrom": (False, True),
+    **dict.fromkeys(
+        (
+            "selectFrom",
+            "innerJoin",
+            "leftJoin",
+            "rightJoin",
+            "fullJoin",
+            "crossJoin",
+            "innerJoinLateral",
+            "leftJoinLateral",
+        ),
+        (True, False),
+    ),
+}
+# Kysely methods that name common table expressions, not tables.
+KYSELY_CTE_METHODS = (
+    "with",
+    "withRecursive",
+    "withMaterialized",
+    "withNotMaterialized",
+)
+# The statements a query chain sits in, for common table expression names.
+_SCRIPT_STATEMENTS = (
+    "expression_statement",
+    "return_statement",
+    "lexical_declaration",
+    "variable_declaration",
+    "export_statement",
+)
+
+
+@dataclass(frozen=True)
+class KyselyCall:
+    """A call of a Kysely table method with literal table names."""
+
+    file: str
+    caller_id: str | None
+    method: str
+    tables: tuple[str, ...]
+    line: int  # where the method's name is written (byte column)
+    column: int
+
+
+def _kysely_names(argument, content):
+    """Table names of a Kysely table argument: a string literal (``'t as
+    x'``) or an array of them; None when any is not a literal."""
+    items = [argument]
+    if argument.type == "array":
+        items = argument.named_children
+    names = []
+    for item in items:
+        text = _script_string(item, content)
+        if text is None:
+            return None
+        name = _knex_table(text)
+        if name is None:
+            return None
+        names.append(name)
+    return tuple(names) or None
+
+
+def extract_kysely(tree, content, file, definitions):
+    """Calls ``x.m('t', ...)`` of a method Kysely names tables with
+    (``KYSELY_METHODS``) whose first argument is a string literal (alias
+    dropped) or an array of them. A table read (``selectFrom``, joins)
+    that a ``with``/``withRecursive`` in the same statement declares as a
+    common table expression is left out, outside that CTE's own body. The receiver is not checked here: the caller keeps a call only
+    where a SCIP index resolves the method to Kysely's own, or, in a file
+    no index covers, where the file imports ``kysely``."""
+    if b"selectFrom" not in content and not any(
+        m.encode() in content for m in KYSELY_METHODS
+    ):
+        return []
+    calls, ctes = [], defaultdict(list)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.named_children)
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        arguments = node.child_by_field_name("arguments")
+        if (
+            function is None
+            or function.type != "member_expression"
+            or arguments is None
+        ):
+            continue
+        name = function.child_by_field_name("property")
+        method = _text(name, content)
+        first = next((c for c in arguments.named_children if c.type != "comment"), None)
+        if first is None:
+            continue
+        statement = node
+        while statement.parent is not None and statement.type not in _SCRIPT_STATEMENTS:
+            statement = statement.parent
+        if method in KYSELY_CTE_METHODS:
+            text = _script_string(first, content)
+            if text is None and first.type == "arrow_function":
+                # with((cte) => cte('name').materialized(), ...)
+                inner = [first.child_by_field_name("body")]
+                while inner and text is None:
+                    item = inner.pop()
+                    if item is None:
+                        continue
+                    if item.type == "call_expression":
+                        callee = item.child_by_field_name("function")
+                        args = item.child_by_field_name("arguments")
+                        if callee is not None and callee.type == "identifier" and args:
+                            text = next(
+                                (
+                                    _script_string(a, content)
+                                    for a in args.named_children
+                                    if a.type == "string"
+                                ),
+                                None,
+                            )
+                    inner.extend(item.named_children)
+            if text:
+                ctes[None].append(
+                    (
+                        text.split("(", 1)[0].strip(),
+                        statement.start_byte,
+                        statement.end_byte,
+                        arguments.start_byte,
+                        # A recursive CTE's body names the CTE itself.
+                        arguments.start_byte
+                        if method == "withRecursive"
+                        else arguments.end_byte,
+                    )
+                )
+            continue
+        if method not in KYSELY_METHODS:
+            continue
+        tables = _kysely_names(first, content)
+        if tables is None:
+            continue
+        calls.append(
+            (
+                node.start_byte,
+                KyselyCall(
+                    file,
+                    _innermost(definitions, file, node),
+                    method,
+                    tables,
+                    name.start_point.row + 1,
+                    name.start_point.column,
+                ),
+            )
+        )
+    found = []
+    for start, call in calls:
+        reads, _ = KYSELY_METHODS[call.method]
+        # A write names a table (SQL writes no CTE), and so does a read in
+        # the CTE's own (non-recursive) body.
+        tables = tuple(
+            t
+            for t in call.tables
+            if not reads
+            or not any(
+                name == t and first <= start < last and not (begin <= start < end)
+                for name, first, last, begin, end in ctes[None]
+            )
+        )
+        if tables:
+            found.append(replace(call, tables=tables))
+    return found
+
+
+def imports_kysely(content):
+    """Whether a script imports the kysely package (or one of its paths)."""
+    return bool(
+        re.search(rb"""(?:from|require\()\s*['"]kysely(?:/[^'"]*)?['"]""", content)
+    )

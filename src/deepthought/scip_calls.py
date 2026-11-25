@@ -210,6 +210,66 @@ class ScipReferences:
         view = self.covering.get(file)
         return None if view is None else (view.tool, view.receipt)
 
+    def symbols(self, file, line, column):
+        """The SCIP symbols referenced at ``line`` and UTF-8 byte ``column``
+        of ``file``: None when no index covers the file, else a tuple (empty
+        when the index records no reference there)."""
+        view = self.covering.get(file)
+        if view is None:
+            return None
+        text = self.lines.get(file, line)
+        return tuple(
+            sorted(
+                {
+                    r.native_id
+                    for encoding in sorted(view.encodings.get(file, ()))
+                    for r in view.references.get(
+                        (file, line, _to_index(text, column, encoding)), ()
+                    )
+                    if view.encoding(r) == encoding
+                }
+            )
+        )
+
+    def value_classes(self, file, line, column):
+        """The parsed classes of the inferred types (``value_type``) of the
+        local variables referenced at ``line`` and UTF-8 byte ``column`` of
+        ``file``: None when no index covers the file or it records no such
+        local there, else a tuple (empty for a type declared outside the
+        repository)."""
+        view = self.covering.get(file)
+        if view is None:
+            return None
+        types = {
+            d.value_type
+            for native in self.symbols(file, line, column)
+            for d in view.definitions.get(_key(file, native), ())
+            if native.startswith("local ") and d.value_type
+        }
+        if not types:
+            return None
+        targets = {}
+        for qualified in types:
+            for scip in view.python_classes.get(qualified, ()):
+                parsed = _declaration(scip, view, self.lines, self.in_file)
+                if parsed is not None:
+                    targets[parsed.id] = parsed
+        return tuple(sorted(targets.values(), key=lambda d: d.id))
+
+    def definition_sites(self, file, line, column):
+        """(file, line, UTF-8 byte column) of where the index defines the
+        symbols referenced at ``line`` and ``column`` of ``file``: None when
+        no index covers the file, else a tuple."""
+        view = self.covering.get(file)
+        if view is None:
+            return None
+        sites = set()
+        for native in self.symbols(file, line, column):
+            for d in view.definitions.get(_key(file, native), ()):
+                text = self.lines.get(d.file, d.line)
+                sites.add((d.file, d.line, _to_utf8(text, d.column, view.encoding(d))))
+        return tuple(sorted(sites))
+
     def declarations(self, file, line, column, name):
         """The parsed declarations named ``name`` that the reference written
         at ``line`` and UTF-8 byte ``column`` of ``file`` resolves to: None
@@ -292,11 +352,41 @@ class _IndexView:
         for d in index.definitions:
             if d.native_id is not None:
                 self.definitions[_key(d.file, d.native_id)].append(d)
+        # scip-python classes by qualified name (``a.b.C``), from their
+        # symbols' descriptors (`` `a.b`/C# ``).
+        self.python_classes = defaultdict(list)
+        if tool.startswith("scip-python@"):
+            for d in index.definitions:
+                qualified = _python_class_name(d.native_id or "")
+                if qualified is not None:
+                    self.python_classes[qualified].append(d)
 
     def encoding(self, fact):
         """The encoding of a fact's columns."""
         found = fact.coordinate_encoding
         return self.unspecified if found == "unspecified" else found
+
+
+def _python_class_name(native):
+    """``a.b.C`` for a scip-python class symbol whose descriptors are a
+    module (`` `a.b`/ ``, or ``a/`` without a dot) and type descriptors
+    (``C#``), else None."""
+    parts = native.split(" ", 4)
+    if len(parts) != 5 or parts[0] != "scip-python":
+        return None
+    descriptor = parts[4]
+    if descriptor.startswith("`"):
+        module, separator, rest = descriptor[1:].partition("`/")
+    else:
+        module, separator, rest = descriptor.partition("/")
+        if not module.isidentifier():
+            return None
+    if not separator:
+        return None
+    names = rest.split("#")
+    if len(names) < 2 or names[-1] or not all(n.isidentifier() for n in names[:-1]):
+        return None
+    return ".".join((module, *names[:-1]))
 
 
 def _key(file, native):
