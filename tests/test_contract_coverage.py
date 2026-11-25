@@ -1,5 +1,5 @@
-"""ContractCoverage nodes: one per contract family and language present,
-saying whether the family is read in that language."""
+"""EdgeCoverage nodes of the contract families: one per (edge family,
+protocol, language present), saying whether it is linked in that language."""
 
 import asyncio
 import importlib.util
@@ -42,26 +42,54 @@ class ContractCoverageTests(unittest.TestCase):
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
         found = {
-            (n.properties["family"], n.properties["language"]): n.properties
+            (
+                n.properties["family"],
+                n.properties["protocol"],
+                n.properties["language"],
+            ): n.properties
             for n in output.nodes
-            if "ContractCoverage" in n.labels
+            if "EdgeCoverage" in n.labels
         }
-        languages = {language for _, language in found}
-        self.assertEqual(languages, {"python", "rust"})
-        self.assertEqual(len(found), 7 * 2)
-        requests = found[("http_requests", "python")]
+        self.assertEqual({key[2] for key in found}, {"python", "rust"})
+        self.assertEqual(len(found), 8 * 2)
+        requests = found[("REQUESTS", "http", "python")]
         self.assertEqual(
-            {k: requests[k] for k in ("status", "files", "sites", "linked")},
-            {"status": "read", "files": 1, "sites": 1, "linked": 1},
+            {
+                k: requests[k]
+                for k in (
+                    "status",
+                    "files",
+                    "files_linked",
+                    "sites",
+                    "linked",
+                    "ambiguous",
+                    "unresolved",
+                )
+            },
+            {
+                "status": "linked",
+                "files": 1,
+                "files_linked": 1,
+                "sites": 1,
+                "linked": 1,
+                "ambiguous": 0,
+                "unresolved": 0,
+            },
         )
-        self.assertEqual(found[("http_routes", "python")]["sites"], 2)
-        rust = found[("http_requests", "rust")]
-        self.assertEqual(
-            (rust["status"], rust["reason"], rust["sites"]),
-            ("not_read", "no_reader", 0),
-        )
+        self.assertEqual(len(requests["resolver"]), 1)
+        self.assertTrue(requests["resolver"][0].startswith("service-contracts@"))
         self.assertNotIn("reason", requests)
-        self.assertNotIn("linked", found[("http_routes", "python")])
+        routes = found[("HANDLES", "http", "python")]
+        self.assertEqual((routes["status"], routes["sites"]), ("linked", 2))
+        self.assertNotIn("linked", routes)
+        # A reader that ran and found nothing.
+        grpc = found[("REQUESTS", "grpc", "python")]
+        self.assertEqual((grpc["status"], grpc["sites"]), ("no_sites", 0))
+        rust = found[("REQUESTS", "http", "rust")]
+        self.assertEqual(
+            (rust["status"], rust["reason"], rust["resolver"], rust["files_linked"]),
+            ("not_linked", "not_supported", [], 0),
+        )
 
 
 if __name__ == "__main__":
