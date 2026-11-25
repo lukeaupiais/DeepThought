@@ -2232,7 +2232,10 @@ mirror (`npm.styque.de`) the test environment cannot reach; npm retried it until
 after 15 minutes, and all 35 files were covered with
 `dependencies_unavailable`. Now its 660 packages install in seconds and the
 warning is gone.
-scip-typescript then indexes
+A tsconfig may extend a package (ky's extends `@sindresorhus/tsconfig`), which
+exists only once installed: without the install, scip-typescript stops with
+`TS6053` and every file is `indexer_failed`; with it, all 98 of ky's files
+are covered. scip-typescript then indexes
 the copy, so the workspace is left as it was and document paths are the
 same. Packages are installed once per `index_workspace`, for both
 scip-typescript passes. The run and receipt record `dependencies`: `status`
