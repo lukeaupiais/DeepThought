@@ -51,6 +51,7 @@ from ..data_contracts import (
     apply_rails_inflections,
     extract_sqlalchemy,
     SESSION_METHOD_SYMBOL,
+    annotated_classes,
     sqlmodel_default_mappings,
     extract_typeorm,
     extract_sequelize,
@@ -1372,6 +1373,7 @@ class DataContractTool(AnalysisTool):
         # of the repository with that name.
         references = ScipReferences(result, scip_indexes, root)
         sa_mappings, sa_tables, sa_accesses, sa_classes = [], [], [], []
+        sa_trees = {file: (content, tree) for file, content, tree in python_trees}
         for file, content, tree in python_trees:
             found = extract_sqlalchemy(tree, content, file, result.definitions)
             sa_mappings.extend(found[0])
@@ -1433,6 +1435,15 @@ class DataContractTool(AnalysisTool):
                 declared = references.value_classes(
                     access.file, access.model_line, access.model_column
                 )
+                if declared is None:
+                    # A parameter or annotated variable: its declared type.
+                    declared = annotated_classes(
+                        references,
+                        sa_trees,
+                        access.file,
+                        access.model_line,
+                        access.model_column,
+                    )
                 if declared is None:
                     sa_counts["instance_type_unknown"] += 1
                     continue

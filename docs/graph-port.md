@@ -3983,7 +3983,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlmodel-default-table` | pattern_matched | a class with the `table=True` class keyword and no `__tablename__` that inherits from `sqlmodel.SQLModel` (bases followed through a SCIP index, or by name in the same file): SQLModel's default name, the class name lowercased |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.flask-sqlalchemy-model-query` | pattern_matched | Flask-SQLAlchemy's `Model.query` (an attribute read, not a call) on the one mapped class of the repository with that name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class; they replace the name rules in the files the index covers |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-instance` | resolved | `session.add(x)`, `delete(x)`, `merge(x)` (WRITES) or `refresh(x)` (READS) with one variable argument, where the scip-python index resolves the method to SQLAlchemy's `Session`, `scoped_session`, `AsyncSession` or `async_scoped_session` and documents the type pyright infers for the local variable `x` as a mapped class; there is no name rule for it |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-instance` | resolved | `session.add(x)`, `delete(x)`, `merge(x)` (WRITES) or `refresh(x)` (READS) with one variable argument, where the scip-python index resolves the method to SQLAlchemy's `Session`, `scoped_session`, `AsyncSession` or `async_scoped_session` and `x` is a mapped class: the type scip-python documents for the local, else its declared type (a parameter's or variable's annotation, through `Annotated`, `Optional`, `T \| None` and module-level aliases, the return annotation of the function it is assigned from, or `Session.get(Model, ...)`), every name resolved through the index; there is no name rule for it |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
@@ -4532,9 +4532,17 @@ method of every mapping. An instance passed to a session (`session.add(user)`) i
 through the index: the method must resolve to one of SQLAlchemy's session
 classes, and the variable to a local whose type scip-python documents
 (`app.models.User`, as `Definition.value_type`), which names the class
-through that class's own SCIP symbol. Parameters (scip-python documents no
-type for them) and values pyright infers as a union or leaves unknown
-(`session.get(...)` results) are not linked. The metric
+through that class's own SCIP symbol. scip-python documents no type for
+parameters or for values pyright infers as a union (`User | None`), so for
+those the declared type is read where the index defines the variable: a
+parameter's or annotated variable's annotation, or for `x = f(...)` the
+return annotation of the function the index resolves `f` to, or the model
+of SQLAlchemy's `Session.get(Model, key)`. `Annotated[T, ...]` and
+`Optional[T]` (resolved to `typing`'s own symbols), `T | None` and a
+module-level alias (`CurrentUser = Annotated[User, Depends(...)]`, as
+FastAPI writes them) give `T`; every name in them is resolved through the
+index. Types only inference gives (`db.exec(select(User)).first()`) are not
+linked. The metric
 `sqlalchemy_access_resolution` counts `linked`, `linked_scip`,
 `not_a_mapped_class`, `scip_not_a_mapped_class`, and for instances
 `instance_no_scip_index`, `instance_method_unresolved` (the index resolves

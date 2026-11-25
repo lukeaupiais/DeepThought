@@ -256,6 +256,20 @@ class ScipReferences:
                     targets[parsed.id] = parsed
         return tuple(sorted(targets.values(), key=lambda d: d.id))
 
+    def definition_sites(self, file, line, column):
+        """(file, line, UTF-8 byte column) of where the index defines the
+        symbols referenced at ``line`` and ``column`` of ``file``: None when
+        no index covers the file, else a tuple."""
+        view = self.covering.get(file)
+        if view is None:
+            return None
+        sites = set()
+        for native in self.symbols(file, line, column):
+            for d in view.definitions.get(_key(file, native), ()):
+                text = self.lines.get(d.file, d.line)
+                sites.add((d.file, d.line, _to_utf8(text, d.column, view.encoding(d))))
+        return tuple(sorted(sites))
+
     def declarations(self, file, line, column, name):
         """The parsed declarations named ``name`` that the reference written
         at ``line`` and UTF-8 byte ``column`` of ``file`` resolves to: None
@@ -355,14 +369,20 @@ class _IndexView:
 
 def _python_class_name(native):
     """``a.b.C`` for a scip-python class symbol whose descriptors are a
-    module (`` `a.b`/ ``) and type descriptors (``C#``), else None."""
+    module (`` `a.b`/ ``, or ``a/`` without a dot) and type descriptors
+    (``C#``), else None."""
     parts = native.split(" ", 4)
     if len(parts) != 5 or parts[0] != "scip-python":
         return None
     descriptor = parts[4]
-    if not descriptor.startswith("`") or "`/" not in descriptor:
+    if descriptor.startswith("`"):
+        module, separator, rest = descriptor[1:].partition("`/")
+    else:
+        module, separator, rest = descriptor.partition("/")
+        if not module.isidentifier():
+            return None
+    if not separator:
         return None
-    module, _, rest = descriptor[1:].partition("`/")
     names = rest.split("#")
     if len(names) < 2 or names[-1] or not all(n.isidentifier() for n in names[:-1]):
         return None

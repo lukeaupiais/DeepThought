@@ -1554,6 +1554,187 @@ def extract_sqlalchemy(tree, content, file, definitions):
     return mappings, tables, accesses, classes
 
 
+# typing's forms that wrap one type: Annotated[T, ...] and Optional[T].
+_TYPING_WRAPPER = re.compile(
+    r"scip-python python \S+ \S+ (?:typing|typing_extensions)/(Annotated|Optional)\."
+)
+
+
+def annotated_classes(references, trees, file, line, column, depth=4):
+    """The parsed classes a variable referenced at ``line`` and UTF-8 byte
+    ``column`` of ``file`` is declared as, read from the annotation where a
+    SCIP index defines it: a parameter or annotated assignment. Every name
+    in the annotation is resolved through the index (``references``, a
+    ``ScipReferences``); ``Annotated[T, ...]``, ``Optional[T]`` and
+    ``T | None`` give T, and a name the index resolves to a module-level
+    ``Alias = <annotation>`` gives the alias's annotation. ``trees`` maps a
+    file to its (content, tree). None when no index covers the file or
+    nothing is declared."""
+    sites = references.definition_sites(file, line, column)
+    if not sites:
+        return None
+    found = set()
+    for site_file, site_line, site_column in sites:
+        node = _python_node_at(trees, site_file, site_line, site_column)
+        if node is None:
+            continue
+        parent = node.parent
+        annotation = None
+        if parent is not None and parent.type in (
+            "typed_parameter",
+            "typed_default_parameter",
+        ):
+            annotation = parent.child_by_field_name("type")
+        elif (
+            parent is not None
+            and parent.type == "assignment"
+            and parent.child_by_field_name("left") == node
+        ):
+            annotation = parent.child_by_field_name("type")
+            if annotation is None:
+                found |= _call_result_classes(
+                    references,
+                    trees,
+                    site_file,
+                    parent.child_by_field_name("right"),
+                    depth,
+                )
+        if annotation is not None:
+            found |= _annotation_classes(
+                references, trees, site_file, annotation, depth
+            )
+    return tuple(sorted(found, key=lambda d: d.id)) if found else None
+
+
+# SQLAlchemy's Session.get(Model, key), which returns a Model or None.
+_SESSION_GET = re.compile(
+    r"scip-python python \S+ \S+ `sqlalchemy\.(?:orm\.session|orm\.scoping|"
+    r"ext\.asyncio\.session|ext\.asyncio\.scoping)`/"
+    r"(?:Session|scoped_session|AsyncSession|async_scoped_session)#get\(\)\."
+)
+
+
+def _call_result_classes(references, trees, file, node, depth):
+    """Parsed classes the value of ``x = f(...)`` is declared as: the return
+    annotation of the function the index resolves ``f`` to, or for
+    SQLAlchemy's ``Session.get(Model, key)`` (``await`` too) the class
+    ``Model`` names."""
+    if node is not None and node.type == "await" and node.named_child_count == 1:
+        node = node.named_children[0]
+    if depth <= 0 or node is None or node.type != "call":
+        return set()
+    function = node.child_by_field_name("function")
+    last = function
+    if function is not None and function.type == "attribute":
+        last = function.child_by_field_name("attribute")
+    if last is None or last.type != "identifier":
+        return set()
+    line, column = last.start_point.row + 1, last.start_point.column
+    called = references.symbols(file, line, column) or ()
+    if any(_SESSION_GET.fullmatch(c) for c in called):
+        arguments = node.child_by_field_name("arguments")
+        positional = [
+            c
+            for c in (arguments.named_children if arguments else ())
+            if c.type not in ("keyword_argument", "comment")
+        ]
+        if not positional:
+            return set()
+        return _annotation_classes(references, trees, file, positional[0], depth - 1)
+    found = set()
+    for site in references.definition_sites(file, line, column) or ():
+        target = _python_node_at(trees, *site)
+        parent = target.parent if target is not None else None
+        if parent is not None and parent.type == "function_definition":
+            found |= _annotation_classes(
+                references,
+                trees,
+                site[0],
+                parent.child_by_field_name("return_type"),
+                depth - 1,
+            )
+    return found
+
+
+def _python_node_at(trees, file, line, column):
+    entry = trees.get(file)
+    if entry is None:
+        return None
+    point = (line - 1, column)
+    node = entry[1].root_node.descendant_for_point_range(point, point)
+    return node if node is not None and node.type == "identifier" else None
+
+
+def _annotation_classes(references, trees, file, node, depth):
+    """Parsed classes an annotation expression names (see annotated_classes)."""
+    if depth <= 0 or node is None:
+        return set()
+    content = trees[file][0]
+    if node.type == "type" and node.named_child_count == 1:
+        node = node.named_children[0]
+    if node.type in ("identifier", "attribute"):
+        last = (
+            node if node.type == "identifier" else node.child_by_field_name("attribute")
+        )
+        line, column = last.start_point.row + 1, last.start_point.column
+        declared = references.declarations(file, line, column, _text(last, content))
+        classes = {d for d in declared or () if d.kind == "Class"}
+        if classes:
+            return classes
+        # An alias: ``CurrentUser = Annotated[User, Depends(...)]``.
+        found = set()
+        for site in references.definition_sites(file, line, column) or ():
+            target = _python_node_at(trees, *site)
+            parent = target.parent if target is not None else None
+            if (
+                parent is not None
+                and parent.type == "assignment"
+                and parent.child_by_field_name("left") == target
+                and parent.parent is not None
+                and parent.parent.type == "expression_statement"
+                and parent.parent.parent is not None
+                and parent.parent.parent.type == "module"
+            ):
+                found |= _annotation_classes(
+                    references,
+                    trees,
+                    site[0],
+                    parent.child_by_field_name("right"),
+                    depth - 1,
+                )
+        return found
+    if node.type == "subscript":
+        value = node.child_by_field_name("value")
+        last = value
+        if value is not None and value.type == "attribute":
+            last = value.child_by_field_name("attribute")
+        if last is None or last.type != "identifier":
+            return set()
+        wrapped = any(
+            _TYPING_WRAPPER.fullmatch(s)
+            for s in references.symbols(
+                file, last.start_point.row + 1, last.start_point.column
+            )
+            or ()
+        )
+        subscripts = node.children_by_field_name("subscript")
+        if not wrapped or not subscripts:
+            return set()
+        return _annotation_classes(references, trees, file, subscripts[0], depth - 1)
+    if (
+        node.type == "binary_operator"
+        and _text(node.child_by_field_name("operator"), content) == "|"
+    ):
+        operands = [
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+        ]
+        operands = [o for o in operands if o is not None and o.type != "none"]
+        if len(operands) == 1:
+            return _annotation_classes(references, trees, file, operands[0], depth - 1)
+    return set()
+
+
 def sqlmodel_default_mappings(classes, references, mappings):
     """SaMappings, by SQLModel's default name (the class name lowercased),
     of the ``table=True`` classes without ``__tablename__`` that inherit
