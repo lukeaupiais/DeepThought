@@ -473,6 +473,10 @@ class SqlAlchemyTests(unittest.TestCase):
                 "linked_scip": 0,
                 "not_a_mapped_class": 1,
                 "scip_not_a_mapped_class": 0,
+                "instance_no_scip_index": 0,
+                "instance_method_unresolved": 0,
+                "instance_not_session": 0,
+                "instance_type_unknown": 0,
             },
         )
 
@@ -504,7 +508,27 @@ SQLMODEL = {
     "def heroes():\n"
     "    return Hero.query.all()\n"
     "def missing(session):\n"
-    "    return session.get(Missing, 1)\n",
+    "    return session.get(Missing, 1)\n"
+    "def create(session):\n"
+    "    hero = Hero()\n"
+    "    session.add(hero)\n"
+    "    session.refresh(hero)\n"
+    "def other(cache):\n"
+    "    item = Item()\n"
+    "    cache.add(item)\n"
+    "def untyped(session, x):\n"
+    "    session.delete(x)\n"
+    "Dep = Annotated[Hero, object()]\n"
+    "def typed(session, hero: Dep):\n"
+    "    session.add(hero)\n"
+    "def fetched(session, key):\n"
+    "    item = session.get(Item, key)\n"
+    "    session.delete(item)\n"
+    "def made() -> Hero | None:\n"
+    "    return None\n"
+    "def from_call(session):\n"
+    "    hero = made()\n"
+    "    session.refresh(hero)\n",
 }
 
 
@@ -537,6 +561,10 @@ class SqlModelTests(unittest.TestCase):
 
         package = "scip-python python app 0 "
         models = package + "`app.models`/"
+        routes = package + "`app.routes`/"
+        session = (
+            "scip-python python SQLAlchemy 2.0.0 `sqlalchemy.orm.session`/Session#"
+        )
         documents = {
             "app/models.py": [
                 (1, "ItemBase", models + "ItemBase#", True),
@@ -551,14 +579,60 @@ class SqlModelTests(unittest.TestCase):
                 (3, "Item", models + "Item#", False),
                 (5, "Item", models + "Item#", False),
                 (7, "Hero", models + "Hero#", False),
+                (11, "hero", "local 0", True),
+                (11, "Hero", models + "Hero#", False),
+                (12, "add", session + "add().", False),
+                (12, "hero", "local 0", False),
+                (13, "refresh", session + "refresh().", False),
+                (13, "hero", "local 0", False),
+                (15, "item", "local 1", True),
+                (
+                    16,
+                    "add",
+                    "scip-python python stdlib 3.11 `builtins`/set#add().",
+                    False,
+                ),
+                (16, "item", "local 1", False),
+                (18, "delete", session + "delete().", False),
+                (18, "x", package + "`app.routes`/untyped().(x)", False),
+                (19, "Dep", routes + "Dep.", True),
+                (
+                    19,
+                    "Annotated",
+                    "scip-python python stdlib 3.11 typing/Annotated.",
+                    False,
+                ),
+                (19, "Hero", models + "Hero#", False),
+                (20, "hero", routes + "typed().(hero)", True),
+                (20, "Dep", routes + "Dep.", False),
+                (21, "add", session + "add().", False),
+                (21, "hero", routes + "typed().(hero)", False),
+                (23, "item", "local 2", True),
+                (23, "get", session + "get().", False),
+                (23, "Item", models + "Item#", False),
+                (24, "delete", session + "delete().", False),
+                (24, "item", "local 2", False),
+                (25, "made", routes + "made().", True),
+                (25, "Hero", models + "Hero#", False),
+                (28, "hero", "local 3", True),
+                (28, "made", routes + "made().", False),
+                (29, "refresh", session + "refresh().", False),
+                (29, "hero", "local 3", False),
             ],
         }
+        # scip-python documents locals with the type pyright infers.
+        types = {"local 0": "app.models.Hero", "local 1": "app.models.Item"}
         index = wire.Index()
         index.metadata.tool_info.name = "scip-python"
         index.metadata.tool_info.version = "0.6.8"
         for path, occurrences in documents.items():
             lines = SQLMODEL[path].split("\n")
             document = index.documents.add(relative_path=path)
+            if path == "app/routes.py":
+                for local, qualified in types.items():
+                    document.symbols.add(
+                        symbol=local, documentation=[f"```python\n{qualified}\n```"]
+                    )
             for line, text, symbol, definition in occurrences:
                 column = lines[line].index(text)
                 document.occurrences.add(
@@ -581,14 +655,19 @@ class SqlModelTests(unittest.TestCase):
                 ("READS", "heroes", "heroes", "flask-sqlalchemy-model-query"),
             ],
         )
-        # select(Item) names two mapped classes; get() needs an index.
+        # select(Item) names two mapped classes; get() and instances passed
+        # to a Session need an index.
         self.assertEqual(
             metrics["sqlalchemy_access_resolution"],
             {
                 "linked": 1,
                 "linked_scip": 0,
-                "not_a_mapped_class": 3,
+                "not_a_mapped_class": 4,
                 "scip_not_a_mapped_class": 0,
+                "instance_no_scip_index": 7,
+                "instance_method_unresolved": 0,
+                "instance_not_session": 0,
+                "instance_type_unknown": 0,
             },
         )
 
@@ -600,19 +679,33 @@ class SqlModelTests(unittest.TestCase):
                 ("MAPS_TO", "Hero", "heroes", "sqlalchemy-tablename"),
                 ("MAPS_TO", "Item", "item", "sqlmodel-default-table"),
                 ("MAPS_TO", "Item", "old_items", "sqlalchemy-tablename"),
+                ("READS", "create", "heroes", "sqlalchemy-scip-instance"),
+                ("READS", "fetched", "item", "sqlalchemy-scip-get"),
+                ("READS", "from_call", "heroes", "sqlalchemy-scip-instance"),
                 ("READS", "heroes", "heroes", "sqlalchemy-scip-model-query"),
                 ("READS", "list_items", "item", "sqlalchemy-scip-statement"),
                 ("READS", "one", "item", "sqlalchemy-scip-get"),
+                ("WRITES", "create", "heroes", "sqlalchemy-scip-instance"),
+                ("WRITES", "fetched", "item", "sqlalchemy-scip-instance"),
+                ("WRITES", "typed", "heroes", "sqlalchemy-scip-instance"),
             ],
         )
-        # Missing has no occurrence in the index and no mapped class.
+        # Missing has no occurrence in the index and no mapped class;
+        # cache.add is not a Session's, and untyped's x has no inferred or
+        # declared type. typed's hero is declared through an Annotated
+        # alias, fetched's item by Session.get and from_call's hero by
+        # made()'s return annotation.
         self.assertEqual(
             metrics["sqlalchemy_access_resolution"],
             {
                 "linked": 0,
-                "linked_scip": 3,
+                "linked_scip": 9,
                 "not_a_mapped_class": 1,
                 "scip_not_a_mapped_class": 0,
+                "instance_no_scip_index": 0,
+                "instance_method_unresolved": 0,
+                "instance_not_session": 1,
+                "instance_type_unknown": 1,
             },
         )
 

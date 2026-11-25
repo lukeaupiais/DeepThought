@@ -50,6 +50,8 @@ from ..data_contracts import (
     RAILS_ENGLISH,
     apply_rails_inflections,
     extract_sqlalchemy,
+    SESSION_METHOD_SYMBOL,
+    annotated_classes,
     sqlmodel_default_mappings,
     extract_typeorm,
     extract_sequelize,
@@ -420,6 +422,14 @@ SA_SCIP_RULES = {
             "model-query",
             "The code reads .query on a name a SCIP index resolves to a "
             "mapped class (Flask-SQLAlchemy's Model.query).",
+        ),
+        (
+            "instance",
+            "instance",
+            "A scip-python index resolves the called method to SQLAlchemy's "
+            "Session (or AsyncSession, scoped_session) add, delete or merge "
+            "(WRITES) or refresh (READS), and documents the type it infers "
+            "for the variable passed as a mapped class.",
         ),
         (
             "get",
@@ -1363,6 +1373,7 @@ class DataContractTool(AnalysisTool):
         # of the repository with that name.
         references = ScipReferences(result, scip_indexes, root)
         sa_mappings, sa_tables, sa_accesses, sa_classes = [], [], [], []
+        sa_trees = {file: (content, tree) for file, content, tree in python_trees}
         for file, content, tree in python_trees:
             found = extract_sqlalchemy(tree, content, file, result.definitions)
             sa_mappings.extend(found[0])
@@ -1397,8 +1408,69 @@ class DataContractTool(AnalysisTool):
             "linked_scip": 0,
             "not_a_mapped_class": 0,
             "scip_not_a_mapped_class": 0,
+            "instance_no_scip_index": 0,
+            "instance_method_unresolved": 0,
+            "instance_not_session": 0,
+            "instance_type_unknown": 0,
         }
         for access in sa_accesses:
+            if access.how == "instance":
+                called = references.symbols(
+                    access.file, access.method_line, access.method_column
+                )
+                if called is None:
+                    sa_counts["instance_no_scip_index"] += 1
+                    continue
+                if all(c.startswith("local ") for c in called):
+                    # The indexer resolved the method to nothing outside the
+                    # file: the session's package was not installed for it.
+                    sa_counts["instance_method_unresolved"] += 1
+                    continue
+                matches = [SESSION_METHOD_SYMBOL.fullmatch(c) for c in called]
+                if not any(
+                    m is not None and m.group(1) == access.method for m in matches
+                ):
+                    sa_counts["instance_not_session"] += 1
+                    continue
+                declared = references.value_classes(
+                    access.file, access.model_line, access.model_column
+                )
+                if declared is None:
+                    # A parameter or annotated variable: its declared type.
+                    declared = annotated_classes(
+                        references,
+                        sa_trees,
+                        access.file,
+                        access.model_line,
+                        access.model_column,
+                    )
+                if declared is None:
+                    sa_counts["instance_type_unknown"] += 1
+                    continue
+                targets = sorted(
+                    {sa_by_model[d.id] for d in declared if d.id in sa_by_model},
+                    key=str,
+                )
+                if len(targets) != 1:
+                    sa_counts["scip_not_a_mapped_class"] += 1
+                    continue
+                sa_counts["linked_scip"] += 1
+                tool, receipt = references.tool(access.file)
+                link(
+                    "WRITES" if access.writes else "READS",
+                    code(access.file, access.caller_id),
+                    targets[0],
+                    SA_SCIP_RULES["instance"],
+                    {
+                        "model": access.model,
+                        "method": access.method,
+                        "line": access.model_line,
+                        "column": access.model_column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                )
+                continue
             declared = references.declarations(
                 access.file, access.model_line, access.model_column, access.model
             )
