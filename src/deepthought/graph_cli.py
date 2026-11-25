@@ -339,7 +339,7 @@ def index_scip(args, directory):
             "is missing or failed; install the pinned indexers "
             "(deepthought indexers lists them)"
         )
-    return report, ingest_indexed(report, args.repository_id)
+    return report, ingest_indexed(report, args.repository_id, args.workspace)
 
 
 async def execute(args):

@@ -657,5 +657,53 @@
       "labels": "sql/sqlc-endtoend.json",
       "oracle": "libpg_query (pglast 8.9) for PostgreSQL, SQLite's authorizer for SQLite: tools/sql_statement_truth.py over internal/endtoend/testdata"
     }
+  ],
+  "messages_description": "Hand-labelled Go message destinations (evals/ground_truth/messages): every broker-client call and literal under the corpus root, read by hand at the pinned commit, with the destinations it names, or marked unresolved (a flag, the environment, a server-named queue) or none (a TopicPartition given to an offset or admin call). Independent of the engine's type-checker facts. Scored with tools/ground_truth.py check.",
+  "messages": [
+    {
+      "name": "messages-confluent-kafka-go-examples",
+      "url": "https://github.com/confluentinc/confluent-kafka-go",
+      "commit": "eb0eb146321701ab7d90873f6856bc173628683a",
+      "license": "Apache-2.0",
+      "root": "examples",
+      "client": "confluent-kafka-go",
+      "labels": "messages/confluent-kafka-go-examples.json"
+    },
+    {
+      "name": "messages-go-clean-template-amqp",
+      "url": "https://github.com/evrone/go-clean-template",
+      "commit": "d6d2f93f82d11962aa97d1520da2b6920e4d4d4d",
+      "license": "MIT",
+      "root": ".",
+      "client": "amqp091-go",
+      "labels": "messages/go-clean-template-amqp.json"
+    },
+    {
+      "name": "messages-kafka-go-examples",
+      "url": "https://github.com/segmentio/kafka-go",
+      "commit": "2e0b3968aa51b16beb4e221876499a6ff816cd91",
+      "license": "MIT",
+      "root": "examples",
+      "client": "kafka-go",
+      "labels": "messages/kafka-go-examples.json"
+    },
+    {
+      "name": "messages-rabbitmq-tutorials-go",
+      "url": "https://github.com/rabbitmq/rabbitmq-tutorials",
+      "commit": "6deb41d2ab3f39166b94b0e375b9e4ee32712138",
+      "license": "Apache-2.0",
+      "root": "go",
+      "client": "amqp091-go",
+      "labels": "messages/rabbitmq-tutorials-go.json"
+    },
+    {
+      "name": "messages-sarama-examples",
+      "url": "https://github.com/IBM/sarama",
+      "commit": "66eb733b16d2448dddb501a2c58b4a3d98c0da7c",
+      "license": "MIT",
+      "root": "examples",
+      "client": "sarama",
+      "labels": "messages/sarama-examples.json"
+    }
   ]
 }
