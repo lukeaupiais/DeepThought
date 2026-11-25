@@ -19,7 +19,7 @@ from .. import imports as import_rules
 from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
-from .. import scip_calls
+from .. import scip_calls, ts_modules
 from ..scip_calls import bind_calls
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -289,6 +289,15 @@ IMPORT_RULES = {
         ),
     )
 }
+IMPORT_RULES[ts_modules.TYPESCRIPT_COMPILER_MODULE] = register_rule(
+    EvidenceRule(
+        ts_modules.TYPESCRIPT_COMPILER_MODULE,
+        "resolved",
+        "A JavaScript or TypeScript import links to the file the TypeScript "
+        "compiler resolves its specifier to, under the options of the "
+        "project that includes the importing file.",
+    )
+)
 
 
 def _declaration_sources(root, result):
@@ -749,6 +758,18 @@ class TreeSitterTool(AnalysisTool):
             for r in import_rules.resolve_imports(result)
             if r.reason != import_rules.RESOLUTION_CONFIGURATION
         )
+        scripts = sorted(
+            c.file
+            for c in result.coverage
+            if c.language in ("javascript", "typescript")
+        )
+        if scripts:
+            resolutions = ts_modules.bind_imports(
+                result,
+                self.repo_path,
+                ts_modules.compiler_imports(self.repo_path, scripts),
+                resolutions,
+            )
         undisclosed = {}
         for resolution in resolutions:
             if resolution.status != "linked":
@@ -891,6 +912,11 @@ class TreeSitterTool(AnalysisTool):
                             "import_kind": item.kind,
                             "names": list(item.names),
                             "line": item.line,
+                            **(
+                                {"producer": ts_modules.TYPESCRIPT_TOOL}
+                                if link.rule_id == ts_modules.TYPESCRIPT_COMPILER_MODULE
+                                else {}
+                            ),
                             **_evidence(IMPORT_RULES[link.rule_id]),
                         },
                     )

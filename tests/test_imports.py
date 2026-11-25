@@ -628,7 +628,8 @@ class ImportNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(item["element"]["properties"]["path"], "lib/helpers.ts")
         properties = item["relationship"]["properties"]
         self.assertEqual(properties["evidence_type"], "resolved")
-        self.assertEqual(properties["rule_id"], TYPESCRIPT_RELATIVE_MODULE)
+        self.assertEqual(properties["rule_id"], "typescript.compiler-module")
+        self.assertEqual(properties["producer"], "typescript@6.0.3")
         self.assertEqual(properties["specifier"], "./lib/helpers")
         self.assertEqual(properties["names"], ["h"])
         async with self.driver.session(database=self.database) as session:
