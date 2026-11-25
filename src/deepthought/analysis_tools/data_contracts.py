@@ -10,7 +10,7 @@ tree-sitter output joins them.
 """
 
 from hashlib import sha256
-from collections import Counter
+from collections import Counter, defaultdict
 import importlib.util
 import json
 import os
@@ -1902,7 +1902,7 @@ class DataContractTool(AnalysisTool):
         # it (typeorm_index_unresolved).
         orm_counts.update(typeorm_name_rule_replaced=0, typeorm_index_unresolved=0)
         for use in typeorm_uses:
-            if not use.wrapper and references.covers(use.file):
+            if references.covers(use.file):
                 called = references.symbols(
                     use.file, use.callee_line, use.callee_column
                 )
@@ -1939,65 +1939,43 @@ class DataContractTool(AnalysisTool):
         }
         if typeorm_mappings or typeorm_children:
             ts_trees = {file: (content, tree) for file, content, tree in script_trees}
-            for file, content, tree in script_trees:
+            candidates = [
+                call
+                for file, content, tree in script_trees
                 for call in extract_typeorm_calls(
                     tree, content, file, result.definitions
-                ):
-                    if call.method == "createQueryBuilder":
-                        status, builder = typeorm_builder(references, ts_trees, call)
-                        if status != "resolved":
-                            typeorm_scip_counts[status] += 1
-                            continue
-                        if builder.table is not None:
-                            targets = [table(call.file, table_key(builder.table))]
-                        else:
-                            targets = sorted(
-                                {
-                                    typeorm_by_model[e.id]
-                                    for e in builder.entities
-                                    if e.id in typeorm_by_model
-                                },
-                                key=str,
-                            )
-                        if len(targets) != 1:
-                            typeorm_scip_counts["not_an_entity"] += 1
-                            continue
-                        typeorm_scip_counts["linked"] += 1
-                        typeorm_scip_counts["builders"] += 1
-                        tool, receipt = references.tool(call.file)
-                        link(
-                            "WRITES" if builder.writes else "READS",
-                            code(call.file, call.caller_id),
-                            targets[0],
-                            TYPEORM_SCIP_RULE,
-                            {
-                                "method": call.method,
-                                "line": call.line,
-                                "column": call.column,
-                                "indexer": tool,
-                                "receipt": receipt,
-                            },
-                        )
-                        continue
-                    status, entities = typeorm_call_entities(references, ts_trees, call)
+                )
+            ]
+            receiver_entities = _checked_receivers(
+                self.repo_path, result, references, candidates
+            )
+            for call in candidates:
+                if call.method == "createQueryBuilder":
+                    status, builder = typeorm_builder(
+                        references, ts_trees, call, receiver_entities
+                    )
                     if status != "resolved":
                         typeorm_scip_counts[status] += 1
                         continue
-                    targets = sorted(
-                        {
-                            typeorm_by_model[e.id]
-                            for e in entities
-                            if e.id in typeorm_by_model
-                        },
-                        key=str,
-                    )
+                    if builder.table is not None:
+                        targets = [table(call.file, table_key(builder.table))]
+                    else:
+                        targets = sorted(
+                            {
+                                typeorm_by_model[e.id]
+                                for e in builder.entities
+                                if e.id in typeorm_by_model
+                            },
+                            key=str,
+                        )
                     if len(targets) != 1:
                         typeorm_scip_counts["not_an_entity"] += 1
                         continue
                     typeorm_scip_counts["linked"] += 1
+                    typeorm_scip_counts["builders"] += 1
                     tool, receipt = references.tool(call.file)
                     link(
-                        "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                        "WRITES" if builder.writes else "READS",
                         code(call.file, call.caller_id),
                         targets[0],
                         TYPEORM_SCIP_RULE,
@@ -2009,6 +1987,39 @@ class DataContractTool(AnalysisTool):
                             "receipt": receipt,
                         },
                     )
+                    continue
+                status, entities = typeorm_call_entities(
+                    references, ts_trees, call, receiver_entities
+                )
+                if status != "resolved":
+                    typeorm_scip_counts[status] += 1
+                    continue
+                targets = sorted(
+                    {
+                        typeorm_by_model[e.id]
+                        for e in entities
+                        if e.id in typeorm_by_model
+                    },
+                    key=str,
+                )
+                if len(targets) != 1:
+                    typeorm_scip_counts["not_an_entity"] += 1
+                    continue
+                typeorm_scip_counts["linked"] += 1
+                tool, receipt = references.tool(call.file)
+                link(
+                    "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                    code(call.file, call.caller_id),
+                    targets[0],
+                    TYPEORM_SCIP_RULE,
+                    {
+                        "method": call.method,
+                        "line": call.line,
+                        "column": call.column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                )
         # Sequelize: migrations, models and their static calls.
         sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
         for path in _sql_files(root, include, exclude, ".json"):
@@ -2911,3 +2922,55 @@ def _script_module_constants(result, script_trees):
         if text is not None:
             found.setdefault(file, {})[local] = text
     return found
+
+
+def _checked_receivers(root, result, references, calls):
+    """``receiver_entities(call)`` for the TypeORM readers: the parsed
+    classes the TypeScript checker gives as the type arguments of the
+    receiver of each call the index resolves to a TypeORM repository
+    method (``Repository<E>``). The checker runs once, on those calls."""
+    from ..data_contracts import TYPEORM_METHOD_SYMBOL, _TYPEORM_BUILDER_START
+    from ..scip_calls import _Lines, _to_index
+    from ..ts_receivers import checked_calls
+
+    lines = _Lines(Path(root))
+    wanted = {}
+    for call in calls:
+        called = references.symbols(call.file, call.line, call.column)
+        if not called or not any(
+            (
+                m := TYPEORM_METHOD_SYMBOL.fullmatch(c)
+                or _TYPEORM_BUILDER_START.fullmatch(c)
+            )
+            and m.group(1) in ("Repository", "TreeRepository", "MongoRepository")
+            for c in called
+        ):
+            continue
+        text = lines.get(call.file, call.line)
+        wanted[(call.file, call.line, _to_index(text, call.column, "utf-16"))] = (
+            call.file,
+            call.line,
+            call.column,
+        )
+    classes = defaultdict(list)
+    for d in result.definitions:
+        if d.kind == "Class":
+            classes[d.file].append(d)
+    found = defaultdict(set)
+    for fact in checked_calls(root, wanted):
+        key = wanted.get((fact.file, fact.line, fact.character))
+        if key is None:
+            continue
+        for site in fact.receiver:
+            around = [
+                d
+                for d in classes.get(site.file, ())
+                if d.line <= site.line <= d.end_line
+            ]
+            if around:
+                found[key].add(max(around, key=lambda d: (d.line, d.column)))
+
+    def receiver_entities(call):
+        return tuple(found.get((call.file, call.line, call.column), ()))
+
+    return receiver_entities

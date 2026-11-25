@@ -712,6 +712,20 @@ class SqlModelTests(unittest.TestCase):
 
 TYPEORM_SCIP = {
     "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    # TypeORM's declarations as the TypeScript checker reads them.
+    "node_modules/typeorm/package.json": '{"name": "typeorm", "types": "index.d.ts"}',
+    "node_modules/typeorm/index.d.ts": "export declare function Entity(name?: string): ClassDecorator;\n"
+    "export declare class SelectQueryBuilder<E> { where(w: any): this; getMany(): Promise<E[]>; }\n"
+    "export declare class Repository<E> {\n"
+    "  find(): Promise<E[]>; findBy(w: any): Promise<E[]>; count(): Promise<number>;\n"
+    "  save(e: any): Promise<any>; delete(c: any): Promise<any>; create(e: any): E;\n"
+    "  createQueryBuilder(alias?: string): SelectQueryBuilder<E>; query(sql: string): Promise<any>;\n"
+    "}\n"
+    "export declare class DataSource {\n"
+    "  getRepository<E>(target: new () => E): Repository<E>;\n"
+    "  createQueryBuilder(): any;\n"
+    "}\n"
+    "export declare class EntityManager { findOneBy<E>(target: new () => E, w: any): Promise<E>; }\n",
     "src/user.entity.ts": "import { Entity } from 'typeorm';\n"
     "@Entity('users')\n"
     "export class User {}\n",
@@ -746,8 +760,9 @@ TYPEORM_SCIP = {
 
 @unittest.skipUnless(
     importlib.util.find_spec("tree_sitter")
-    and importlib.util.find_spec("tree_sitter_typescript"),
-    "Provision the typescript grammar",
+    and importlib.util.find_spec("tree_sitter_typescript")
+    and os.environ.get("DEEPTHOUGHT_SCIP_TYPESCRIPT"),
+    "Provision the typescript grammar and the pinned scip-typescript",
 )
 class TypeormScipTests(unittest.TestCase):
     def analyze(self, with_index, unresolved=()):
