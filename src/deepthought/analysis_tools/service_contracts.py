@@ -724,6 +724,24 @@ ORVAL_REQUEST_RULES = {
     )
     for rule in REQUEST_RULES
 }
+_HEY_API = (
+    "@hey-api/openapi-ts generated this file from an OpenAPI spec (its "
+    "header says so) and sends the operation through its client: "
+    "client.<method>({url, ...}), the method named by the call, or "
+    "__request(OpenAPI, {method, url, ...}) in its legacy clients. The path "
+    "is the one it wrote, each {parameter} filled in at run time, under the "
+    "base URL the client is configured with at run time, which is not read. "
+)
+HEY_API_REQUEST_RULES = {
+    rule: register_rule(
+        EvidenceRule(
+            f"service-contracts.hey-api-client-{rule.rpartition('.http-')[2]}",
+            "pattern_matched",
+            _HEY_API + REQUEST_RULES[rule].description,
+        )
+    )
+    for rule in REQUEST_RULES
+}
 # How the service that runs a module is named (SpringConfig.identity).
 IDENTITY_RULES = {
     "spring-application-name": register_rule(
@@ -2767,6 +2785,7 @@ class ServiceContractTool(AnalysisTool):
                                     "openapi-spring-cloud": OPENAPI_FEIGN_REQUEST_RULES,
                                     "oapi-codegen": OAPI_CODEGEN_REQUEST_RULES,
                                     "orval": ORVAL_REQUEST_RULES,
+                                    "hey-api": HEY_API_REQUEST_RULES,
                                 }.get(request.client, REQUEST_RULES)
                             )[resolution.rule_id]
                         ),
