@@ -1936,6 +1936,7 @@ class DataContractTool(AnalysisTool):
             "entity_unknown": 0,
             "not_an_entity": 0,
             "builders": 0,
+            "relation_builders": 0,
         }
         if typeorm_mappings or typeorm_children:
             ts_trees = {file: (content, tree) for file, content, tree in script_trees}
