@@ -22,10 +22,6 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 import re
 
-import sqlglot
-from sqlglot import exp
-from sqlglot.errors import SqlglotError
-
 from .service_contracts.http import PLACEHOLDER
 from .service_contracts.spring import (
     _Imports,
@@ -298,6 +294,12 @@ def statement_tables(text, jpql=False):
 
 def _sqlglot_tables(text):
     """(reads, writes) of SQL text by sqlglot, or None."""
+    # sqlglot is a required dependency, imported when SQL is first read so
+    # that importing the package stays free of it (a core-only install).
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
     for dialect in SQL_DIALECTS:
         try:
             trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
@@ -347,6 +349,8 @@ def _sqlglot_tables(text):
 def _sqlglot_name(table, ctes):
     """The table key of a sqlglot Table, or None for a CTE, ``dual``, a
     catalog or a table-valued function."""
+    from sqlglot import exp
+
     if not table.name or not isinstance(table.this, exp.Identifier):
         return None
     parts = [table_key(p) for p in (table.catalog, table.db, table.name) if p]
