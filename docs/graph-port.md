@@ -2067,8 +2067,10 @@ pass leaves out.
 scip-python types a call into a library only when the library is importable,
 so before it runs the project's declared dependencies are installed
 (`deepthought.python_dependencies`): the workspace root's `requirements*.txt`,
-`pyproject.toml` `[project]` dependencies and optional dependencies, and
-`setup.cfg` `install_requires` and `extras_require`. They are installed with
+`pyproject.toml` `[project]` dependencies and optional dependencies,
+`[dependency-groups]` and Poetry's dependencies, dev-dependencies and groups
+(`^` and `~` constraints converted to PEP 440; path, git and URL entries
+skipped), and `setup.cfg` `install_requires` and `extras_require`. They are installed with
 `pip install --only-binary :all:` into a scratch directory, so no package's
 build or install code runs and the project itself is never installed. The
 indexer's `python` is an empty virtual environment, so the packages of the

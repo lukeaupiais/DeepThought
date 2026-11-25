@@ -8,9 +8,11 @@ package's build or install code runs. The indexer's interpreter is an empty
 virtual environment, so packages of the machine running the engine never
 reach the index.
 
-Declared means the workspace root's ``requirements*.txt`` files,
-``pyproject.toml`` ``[project]`` dependencies and optional dependencies, and
-``setup.cfg`` ``install_requires`` and ``extras_require``. The project itself
+Declared means the workspace root's ``requirements*.txt`` files;
+``pyproject.toml`` ``[project]`` dependencies and optional dependencies,
+``[dependency-groups]``, and Poetry's dependencies, dev-dependencies and
+groups (``^`` and ``~`` constraints converted to PEP 440); and ``setup.cfg``
+``install_requires`` and ``extras_require``. The project itself
 is never installed. pip reads its usual configuration (``PIP_INDEX_URL``,
 ``PIP_FIND_LINKS``, ``PIP_NO_INDEX``), so an offline mirror works unchanged.
 """
@@ -73,13 +75,70 @@ def _pyproject(path):
     except ImportError:  # Python 3.10
         return []
     try:
-        project = tomllib.loads(path.read_text()).get("project", {})
+        document = tomllib.loads(path.read_text())
     except (tomllib.TOMLDecodeError, UnicodeDecodeError):
         return []
+    project = document.get("project", {})
     found = list(project.get("dependencies", []))
     for extra in project.get("optional-dependencies", {}).values():
         found += extra
+    # PEP 735 groups; an include-group entry is a table, not a requirement.
+    for group in document.get("dependency-groups", {}).values():
+        found += [r for r in group if isinstance(r, str)]
+    poetry = document.get("tool", {}).get("poetry", {})
+    tables = [poetry.get("dependencies", {}), poetry.get("dev-dependencies", {})]
+    tables += [g.get("dependencies", {}) for g in poetry.get("group", {}).values()]
+    for table in tables:
+        for name, constraint in table.items():
+            requirement = _poetry_requirement(name, constraint)
+            if requirement is not None:
+                found.append(requirement)
     return [r for r in found if isinstance(r, str) and _REQUIREMENT.match(r)]
+
+
+def _poetry_requirement(name, constraint):
+    """A Poetry dependency as a PEP 508 requirement; None for Python itself
+    and for path, git and URL dependencies, which have no wheel index."""
+    if name.lower() == "python":
+        return None
+    extras = []
+    if isinstance(constraint, list):  # multiple constraints: take the first
+        constraint = constraint[0] if constraint else "*"
+    if isinstance(constraint, dict):
+        if any(key in constraint for key in ("path", "git", "url")):
+            return None
+        extras = constraint.get("extras", [])
+        constraint = constraint.get("version", "*")
+    if not isinstance(constraint, str):
+        return None
+    specifier = ",".join(
+        filter(None, (_poetry_specifier(c.strip()) for c in constraint.split(",")))
+    )
+    return name + (f"[{','.join(extras)}]" if extras else "") + specifier
+
+
+def _poetry_specifier(constraint):
+    """^1.2.3, ~1.2, 1.2.*, 1.2 and plain comparisons, as PEP 440."""
+    if constraint in {"", "*"}:
+        return ""
+    if constraint[0] in "<>=!":
+        return constraint
+    if constraint.startswith(("^", "~")) and not constraint.startswith("~="):
+        version = constraint[1:].strip()
+        parts = [int(p) if p.isdigit() else 0 for p in version.split(".")]
+        if constraint[0] == "^":
+            # The first non-zero component may not change.
+            index = next((i for i, p in enumerate(parts) if p), len(parts) - 1)
+        else:
+            index = 0 if len(parts) == 1 else 1
+        upper = parts[: index + 1]
+        upper[-1] += 1
+        return f">={version},<{'.'.join(map(str, upper))}"
+    if constraint.startswith("~="):
+        return constraint
+    if constraint.endswith(".*"):
+        return "==" + constraint
+    return "==" + constraint
 
 
 def _setup_cfg(path):
