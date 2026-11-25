@@ -20,7 +20,8 @@ from .. import go_interfaces
 from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
-from ..scip_calls import bind_calls
+from ..scip_calls import ScipReferences, bind_calls
+from ..fastapi_dependencies import dependency_uses
 from ..pytest_fixtures import fixture_uses
 from ..syntax import (
     DEFAULT_LANGUAGES,
@@ -93,6 +94,16 @@ _FIXTURE_RULES = {
     "usefixtures": FIXTURE_MARK_RULE,
     "autouse": FIXTURE_AUTOUSE_RULE,
 }
+DEPENDENCY_RULE = register_rule(
+    EvidenceRule(
+        "fastapi.depends",
+        "resolved",
+        "The SCIP index resolves a call to FastAPI's own Depends or Security, "
+        "and the dependency written in it to one parsed declaration "
+        "(deepthought.fastapi_dependencies); FastAPI calls it for the "
+        "endpoint, router or dependency the call belongs to.",
+    )
+)
 
 UNLINKED_CALL_RULE = register_rule(
     EvidenceRule(
@@ -972,6 +983,41 @@ class TreeSitterTool(AnalysisTool):
                         "line": use.line,
                         "name": use.name,
                         **_evidence(_FIXTURE_RULES[use.rule]),
+                    },
+                )
+            )
+        # Endpoints and routers depend on the FastAPI dependencies they inject.
+        references = ScipReferences(result, scip_indexes, self.repo_path)
+        for use in dependency_uses(python_files, references):
+            file, line = use.consumer
+            if line is None:
+                source = (["File"], files[file])
+            else:
+                consumer = by_line.get(use.consumer)
+                if consumer is None:
+                    continue
+                source = (
+                    [consumer.kind, "Symbol"],
+                    f"{repo_url}::{consumer.file}::{consumer.symbol}::{consumer.id}",
+                )
+            target = use.dependency
+            relationships.append(
+                RelationshipData(
+                    "USES_DEPENDENCY",
+                    source[0],
+                    {"qualified_name": source[1], "repo_url": repo_url},
+                    [target.kind, "Symbol"],
+                    {
+                        "qualified_name": f"{repo_url}::{target.file}::{target.symbol}::{target.id}",
+                        "repo_url": repo_url,
+                    },
+                    {
+                        "line": use.line,
+                        "column": use.column,
+                        "name": use.name,
+                        "injector": use.injector,
+                        **_evidence(DEPENDENCY_RULE),
+                        **_produced(references.tool(file)),
                     },
                 )
             )

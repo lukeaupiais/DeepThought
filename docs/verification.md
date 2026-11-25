@@ -1103,7 +1103,8 @@ follows CALLS, INHERITS_FROM and IMPLEMENTS backwards to depth 3, the way
 and the commit's other edited files are the outcome. The baseline is a plain
 text search: every file that contains one of the seed names as a whole word.
 A third line, `impact_fixtures`, also follows USES_FIXTURE from tests to the
-pytest fixtures they use, as `get_impact` does. The `impact` line keeps the
+pytest fixtures they use and USES_DEPENDENCY from endpoints to their FastAPI
+dependencies, as `get_impact` does. The `impact` line keeps the
 code relations alone, so the results below stay comparable.
 
 ```sh

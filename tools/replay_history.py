@@ -7,7 +7,8 @@ reached backwards over CALLS, INHERITS_FROM, IMPLEMENTS and DISPATCHES_TO; see
 tools/check_impact.py). The files of those dependents are the prediction; the
 other files the commit edited are the outcome. A second line,
 ``impact_fixtures``, also follows USES_FIXTURE from tests to the pytest
-fixtures they use, as get_impact does; ``impact`` keeps the code relations
+fixtures they use and USES_DEPENDENCY from endpoints to their FastAPI
+dependencies, as get_impact does; ``impact`` keeps the code relations
 alone so earlier results stay comparable. A plain
 text search is scored the same way as the baseline: every file that contains
 a seed's name as a whole word.

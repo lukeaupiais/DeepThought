@@ -359,9 +359,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS, DISPATCHES_TO, USES_FIXTURE and REQUESTS, and forwards over
-  HANDLES. A test reaches the code its pytest fixtures call (see "pytest
-  fixtures"). A Go
+  IMPLEMENTS, DISPATCHES_TO, USES_FIXTURE, USES_DEPENDENCY and REQUESTS, and
+  forwards over HANDLES. A test reaches the code its pytest fixtures call
+  (see "pytest fixtures"), and an endpoint the FastAPI dependencies it
+  injects (see "FastAPI dependencies"). A Go
   interface method DISPATCHES_TO each implementation (see "Interface
   implementations"), so a changed implementation reaches the interface
   method and its callers, but not the other implementations. A route a changed
@@ -869,6 +870,47 @@ plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
 and `python_files` or `python_functions` settings in
 configuration are not read. `get_impact` follows USES_FIXTURE backwards, so
 a change to code a fixture calls reaches every test that requests it.
+
+### FastAPI dependencies
+
+`Depends(get_db)` and `Security(auth)` hand FastAPI a function or class to
+call when an endpoint runs, so the endpoint depends on it without calling it
+(`deepthought.fastapi_dependencies`). Each such use is a USES_DEPENDENCY
+edge to the dependency, with the `line` and UTF-8 byte `column` where it is
+written, its `name`, the `injector` (`Depends` or `Security`), and the
+indexer that resolved it (`producer`, `receipt`):
+
+| Rule | Links |
+|---|---|
+| `fastapi.depends` | a declaration (or file) to the function or class a FastAPI `Depends` or `Security` call names |
+
+Both ends come from the scip-python index, so the rule is `resolved`. The
+call counts only when the index resolves its callee to FastAPI's own
+`fastapi.param_functions` `Depends` or `Security`. The dependency is the
+first argument or `dependency=`. For a `Depends()` with neither, it is what
+FastAPI calls: the parameter's annotation, or the `T` of
+`Annotated[T, Depends()]`. It is linked only when the index resolves that
+name to exactly one parsed declaration. The declaration that depends on it
+is the function whose parameters or decorators (`dependencies=[...]`) hold
+the call, else the innermost function around the call, else the file (an
+app or router made with `dependencies=[...]`). Python's `ast` reads only that
+placement; FastAPI itself is never imported or run. `get_impact` follows
+USES_DEPENDENCY backwards, so a changed dependency reaches its endpoints.
+
+Not read: a dependency given as an instance (`Security(scheme)` with
+`scheme = HTTPBearer()`), whose class's `__call__` runs; dependencies built
+at run time (`Depends(make_dependency())`, a loop variable); and files no
+scip-python index covers.
+
+On fastapi 05e6df7 there are 388 uses: 367 `Depends` and 21 `Security`, 44 of
+them on an app or router, and 14 of them `Depends()` calls the parameter's
+type. A text search for `Depends(`/`Security(` with a plain name finds 475
+sites. The 100 not linked are instances (security schemes), dependencies
+built at run time, and examples inside docstrings. A sample of 15 links
+checked against the source was all correct. `tools/check_impact.py` over
+fastapi's `docs_src/dependencies` and `docs_src/security` matches on 96 of 96
+seeds with 124 dependents; without USES_DEPENDENCY in its relations, 37
+seeds mismatch.
 
 ### Interface implementations
 

@@ -22,7 +22,8 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # Relations ``get_impact`` and ``get_contract_impact`` follow backwards (from
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
-    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|REQUESTS|CONSUMES|READS"
+    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|USES_FIXTURE|USES_DEPENDENCY"
+    "|REQUESTS|CONSUMES|READS"
     "|REFERENCES_TABLE"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
@@ -876,7 +877,9 @@ class GraphQueryService:
         Dependents are reached backwards over CALLS, INHERITS_FROM,
         IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
         a call through it can run, so a changed implementation reaches the
-        interface's callers), REQUESTS, CONSUMES, READS and REFERENCES_TABLE
+        interface's callers), USES_FIXTURE (a test to its pytest fixtures),
+        USES_DEPENDENCY (an endpoint to its FastAPI dependencies), REQUESTS,
+        CONSUMES, READS and REFERENCES_TABLE
         (a table with a foreign key to a changed table) edges, and forwards over
         HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
