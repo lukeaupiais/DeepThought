@@ -124,6 +124,31 @@ class InterpreterTests(unittest.TestCase):
             self.assertEqual(chosen.errors, (f"{NEWER}: offline",))
 
 
+class MissingUvTests(unittest.TestCase):
+    def test_a_missing_uv_is_a_reason_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as root:
+            write(root, {".python-version": NEWER})
+            with mock.patch.dict(sys.modules, {"uv": None}):
+                chosen = interpreter_for(root)
+            self.assertIsNone(chosen.executable)
+            self.assertEqual(len(chosen.errors), 1)
+            self.assertTrue(
+                chosen.errors[0].startswith(f"{NEWER}: uv is not available ("),
+                chosen.errors,
+            )
+
+    def test_a_missing_uv_binary_is_a_reason_too(self):
+        import uv
+
+        with (
+            tempfile.TemporaryDirectory() as root,
+            mock.patch.object(uv, "find_uv_bin", side_effect=FileNotFoundError("gone")),
+        ):
+            write(root, {".python-version": NEWER})
+            chosen = interpreter_for(root)
+        self.assertEqual(chosen.errors, (f"{NEWER}: uv is not available (gone)",))
+
+
 class ReadTests(unittest.TestCase):
     def test_another_interpreter_reads_the_same_facts(self):
         other = Interpreter(sys.executable, "9.9.9", ("9.9",), ())

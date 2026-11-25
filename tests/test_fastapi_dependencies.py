@@ -60,6 +60,9 @@ from app import aliases
 from app.aliases import ParamsDep, Plain
 def f(db: aliases.DbDep, p: ParamsDep, x: Plain, y: int, z: aliases.Deps.Db):
     pass
+from fastapi import params
+def h(x=params.Depends(get_db)):
+    pass
 """
 
 ALIASES = """\
@@ -149,6 +152,14 @@ OCCURRENCES = {
         (25, "ParamsDep", 0, PARAMS_DEP, False),
         (25, "Plain", 0, PLAIN, False),
         (25, "Db", 1, DEPS_DB, False),
+        (
+            28,
+            "Depends",
+            0,
+            "scip-python python fastapi 0.115.0 `fastapi.params`/Depends#",
+            False,
+        ),
+        (28, "get_db", 0, GET_DB, False),
     ],
     "app/aliases.py": [
         (3, "DbDep", 0, DB_DEP, True),
@@ -303,6 +314,8 @@ class DependencyTests(unittest.TestCase):
                 ("f", "get_db", 26, 73, "Db", "Depends", *via(10)),
                 # A router's dependencies=[...] belong to the file.
                 ("file", "get_db", 5, 41, "get_db", "Depends", *rule),
+                # FastAPI's params.Depends class is accepted too.
+                ("h", "get_db", 29, 23, "get_db", "Depends", *rule),
                 # Positional-only and keyword-only parameters of an async
                 # function too.
                 ("helper", "get_db", 7, 21, "DbDep", "Depends", *via(4)),

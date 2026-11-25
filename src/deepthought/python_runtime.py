@@ -84,9 +84,13 @@ def declared_pythons(root):
 
 
 def _uv():
-    from uv import find_uv_bin
+    """The uv binary, or RuntimeError saying why there is none."""
+    try:
+        from uv import find_uv_bin
 
-    return find_uv_bin()
+        return find_uv_bin()
+    except (ImportError, OSError) as error:
+        raise RuntimeError(f"uv is not available ({error})") from error
 
 
 def _run(argv, timeout, environ=None, stdin=None):

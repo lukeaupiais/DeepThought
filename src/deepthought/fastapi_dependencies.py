@@ -3,7 +3,8 @@
 ``Depends(get_db)`` and ``Security(auth)`` hand FastAPI a function or class
 to call when the endpoint runs, so the endpoint depends on it without calling
 it. A call is read as one only when the SCIP index resolves its callee to
-FastAPI's own ``fastapi.param_functions`` ``Depends`` or ``Security``. Its
+FastAPI's own ``fastapi.param_functions`` ``Depends`` or ``Security``, or
+the ``fastapi.params`` classes of those names. Its
 dependency is the first argument or ``dependency=``; for a ``Depends()``
 with neither, FastAPI calls the parameter's annotation, or the ``T`` of
 ``Annotated[T, Depends()]``. The dependency is linked only when the index
@@ -29,6 +30,8 @@ import ast
 from dataclasses import dataclass
 
 _FASTAPI = "`fastapi.param_functions`/"
+# The classes those functions return, which FastAPI accepts as well.
+_PARAMS = "`fastapi.params`/"
 _INJECTORS = ("Depends", "Security")
 
 
@@ -229,7 +232,7 @@ def _injected(path, call, references):
             name
             for name in _INJECTORS
             for s in symbols
-            if s.endswith(_FASTAPI + name + "().")
+            if s.endswith((_FASTAPI + name + "().", _PARAMS + name + "#"))
         ),
         None,
     )
