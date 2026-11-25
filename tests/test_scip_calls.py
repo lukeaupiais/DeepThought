@@ -596,6 +596,95 @@ class ScipCallTests(unittest.TestCase):
         # Pyright and the parser agree on every call here.
         self.assertEqual(binding.disagreements, ())
 
+    def test_nested_functions_sharing_a_symbol_are_answered_by_pyright(self):
+        # scip-python 0.6.8 names a function nested in a method by the
+        # class alone, so both `decorator`s are one symbol.
+        source = (
+            "class G:\n"
+            "    def command(self):\n"
+            "        def decorator(f):\n"
+            "            return f\n"
+            "        return decorator(1)\n"
+            "    def group(self):\n"
+            "        def decorator(f):\n"
+            "            return f\n"
+            "        return decorator(2)\n"
+        )
+        (self.root / "g.py").write_text(source)
+        g = "scip-python python demo 1 g/"
+        ingested = self.index(
+            "nested",
+            "scip-python",
+            [
+                (
+                    "g.py",
+                    [
+                        (0, "G", g + "G#", True, 0),
+                        (1, "command", g + "G#command().", True, 0),
+                        (2, "decorator", g + "G#decorator().", True, 0),
+                        (4, "decorator", g + "G#decorator().", False, 0),
+                        (5, "group", g + "G#group().", True, 0),
+                        (6, "decorator", g + "G#decorator().", True, 0),
+                        (8, "decorator", g + "G#decorator().", False, 0),
+                    ],
+                ),
+            ],
+            0,
+        )
+        result = analyze_repository(self.root, repository_id="r", languages=("python",))
+        with self.assertRaisesRegex(ValueError, "requires pyright"):
+            scip_calls.bind_calls(result, [ingested], self.root)
+        pyright = FakePyright(
+            {("g.py", 5, 15): [("g.py", 3, 12)], ("g.py", 9, 15): [("g.py", 7, 12)]}
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root, pyright)
+        answered = ("pyright@1.1.409", "sha256:nested")
+        self.assertEqual(
+            self.targets(result, binding),
+            [
+                (
+                    "g.py",
+                    "decorator",
+                    "linked",
+                    ("G.command.decorator", 3),
+                    scip_calls.PYRIGHT_CALL_DEFINITION,
+                    answered,
+                ),
+                (
+                    "g.py",
+                    "decorator",
+                    "linked",
+                    ("G.group.decorator", 7),
+                    scip_calls.PYRIGHT_CALL_DEFINITION,
+                    answered,
+                ),
+            ],
+        )
+
+    def test_typescript_symbols_with_several_declarations_stay_ambiguous(self):
+        (self.root / "t.ts").write_text("function f() {}\nfunction f() {}\nf();\n")
+        f = "scip-typescript npm demo 1 t.ts/f()."
+        ingested = self.index(
+            "several",
+            "scip-typescript",
+            [
+                (
+                    "t.ts",
+                    [(0, "f", f, True, 0), (1, "f", f, True, 0), (2, "f", f, False, 0)],
+                )
+            ],
+            2,
+        )
+        result = analyze_repository(
+            self.root, repository_id="r", languages=("typescript",)
+        )
+        binding = scip_calls.bind_calls(result, [ingested], self.root)
+        (resolution,) = binding.resolutions
+        self.assertEqual(
+            (resolution.status, resolution.reason, len(resolution.candidates)),
+            ("ambiguous", "multiple_declarations", 2),
+        )
+
     def test_pyright_external_and_non_declaration_answers(self):
         (self.root / "m.py").write_text(PY_MODULE)
         (self.root / "c.py").write_text(

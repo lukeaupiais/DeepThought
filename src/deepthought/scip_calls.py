@@ -9,8 +9,9 @@ shadow over covered files so that the two can be compared.
 
 Where scip-python 0.6.8 is known to be wrong (a name re-exported through a
 star import gets another name's symbol; a method named like a builtin is
-recorded as the builtin) or records no occurrence (code it treats as
-unreachable), the Python call is answered by pinned pyright's
+recorded as the builtin; same-named functions nested in different methods
+of one class share one symbol, so a call to one has several targets) or
+records no occurrence (code it treats as unreachable), the Python call is answered by pinned pyright's
 go-to-definition (``pyright_calls``), never by the parser.
 """
 
@@ -166,6 +167,11 @@ def bind_calls(
         elif bound.status == "linked" and _renamed(
             site, definitions[bound.target_id], result
         ):
+            bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
+        elif bound.status == "ambiguous" and site.file.endswith((".py", ".pyi")):
+            # scip-python names a function nested in a method by the class
+            # alone (``C#inner().``), so same-named nested functions of one
+            # class share a symbol.
             bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
         producer = view.tool
         if bound.reason in {SUSPECT, NO_OCCURRENCE} and site.file.endswith(
