@@ -2094,6 +2094,30 @@ def _npm_registry():
 NODE = _npm_registry()
 
 
+def _go_proxy():
+    """go, and the module proxy reachable: the engine builds GORM's own
+    NamingStrategy against the gorm release a module pins. The acceptance
+    sandbox has no network; the graph-port job, which has, runs these
+    tests."""
+    go = shutil.which("go")
+    if not go:
+        return False
+    try:
+        return (
+            subprocess.run(
+                [go, "mod", "download", "gorm.io/gorm@v1.25.12"],
+                capture_output=True,
+                timeout=120,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+GORM_RELEASES = _go_proxy()
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
     @unittest.skipUnless(
@@ -3615,7 +3639,7 @@ class RailsTests(unittest.TestCase):
 
 
 GORM = {
-    "go.mod": "module example.com/shop\n\ngo 1.22\n",
+    "go.mod": "module example.com/shop\n\ngo 1.22\n\nrequire gorm.io/gorm v1.25.12\n",
     "models/models.go": """\
 package models
 
@@ -3671,23 +3695,46 @@ func Save(db DB, value interface{}, rows []models.Legacy) {
 
 
 class GormTests(unittest.TestCase):
-    def test_default_names_match_gorm(self):
-        from deepthought.data_contracts import gorm_table_name
+    @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
+    def test_default_names_come_from_gorm(self):
+        from deepthought.gorm_naming import table_names
 
-        # Outputs of gorm.io/gorm 1.25.12 schema.NamingStrategy{}.TableName.
-        for name, table in (
-            ("UserModel", "user_models"),
-            ("HTTPSServer", "http_s_servers"),
-            ("Human", "humen"),
-            ("APIKey", "api_keys"),
-            ("UTF8Data", "utf8_data"),
-            ("Person", "people"),
-            ("Leaf", "leafs"),
-            ("Campus", "campus"),
-        ):
-            self.assertEqual(gorm_table_name(name), table)
+        # GORM's NamingStrategy at the version the module selects; these are
+        # gorm.io/gorm 1.25.12's answers.
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "svc/go.mod": "module example.com/svc\n\ngo 1.22\n\n"
+                    "require gorm.io/gorm v1.25.12\n",
+                },
+            )
+            names, reason = table_names(
+                directory,
+                "svc",
+                ["UserModel", "HTTPSServer", "Human", "APIKey", "Person", "Leaf"],
+            )
+            self.assertIsNone(reason)
+            self.assertEqual(
+                names,
+                {
+                    "UserModel": "user_models",
+                    "HTTPSServer": "http_s_servers",
+                    "Human": "humen",
+                    "APIKey": "api_keys",
+                    "Person": "people",
+                    "Leaf": "leafs",
+                },
+            )
+            # A module whose go.mod selects no GORM gets no names, and why.
+            write(directory, {"bare/go.mod": "module example.com/bare\n\ngo 1.22\n"})
+            names, reason = table_names(directory, "bare", ["User"])
+            self.assertEqual(names, {})
+            self.assertIn("the module graph selects no gorm.io/gorm", reason)
 
     @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
     def test_models_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, GORM)
@@ -3708,7 +3755,8 @@ class GormTests(unittest.TestCase):
             edges,
             [
                 ("MAPS_TO", "Address", "addresses", "gorm-default-table-name"),
-                ("MAPS_TO", "Legacy", "legacy_rows", "gorm-table-name"),
+                # The go.mod requires GORM, so go/types reads TableName.
+                ("MAPS_TO", "Legacy", "legacy_rows", "gorm-table-name-types"),
                 ("MAPS_TO", "UserModel", "user_models", "gorm-default-table-name"),
                 ("READS", "Load", "user_models", "gorm-call"),
                 # Association(...).Find reads the associated table.
