@@ -38,6 +38,9 @@ COMPOSE = {
     "deploy/common.yml": (
         "services:\n  java:\n    environment:\n      JAVA_OPTS: -Xmx512m\n"
     ),
+    # docker compose takes any of its override names next to the default file.
+    "mixed/docker-compose.yml": "services:\n  a:\n    image: a\n",
+    "mixed/compose.override.yaml": "services:\n  a:\n    build: .\n",
     "deploy/docker-compose-kafka.yml": (
         "services:\n  kafka:\n    image: bitnami/kafka\n"
     ),
@@ -129,7 +132,15 @@ class DeployFactsTests(unittest.TestCase):
         projects = {p.file: p for p in facts.compose}
         self.assertEqual(
             sorted(projects),
-            ["deploy/docker-compose-kafka.yml", "deploy/docker-compose.yml"],
+            [
+                "deploy/docker-compose-kafka.yml",
+                "deploy/docker-compose.yml",
+                "mixed/docker-compose.yml",
+            ],
+        )
+        self.assertEqual(
+            projects["mixed/docker-compose.yml"].files,
+            ("mixed/docker-compose.yml", "mixed/compose.override.yaml"),
         )
         project = projects["deploy/docker-compose.yml"]
         self.assertEqual(
@@ -161,7 +172,11 @@ class DeployFactsTests(unittest.TestCase):
         units = {u.label: u for u in compose_units(self.root)}
         self.assertEqual(
             sorted(units),
-            ["deploy/docker-compose.yml:billing", "deploy/docker-compose.yml:orders"],
+            [
+                "deploy/docker-compose.yml:billing",
+                "deploy/docker-compose.yml:orders",
+                "mixed/docker-compose.yml:a",
+            ],
         )
         orders = units["deploy/docker-compose.yml:orders"]
         self.assertEqual(orders.env("DB_URL"), "postgres://db/orders")
@@ -194,6 +209,41 @@ class DeployFactsTests(unittest.TestCase):
                 ("cartservice",),
                 "8080",
             ),
+        )
+
+    def test_local_chart_dependencies_are_built(self):
+        _write(
+            self.root,
+            {
+                "helm/common/Chart.yaml": "apiVersion: v2\nname: common\nversion: 1.2.0\n",
+                "helm/common/templates/cm.yaml": (
+                    "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: common}\n"
+                ),
+                "helm/app/Chart.yaml": (
+                    "apiVersion: v2\nname: app\nversion: 1.0.0\n"
+                    "dependencies:\n  - name: common\n    version: '>=1.0.0'\n"
+                    "    repository: file://../common\n"
+                ),
+                "helm/app/templates/svc.yaml": (
+                    "apiVersion: v1\nkind: Service\nmetadata: {name: app}\n"
+                ),
+                "helm/old/Chart.yaml": (
+                    "apiVersion: v2\nname: old\nversion: 1.0.0\n"
+                    "dependencies:\n  - name: common\n    version: '~2.0.0'\n"
+                    "    repository: file://../common\n"
+                ),
+            },
+        )
+        facts = deploy_facts.collect(self.root)
+        rendered = {
+            r.source: sorted(d["metadata"]["name"] for d in r.documents)
+            for r in facts.renderings
+        }
+        # As helm dependency build archives file:// charts; the library
+        # chart also renders on its own.
+        self.assertEqual(rendered["helm/app/Chart.yaml"], ["app", "common"])
+        self.assertEqual(
+            [(d, tool) for d, tool, _ in facts.errors], [("helm/old", "helm")]
         )
 
     def test_kustomizations_rendered_components_not_alone(self):

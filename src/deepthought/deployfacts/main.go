@@ -9,14 +9,15 @@
 //     .env nor a default sets is written as Placeholder and listed under
 //     "missing".
 //   - "manifests": the YAML documents `helm template` renders for a chart
-//     with its own default values (no cluster, release name
+//     (after `helm dependency build` for file:// dependencies) with its own
+//     default values (no cluster, release name
 //     "release-name"), or that `kustomize build` renders for a
 //     kustomization directory (no plugins, no Helm inflation, loading
 //     restricted to the directory's tree).
 //   - "error": a description the tool could not render, with its message.
 //
 // Requests are read from stdin, one JSON object a line:
-// {"kind": "compose", "directory": ..., "files": [...]},
+// {"kind": "compose", "directory": ..., "files": [every Compose file there]},
 // {"kind": "helm", "directory": ...} or {"kind": "kustomize", "directory": ...},
 // paths relative to ROOT. Nothing is built, pulled or run.
 //
@@ -36,12 +37,15 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
+	composecli "github.com/compose-spec/compose-go/v2/cli"
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	composeloader "github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/template"
 	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/action"
+	helmchart "helm.sh/helm/v3/pkg/chart"
 	chartloader "helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"sigs.k8s.io/kustomize/api/krusty"
@@ -237,9 +241,86 @@ func compose(r request) fact {
 	return out
 }
 
+// composeDirectory loads the Compose files of one directory as docker
+// compose does: the default file it discovers there, with its override file,
+// is one project (compose-go's WithDefaultConfigPath, which `docker compose`
+// runs without -f), and every other file is a project of its own, as
+// `docker compose -f FILE` reads it.
+func composeDirectory(r request) []fact {
+	directory := filepath.Join(root, r.Directory)
+	used := map[string]bool{}
+	out := []fact{}
+	options, err := composecli.NewProjectOptions(nil, composecli.WithWorkingDirectory(directory), composecli.WithDefaultConfigPath)
+	// Discovery walks up to parent directories when this one has no default
+	// file; those projects are their own directory's.
+	if err == nil && len(options.ConfigPaths) > 0 && filepath.Dir(options.ConfigPaths[0]) == directory {
+		files := []string{}
+		for _, path := range options.ConfigPaths {
+			rel := relative(path)
+			files = append(files, rel)
+			used[rel] = true
+		}
+		out = append(out, compose(request{Kind: "compose", Directory: r.Directory, Files: files}))
+	}
+	for _, file := range r.Files {
+		if !used[file] {
+			out = append(out, compose(request{Kind: "compose", Directory: r.Directory, Files: []string{file}}))
+		}
+	}
+	return out
+}
+
+// localDependencies adds the dependencies a chart takes from file://
+// directories and does not already hold under charts/, as `helm dependency
+// build` archives them: the directory relative to the chart (or absolute),
+// loaded as it is, at a version the constraint accepts. Only directories
+// inside ROOT are read.
+func localDependencies(chart *helmchart.Chart, directory string) error {
+	held := map[string]bool{}
+	for _, dependency := range chart.Dependencies() {
+		held[dependency.Name()] = true
+	}
+	for _, dependency := range chart.Metadata.Dependencies {
+		if held[dependency.Name] || !strings.HasPrefix(dependency.Repository, "file://") {
+			continue
+		}
+		path := strings.TrimPrefix(dependency.Repository, "file://")
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(directory, path)
+		}
+		if _, ok := inside(path); !ok {
+			return fmt.Errorf("dependency %s is outside the repository: %s", dependency.Name, dependency.Repository)
+		}
+		local, err := chartloader.LoadDir(path)
+		if err != nil {
+			return fmt.Errorf("dependency %s: %w", dependency.Name, err)
+		}
+		if dependency.Version != "" {
+			constraint, err := semver.NewConstraint(dependency.Version)
+			if err != nil {
+				return fmt.Errorf("dependency %s has an invalid version/constraint format: %w", dependency.Name, err)
+			}
+			version, err := semver.NewVersion(local.Metadata.Version)
+			if err != nil {
+				return err
+			}
+			if !constraint.Check(version) {
+				return fmt.Errorf("can't get a valid version for dependency %s", dependency.Name)
+			}
+		}
+		chart.AddDependency(local)
+		held[dependency.Name] = true
+	}
+	return nil
+}
+
 func helm(r request) fact {
-	chart, err := chartloader.Load(filepath.Join(root, r.Directory))
+	directory := filepath.Join(root, r.Directory)
+	chart, err := chartloader.Load(directory)
 	if err != nil {
+		return fact{Kind: "error", Request: r, Message: err.Error()}
+	}
+	if err := localDependencies(chart, directory); err != nil {
 		return fact{Kind: "error", Request: r, Message: err.Error()}
 	}
 	if err := action.CheckDependencies(chart, chart.Metadata.Dependencies); err != nil {
@@ -328,7 +409,9 @@ func main() {
 		}
 		switch r.Kind {
 		case "compose":
-			emit(compose(r))
+			for _, f := range composeDirectory(r) {
+				emit(f)
+			}
 		case "helm":
 			emit(helm(r))
 		case "kustomize":

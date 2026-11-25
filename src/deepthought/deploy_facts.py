@@ -4,10 +4,12 @@
 releases of the tools that define these formats and renders the repository's
 deployment descriptions with them:
 
-- Compose files with compose-go, the loader of ``docker compose``: a
-  ``compose.yaml``/``docker-compose.yml`` together with its
-  ``.override`` file, as ``docker compose`` reads a directory, and every
-  other Compose file on its own, as ``docker compose -f FILE`` does;
+- Compose files with compose-go, the loader of ``docker compose``: the
+  default file compose-go discovers in a directory (``compose.yaml``,
+  ``compose.yml``, ``docker-compose.yml``, ``docker-compose.yaml``) together
+  with the override file it discovers there, as ``docker compose`` reads a
+  directory, and every other Compose file on its own, as
+  ``docker compose -f FILE`` does;
   ``extends``, ``include``, profiles and ``${VARIABLE}`` interpolation are
   the loader's. Variables come from the project's ``.env`` file (and
   ``PWD`` is the project directory, where ``docker compose`` runs); the
@@ -47,12 +49,6 @@ _HELPER_PLACEHOLDER = "\ue000"
 # compose.yaml, docker-compose.yml and variants such as docker-compose-kafka.yml
 # or compose.override.yaml.
 COMPOSE_FILE = re.compile(r"^(?:docker-)?compose(?:[.-][A-Za-z0-9_.-]+)?\.ya?ml$")
-_DEFAULT_COMPOSE = (
-    "compose.yaml",
-    "compose.yml",
-    "docker-compose.yaml",
-    "docker-compose.yml",
-)
 _KUSTOMIZATION = ("kustomization.yaml", "kustomization.yml", "Kustomization")
 _SKIPPED = frozenset({"node_modules", "target", "build", "vendor"})
 _SOURCES = ("main.go", "go.mod", "go.sum")
@@ -206,27 +202,13 @@ def requests(root):
     found, charts = [], set()
     for directory, names in _walk(root):
         compose = [n for n in names if COMPOSE_FILE.match(n)]
-        base = next((n for n in _DEFAULT_COMPOSE if n in compose), None)
-        override = None
-        if base is not None:
-            stem, _, suffix = base.rpartition(".")
-            override = next(
-                (
-                    n
-                    for n in compose
-                    if n in (f"{stem}.override.yaml", f"{stem}.override.yml")
-                ),
-                None,
-            )
-        for name in compose:
-            if name == override:
-                continue
-            files = [name] + ([override] if name == base and override else [])
+        if compose:
+            # The helper splits them into projects as docker compose does.
             found.append(
                 {
                     "kind": "compose",
                     "directory": directory,
-                    "files": [_join(directory, f) for f in files],
+                    "files": [_join(directory, f) for f in compose],
                 }
             )
         if "Chart.yaml" in names:
