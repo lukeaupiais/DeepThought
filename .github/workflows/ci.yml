@@ -190,3 +190,5 @@ jobs:
         run: python -m deepthought indexers
       - name: Score the pinned ground-truth corpus against its baseline
         run: python tools/ground_truth.py check --cache "$RUNNER_TEMP/ground-truth" --examples 5
+      - name: Score the SCIP-backed ground-truth corpora
+        run: python tools/ground_truth.py check --scip --cache "$RUNNER_TEMP/ground-truth" --examples 5 --corpus chi --corpus cobra --corpus click --corpus httpx --corpus hono --corpus preact
