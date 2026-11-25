@@ -151,10 +151,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.rows(impact),
             [
-                ("use", 1, "name_matched", ["CALLS"]),
-                ("Base.run", 1, "name_matched", ["CALLS"]),
-                ("top", 2, "name_matched", ["CALLS", "CALLS"]),
-                ("app.py", 3, "name_matched", ["CALLS", "CALLS", "CALLS"]),
+                ("use", 1, "resolved", ["CALLS"]),
+                ("Base.run", 1, "resolved", ["CALLS"]),
+                ("top", 2, "resolved", ["CALLS", "CALLS"]),
+                ("app.py", 3, "resolved", ["CALLS", "CALLS", "CALLS"]),
             ],
         )
         for item in impact["items"]:
@@ -164,9 +164,10 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
             names["helper"], repo, snapshot_id=snapshot, max_depth=1
         )
         self.assertEqual([row[0] for row in self.rows(shallow)], ["use", "Base.run"])
-        # Name-matched edges are not traversed when only resolved evidence is allowed.
+        # The calls bind through scip-python, so allowing only name-matched
+        # evidence leaves nothing to traverse.
         strict = await self.service.get_impact(
-            names["helper"], repo, snapshot_id=snapshot, evidence_types=["resolved"]
+            names["helper"], repo, snapshot_id=snapshot, evidence_types=["name_matched"]
         )
         self.assertEqual(strict["items"], [])
         self.assertEqual(strict["status"], "unsupported_or_unobserved")
