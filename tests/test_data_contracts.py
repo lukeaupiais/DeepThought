@@ -754,6 +754,7 @@ TYPEORM_SCIP = {
     "  links() { return this.ds.createQueryBuilder().insert().into('user_links').execute(); }\n"
     "  cte(q: any) { return this.ds.createQueryBuilder().addCommonTableExpression(q, '_u').from('_u', 'x').getRawMany(); }\n"
     "  raw() { return this.repo.query('DELETE FROM sessions'); }\n"
+    "  rel(u: User) { return this.repo.createQueryBuilder().relation('tags').of(u).add(1); }\n"
     "}\n",
 }
 
@@ -859,6 +860,15 @@ class TypeormScipTests(unittest.TestCase):
                 (7, "from", qb("from"), False, 0),
                 (8, "repo", builders + "repo.", False, 0),
                 (8, "query", repository + "query().", False, 0),
+                (9, "repo", builders + "repo.", False, 0),
+                (
+                    9,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (9, "relation", qb("relation"), False, 0),
             ],
             "src/user.entity.ts": [(2, "User", user, True, 0)],
             "src/user.service.ts": [
@@ -925,6 +935,7 @@ class TypeormScipTests(unittest.TestCase):
         # reads or writes its root table: the repository's entity, or what
         # its from/into names (a literal too), never a CTE's name; the
         # builders' own delete and insert are not repository calls.
+        # A relation builder writes the related side, not its root: no edge.
         # Raw SQL given to TypeORM's query is read as SQL.
         self.assertEqual(
             edges,
@@ -950,6 +961,7 @@ class TypeormScipTests(unittest.TestCase):
                 "entity_unknown": 1,
                 "not_an_entity": 0,
                 "builders": 3,
+                "relation_builders": 1,
             },
         )
         # The decorator and getRepository name rule gives way in the file.
@@ -981,7 +993,7 @@ class TypeormScipTests(unittest.TestCase):
                 ("WRITES", "UserService.held", "users", "typeorm-repository"),
             ],
         )
-        self.assertEqual(counts["no_scip_index"], 13)
+        self.assertEqual(counts["no_scip_index"], 14)
         self.assertEqual(orm["typeorm_linked"], 3)
         self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
 

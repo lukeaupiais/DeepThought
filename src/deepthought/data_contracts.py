@@ -2377,9 +2377,7 @@ _TYPEORM_BUILDER_METHOD = re.compile(
     r"scip-typescript npm typeorm \S+ query-builder/.*/(\w*QueryBuilder)#(\w+)\(\)\."
 )
 # Builder methods that make it a write, and those that name its root table.
-_TYPEORM_BUILDER_WRITES = frozenset(
-    "insert update delete softDelete restore relation".split()
-)
+_TYPEORM_BUILDER_WRITES = frozenset("insert update delete softDelete restore".split())
 _TYPEORM_BUILDER_ROOT = frozenset("from into update".split())
 
 
@@ -2401,7 +2399,7 @@ def typeorm_builder(references, trees, call, receiver_entities):
     manager's or data source's builder, else the entity class or literal
     table name the chain's first ``from``, ``into`` or ``update`` names.
     The builder writes when the chain calls TypeORM's ``insert``,
-    ``update``, ``delete``, ``softDelete``, ``restore`` or ``relation``,
+    ``update``, ``delete``, ``softDelete`` or ``restore``,
     every method resolved through the index; otherwise it reads."""
     called = references.symbols(call.file, call.line, call.column)
     if called is None:
@@ -2442,6 +2440,11 @@ def typeorm_builder(references, trees, call, receiver_entities):
             for c in symbols or ()
         ):
             chain.append((method, node))
+    if any(method == "relation" for method, _ in chain):
+        # A relation builder writes the related side (its foreign key, or a
+        # many-to-many junction table), not the root: left unread
+        # (relation_builders).
+        return "relation_builders", None
     writes = any(method in _TYPEORM_BUILDER_WRITES for method, _ in chain)
     found = set()
     if owners & {"Repository", "TreeRepository", "MongoRepository"}:
