@@ -29,6 +29,20 @@ def _pinned():
 
 GO_READY = shutil.which("go") is not None
 
+# A package in a directory ``./...`` skips, which the go tool still builds.
+EXAMPLE = """package main
+
+type T interface{ M() }
+
+type A struct{}
+
+func (A) M() {}
+
+func call(t T) { t.M() }
+
+func main() { call(A{}) }
+"""
+
 MAIN = """package main
 
 type Shape interface{ Area() int }
@@ -102,7 +116,7 @@ class LocateTests(unittest.TestCase):
             )
         self.assertEqual(
             output.metadata.custom_metrics["go_dynamic_calls"],
-            {"sites": 0, "edges": 0, "failed_modules": {}},
+            {"sites": 0, "edges": 0, "failed_packages": {}},
         )
 
 
@@ -154,13 +168,27 @@ class CallgraphToolTests(unittest.TestCase):
             {
                 "go.mod": "module example.com/shapes\n\ngo 1.21\n",
                 "main.go": MAIN,
+                "_examples/ex/main.go": EXAMPLE,
+                # Never built: no edges from it.
+                "testdata/td/main.go": EXAMPLE.replace("A{}", "B{}")
+                .replace("type A struct{}", "type B struct{}")
+                .replace("func (A) M", "func (B) M"),
+                # A nested module, named from its own directory.
+                "sub/go.mod": "module example.com/sub\n\ngo 1.21\n",
+                "sub/main.go": EXAMPLE.replace("A{}", "C{}")
+                .replace("type A struct{}", "type C struct{}")
+                .replace("func (A) M", "func (C) M"),
+                # A module with no Go files has no packages to load.
+                "empty/go.mod": "module example.com/empty\n\ngo 1.21\n",
                 "broken/go.mod": "module example.com/broken\n\ngo 1.21\n",
                 "broken/main.go": "package main\n\nfunc main() { undefined() }\n",
             },
         )
 
     def test_vta_gives_the_implementations_that_reach_each_call(self):
-        calls, failures = dynamic_calls(self.root, ["", "broken"], _pinned())
+        calls, failures = dynamic_calls(
+            self.root, {"": ["."], "broken": ["."]}, _pinned()
+        )
         self.assertEqual(sorted(failures), ["broken"])
         self.assertEqual(
             sorted((c.line, c.callee_name, c.callee_line) for c in calls),
@@ -169,7 +197,20 @@ class CallgraphToolTests(unittest.TestCase):
         )
 
     def test_graph_edges_carry_the_rule_and_the_producer(self):
-        output = asyncio.run(TreeSitterTool(self.root).analyze("r", languages={"go"}))
+        import deepthought.go_callgraph as go_callgraph
+
+        with mock.patch.object(
+            go_callgraph, "dynamic_calls", wraps=go_callgraph.dynamic_calls
+        ) as spy:
+            output = asyncio.run(
+                TreeSitterTool(self.root).analyze("r", languages={"go"})
+            )
+        # The tool would print its usage and succeed for a module with no
+        # packages; it is not run for one.
+        self.assertEqual(
+            spy.call_args.args[1],
+            {"": [".", "_examples/ex"], "broken": ["."], "sub": ["."]},
+        )
         edges = sorted(
             (r.properties["callee"], r.target_match["qualified_name"])
             for r in output.relationships
@@ -177,7 +218,13 @@ class CallgraphToolTests(unittest.TestCase):
         )
         self.assertEqual(
             [(callee, target.split("::")[2]) for callee, target in edges],
-            [("f", "one"), ("s.Area", "Circle.Area"), ("s.Area", "Square.Area")],
+            [
+                ("f", "one"),
+                ("s.Area", "Circle.Area"),
+                ("s.Area", "Square.Area"),
+                ("t.M", "A.M"),
+                ("t.M", "C.M"),
+            ],
         )
         properties = next(
             r.properties
@@ -189,10 +236,10 @@ class CallgraphToolTests(unittest.TestCase):
             ("callgraph@v0.31.0", "vta"),
         )
         metrics = output.metadata.custom_metrics["go_dynamic_calls"]
-        self.assertEqual((metrics["sites"], metrics["edges"]), (2, 3))
-        self.assertEqual(sorted(metrics["failed_modules"]), ["broken"])
+        self.assertEqual((metrics["sites"], metrics["edges"]), (4, 5))
+        self.assertEqual(sorted(metrics["failed_packages"]), ["broken"])
         self.assertTrue(
-            any("module broken not loaded" in w for w in output.metadata.warnings)
+            any("package broken not loaded" in w for w in output.metadata.warnings)
         )
 
 

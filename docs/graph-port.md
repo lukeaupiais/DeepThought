@@ -839,7 +839,7 @@ implementation (see "Impact").
 
 Each call through an interface method or a function value also gets the
 targets the Go toolchain itself computes: the pinned `golang.org/x/tools`
-call graph (`callgraph@v0.31.0 -algo=vta -test`, run per module offline from
+call graph (`callgraph@v0.31.0 -algo=vta -test`, run per package offline from
 the module cache, `deepthought.go_callgraph`) gives, for each dynamic call
 site, the functions and methods that variable type analysis says may run
 there. Each becomes a CALLS edge from the caller with rule `go.call-vta`,
@@ -849,10 +849,16 @@ target the parsed function or method of the callee's name whose span holds
 the callee's position. Calls of function values (handlers, callbacks) are
 linked this way only. The tool is required where the analyzed files include a
 `go.mod`: a missing binary, or one not built from x/tools v0.31.0 (`go
-version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. A
-module the tool cannot load (a dependency missing from the module cache, a
-type error) yields no edges and is reported in the warnings and in the
-`go_dynamic_calls` metric (`sites`, `edges`, `failed_modules`). The
+version -m`), fails the run, and `$DEEPTHOUGHT_GO_CALLGRAPH` names it. Each
+package of an analyzed Go file is its own program, loaded with its tests,
+since a Go binary is one main package or one package's tests and what they
+import: values of two programs never meet, so a type of one example's main
+package cannot reach a call in another package's tests. Packages are named
+one by one, so directories `./...` skips (`_examples/`) are included;
+`testdata` is not. A package the tool cannot load (a dependency missing from
+the module cache, a type error) yields no edges and is reported in the
+warnings and in the `go_dynamic_calls` metric (`sites`, `edges`,
+`failed_packages`). The
 method-set DISPATCHES_TO edges above stay until impact is switched to these
 per-site edges.
 

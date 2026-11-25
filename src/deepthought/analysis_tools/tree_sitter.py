@@ -638,7 +638,7 @@ CALL_RULES.update(
 
 
 def _go_dynamic_calls(result, root):
-    """{"targets": {call site id: declaration ids}, "failures": {module
+    """{"targets": {call site id: declaration ids}, "failures": {package
     directory: error}} from the pinned Go call graph tool, for the Go
     modules of the analyzed files; none without Go modules. The tool is
     required where there are any."""
@@ -649,8 +649,25 @@ def _go_dynamic_calls(result, root):
     )
     if not modules:
         return {"targets": {}, "failures": {}}
+    # Each module's packages are the directories of its analyzed Go files,
+    # named one by one: ``./...`` skips directories starting with "_" or
+    # ".", which the go tool still builds when named (chi's _examples).
+    packages = {module: set() for module in modules}
+    for coverage in result.coverage:
+        if coverage.language != "go" or not coverage.file.endswith(".go"):
+            continue
+        directory = posixpath.dirname(coverage.file)
+        module = max(
+            (m for m in modules if m == "" or (directory + "/").startswith(m + "/")),
+            key=len,
+            default=None,
+        )
+        if module is not None and "testdata" not in directory.split("/"):
+            packages[module].add(posixpath.relpath(directory or ".", module or "."))
     binary = go_callgraph.locate_go_callgraph()
-    calls, failures = go_callgraph.dynamic_calls(root, modules, binary)
+    calls, failures = go_callgraph.dynamic_calls(
+        root, {m: sorted(p) for m, p in packages.items() if p}, binary
+    )
     return {
         "targets": go_callgraph.bind_dynamic_calls(result, calls),
         "failures": failures,
@@ -1174,7 +1191,7 @@ class TreeSitterTool(AnalysisTool):
                 [d["message"] for d in diagnostics] if result.status != "failed" else []
             )
             + [
-                f"go call graph: module {directory or '.'} not loaded: {error}"
+                f"go call graph: package {directory} not loaded: {error}"
                 for directory, error in sorted(go_dynamic["failures"].items())
             ],
             custom_metrics={
@@ -1200,7 +1217,7 @@ class TreeSitterTool(AnalysisTool):
                 "go_dynamic_calls": {
                     "sites": len(go_dynamic["targets"]),
                     "edges": sum(len(t) for t in go_dynamic["targets"].values()),
-                    "failed_modules": go_dynamic["failures"],
+                    "failed_packages": go_dynamic["failures"],
                 },
                 "source_context": {
                     "declarations": len(sources),

@@ -8,8 +8,8 @@ edges replace matching method sets by name (``go_interfaces``) wherever a
 call is involved. The tool is pinned (``GO_CALLGRAPH_VERSION``) and required
 where Go is analyzed: a missing or wrong-version binary is an error.
 
-Each module is loaded with its tests, offline and from the module cache, as
-``go_facts`` runs the go command.
+Each package is analyzed as its own program with its tests, offline and
+from the module cache, as ``go_facts`` runs the go command.
 """
 
 from collections import defaultdict
@@ -82,45 +82,65 @@ def locate_go_callgraph(environ=None, go="go"):
     return Path(found)
 
 
-def dynamic_calls(root, module_directories, binary, go="go", timeout=1200):
-    """(dynamic call edges, failures) for the Go modules (directories
-    relative to ``root``, "" for the root): the edges whose call site and
-    callee are both in files under ``root``, deduplicated and sorted; and
-    {module directory: the tool's error} for each module it could not load
-    (a dependency missing from the module cache, a type error), which
-    yields no edges."""
+def dynamic_calls(root, packages, binary, go="go", timeout=1200):
+    """(dynamic call edges, failures) for ``packages``, {module directory
+    relative to ``root`` ("" for the root): package directories relative to
+    the module ("." for its own)}.
+
+    Each package is its own program, loaded with its tests: a Go binary is
+    one main package or one package's tests with what they import, so
+    values of two programs never meet. Analyzing them together would let a
+    type of one example's main package reach a call in another package's
+    tests. The edges are those whose call site and callee are both in files
+    under ``root``, over every program, deduplicated and sorted. Failures
+    are {package directory relative to ``root``: the tool's error} for each
+    package it could not load (a dependency missing from the module cache,
+    a type error), which yields no edges."""
+    from concurrent.futures import ThreadPoolExecutor
+
     root = Path(root).resolve()
-    found, failures = set(), {}
-    for directory in sorted(module_directories):
-        completed = subprocess.run(
-            [str(binary), "-algo=vta", "-test", "-format", _FORMAT, "./..."],
-            cwd=root / directory,
+    programs = [
+        (module, package) for module in sorted(packages) for package in packages[module]
+    ]
+
+    def run(program):
+        module, package = program
+        return subprocess.run(
+            [str(binary), "-algo=vta", "-test", "-format", _FORMAT]
+            + ["./" + package if package != "." else "."],
+            cwd=root / module,
             capture_output=True,
             text=True,
             timeout=timeout,
             env=_environment(go),
         )
-        if completed.returncode != 0:
-            failures[directory] = completed.stderr.strip()[-2000:]
-            continue
-        for line in completed.stdout.splitlines():
-            fields = line.split("\t")
-            if len(fields) != 8 or fields[3] != "dynamic":
+
+    found, failures = set(), {}
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as pool:
+        for (module, package), completed in zip(programs, pool.map(run, programs)):
+            if completed.returncode != 0:
+                name = os.path.normpath(os.path.join(module or ".", package))
+                failures[Path(name).as_posix()] = completed.stderr.strip()[-2000:]
                 continue
-            site, callee = _relative(root, fields[0]), _relative(root, fields[4])
-            if site is None or callee is None:
-                continue
-            found.add(
-                DynamicCall(
-                    site,
-                    int(fields[1]),
-                    int(fields[2]) - 1,
-                    callee,
-                    int(fields[5]),
-                    int(fields[6]) - 1,
-                    fields[7],
+            for line in completed.stdout.splitlines():
+                fields = line.split("\t")
+                if len(fields) != 8 or fields[3] != "dynamic":
+                    continue
+                site = _relative(root, fields[0])
+                callee = _relative(root, fields[4])
+                if site is None or callee is None:
+                    continue
+                found.add(
+                    DynamicCall(
+                        site,
+                        int(fields[1]),
+                        int(fields[2]) - 1,
+                        callee,
+                        int(fields[5]),
+                        int(fields[6]) - 1,
+                        fields[7],
+                    )
                 )
-            )
     return sorted(found, key=lambda c: tuple(vars(c).values())), failures
 
 
