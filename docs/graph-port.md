@@ -3308,6 +3308,51 @@ become routes, each on the controller method named by its operationId. The
 not handled. The project's own MockMvc tests request 36 distinct method and
 path pairs under `/api`, and they are exactly the 36 routes.
 
+### Contract coverage
+
+The contracts a repository's query returns are only those its readers
+found, so the graph also says which readers ran. For each contract family
+and each language of the repository's source files there is one
+`ContractCoverage` node (`qualified_name`
+`<repo>::contract-coverage::<family>::<language>`) with:
+
+- `family`: `http_routes`, `http_requests`, `grpc_handlers`, `grpc_calls`,
+  `graphql_resolvers`, `graphql_requests` or `message_endpoints`;
+- `language` and `files`, the number of the repository's files in it, for
+  every language the engine recognises by suffix (C, C++, C#, Go, Java,
+  JavaScript, PHP, Python, Ruby, Rust, TypeScript), counted by
+  `engine.source_languages` over the same selection as the analysis; other
+  languages get no statement;
+- `status`: `read` when this tool has a reader for the family in that
+  language, else `not_read` with `reason` `no_reader`;
+- `sites`: the routes, handlers, calls, resolvers, operations or endpoints
+  found in that language; for `http_requests` and `grpc_calls` also
+  `linked`, how many of them were linked.
+
+The readers per family are `CONTRACT_READERS` in
+`analysis_tools/service_contracts.py`:
+
+| Family | Languages read |
+| --- | --- |
+| `http_routes`, `http_requests` | Python, JavaScript, TypeScript, Go, Java, C#, PHP |
+| `grpc_handlers`, `grpc_calls` | Go, Python, Java, C#, JavaScript, TypeScript |
+| `graphql_resolvers`, `graphql_requests` | JavaScript, TypeScript |
+| `message_endpoints` | Java, Python, Go, JavaScript, TypeScript |
+
+A contract query can return the coverage of the languages present next to
+what it found:
+
+```cypher
+MATCH (c:ContractCoverage {family: 'grpc_calls'})
+RETURN c.language, c.status, c.reason, c.files, c.sites, c.linked
+```
+
+`read` with no sites means the reader ran and found nothing it recognises,
+not that the language has no such calls. In online-boutique, the C# cart
+service's tests call `new CartServiceClient(channel)` where the client type
+comes from `using static Hipstershop.CartService;`, which the C# stub
+reader does not follow, so `grpc_calls csharp` is `read` with 0 sites.
+
 ### OpenAPI Go clients (oapi-codegen)
 
 oapi-codegen turns an OpenAPI 3 document into Go code. With `client` among
@@ -4203,7 +4248,7 @@ component roll-up like HTTP routes and message destinations:
 | Edge | Rule | Evidence | Read from |
 |---|---|---|---|
 | File -[:DECLARES]-> DbTable | `data-contracts.sql-create-table` | resolved | `CREATE TABLE` in a `.sql` file, parsed by sqlglot (PostgreSQL, MySQL, SQLite, T-SQL, Oracle, ClickHouse, then generic) one statement at a time, split by sqlglot's tokenizer; temporary tables, comments, strings and function bodies skipped. A CREATE TABLE no dialect parses is read from sqlglot's tokens (name after the modifiers, `TABLE` and `IF NOT EXISTS`) and counted as `tokens_not_parsed` in the `ddl_readers` metric |
-| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the union of what the files declare (migrations are not replayed), except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
+| DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.sql-foreign-key` | resolved | a foreign key in a `.sql` file, parsed by sqlglot: a column's `REFERENCES t (c)` constraint or a `FOREIGN KEY (...) REFERENCES t (...)` constraint, in `CREATE TABLE` or added by `ALTER TABLE ... ADD [CONSTRAINT] FOREIGN KEY`, with `columns`, `referenced_columns` and `on_delete`. Temporary tables are left out. A statement with a REFERENCES token that no dialect parses is not read (no token fallback): it is named in a `foreign_key_not_parsed` warning and counted in `foreign_keys.sql_not_parsed`. Keys are the state after each migration set runs: the SQL files under one folder named `migrations`, `migration` or `migrate` apply in natural name order (V2 before V10), each file in line order, and `ALTER TABLE ... DROP CONSTRAINT` / `DROP FOREIGN KEY` (by the key's constraint name, or the `<table>_<columns>_fkey` name PostgreSQL gives an unnamed key) and `DROP TABLE` (the keys of and to the table) remove keys read before them (`foreign_keys.sql_dropped`); a file outside such a folder is its own set. The statements are replayed from sqlglot's parse because running the migrations against a database would run the project's code. Rollback migrations (`*.down.sql`, Diesel's `down.sql`) are not read for keys (`sql_rollback_files`). A drop that names no key read before it (most are primary, unique or check constraints) is counted in `sql_drops_naming_no_key`. This holds except in two kinds of migration folder whose tool records the current schema: a drizzle-kit folder (`meta/_journal.json`, see `data-contracts.drizzle-foreign-key`) and a Prisma Migrate folder (`<dir>/migrations/migration_lock.toml` with a schema in `<dir>` that Prisma's engine read), whose keys `data-contracts.prisma-foreign-key` gives; those folders' SQL is not read for keys (`prisma_migration_files_superseded`) |
 | DbTable -[:REFERENCES_TABLE]-> DbTable | `data-contracts.drizzle-foreign-key` | resolved | the `foreignKeys` of drizzle-kit's snapshot for the last entry of a migrations folder's `meta/_journal.json` (the schema after every migration), so a key a later migration drops is gone and one added inside a `DO $$ ... $$` block is present. The edge's `file_path` and `line` point at the key in the snapshot. When that snapshot cannot be read, the folder's migrations are read as any SQL file and a `drizzle_snapshot_unread` warning says so |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-table-annotation` | pattern_matched | a JPA `@Entity` (jakarta or javax.persistence) with `@Table(name = ...)`, folded like contract strings |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.jpa-default-table-name` | name_matched | an `@Entity` without a table name, named by Spring Boot's default physical naming (`LineItem` is `line_item`) |
