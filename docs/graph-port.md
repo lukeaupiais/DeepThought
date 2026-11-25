@@ -2504,12 +2504,15 @@ their file (`service_contracts.deployed`), when those share one:
 
 Deployment descriptions are rendered by the tools that define them
 (`deepthought.deploy_facts`, a Go helper built from pinned releases):
-Compose projects by compose-go, the loader of `docker compose` (a default
-file together with its `.override` file, `extends`, `include`, profiles and
+Compose projects by compose-go, the loader of `docker compose` (the default
+file and override file compose-go discovers in a directory are one project,
+every other Compose file is its own, as `docker compose -f FILE` reads it;
+`extends`, `include`, profiles and
 `${VARIABLE}` interpolation from the project's `.env`; the process
 environment is never read and an unset variable is unknown text), Helm
 charts by Helm's client-only install dry run (`helm template`: default
-values, release `release-name`) and kustomizations by krusty (`kustomize
+values, release `release-name`; `file://` dependencies inside the
+repository are added as `helm dependency build` archives them) and kustomizations by krusty (`kustomize
 build`: no plugins, loading restricted to the kustomization's tree; a
 `Component` only through the kustomizations using it). Manifests a
 kustomization reads, and every file of a chart, are read only through the
