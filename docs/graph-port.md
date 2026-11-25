@@ -2532,10 +2532,14 @@ which only client requests are read:
   (any method); Fiber `Get`/.../`Patch`, `All` (any method) and `Add` (one
   method in v2, a `[]string` in v3), and the verbs of the `Register` a v3
   `Route(path)` returns, which take no path. The handler is the last
-  argument in Gin, chi and Fiber v2, and the first after the path in Echo
-  and Fiber v3. Paths and methods are the values the type checker's
-  constant and string folding gives; a method that is not literal leaves
-  the route unread (`method_not_literal`).
+  argument in Gin, chi and Fiber (v3 runs `append([]any{handler},
+  middleware...)` in order, so middleware written first precedes the
+  endpoint), and the first after the path in Echo. Paths and methods are
+  the values the type checker's constant and string folding gives; a
+  method that is not literal leaves the route unread
+  (`method_not_literal`), and a file importing a router package that the
+  type checker could not read is unread as
+  `not_type_checked:<reason>` (a failed build, a timeout).
 
   The router's prefix follows go/types objects, not names: the variable,
   `var` or struct field the router is assigned to (in any file of the

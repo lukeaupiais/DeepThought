@@ -261,6 +261,10 @@ def _environment(go, goroot=None, modfile=None):
     module files read only, the toolchain on hand. A binary built with
     -trimpath knows no GOROOT, so the run is told the toolchain's."""
     environment = dict(os.environ)
+    # A GOROOT inherited from the caller belongs to another toolchain (a
+    # module asking for a newer Go runs the cached one): each go command
+    # finds its own unless the toolchain's is given.
+    environment.pop("GOROOT", None)
     if goroot:
         environment["GOROOT"] = goroot
     environment.update(
@@ -295,6 +299,7 @@ def download(go, directory, modfile, timeout=900):
     the Go release it asks for) into the module cache. "downloaded", or
     "download_failed: <first line of the error>"."""
     environment = dict(os.environ)
+    environment.pop("GOROOT", None)
     environment.update(
         GOFLAGS=f"-mod=mod -modfile={modfile}",
         GOTOOLCHAIN="auto",

@@ -403,9 +403,9 @@ func Show(c fiber.Ctx) error { return nil }
 func main() {
 	app := fiber.New()
 	api := app.Group("/api")
-	api.Get("/items/:id", Show, auth)
+	api.Get("/items/:id", auth, Show)
 	api.Add([]string{"PUT", "PATCH"}, "/items/:id", Show)
-	api.Route("/orders").Get(Show).Post(Show, auth)
+	api.Route("/orders").Get(Show).Post(auth, Show)
 	app.Listen(":3000")
 }
 
@@ -482,7 +482,7 @@ class FiberRouterTests(unittest.TestCase):
         self.assertEqual(
             found,
             [
-                # v3 takes the handler first, then middleware.
+                # Middleware runs first: the endpoint is the last handler.
                 (10, "fiber", ("GET",), "/api/items/{id}", False, "Show"),
                 (11, "fiber", ("PATCH", "PUT"), "/api/items/{id}", False, "Show"),
                 # Route(path) returns a Register whose verbs take no path.
