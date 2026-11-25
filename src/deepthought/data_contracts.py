@@ -2483,13 +2483,6 @@ def prisma_accessor(model):
     return model[:1].lower() + model[1:]
 
 
-def typeorm_table_name(entity):
-    """TypeORM's DefaultNamingStrategy table name: snakeCase of the class
-    name (``UserProfile`` is ``user_profile``, ``HTTPLog`` is ``http_log``)."""
-    name = re.sub(r"([A-Z])([A-Z])([a-z])", r"\1_\2\3", entity)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
-
-
 def _script_string(node, content):
     """A plain (not template) string literal's text, or None."""
     if node is None or node.type != "string":
@@ -2656,7 +2649,9 @@ def extract_typeorm(tree, content, file, definitions):
                         file,
                         model_id,
                         entity,
-                        table_key(name) if name else typeorm_table_name(entity),
+                        # Without a name, TypeORM's own naming strategy
+                        # gives it (deepthought.typeorm_naming).
+                        table_key(name) if name else None,
                         node.start_point.row + 1,
                         node.start_point.column,
                         explicit=bool(name),

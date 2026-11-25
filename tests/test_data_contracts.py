@@ -1911,7 +1911,8 @@ TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spe
     "tree_sitter_typescript"
 )
 SCRIPT_ORMS = {
-    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}, '
+    '"dependencies": {"typeorm": "0.3.28"}}',
     "prisma/schema.prisma": """// The shop's tables.
 datasource db {
   provider = "postgresql"
@@ -2098,6 +2099,62 @@ class ScriptOrmTests(unittest.TestCase):
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
 
+    def test_typeorm_release_of_an_entity(self):
+        from deepthought.typeorm_naming import project_release
+
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "package.json": '{"dependencies": {"typeorm": "^0.3.0"}}',
+                    "api/package.json": '{"dependencies": {"typeorm": "^0.2.0"}}',
+                    "api/src/a.ts": "",
+                    "web/src/b.ts": "",
+                    "web/yarn.lock": 'typeorm@^0.3.0:\n  version "0.3.17"\n',
+                    # NestJS projects lock @nestjs/typeorm next to typeorm.
+                    "pnpm/src/d.ts": "",
+                    "pnpm/package.json": '{"dependencies": {"typeorm": "^0.3.17"}}',
+                    "pnpm/pnpm-lock.yaml": "lockfileVersion: '9.0'\npackages:\n"
+                    "  '@nestjs/typeorm@10.0.2':\n    resolution: {}\n"
+                    "  typeorm@0.3.20:\n    resolution: {}\nsnapshots:\n"
+                    "  '@nestjs/typeorm@10.0.2(typeorm@0.3.20(pg@8.11.3))':\n"
+                    "    dependencies: {}\n",
+                    "pnpm8/src/e.ts": "",
+                    "pnpm8/pnpm-lock.yaml": "packages:\n"
+                    "  /@nestjs/typeorm@10.0.2:\n    resolution: {}\n"
+                    "  /typeorm@0.3.19:\n    resolution: {}\n",
+                    "bun/src/f.ts": "",
+                    "bun/bun.lock": '{"packages": {"@nestjs/typeorm": '
+                    '["@nestjs/typeorm@10.0.2", ""], "typeorm": ["typeorm@0.3.18", ""]}}',
+                    "cli/src/c.ts": "",
+                    "cli/node_modules/typeorm/package.json": '{"version": "0.3.20"}',
+                    "cli/package-lock.json": '{"packages": {"node_modules/typeorm": '
+                    '{"version": "0.3.1"}}}',
+                },
+            )
+            # The nearest declared range, when nothing is locked or installed.
+            self.assertEqual(
+                project_release(directory, "api/src/a.ts"), ("range", "^0.2.0")
+            )
+            self.assertEqual(
+                project_release(directory, "web/src/b.ts"), ("release", "0.3.17")
+            )
+            for file, release in (
+                ("pnpm/src/d.ts", "0.3.20"),
+                ("pnpm8/src/e.ts", "0.3.19"),
+                ("bun/src/f.ts", "0.3.18"),
+            ):
+                self.assertEqual(
+                    project_release(directory, file), ("release", release), file
+                )
+            # Installed before locked, in the same directory.
+            self.assertEqual(
+                project_release(directory, "cli/src/c.ts"), ("release", "0.3.20")
+            )
+
+    @unittest.skipUnless(
+        NODE, "TypeORM's naming strategy is installed with npm from its registry"
+    )
     def test_typeorm_wrappers_and_child_entities(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, TYPEORM_WRAPPERS)
@@ -2391,6 +2448,7 @@ class PrismaSchemaTests(unittest.TestCase):
 
 
 TYPEORM_WRAPPERS = {
+    "package.json": '{"name": "stock", "dependencies": {"typeorm": "0.3.28"}}',
     "src/entity.ts": """import { ChildEntity, Entity, TableInheritance } from "typeorm";
 
 @Entity()

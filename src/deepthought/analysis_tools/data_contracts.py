@@ -11,6 +11,7 @@ tree-sitter output joins them.
 
 from hashlib import sha256
 from collections import Counter
+from dataclasses import replace
 import importlib.util
 import json
 import os
@@ -21,6 +22,7 @@ import time
 
 from .._version import __version__
 from .. import go_facts as gofacts
+from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
@@ -712,8 +714,12 @@ TYPEORM_DEFAULT_RULE = register_rule(
         "data-contracts.typeorm-default-table-name",
         "name_matched",
         "The class is decorated with TypeORM's @Entity without a name; the "
-        "table is its DefaultNamingStrategy name, the snake case of the "
-        "class name. A custom naming strategy is not read.",
+        "table is the name TypeORM's own DefaultNamingStrategy.tableName "
+        "gives the class, run at the typeorm release the project pins "
+        "(installed, locked, else the newest release of the declared "
+        "range). A custom naming strategy is not read. An entity whose "
+        "release cannot be found or installed gets no table, with a "
+        "typeorm_naming_unread warning.",
     )
 )
 TYPEORM_CHILD_RULE = register_rule(
@@ -2052,6 +2058,19 @@ class DataContractTool(AnalysisTool):
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
             typeorm_children.extend(found[2])
+        # An @Entity without a name: TypeORM's DefaultNamingStrategy at the
+        # release the project pins.
+        typeorm_names, typeorm_naming_unread = typeorm_table_names(
+            root,
+            sorted({(m.file, m.name) for m in typeorm_mappings if m.table is None}),
+        )
+        typeorm_mappings = [
+            m
+            if m.table is not None
+            else replace(m, table=table_key(typeorm_names[m.file, m.name]))
+            for m in typeorm_mappings
+            if m.table is not None or (m.file, m.name) in typeorm_names
+        ]
         typeorm_targets, typeorm_by_model = {}, {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
@@ -3042,12 +3061,18 @@ class DataContractTool(AnalysisTool):
             "partial"
             if unreadable
             or kysely_unindexed
+            or typeorm_naming_unread
             or django_unindexed
             or prisma_read.unread
             or result.status != "succeeded"
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        warnings += [
+            f"typeorm_naming_unread: {path}: {reason}, so its @Entity classes "
+            "without a name get no table"
+            for path, reason in sorted(typeorm_naming_unread.items())
+        ]
         warnings += [
             f"foreign_key_not_parsed: {path}:{line}: no sqlglot dialect parses "
             "this statement, so its foreign keys are not read"
@@ -3161,6 +3186,7 @@ class DataContractTool(AnalysisTool):
                         "unread": len(prisma_read.unread),
                     },
                     "typeorm_entities": len(typeorm_mappings),
+                    "typeorm_naming_unread": len(typeorm_naming_unread),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
                     "knex": knex_counts,
