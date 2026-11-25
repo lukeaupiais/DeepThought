@@ -8,6 +8,12 @@ arguments (constants, locals assigned once, ``+`` joins), and GORM
 ``TableName`` methods returning a constant. Name resolution, constant
 folding and method selection are the compiler's, not rules of ours.
 
+Before the run, the engine downloads the modules providing the packages each
+module imports, with ``go list -deps -test`` (and, with GOTOOLCHAIN=auto, the
+Go release a module asks for), into copies of its go.mod and go.sum,
+so imports are typed from the module cache. The Go toolchain is required:
+without it ``collect`` raises ``GoMissing``.
+
 The program is built once per (source, toolchain) with the Go toolchain on
 ``PATH`` (or ``DEEPTHOUGHT_GO``) into a cache directory. It builds nothing of
 the analyzed repository and runs none of its code; imports from outside a
@@ -39,6 +45,30 @@ from .component_dependencies import _go_directives
 PLACEHOLDER = "\x00"  # gofacts' stand-in for text the code does not fix
 
 
+class GoMissing(RuntimeError):
+    """The Go toolchain, which types Go code for the engine, is not installed."""
+
+
+@dataclass(frozen=True)
+class GoValue:
+    """What gofacts knows of an argument or a keyed literal element."""
+
+    text: str | None = None  # its string value, when only one reaches it
+    strings: tuple[str | None, ...] | None = None  # a []string's elements
+    # (line, column, result index, field) of the call whose result's field
+    # it is: q.Name after q, err := ch.QueueDeclare(...).
+    result: tuple[int, int, int, str] | None = None
+
+
+@dataclass(frozen=True)
+class GoLiteral:
+    file: str
+    line: int
+    column: int  # 0-based
+    type: tuple[str, str]  # (import path, type name)
+    elements: tuple[tuple[str, GoValue], ...]
+
+
 @dataclass(frozen=True)
 class GoCall:
     file: str
@@ -52,6 +82,7 @@ class GoCall:
     # the call (None: not known).
     texts: tuple[tuple[str, ...] | None, ...]
     types: tuple[tuple[str, str] | None, ...]  # and its named type
+    values: tuple[GoValue, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -65,16 +96,35 @@ class GoTableName:
     table: str
 
 
+@dataclass(frozen=True)
+class GopathPackage:
+    """How a package outside every module was checked: as a module of its own
+    whose imports resolved to their latest versions when it was analyzed
+    (status ``gopath_latest``). ``modules`` are the (path, version) pairs the
+    go.mod of that check required, direct and indirect, and
+    ``go_sum_sha256`` the digest of the go.sum it produced (None without
+    one), so that a result can be traced and reproduced."""
+
+    status: str
+    modules: tuple
+    go_sum_sha256: str | None
+
+
 @dataclass
 class GoFacts:
     calls: list[GoCall] = field(default_factory=list)
     table_names: list[GoTableName] = field(default_factory=list)
+    literals: list[GoLiteral] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
     partial: dict[str, str] = field(default_factory=dict)  # file -> first error
     uncovered: dict[str, str] = field(default_factory=dict)  # file -> reason
     modules: dict[str, str] = field(default_factory=dict)  # directory -> status
     toolchains: dict[str, str] = field(default_factory=dict)  # directory -> Go
+    downloads: dict[str, str] = field(default_factory=dict)  # directory -> status
+    # Directories of packages outside every module, checked as modules of
+    # their own (GOPATH-era code).
+    gopath: dict[str, GopathPackage] = field(default_factory=dict)
     requires: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def module_of(self, file):
@@ -154,7 +204,7 @@ def _info(go):
     return dict(zip(names, values))
 
 
-def _environment(go, goroot=None):
+def _environment(go, goroot=None, modfile=None):
     """The environment gofacts and the go command run in: offline, the
     module files read only, the toolchain on hand. A binary built with
     -trimpath knows no GOROOT, so the run is told the toolchain's."""
@@ -162,14 +212,61 @@ def _environment(go, goroot=None):
     if goroot:
         environment["GOROOT"] = goroot
     environment.update(
-        GOFLAGS="-mod=readonly",
+        GOFLAGS="-mod=readonly" + (f" -modfile={modfile}" if modfile else ""),
         GOPROXY="off",
         GOTOOLCHAIN="local",
         GOWORK="off",
-        CGO_ENABLED="0",
+        # cgo files are type-checked as the build sees them (confluent-kafka-
+        # go declares its types there): the source importer runs cgo, which
+        # reads the C headers; nothing is linked or run.
+        CGO_ENABLED="1",
         GOTELEMETRY="off",
     )
     return environment
+
+
+def module_files(directory, scratch):
+    """Copies of a module's go.mod and go.sum in ``scratch``, so that the go
+    command records what it resolves there and never writes the analyzed
+    repository; the path of the go.mod copy (for -modfile)."""
+    copy = Path(scratch) / "go.mod"
+    shutil.copyfile(Path(directory) / "go.mod", copy)
+    if (Path(directory) / "go.sum").is_file():
+        shutil.copyfile(Path(directory) / "go.sum", Path(scratch) / "go.sum")
+    return str(copy)
+
+
+def download(go, directory, modfile, timeout=900):
+    """Download what type-checking a module needs, with ``modfile`` (a copy
+    of its go.mod) taking the updates: ``go list -deps -test ./...`` fetches
+    the modules providing every package its packages and tests import (and
+    the Go release it asks for) into the module cache. "downloaded", or
+    "download_failed: <first line of the error>"."""
+    environment = dict(os.environ)
+    environment.update(
+        GOFLAGS=f"-mod=mod -modfile={modfile}",
+        GOTOOLCHAIN="auto",
+        GOWORK="off",
+        GOTELEMETRY="off",
+    )
+    try:
+        subprocess.run(
+            # The modules of the packages the module's own packages and
+            # tests import, and nothing else of the module graph.
+            [go, "list", "-e", "-deps", "-test", "-f", "", "./..."],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=True,
+            env=environment,
+        )
+    except subprocess.CalledProcessError as error:
+        first = (error.stderr or "").strip().splitlines()
+        return "download_failed: " + (first[0] if first else str(error.returncode))
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"download_failed: {type(error).__name__}"
+    return "downloaded"
 
 
 def _cache_directory():
@@ -244,52 +341,155 @@ def collect(root, files, module_directories, *, timeout=600):
     owned = defaultdict(list)
     for file in files:
         owned[module_of(file)].append(file)
+    # Files outside every module are GOPATH-era packages: each directory is
+    # checked on its own, as a module of its own whose imports resolve to
+    # their latest versions (what `go get` gave such a package).
+    packages = defaultdict(list)
     for file in owned.pop(None, ()):
-        facts.uncovered[file] = "no_go_module"
+        packages[posixpath.dirname(file)].append(file)
     go = toolchain()
-    if go is None:
-        for directory, members in owned.items():
-            facts.modules[directory] = "go_not_installed"
-            facts.uncovered.update(dict.fromkeys(members, "go_not_installed"))
-        return facts
+    if go is None and (owned or packages):
+        raise GoMissing("the Go toolchain is required to type Go code")
     built = {}
+    for directory in sorted(packages):
+        with tempfile.TemporaryDirectory(prefix="deepthought-gopath-") as scratch:
+            copy = Path(scratch) / "package"
+            target = copy / directory if directory else copy
+            target.mkdir(parents=True)
+            try:
+                for source in (root / directory).iterdir():
+                    if source.suffix == ".go" and source.is_file():
+                        shutil.copyfile(source, target / source.name)
+            except OSError:
+                facts.uncovered.update(
+                    dict.fromkeys(packages[directory], "no_go_module")
+                )
+                continue
+            version = ".".join(_info(go)["GOVERSION"].removeprefix("go").split(".")[:2])
+            text = f"module gopath.local/package\n\ngo {version}\n"
+            (target / "go.mod").write_text(text, encoding="utf-8")
+            with tempfile.TemporaryDirectory(
+                prefix="deepthought-gomod-"
+            ) as files_scratch:
+                _check_module(
+                    copy,
+                    directory,
+                    packages[directory],
+                    files_scratch,
+                    go,
+                    {directory: text},
+                    built,
+                    facts,
+                    timeout,
+                    gopath=True,
+                )
     for directory in sorted(owned):
-        members = owned[directory]
-        try:
-            command = module_toolchain(go, _info(go), texts[directory])
-            if command not in built:
-                built[command] = build(command)
-            binary, goroot = built[command]
-            facts.toolchains[directory] = _info(command)["GOVERSION"]
-        except (OSError, subprocess.SubprocessError):
-            facts.modules[directory] = "gofacts_build_failed"
-            facts.uncovered.update(dict.fromkeys(members, "gofacts_build_failed"))
-            continue
-        try:
-            run = subprocess.run(
-                [str(binary), str(root / directory)],
-                cwd=root / directory,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=True,
-                env=_environment(command, goroot),
+        with tempfile.TemporaryDirectory(prefix="deepthought-gomod-") as scratch:
+            _check_module(
+                root,
+                directory,
+                owned[directory],
+                scratch,
+                go,
+                texts,
+                built,
+                facts,
+                timeout,
             )
-        except subprocess.TimeoutExpired:
-            status = "gofacts_timeout"
-        except (OSError, subprocess.SubprocessError):
-            status = "gofacts_failed"
-        else:
-            status = "checked"
-        facts.modules[directory] = status
-        if status != "checked":
-            facts.uncovered.update(dict.fromkeys(members, status))
-            continue
-        _read(run.stdout, directory, set(members), facts)
     for file in files:
         if file not in facts.checked and file not in facts.uncovered:
             facts.uncovered[file] = "not_checked"  # build constraints, parse errors
     return facts
+
+
+def _check_module(
+    root, directory, members, scratch, go, texts, built, facts, timeout, gopath=False
+):
+    """Download one module's dependencies and run gofacts on it. For a
+    GOPATH-era package (``gopath``), what the download resolved is recorded
+    in ``facts.gopath``."""
+    try:
+        modfile = module_files(root / directory, scratch)
+    except OSError:
+        modfile = None
+        facts.downloads[directory] = "download_failed: no go.mod"
+    else:
+        facts.downloads[directory] = download(go, root / directory, modfile)
+        if gopath:
+            facts.gopath[directory] = _resolved(modfile)
+    try:
+        command = module_toolchain(go, _info(go), texts[directory])
+        if command not in built:
+            built[command] = build(command)
+        binary, goroot = built[command]
+        facts.toolchains[directory] = _info(command)["GOVERSION"]
+    except (OSError, subprocess.SubprocessError):
+        facts.modules[directory] = "gofacts_build_failed"
+        facts.uncovered.update(dict.fromkeys(members, "gofacts_build_failed"))
+        return
+    try:
+        run = subprocess.run(
+            [str(binary), str(root / directory)],
+            cwd=root / directory,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=True,
+            env=_environment(command, goroot, modfile),
+        )
+    except subprocess.TimeoutExpired:
+        status = "gofacts_timeout"
+    except (OSError, subprocess.SubprocessError):
+        status = "gofacts_failed"
+    else:
+        status = "checked"
+    facts.modules[directory] = status
+    if status != "checked":
+        facts.uncovered.update(dict.fromkeys(members, status))
+        return
+    _read(run.stdout, directory, set(members), facts)
+
+
+def _resolved(modfile):
+    """The GopathPackage a check of a GOPATH-era package resolved: the
+    requirements of its go.mod copy and the digest of its go.sum."""
+    modules = sorted(
+        (tokens[0].strip('"'), tokens[1])
+        for verb, tokens in _go_directives(Path(modfile).read_text(encoding="utf-8"))
+        if verb == "require" and len(tokens) > 1
+    )
+    go_sum = Path(modfile).with_name("go.sum")
+    digest = sha256(go_sum.read_bytes()).hexdigest() if go_sum.is_file() else None
+    return GopathPackage("gopath_latest", tuple(modules), digest)
+
+
+def gopath_report(facts):
+    """{directory: {status, modules, go_sum_sha256}} of the GOPATH-era
+    packages ``facts`` checked, for run metadata."""
+    return {
+        directory: {
+            "status": package.status,
+            "modules": dict(package.modules),
+            "go_sum_sha256": package.go_sum_sha256,
+        }
+        for directory, package in sorted(facts.gopath.items())
+    }
+
+
+def _single(texts):
+    return texts[0] if texts and len(texts) == 1 else None
+
+
+def _value(item):
+    strings = item.get("strings")
+    result = item.get("result")
+    return GoValue(
+        _single(item.get("texts")),
+        None if strings is None else tuple(_single(s) for s in strings),
+        None
+        if result is None
+        else (result["line"], result["column"] - 1, result["index"], result["field"]),
+    )
 
 
 def _read(text, directory, members, facts):
@@ -328,6 +528,22 @@ def _read(text, directory, members, facts):
                         tuple(a["texts"]) if a.get("texts") else None for a in arguments
                     ),
                     tuple(_type(a.get("type")) for a in arguments),
+                    tuple(_value(a) for a in arguments),
+                )
+            )
+        elif kind == "literal":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "literal")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.literals.append(
+                GoLiteral(
+                    file,
+                    item["line"],
+                    item["column"] - 1,
+                    _type(item["type"]),
+                    tuple((e["key"], _value(e)) for e in item.get("elements") or ()),
                 )
             )
         elif kind == "table_name":
