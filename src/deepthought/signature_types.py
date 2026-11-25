@@ -78,13 +78,16 @@ def signature_spans(root, file, definitions):
         node = stack.pop()
         stack.extend(node.named_children)
         found = wanted.get((node.start_point.row + 1, node.start_point.column))
-        if found is None or found.id in spans:
+        if found is None:
             continue
         if (node.end_point.row + 1, node.end_point.column) != (
             found.end_line,
             found.end_column,
         ):
             continue
+        # A node's children are visited after it, so the innermost node
+        # with the declaration's span wins: a function that is a block's
+        # only statement shares the block's span.
         holder = node
         if node.type == "variable_declarator":
             holder = node.child_by_field_name("value") or node

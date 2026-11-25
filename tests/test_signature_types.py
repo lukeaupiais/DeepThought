@@ -59,7 +59,17 @@ PYTHON = {
     "\n"
     "class Service:\n"
     '    def get(self, point: "Point") -> list[Feature]:\n'
-    "        return [lookup(point)]\n",
+    "        return [lookup(point)]\n"
+    "\n"
+    "\n"
+    "class Only:\n"
+    "    def __init__(self, x: int) -> None:\n"
+    "        self.point = Point()\n"
+    "\n"
+    "\n"
+    "if True:\n"
+    "    def alone(f: Feature) -> None:\n"
+    "        Point()\n",
 }
 
 
@@ -115,6 +125,10 @@ class SignatureTypeTests(unittest.TestCase):
                 ("Service.get", "Feature", 18),
                 # A string annotation resolves too.
                 ("Service.get", "Point", 18),
+                # A def that is a block's only statement shares the block's
+                # span; its body (Point() at 29, and Only.__init__'s at 24)
+                # is not its signature.
+                ("alone", "Feature", 28),
                 ("lookup", "Feature", 5),
                 ("lookup", "Point", 5),
                 # The nested function's signature is its own, not lookup's.
