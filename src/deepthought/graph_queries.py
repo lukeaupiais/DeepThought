@@ -988,7 +988,11 @@ class GraphQueryService:
             "RETURN c.qualified_name AS qualified_name, "
             "[label IN labels(c) WHERE label IN $kinds][0] AS kind, "
             "coalesce(c.display_name, c.name) AS name, c.file_path AS file_path, "
-            "providers, clients "
+            "providers, clients, "
+            # gRPC: protoc's message types, and the Go types (see impact).
+            "c.request_message AS request_message, "
+            "c.response_message AS response_message, "
+            "c.message_types AS message_types "
             "ORDER BY kind, name, qualified_name LIMIT $fetch_limit",
             {"query": query, "kind": kind, "kinds": list(CONTRACT_KINDS)},
             repo_url,
