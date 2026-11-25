@@ -118,8 +118,13 @@ def _value(value):
             "properties": decode_properties(dict(value)),
         }
     if isinstance(value, Path):
+        nodes = [_value(n) for n in value.nodes]
+        # A path's steps are named, not described: the declaration it
+        # answers with carries its signature.
+        for node in nodes:
+            node["properties"].pop("signature", None)
         return {
-            "nodes": [_value(n) for n in value.nodes],
+            "nodes": nodes,
             "relationships": [_value(r) for r in value.relationships],
         }
     if isinstance(value, dict):
@@ -544,7 +549,8 @@ class GraphQueryService:
                 WITH node,score,$member IS NOT NULL
                     AND (node.name = $query OR node.name ENDS WITH $member) AS name_match
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element,
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                    .signature} AS element,
                     score,name_match
                 ORDER BY name_match DESC,score DESC,element.file_path,element.start_line,
                     element.qualified_name
@@ -553,7 +559,8 @@ class GraphQueryService:
             statement = """MATCH (node:Symbol {repo_url:$repo_url,snapshot_id:$snapshot_id})
                 WHERE $file_path IS NULL OR node.file_path=$file_path
                 RETURN node {.qualified_name,.definition_id,.name,.display_name,.kind,
-                    .file_path,.start_line,.end_line,.column,.end_column,.native_id} AS element
+                    .file_path,.start_line,.end_line,.column,.end_column,.native_id,
+                    .signature} AS element
                 ORDER BY element.file_path,element.start_line,element.qualified_name
                 LIMIT $fetch_limit"""
         return await self._read(

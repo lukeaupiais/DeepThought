@@ -6020,6 +6020,43 @@ def extract_cargo_manifest(
 _SOURCE_WRAPPERS = {"decorated_definition", "export_statement", "template_declaration"}
 
 
+# Statements whose keyword belongs to the one declaration they hold.
+_SINGLE_DECLARATIONS = {
+    "lexical_declaration",
+    "variable_declaration",
+    "type_declaration",
+}
+# A signature keeps at most this many lines and characters of the head.
+_SIGNATURE_LINES = 5
+_SIGNATURE_CHARACTERS = 400
+
+
+def _declaration_body(node):
+    """The block a declaration's head ends at: its ``body`` field, or that of
+    the function a variable or field holds (``const f = () => {}``); None
+    for a declaration with no body, whose whole text is its head."""
+    body = node.child_by_field_name("body")
+    if body is not None:
+        return body
+    value = node.child_by_field_name("value")
+    if value is not None and value.child_by_field_name("body") is not None:
+        return value.child_by_field_name("body")
+    return None
+
+
+def _signature(head):
+    """A declaration's head as written, from its decorators or ``export`` to
+    where its body starts, trailing space removed, bounded to
+    ``_SIGNATURE_LINES`` lines and ``_SIGNATURE_CHARACTERS`` characters (a
+    cut head ends with ``…``)."""
+    text = head.rstrip()
+    lines = text.split("\n")
+    cut = "\n".join(lines[:_SIGNATURE_LINES])
+    if len(cut) > _SIGNATURE_CHARACTERS:
+        cut = cut[:_SIGNATURE_CHARACTERS]
+    return cut if cut == text else cut.rstrip() + "…"
+
+
 def _columns(line: bytes, column: int):
     prefix = line[:column].decode("utf-8")
     return {
@@ -6061,12 +6098,28 @@ def declaration_sources(
     lines = content.split(b"\n")
     sources = {}
     for definition_id, (node, name) in nodes.items():
+        body = _declaration_body(node)
         while node.parent is not None and node.parent.type in _SOURCE_WRAPPERS:
             node = node.parent
         text = content[node.start_byte : node.end_byte].decode("utf-8")
+        # The head includes the keyword of a statement that declares only
+        # this (``const f = ...``, Go's ``type R struct``).
+        start = node
+        while start.parent is not None and (
+            start.parent.type in _SOURCE_WRAPPERS
+            or (
+                start.parent.type in _SINGLE_DECLARATIONS
+                and len(start.parent.named_children) == 1
+            )
+        ):
+            start = start.parent
+        head = content[
+            start.start_byte : body.start_byte if body is not None else node.end_byte
+        ].decode("utf-8")
         start = _columns(lines[name.start_point.row], name.start_point.column)
         end = _columns(lines[name.end_point.row], name.end_point.column)
         sources[definition_id] = {
+            "signature": _signature(head),
             "source_code": text,
             "source_sha256": sha256(text.encode()).hexdigest(),
             "source_start_line": node.start_point.row + 1,

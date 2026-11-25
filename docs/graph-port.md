@@ -305,6 +305,17 @@ the analysis recorded; files that changed in between are listed in the
 `source_context` metric and get no text. Files reused by incremental
 re-indexing get text like parsed ones.
 
+Each Symbol also stores its `signature`: the head of the declaration as
+written, from its decorators or `export` keyword (and the `const`, `let`,
+`var` or Go `type` keyword of a statement that declares only it) to where its
+body starts, such as `export async function g<T>(x: T): Promise<T>` or
+`def f(a: int) -> bool:`. A declaration without a body (a type alias, an
+interface member, a Go struct type) is its whole text. It is cut at 5 lines
+or 400 characters, ending with `…`. With `start_line` and `end_line`, a
+lookup of a declaration can end at the graph without reading the source.
+Queries that return declarations keep it (`search_elements`,
+`find_symbol_by_name`); the steps of a returned path leave it out.
+
 `get_code_context` (CLI `context`, MCP getCodeContext) returns a page of each
 declaration's text: `max_source_characters` (0 to 8,192, default 1,200)
 Unicode code points from `source_offset`, with `source_characters` giving the
