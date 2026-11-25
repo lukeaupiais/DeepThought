@@ -2017,8 +2017,12 @@ without paths. `deepthought.indexers.validate_receipt` rejects an index whose
 bytes or inputs changed. Run settings keep symbols stable: scip-python gets
 `--project-version 0` and the workspace and `src` on `PYTHONPATH` (so a
 src-layout package resolves without being installed), scip-go gets
-`--module-version 0`, and scip-typescript gets `--pnpm-workspaces`,
-`--yarn-workspaces` or `--infer-tsconfig` from the workspace's manifests.
+`--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
+`--yarn-workspaces` from the workspace's manifests. A workspace with neither
+and no root `tsconfig.json` is indexed as one project of every TypeScript and
+JavaScript file (with `allowJs`), written to the scratch directory and named
+in the receipt, rather than with `--infer-tsconfig`, which would write a
+`tsconfig.json` into a workspace that may be read-only.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
 and relationships sorted), since scip-go emits the same facts in a different
 order from run to run.

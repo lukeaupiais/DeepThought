@@ -190,22 +190,42 @@ class IndexersTest(unittest.TestCase):
         )
         self.assertEqual(report["coverage"]["main.go"]["reason"], "no_go_module")
 
-    def test_an_inferred_tsconfig_does_not_stay_in_the_workspace(self):
+    def test_a_workspace_without_tsconfig_is_never_written_to(self):
         (self.root / "web.ts").write_text("export const a = 1;\n")
+        (self.root / "lib").mkdir()
+        (self.root / "lib" / "b.js").write_text("module.exports = 1;\n")
         self.fake("scip-typescript")
         report = indexers.index_workspace(
             self.root,
             self.out,
-            languages=("typescript",),
+            languages=("typescript", "javascript"),
             environ=self.environ(
                 FAKE_NAME="scip-typescript",
                 FAKE_VERSION="0.6.2",
-                FAKE_DOCUMENTS="web.ts",
+                FAKE_DOCUMENTS="",
             ),
         )
         self.assertEqual(report["runs"][0]["status"], "indexed")
-        self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
+        self.assertEqual(
+            {path: entry["status"] for path, entry in report["coverage"].items()},
+            {"lib/b.js": "covered", "web.ts": "covered"},
+        )
+        # The inferred project, every script file, is written outside the
+        # workspace (which may be read-only) rather than by --infer-tsconfig.
         self.assertFalse((self.root / "tsconfig.json").exists())
+        self.assertNotIn("--infer-tsconfig", self.args_log.read_text())
+        receipt = indexers.validate_receipt(self.root, report["runs"][0]["index"])
+        self.assertEqual(
+            receipt["producer"]["project"],
+            {
+                "compilerOptions": {
+                    "allowImportingTsExtensions": True,
+                    "allowJs": True,
+                    "noEmit": True,
+                },
+                "files": ["lib/b.js", "web.ts"],
+            },
+        )
 
     def test_files_outside_every_tsconfig_get_a_second_pass(self):
         (self.root / "tsconfig.json").write_text("{}")

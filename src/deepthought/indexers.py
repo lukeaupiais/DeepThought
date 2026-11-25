@@ -467,6 +467,11 @@ def run_indexer(
         argv, cwd = _arguments(spec, root, temporary, project_name or root.name)
         cwd = base
         project = None
+        if files is None and "--infer-tsconfig" in argv:
+            # --infer-tsconfig would write a tsconfig.json into the workspace,
+            # which may be read-only: the same project, every TypeScript and
+            # JavaScript file, is written to the scratch directory instead.
+            files = sorted(source_files(root, set(spec.languages)))
         if files is not None and spec.name == "scip-typescript":
             project = _uncovered_project(root, files)
             config = Path(scratch) / "tsconfig.json"
@@ -485,9 +490,6 @@ def run_indexer(
             )
             argv = [a for a in argv[:5] if a != "--infer-tsconfig"]
             argv += ["--no-progress-bar", str(config)]
-        # --infer-tsconfig writes a tsconfig.json into the workspace; the run
-        # must leave the workspace as it found it.
-        inferred = root / "tsconfig.json" if "--infer-tsconfig" in argv else None
         try:
             result = subprocess.run(
                 [str(executable), *argv],
@@ -502,9 +504,6 @@ def run_indexer(
             run.reason = "indexer_timeout"
             run.wall_seconds = time.monotonic() - started
             return run
-        finally:
-            if inferred is not None:
-                inferred.unlink(missing_ok=True)
         log = (result.stdout + result.stderr)[-4000:]
         if result.returncode or not temporary.is_file():
             run.reason, run.detail = "indexer_failed", log
