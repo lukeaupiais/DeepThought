@@ -382,6 +382,17 @@ function analyze(program, checker, file, seen) {
 // Types that only wrap the type a value carries: Promise<T>, T[] and the
 // like give T. With noLib the checker has no lib types, so wrappers are
 // read from the type's written form.
+// Array methods whose callback's first parameter is an element.
+const ARRAY_CALLBACKS = new Set([
+  "map",
+  "flatMap",
+  "forEach",
+  "filter",
+  "find",
+  "some",
+  "every",
+]);
+
 const WRAPPERS = new Set([
   "Promise",
   "PromiseLike",
@@ -523,6 +534,32 @@ function declaredTypes(checker, file, offset, out) {
       node.elements.forEach((e) => carried(e, depth + 1, found));
       return;
     }
+    if (ts.isElementAccessExpression(node)) {
+      // rs[0] carries what rs's elements carry.
+      carried(node.expression, depth + 1, found);
+      return;
+    }
+    if (ts.isIdentifier(node)) {
+      // r in rs.map((r) => ...): with noLib the checker cannot type an
+      // array method's callback parameter, so it carries what rs carries.
+      const symbol = checker.getSymbolAtLocation(node);
+      const parameter = symbol && symbol.valueDeclaration;
+      if (
+        parameter &&
+        ts.isParameter(parameter) &&
+        !parameter.type &&
+        parameter.parent.parameters[0] === parameter &&
+        (ts.isArrowFunction(parameter.parent) ||
+          ts.isFunctionExpression(parameter.parent)) &&
+        ts.isCallExpression(parameter.parent.parent) &&
+        parameter.parent.parent.arguments[0] === parameter.parent &&
+        ts.isPropertyAccessExpression(parameter.parent.parent.expression) &&
+        ARRAY_CALLBACKS.has(parameter.parent.parent.expression.name.text)
+      ) {
+        carried(parameter.parent.parent.expression.expression, depth + 1, found);
+        return;
+      }
+    }
     if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
       const parent = node.parent;
       const symbol =
@@ -531,6 +568,12 @@ function declaredTypes(checker, file, offset, out) {
           : checker.getSymbolAtLocation(node);
       const declaration = symbol && symbol.valueDeclaration;
       if (declaration && declaration.type) {
+        const kind = declaration.type.kind;
+        if (kind === ts.SyntaxKind.AnyKeyword || kind === ts.SyntaxKind.UnknownKeyword) {
+          // Written as any: what it carries is not known.
+          unresolved += 1;
+          return;
+        }
         named(declaration.type, depth + 1, found);
         return;
       }
@@ -540,6 +583,11 @@ function declaredTypes(checker, file, offset, out) {
       return;
     }
     const type = checker.getTypeAtLocation(node);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      // The checker cannot type it (any, or a name it cannot resolve).
+      unresolved += 1;
+      return;
+    }
     (type.isUnion() ? type.types : [type]).forEach((t) => {
       if (declared(t.aliasSymbol || t.getSymbol(), found)) return;
       if (t.flags & ts.TypeFlags.Object && t.objectFlags & ts.ObjectFlags.Reference) {

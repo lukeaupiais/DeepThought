@@ -63,6 +63,15 @@ FILES = {
         "    messages: [{ key: order.id, value: JSON.stringify(order) }],\n"
         "  });\n"
         "}\n"
+        "export async function refunds(rs: OrderCreated[], raw: any) {\n"
+        "  await producer.send({\n"
+        "    topic: 'refunds',\n"
+        "    messages: rs.map((r) => ({ value: JSON.stringify(r) })),\n"
+        "  });\n"
+        "  const s = JSON.stringify(rs[0]);\n"
+        "  await producer.send({ topic: 'held', messages: [{ value: s }] });\n"
+        "  await producer.send({ topic: 'raw', messages: [{ value: JSON.stringify(raw) }] });\n"
+        "}\n"
         "export async function audit() {\n"
         "  await producer.send({\n"
         "    topic: 'audits',\n"
@@ -84,6 +93,9 @@ class SentPayloadTypeTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
             output = asyncio.run(ServiceContractTool(root).analyze("r"))
+        # `held` sends a name, not JSON.stringify(x), and `raw` an any:
+        # counted as unresolved, not guessed.
+        self.assertEqual(output.metadata.custom_metrics["payload_types_unresolved"], 2)
         found = sorted(
             (
                 r.source_match["qualified_name"].split("::")[-1],
@@ -104,6 +116,7 @@ class SentPayloadTypeTests(unittest.TestCase):
                 ("message:ship", "Audit", "request", nest),
                 ("message:ship", "Shipment", "request", nest),
                 ("orders", "OrderCreated", "request", kafkajs),
+                ("refunds", "OrderCreated", "request", kafkajs),
             ],
         )
 

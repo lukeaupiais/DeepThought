@@ -75,6 +75,9 @@ class MessageEndpoint:
     # the message ("request") and its reply ("response"), which the
     # TypeScript compiler resolves (CARRIES).
     payloads: tuple = ()
+    # Values the site sends that its reader could not read for types (a
+    # kafkajs message value not written as JSON.stringify(x)).
+    payloads_unread: int = 0
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,7 @@ class _Sites:
         declaration_id=None,
         argument_from=(),
         payloads=(),
+        payloads_unread=0,
     ):
         line = node.start_point.row + 1
         if PLACEHOLDER in destination:
@@ -155,10 +159,21 @@ class _Sites:
                 client=client,
                 argument_from=tuple(argument_from),
                 payloads=tuple(payloads),
+                payloads_unread=payloads_unread,
             )
         )
 
-    def add_folded(self, node, role, broker, compute, client, folder, payloads=()):
+    def add_folded(
+        self,
+        node,
+        role,
+        broker,
+        compute,
+        client,
+        folder,
+        payloads=(),
+        payloads_unread=0,
+    ):
         """Add the sites of the destination ``compute(folder)`` gives; one
         built from parameters of the module-level function around the site
         takes, instead, each value that calls of the function give
@@ -172,6 +187,7 @@ class _Sites:
                 client,
                 argument_from=calls,
                 payloads=payloads,
+                payloads_unread=payloads_unread,
             )
 
     def consume_queue(
@@ -876,24 +892,31 @@ _REDIS_PUBSUB = (("graphql-redis-subscriptions", "RedisPubSub"),)
 
 
 def _kafkajs_values(messages, content):
-    """(direction, start, end, None) of what each kafkajs message's ``value``
-    serializes: the argument of ``JSON.stringify(x)``, written as the value
-    or inside ``Buffer.from(...)``. The TypeScript compiler gives the types
-    of the value at that span (ts_facts)."""
-    found = []
-    items = (
-        [] if messages is None or messages.type != "array" else messages.named_children
-    )
-    for item in items:
-        value = _js_object(item, content).get("value")
-        while value is not None and value.type == "call_expression":
-            function = value.child_by_field_name("function")
+    """((direction, start, end, None) of what kafkajs messages' ``value``
+    serializes, the number of values not read): the argument of
+    ``JSON.stringify(x)``, written as the value or inside
+    ``Buffer.from(...)``, for every ``value`` member written in the
+    ``messages`` expression (an array, or ``rs.map(r => ({value: ...}))``).
+    The TypeScript compiler gives the types of the value at that span
+    (ts_facts); a value written another way is counted, not guessed."""
+    found, unread = [], 0
+    for pair in [] if messages is None else _walk(messages):
+        if pair.type != "pair":
+            continue
+        key = pair.child_by_field_name("key")
+        if key is None or text(key, content).strip("'\"") != "value":
+            continue
+        value = pair.child_by_field_name("value")
+        while True:
+            if value is None or value.type != "call_expression":
+                unread += 1
+                break
             arguments = [
                 a
                 for a in value.child_by_field_name("arguments").named_children
                 if a.type != "comment"
             ]
-            called = text(function, content)
+            called = text(value.child_by_field_name("function"), content)
             if called == "JSON.stringify" and arguments:
                 found.append(
                     ("request", arguments[0].start_byte, arguments[0].end_byte, None)
@@ -902,8 +925,9 @@ def _kafkajs_values(messages, content):
             if called == "Buffer.from" and arguments:
                 value = arguments[0]
                 continue
+            unread += 1
             break
-    return tuple(found)
+    return tuple(found), unread
 
 
 _KAFKAJS = (("kafkajs", "Kafka"),)
@@ -1117,6 +1141,7 @@ def extract_javascript_brokers(sites, language):
                         if item.type != "comment"
                     ]
             for topic, messages in sent:
+                values, unread = _kafkajs_values(messages, content)
                 sites.add_folded(
                     node,
                     "publish",
@@ -1124,7 +1149,8 @@ def extract_javascript_brokers(sites, language):
                     _evaluator(topic),
                     "kafkajs",
                     folder,
-                    payloads=_kafkajs_values(messages, content),
+                    payloads=values,
+                    payloads_unread=unread,
                 )
         elif kind == "consumer" and verb == "subscribe" and positional:
             options = _js_object(positional[0], content)

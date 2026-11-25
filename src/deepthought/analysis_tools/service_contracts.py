@@ -3355,6 +3355,7 @@ class ServiceContractTool(AnalysisTool):
                     },
                 ),
             )
+            payload_unresolved += endpoint.payloads_unread
             if endpoint.payloads:
                 carries(
                     endpoint.file,
