@@ -23,11 +23,6 @@ from dataclasses import dataclass, replace
 import logging
 import re
 
-import sqlglot
-from sqlglot import exp
-from sqlglot.errors import SqlglotError
-from sqlglot.tokens import TokenType
-
 from .service_contracts.http import PLACEHOLDER
 from .service_contracts.spring import (
     _Imports,
@@ -125,6 +120,10 @@ def extract_ddl(file, content: bytes):
     read from its tokens with ``reader="tokens_not_parsed"``. Temporary
     tables are not part of the schema. None when the file is not UTF-8 or
     no dialect tokenizes it."""
+    import sqlglot
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -169,6 +168,10 @@ def extract_ddl(file, content: bytes):
 def _sqlglot_ddl(text):
     """(line, name, schema) of each permanent table a statement creates, or
     None when no dialect parses it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
     for dialect in DDL_DIALECTS:
         try:
             trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
@@ -209,6 +212,8 @@ def _token_ddl(statement):
     parses names, read from sqlglot's tokens: CREATE, modifiers, TABLE, an
     optional IF NOT EXISTS, then a dotted name. None for a temporary table
     or another statement."""
+    from sqlglot.tokens import TokenType
+
     words = iter(statement)
     if next(words).token_type != TokenType.CREATE:
         return None
@@ -411,6 +416,12 @@ def statement_tables(text, jpql=False):
 
 def _sqlglot_tables(text):
     """(reads, writes) of SQL text by sqlglot, or None."""
+    # sqlglot is a required dependency, imported when SQL is first read so
+    # that importing the package stays free of it (a core-only install).
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
     for dialect in SQL_DIALECTS:
         try:
             trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
@@ -460,6 +471,8 @@ def _sqlglot_tables(text):
 def _sqlglot_name(table, ctes):
     """The table key of a sqlglot Table, or None for a CTE, ``dual``, a
     catalog or a table-valued function."""
+    from sqlglot import exp
+
     if not table.name or not isinstance(table.this, exp.Identifier):
         return None
     parts = [table_key(p) for p in (table.catalog, table.db, table.name) if p]
