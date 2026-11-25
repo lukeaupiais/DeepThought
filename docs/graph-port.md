@@ -2036,8 +2036,15 @@ file's directory. On haystack-core-integrations (47d359e; `chroma`,
 `pgvector` and `qdrant`, which share the `haystack_integrations` namespace),
 references from the integrations' tests to definitions in their `src` go
 from 5,403 to 6,473. scip-go gets
-`--module-version 0`, and scip-typescript gets `--pnpm-workspaces`,
-`--yarn-workspaces` or `--infer-tsconfig` from the workspace's manifests.
+`--module-version 0`, and scip-typescript gets `--pnpm-workspaces` or
+`--yarn-workspaces` from the workspace's manifests. A workspace with neither
+and no root `tsconfig.json` (JavaScript) is indexed as a project the engine
+writes in a scratch directory: `allowJs`, every file outside
+`node_modules`, recorded in the receipt as `project`. scip-typescript's own
+`--infer-tsconfig` is not used: once `node_modules` holds TypeScript
+declarations it infers `{}` instead of `allowJs` and indexes no file, which
+left graphql-js, Ackee, node-express-boilerplate and robot-shop (424 files)
+`indexer_failed`; all are now covered.
 Indexes are rewritten in a canonical order (documents, occurrences, symbols
 and relationships sorted), since scip-go emits the same facts in a different
 order from run to run.

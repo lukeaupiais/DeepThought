@@ -187,6 +187,37 @@ class InstalledPackagesTest(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
 
+    def test_a_javascript_workspace_without_a_tsconfig_is_indexed(self):
+        (self.root / "tsconfig.json").unlink()
+        (self.root / "app.ts").unlink()
+        (self.root / "app.js").write_text(
+            'import { Thing } from "tinylib";\n'
+            "export function run() {\n  return new Thing().go();\n}\n"
+        )
+        (self.root / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "app",
+                    "private": True,
+                    "dependencies": {"tinylib": "file:./vendor/tinylib"},
+                }
+            )
+        )
+        report = indexers.index_workspace(
+            self.root, self.out, languages=("javascript",), environ=self.environ
+        )
+        (run,) = report["runs"]
+        self.assertEqual(run["status"], "indexed", run["detail"])
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        self.assertEqual(report["coverage"]["app.js"]["status"], "covered")
+        self.assertFalse((self.root / "tsconfig.json").exists())
+        from deepthought._scip import scip_pb2
+
+        index = scip_pb2.Index()
+        index.ParseFromString(Path(run["index"]).read_bytes())
+        symbols = {o.symbol for d in index.documents for o in d.occurrences}
+        self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
+
     @unittest.skipUnless(shutil.which("bun"), "Install bun")
     def test_a_bun_lockfile_installs_with_bun(self):
         (self.root / "package.json").write_text(

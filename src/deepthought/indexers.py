@@ -628,9 +628,10 @@ def run_indexer(
             argv += ["--no-progress-bar", str(config)]
         elif "--infer-tsconfig" in argv:
             # A workspace without a tsconfig.json (JavaScript): the project is
-            # written here, not inferred. --infer-tsconfig writes a
-            # tsconfig.json into the workspace, which may be read-only and
-            # must be left as it was.
+            # written here, not inferred: --infer-tsconfig writes a
+            # tsconfig.json into the workspace, which may be read-only, and
+            # scip-typescript infers {} instead of allowJs once node_modules
+            # holds TypeScript declarations, and then indexes no file at all.
             project = _javascript_project()
             config = Path(scratch) / "tsconfig.json"
             config.write_text(
