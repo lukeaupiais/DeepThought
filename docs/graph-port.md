@@ -2502,6 +2502,22 @@ Routes whose language names no service (everything but Spring modules with
 a `spring.application.name`) take the name of the deployments that run
 their file (`service_contracts.deployed`), when those share one:
 
+Deployment descriptions are rendered by the tools that define them
+(`deepthought.deploy_facts`, a Go helper built from pinned releases):
+Compose projects by compose-go, the loader of `docker compose` (a default
+file together with its `.override` file, `extends`, `include`, profiles and
+`${VARIABLE}` interpolation from the project's `.env`; the process
+environment is never read and an unset variable is unknown text), Helm
+charts by Helm's client-only install dry run (`helm template`: default
+values, release `release-name`) and kustomizations by krusty (`kustomize
+build`: no plugins, loading restricted to the kustomization's tree; a
+`Component` only through the kustomizations using it). Manifests a
+kustomization reads, and every file of a chart, are read only through the
+rendering; a plain manifest next to a kustomization that does not list it
+is read on its own. The Go toolchain is required: without it
+`DeployToolsMissing` is raised. Descriptions a tool cannot render (a chart
+with unfetched dependencies, an invalid Compose file) place nothing.
+
 - A Compose service whose `build` context is the file's directory or an
   ancestor of it (the nearest one any deployment builds) is named after
   itself and answers to that name. When its Dockerfile publishes one .NET
@@ -2518,7 +2534,8 @@ their file (`service_contracts.deployed`), when those share one:
   its workload (`Deployment/frontend` gives `frontend`) and answers to the
   names of the Services in the same manifest directory and namespace whose
   selector its pod template labels match (`frontend`, `frontend-external`).
-  Helm templates and manifests that are not plain YAML are not read; images
+  Workloads of rendered charts and kustomizations count like plain
+  manifests, under the Chart.yaml or kustomization file; images
   that no Skaffold artifact builds (a registry path in a release manifest)
   place nothing.
 - A .NET Aspire AppHost (a C# file calling
