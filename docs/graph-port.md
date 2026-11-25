@@ -2130,10 +2130,17 @@ The TypeScript compiler likewise types a call into a package only when its
 declarations are in `node_modules`. When the workspace declares packages and
 `node_modules` is missing (`deepthought.js_dependencies`), the workspace is
 copied to a scratch directory (without `.git` and `node_modules`) and each
-directory with a lockfile installs there with scripts off: `pnpm install
---frozen-lockfile --ignore-scripts`, `yarn install --frozen-lockfile
---ignore-scripts` or `npm ci --ignore-scripts`; a directory inside a pnpm or
-yarn workspace root installs from the root, and a workspace with no lockfile
+directory with a lockfile installs exactly what it pins, with scripts off:
+`pnpm install --frozen-lockfile --ignore-scripts` (`pnpm-lock.yaml`), `bun
+install --frozen-lockfile --ignore-scripts` (`bun.lock`, `bun.lockb`), `yarn
+install --frozen-lockfile --ignore-scripts` (a Yarn 1 `yarn.lock`) or `npm ci
+--ignore-scripts` (`npm-shrinkwrap.json`, `package-lock.json`). A `yarn.lock`
+with `__metadata` is Yarn 2 or later: the project's own release runs (the
+`yarnPath` of `.yarnrc.yml`, else the `packageManager` version through
+corepack, which reads `COREPACK_NPM_REGISTRY`) as `yarn install --immutable
+--mode=skip-build`, with `YARN_ENABLE_SCRIPTS=false` and the `node-modules`
+linker, since the compiler cannot read Plug'n'Play. A directory inside a
+workspace root with a lockfile installs from the root, and a workspace with no lockfile
 runs `npm install --ignore-scripts` at the root. scip-typescript then indexes
 the copy, so the workspace is left as it was and document paths are the
 same. Packages are installed once per `index_workspace`, for both
@@ -2142,6 +2149,12 @@ scip-typescript passes. The run and receipt record `dependencies`: `status`
 directory, manager, command, lockfile digest and outcome, and the installed
 package count; a failed install gives each covered file
 `warning: dependencies_unavailable`.
+
+On full-stack-fastapi-template (77e550a), whose only JavaScript lockfile is
+a root `bun.lock`, the install used to be an unlocked `npm install`: 103 of
+386 packages landed at other versions than the lock's. bun now installs all
+391 registry packages at the locked versions. A Yarn 4 project used to fail
+its install (Yarn 1 refuses a project meant for corepack); it now installs.
 
 The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed

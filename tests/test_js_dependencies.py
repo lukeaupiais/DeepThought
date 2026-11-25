@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from deepthought import indexers
+from deepthought import js_dependencies
 from deepthought.js_dependencies import install_directories
 
 
@@ -35,6 +36,51 @@ class InstallDirectoriesTest(unittest.TestCase):
             for name in ("packages", "server", "node_modules"):
                 shutil.rmtree(Path(scratch) / name)
             self.assertEqual(install_directories(scratch), ["."])
+
+
+class ManagerTest(unittest.TestCase):
+    def manager(self, files):
+        with tempfile.TemporaryDirectory() as scratch:
+            write(scratch, files)
+            manager, arguments, lockfile = js_dependencies._manager(scratch)
+            command = (
+                js_dependencies._yarn_berry_command(scratch, dict(os.environ))
+                if arguments is js_dependencies.YARN_BERRY
+                else None
+            )
+            if command and len(command) == 2 and command[1].startswith(scratch):
+                command = [Path(command[0]).name, Path(command[1]).name]
+            return manager, arguments[:2], lockfile, command
+
+    def test_the_lockfile_chooses_the_manager(self):
+        self.assertEqual(
+            self.manager({"bun.lock": "{}", "yarn.lock": ""})[:3],
+            ("bun", ["install", "--frozen-lockfile"], "bun.lock"),
+        )
+        self.assertEqual(
+            self.manager({"npm-shrinkwrap.json": "{}", "package-lock.json": "{}"})[:3],
+            ("npm", ["ci", "--ignore-scripts"], "npm-shrinkwrap.json"),
+        )
+        self.assertEqual(
+            self.manager({"yarn.lock": "# yarn lockfile v1\n"})[:3],
+            ("yarn", ["install", "--frozen-lockfile"], "yarn.lock"),
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "Install node")
+    def test_yarn_2_and_later_run_the_projects_own_release(self):
+        berry = "# comment\n\n__metadata:\n  version: 8\n"
+        manager, arguments, _, command = self.manager(
+            {
+                "yarn.lock": berry,
+                ".yarnrc.yml": "yarnPath: .yarn/releases/yarn-4.5.0.cjs\n",
+                ".yarn/releases/yarn-4.5.0.cjs": "",
+            }
+        )
+        self.assertEqual((manager, arguments), ("yarn", ["install", "--immutable"]))
+        self.assertEqual(command, ["node", "yarn-4.5.0.cjs"])
+        if shutil.which("corepack"):
+            *_, command = self.manager({"yarn.lock": berry})
+            self.assertEqual(command[1:], ["yarn"])
 
 
 @unittest.skipUnless(
@@ -105,6 +151,33 @@ class InstalledPackagesTest(unittest.TestCase):
         receipt = json.loads(Path(run["index"] + ".sources.json").read_text())
         self.assertEqual(receipt["producer"]["dependencies"]["status"], "installed")
         self.assertEqual(receipt["producer"]["arguments"][:3], ["index", "--cwd", "."])
+
+    @unittest.skipUnless(shutil.which("bun"), "Install bun")
+    def test_a_bun_lockfile_installs_with_bun(self):
+        (self.root / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "app",
+                    "private": True,
+                    "dependencies": {"tinylib": "file:./vendor/tinylib"},
+                }
+            )
+        )
+        import subprocess
+
+        subprocess.run(
+            ["bun", "install", "--ignore-scripts"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+            env=self.environ,
+        )
+        shutil.rmtree(self.root / "node_modules")
+        self.assertTrue((self.root / "bun.lock").is_file())
+        report, run, symbols = self.index({"tinylib": "file:./vendor/tinylib"})
+        self.assertEqual(run["dependencies"]["status"], "installed")
+        self.assertEqual(run["dependencies"]["installs"][0]["manager"], "bun")
+        self.assertTrue(any(s.endswith("Thing#go().") for s in symbols), symbols)
 
     def test_a_failed_install_is_named_on_each_file_and_still_indexes(self):
         report, run, _ = self.index({"no-such-package-anywhere": "1.0.0"})
