@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -16,6 +17,7 @@ from deepthought.analysis_tools import (
     TreeSitterTool,
 )
 from deepthought.analysis_tools.evidence import get_rule
+from deepthought.go_facts import GoFacts, GoMissing
 from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
@@ -29,7 +31,8 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
-from go_ready import needs_go
+from go_ready import needs_go as needs_deploy_tools
+from go_stubs import needs_go
 
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_java"
@@ -181,6 +184,28 @@ class DdlTests(unittest.TestCase):
             ["mixed case"],
         )
         self.assertIsNone(extract_ddl("bad.sql", b"\xff\xfe"))
+
+    def test_create_table_readers(self):
+        text = b"""-- a comment; not a statement end
+CREATE TEMPORARY TABLE scratch (x INT);
+CREATE FUNCTION f() RETURNS void AS $$ BEGIN CREATE TABLE inner_t (x INT); END $$ LANGUAGE plpgsql;
+CREATE TABLE IF NOT EXISTS events
+(
+  id String CODEC(ZSTD(1))
+) ENGINE = MergeTree ORDER BY id;
+CREATE TABLE "Ids" (
+  seq bigint GENERATED ALWAYS AS IDENTITY (sequence name "s" INCREMENT BY 1),
+  n int
+);
+"""
+        found = extract_ddl("m.sql", text)
+        self.assertEqual(
+            [(d.line, d.name, d.schema, d.reader) for d in found],
+            [
+                (4, "events", None, "sqlglot"),
+                (8, "ids", None, "tokens_not_parsed"),
+            ],
+        )
 
     def test_default_physical_names(self):
         self.assertEqual(
@@ -711,6 +736,435 @@ class SqlModelTests(unittest.TestCase):
         )
 
 
+TYPEORM_SCIP = {
+    "package.json": '{"name": "app", "dependencies": {"typeorm": "0.3.28"}}',
+    "src/user.entity.ts": "import { Entity } from 'typeorm';\n"
+    "@Entity('users')\n"
+    "export class User {}\n",
+    "src/user.service.ts": "import { Repository, DataSource, EntityManager } from 'typeorm';\n"
+    "import { InjectRepository } from '@nestjs/typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class UserService {\n"
+    "  constructor(@InjectRepository(User) private repo: Repository<User>, private ds: DataSource, private em: EntityManager) {}\n"
+    "  list() { return this.repo.find(); }\n"
+    "  add(u: User) { return this.repo.save(u); }\n"
+    "  build() { return this.repo.create({}); }\n"
+    "  count() { return this.ds.getRepository(User).count(); }\n"
+    "  held() { const r = this.ds.getRepository(User); return r.delete(1); }\n"
+    "  managed() { return this.em.findOneBy(User, {}); }\n"
+    "  other(c: any) { return c.find(); }\n"
+    "}\n"
+    "export class UserRepo extends Repository<User> {\n"
+    "  mine() { return this.findBy({}); }\n"
+    "}\n",
+    "src/builder.ts": "import { Repository, DataSource } from 'typeorm';\n"
+    "import { User } from './user.entity';\n"
+    "export class Builders {\n"
+    "  constructor(private repo: Repository<User>, private ds: DataSource) {}\n"
+    "  rows() { return this.repo.createQueryBuilder('u').where('1').getMany(); }\n"
+    "  purge() { return this.ds.createQueryBuilder().delete().from(User).execute(); }\n"
+    "  links() { return this.ds.createQueryBuilder().insert().into('user_links').execute(); }\n"
+    "  cte(q: any) { return this.ds.createQueryBuilder().addCommonTableExpression(q, '_u').from('_u', 'x').getRawMany(); }\n"
+    "  raw() { return this.repo.query('DELETE FROM sessions'); }\n"
+    "  rel(u: User) { return this.repo.createQueryBuilder().relation('tags').of(u).add(1); }\n"
+    "}\n",
+}
+
+
+DRIZZLE_SCIP = {
+    "src/schema.ts": """import { pgTable, text } from "drizzle-orm/pg-core";
+export const users = pgTable("users", { id: text("id") });
+export const orders = pgTable("orders", { id: text("id") });
+""",
+    "src/repo.ts": """import { db } from "./db";
+import { users, orders as o } from "@app/schema";
+import * as schema from "./schema";
+import { cache } from "./cache";
+export async function list() {
+  return db.select().from(users);
+}
+export async function add() {
+  await db.insert(o).values({});
+}
+export async function joined() {
+  return db.query.users.findMany();
+}
+export async function other() {
+  return cache.from(users);
+}
+export async function member() {
+  return db.delete(schema.orders);
+}
+""",
+}
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class DrizzleScipTests(unittest.TestCase):
+    def analyze(self, with_index, unresolved=()):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, DRIZZLE_SCIP)
+            indexes = (self.index(directory, unresolved),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        metrics = output.metadata.custom_metrics
+        return edges, metrics["drizzle_scip"], metrics["drizzle_access_resolution"]
+
+    def index(self, directory, unresolved=()):
+        """A scip-typescript index of DRIZZLE_SCIP's names: drizzle-orm's
+        query builder methods, except other()'s from, and the table
+        variables through the package import and the namespace. The names
+        in ``unresolved`` get no symbol."""
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        drizzle = "scip-typescript npm drizzle-orm 0.45.3 pg-core/"
+        database = drizzle + "`db.d.ts`/PgDatabase#"
+        select = drizzle + "query-builders/`select.d.ts`/PgSelectBuilder#from()."
+        query = drizzle + "query-builders/`query.d.ts`/RelationalQueryBuilder#"
+        schema = "scip-typescript npm app 1 src/`schema.ts`/"
+        documents = {
+            "src/schema.ts": [
+                (1, "users", schema + "users.", True, 0),
+                (2, "orders", schema + "orders.", True, 0),
+            ],
+            "src/repo.ts": [
+                (5, "select", database + "select().", False, 0),
+                (5, "from", select, False, 0),
+                (5, "users", schema + "users.", False, 0),
+                (8, "insert", database + "insert().", False, 0),
+                (8, "o", schema + "orders.", False, 0),
+                (11, "query", database + "query.", False, 0),
+                (11, "users", schema + "users.", False, 0),
+                (11, "findMany", query + "findMany().", False, 0),
+                (
+                    14,
+                    "from",
+                    "scip-typescript npm other 1 `c.d.ts`/C#from().",
+                    False,
+                    0,
+                ),
+                (14, "users", schema + "users.", False, 0),
+                (17, "delete", database + "delete().", False, 0),
+                (17, "orders", schema + "orders.", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = DRIZZLE_SCIP[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_uses_resolved_through_a_scip_index(self):
+        edges, counts, by_name = self.analyze(True)
+        # other()'s from is not drizzle-orm's: the index drops it.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "joined", "users", "drizzle-scip"),
+                ("READS", "list", "users", "drizzle-scip"),
+                ("WRITES", "add", "orders", "drizzle-scip"),
+                ("WRITES", "member", "orders", "drizzle-scip"),
+            ],
+        )
+        self.assertEqual(
+            counts,
+            {
+                "linked": 4,
+                "no_scip_index": 0,
+                "index_unresolved": 0,
+                "not_drizzle": 1,
+                "not_a_table": 0,
+            },
+        )
+        self.assertEqual(by_name, {"linked": 0, "not_a_table": 0})
+
+    def test_uses_the_index_could_not_type_are_counted(self):
+        # No symbol at findMany: the index read nothing there, and the name
+        # rule reads that use.
+        edges, counts, by_name = self.analyze(True, unresolved=("findMany",))
+        self.assertEqual(counts["index_unresolved"], 1)
+        self.assertIn(("READS", "joined", "users", "drizzle-query"), edges)
+        self.assertEqual(by_name["linked"], 1)
+
+    def test_without_an_index_the_name_rule_reads_uses(self):
+        edges, counts, by_name = self.analyze(False)
+        # The name rule does not check the receiver: other() reads users.
+        self.assertIn(("READS", "other", "users", "drizzle-query"), edges)
+        self.assertEqual(counts["no_scip_index"], 5)
+        self.assertEqual(by_name, {"linked": 5, "not_a_table": 0})
+
+
+@unittest.skipUnless(
+    importlib.util.find_spec("tree_sitter")
+    and importlib.util.find_spec("tree_sitter_typescript"),
+    "Provision the typescript grammar",
+)
+class TypeormScipTests(unittest.TestCase):
+    def analyze(self, with_index, unresolved=()):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, TYPEORM_SCIP)
+            indexes = (self.index(directory, unresolved),) if with_index else ()
+            output = asyncio.run(
+                DataContractTool(directory).analyze(
+                    "r", languages=["typescript"], scip_indexes=indexes
+                )
+            )
+        edges = sorted(
+            (
+                r.type,
+                r.source_match["qualified_name"].split("::")[-2],
+                r.target_match["qualified_name"].rsplit("::", 1)[1],
+                r.properties["rule_id"].split(".", 1)[1],
+            )
+            for r in output.relationships
+            if r.type in ("READS", "WRITES")
+        )
+        metrics = output.metadata.custom_metrics
+        return edges, metrics["typeorm_scip"], metrics["orm_access_resolution"]
+
+    def index(self, directory, unresolved=()):
+        """A scip-typescript index of TYPEORM_SCIP's names: TypeORM's
+        repository, data source and entity manager methods, except
+        other()'s find. The names in ``unresolved`` get no symbol, as in a
+        file whose imports the indexer could not follow."""
+        import re
+
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        typeorm = "scip-typescript npm typeorm 0.3.28 "
+        repository = typeorm + "repository/`Repository.d.ts`/Repository#"
+        source = typeorm + "data-source/`DataSource.d.ts`/DataSource#getRepository()."
+        manager = typeorm + "entity-manager/`EntityManager.d.ts`/EntityManager#"
+        nest = (
+            "scip-typescript npm @nestjs/typeorm 11.0.1 "
+            "dist/common/`typeorm.decorators.d.ts`/InjectRepository."
+        )
+        app = "scip-typescript npm app 1 src/"
+        user = app + "`user.entity.ts`/User#"
+        service = app + "`user.service.ts`/UserService#"
+        builders = app + "`builder.ts`/Builders#"
+        source_builder = (
+            typeorm + "data-source/`DataSource.d.ts`/DataSource#createQueryBuilder()."
+        )
+
+        def qb(method):
+            return (
+                typeorm
+                + "query-builder/`SelectQueryBuilder.d.ts`/SelectQueryBuilder#"
+                + method
+                + "()."
+            )
+
+        documents = {
+            "src/builder.ts": [
+                (1, "User", user, False, 0),
+                (3, "repo", builders + "repo.", True, 0),
+                (3, "Repository", repository, False, 0),
+                (3, "User", user, False, 0),
+                (3, "ds", builders + "ds.", True, 0),
+                (4, "repo", builders + "repo.", False, 0),
+                (
+                    4,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (4, "where", qb("where"), False, 0),
+                (4, "getMany", qb("getMany"), False, 0),
+                (5, "ds", builders + "ds.", False, 0),
+                (5, "createQueryBuilder", source_builder, False, 0),
+                (5, "delete", qb("delete"), False, 0),
+                (5, "from", qb("from"), False, 0),
+                (5, "User", user, False, 0),
+                (6, "ds", builders + "ds.", False, 0),
+                (6, "createQueryBuilder", source_builder, False, 0),
+                (6, "insert", qb("insert"), False, 0),
+                (6, "into", qb("into"), False, 0),
+                (7, "ds", builders + "ds.", False, 0),
+                (7, "createQueryBuilder", source_builder, False, 0),
+                (
+                    7,
+                    "addCommonTableExpression",
+                    qb("addCommonTableExpression"),
+                    False,
+                    0,
+                ),
+                (7, "from", qb("from"), False, 0),
+                (8, "repo", builders + "repo.", False, 0),
+                (8, "query", repository + "query().", False, 0),
+                (9, "repo", builders + "repo.", False, 0),
+                (
+                    9,
+                    "createQueryBuilder",
+                    repository + "createQueryBuilder().",
+                    False,
+                    0,
+                ),
+                (9, "relation", qb("relation"), False, 0),
+            ],
+            "src/user.entity.ts": [(2, "User", user, True, 0)],
+            "src/user.service.ts": [
+                (2, "User", user, False, 0),
+                (4, "InjectRepository", nest, False, 0),
+                (4, "User", user, False, 0),
+                (4, "repo", service + "repo.", True, 0),
+                (4, "Repository", repository, False, 0),
+                (4, "User", user, False, 1),
+                (4, "ds", service + "ds.", True, 0),
+                (4, "em", service + "em.", True, 0),
+                (5, "repo", service + "repo.", False, 0),
+                (5, "find", repository + "find().", False, 0),
+                (6, "repo", service + "repo.", False, 0),
+                (6, "save", repository + "save().", False, 0),
+                (8, "ds", service + "ds.", False, 0),
+                (8, "getRepository", source, False, 0),
+                (8, "User", user, False, 0),
+                (8, "count", repository + "count().", False, 1),
+                (9, "r", "local 1", True, 0),
+                (9, "ds", service + "ds.", False, 0),
+                (9, "getRepository", source, False, 0),
+                (9, "User", user, False, 0),
+                (9, "r", "local 1", False, 1),
+                (9, "delete", repository + "delete().", False, 0),
+                (10, "em", service + "em.", False, 0),
+                (10, "findOneBy", manager + "findOneBy().", False, 0),
+                (10, "User", user, False, 0),
+                (
+                    11,
+                    "find",
+                    "scip-typescript npm other 1 `c.d.ts`/C#find().",
+                    False,
+                    0,
+                ),
+                (13, "Repository", repository, False, 0),
+                (13, "User", user, False, 0),
+                (14, "findBy", repository + "findBy().", False, 0),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-typescript"
+        index.metadata.tool_info.version = "0.6.2"
+        for path, occurrences in documents.items():
+            lines = TYPEORM_SCIP[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition, nth in occurrences:
+                if text in unresolved:
+                    continue
+                match = list(re.finditer(rf"\b{text}\b", lines[line]))[nth]
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, match.start(), match.end()],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_calls_resolved_through_a_scip_index(self):
+        edges, counts, orm = self.analyze(True)
+        # Each call is read where its method is written; create() touches
+        # no table and other()'s find is not TypeORM's. A query builder
+        # reads or writes its root table: the repository's entity, or what
+        # its from/into names (a literal too), never a CTE's name; the
+        # builders' own delete and insert are not repository calls.
+        # A relation builder writes the related side, not its root: no edge.
+        # Raw SQL given to TypeORM's query is read as SQL.
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "Builders.rows", "users", "typeorm-scip"),
+                ("READS", "UserRepo.mine", "users", "typeorm-scip"),
+                ("READS", "UserService.count", "users", "typeorm-scip"),
+                ("READS", "UserService.list", "users", "typeorm-scip"),
+                ("READS", "UserService.managed", "users", "typeorm-scip"),
+                ("WRITES", "Builders.links", "user_links", "typeorm-scip"),
+                ("WRITES", "Builders.purge", "users", "typeorm-scip"),
+                ("WRITES", "Builders.raw", "sessions", "typeorm-sql"),
+                ("WRITES", "UserService.add", "users", "typeorm-scip"),
+                ("WRITES", "UserService.held", "users", "typeorm-scip"),
+            ],
+        )
+        self.assertEqual(
+            counts,
+            {
+                "linked": 9,
+                "no_scip_index": 0,
+                "not_typeorm": 3,
+                "entity_unknown": 1,
+                "not_an_entity": 0,
+                "builders": 3,
+                "relation_builders": 1,
+            },
+        )
+        # The decorator and getRepository name rule gives way in the file.
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 3)
+        self.assertEqual(orm["typeorm_linked"], 0)
+
+    def test_calls_the_index_could_not_type_are_counted(self):
+        # Without symbols at the repository's names, the index read nothing
+        # there: those uses are counted, and the name rule reads them.
+        edges, counts, orm = self.analyze(
+            True, unresolved=("InjectRepository", "getRepository")
+        )
+        self.assertEqual(orm["typeorm_index_unresolved"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+        self.assertIn(
+            ("READS", "UserService.constructor", "users", "typeorm-repository"),
+            edges,
+        )
+
+    def test_without_an_index_the_name_rule_reads_repositories(self):
+        edges, counts, orm = self.analyze(False)
+        self.assertEqual(
+            edges,
+            [
+                ("READS", "UserService.constructor", "users", "typeorm-repository"),
+                ("READS", "UserService.count", "users", "typeorm-repository"),
+                ("READS", "UserService.held", "users", "typeorm-repository"),
+                ("WRITES", "UserService.constructor", "users", "typeorm-repository"),
+                ("WRITES", "UserService.held", "users", "typeorm-repository"),
+            ],
+        )
+        self.assertEqual(counts["no_scip_index"], 14)
+        self.assertEqual(orm["typeorm_linked"], 3)
+        self.assertEqual(orm["typeorm_name_rule_replaced"], 0)
+
+
 KYSELY = {
     "package.json": '{"name": "app", "dependencies": {"kysely": "0.29.8"}}',
     "src/repo.ts": "import { Kysely } from 'kysely';\n"
@@ -1188,7 +1642,7 @@ TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spe
     "tree_sitter_typescript"
 )
 SCRIPT_ORMS = {
-    "package.json": '{"name": "shop"}',
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
     "prisma/schema.prisma": """// The shop's tables.
 datasource db {
   provider = "postgresql"
@@ -1205,6 +1659,7 @@ model User {
 model UserProfile {
   id     Int  @id
   userId Int  @unique
+  user   User @relation(fields: [userId], references: [id])
 }
 """,
     "src/users.ts": """import { PrismaClient } from "@prisma/client";
@@ -1258,8 +1713,34 @@ export class AuditService {
 }
 
 
+def _npm_registry():
+    """node and npm, and the npm registry reachable: the engine fetches the
+    prisma-schema-wasm build a schema's Prisma pins. The acceptance sandbox
+    has no network; the database job, which has, runs these tests."""
+    npm = shutil.which("npm")
+    if not (shutil.which("node") and npm):
+        return False
+    try:
+        return (
+            subprocess.run(
+                [npm, "view", "prisma@6.19.0", "version"],
+                capture_output=True,
+                timeout=60,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+NODE = _npm_registry()
+
+
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
     def test_prisma_and_typeorm(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SCRIPT_ORMS)
@@ -1321,6 +1802,17 @@ class ScriptOrmTests(unittest.TestCase):
             (metrics["prisma_models"], metrics["typeorm_entities"]), (2, 2)
         )
         self.assertEqual(
+            metrics["prisma_schema"],
+            {
+                "engines": {
+                    "prisma/schema.prisma": (
+                        "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"
+                    )
+                },
+                "unread": 0,
+            },
+        )
+        self.assertEqual(
             metrics["orm_access_resolution"],
             {
                 "prisma_linked": 3,
@@ -1328,6 +1820,8 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_linked": 2,
                 "typeorm_not_an_entity": 1,
                 "typeorm_wrapper_not_an_entity": 0,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:
@@ -1382,10 +1876,189 @@ class ScriptOrmTests(unittest.TestCase):
                 "typeorm_linked": 5,
                 "typeorm_not_an_entity": 0,
                 "typeorm_wrapper_not_an_entity": 1,
+                "typeorm_name_rule_replaced": 0,
+                "typeorm_index_unresolved": 0,
             },
         )
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
+
+
+PRISMA_FOLDER = {
+    "apps/package-lock.json": """{"packages": {
+  "node_modules/@prisma/engines-version": {
+    "version": "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"
+  }
+}}""",
+    "apps/api/package.json": '{"dependencies": {"@prisma/client": "^5.0.0"}}',
+    # A multi-file schema: the datasource file's folder holds the models.
+    "apps/api/prisma/schema/main.prisma": """datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+""",
+    "apps/api/prisma/schema/models/post.prisma": """model Post {
+  id       Int    @id
+  authorId Int
+  author   Author @relation(fields: [authorId], references: [id])
+  @@map(name: "posts")
+}
+""",
+    "apps/api/prisma/schema/author.prisma": """
+// model Author is declared below.
+model Author {
+  id    Int    @id
+  posts Post[]
+}
+""",
+    # The engine rejects this schema (a relation with no opposite field).
+    "tools/broken/package.json": '{"devDependencies": {"prisma": "6.19.0"}}',
+    "tools/broken/schema.prisma": """datasource db {
+  provider = "sqlite"
+  url      = "file:dev.db"
+}
+
+model Orphan {
+  id   Int  @id
+  peer Peer?
+}
+
+model Peer {
+  id Int @id
+}
+""",
+    # No Prisma version anywhere up the tree.
+    "scratch/loose.prisma": """model Loose {
+  id Int @id
+}
+""",
+}
+
+
+class PrismaVersionTests(unittest.TestCase):
+    def test_installed_and_locked_versions_win_over_declared_ranges(self):
+        from deepthought.prisma_schema import project_version
+
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, PRISMA_FOLDER)
+            file = "apps/api/prisma/schema/main.prisma"
+            self.assertEqual(
+                project_version(directory, file),
+                ("engines", "6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773"),
+            )
+            os.remove(Path(directory) / "apps" / "package-lock.json")
+            self.assertEqual(project_version(directory, file), ("prisma", "^5.0.0"))
+            write(
+                directory,
+                {"apps/api/node_modules/prisma/package.json": '{"version": "5.22.0"}'},
+            )
+            self.assertEqual(project_version(directory, file), ("prisma", "5.22.0"))
+            self.assertIsNone(project_version(directory, "scratch/loose.prisma"))
+            write(
+                directory,
+                {"scratch/deno.json": '{"imports": {"prisma": "npm:prisma@7.10.0"}}'},
+            )
+            self.assertEqual(
+                project_version(directory, "scratch/loose.prisma"), ("prisma", "7.10.0")
+            )
+            os.remove(Path(directory) / "scratch" / "deno.json")
+            write(
+                directory,
+                {
+                    "pnpm-lock.yaml": "packages:\n  '@prisma/engines-version@7.1.1-3.abc':\n"
+                },
+            )
+            self.assertEqual(
+                project_version(directory, "scratch/loose.prisma"),
+                ("engines", "7.1.1-3.abc"),
+            )
+
+
+@unittest.skipUnless(
+    NODE, "Prisma schemas are read with node, npm and the npm registry"
+)
+class PrismaSchemaTests(unittest.TestCase):
+    def test_folders_rejections_and_missing_versions(self):
+        from deepthought.prisma_schema import read_schemas
+
+        with tempfile.TemporaryDirectory() as directory:
+            files = {k: v for k, v in PRISMA_FOLDER.items() if k.endswith(".prisma")}
+            write(directory, PRISMA_FOLDER)
+            read = read_schemas(directory, files)
+        self.assertEqual(
+            [(m.file, m.model, m.table, m.explicit, m.line) for m in read.models],
+            [
+                ("apps/api/prisma/schema/author.prisma", "Author", "Author", False, 3),
+                ("apps/api/prisma/schema/models/post.prisma", "Post", "posts", True, 1),
+            ],
+        )
+        self.assertEqual(
+            sorted(read.unread), ["scratch/loose.prisma", "tools/broken/schema.prisma"]
+        )
+        self.assertIn("no Prisma version", read.unread["scratch/loose.prisma"])
+        self.assertIn(
+            "opposite relation field", read.unread["tools/broken/schema.prisma"]
+        )
+        self.assertEqual(
+            sorted(read.engines),
+            [
+                "apps/api/prisma/schema/author.prisma",
+                "apps/api/prisma/schema/main.prisma",
+                "apps/api/prisma/schema/models/post.prisma",
+            ],
+        )
+
+    @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
+    def test_unread_schema_makes_the_run_partial(self):
+        call = 'import { PrismaClient } from "@prisma/client";\n'
+        call += "export const posts = () => new PrismaClient().post.findMany();\n"
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "scratch/package.json": '{"name": "scratch"}',
+                    "scratch/loose.prisma": "model Post {\n  id Int @id\n}\n",
+                    "scratch/app.ts": call,
+                    "shop/package.json": '{"dependencies": {"prisma": "6.19.0"}}',
+                    "shop/schema.prisma": "model Post {\n  id Int @id\n}\n",
+                    "shop/app.ts": call,
+                },
+            )
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["typescript"])
+            )
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(metrics["prisma_models"], 1)
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertEqual(
+            metrics["orm_access_resolution"],
+            {
+                "prisma_linked": 1,
+                "prisma_ambiguous": 0,
+                "prisma_schema_unread": 1,
+                "typeorm_linked": 0,
+                "typeorm_not_an_entity": 0,
+                "typeorm_wrapper_not_an_entity": 0,
+            },
+        )
+        # The scratch caller is not linked to the shop's Post.
+        self.assertEqual(
+            sorted(
+                r.source_match["qualified_name"].split("::")[1]
+                for r in output.relationships
+                if r.type == "READS"
+            ),
+            ["shop/app.ts"],
+        )
+        self.assertTrue(
+            any(
+                w.startswith(
+                    "prisma_schema_unread: scratch/loose.prisma: no Prisma version"
+                )
+                for w in output.metadata.warnings
+            ),
+            output.metadata.warnings,
+        )
 
 
 TYPEORM_WRAPPERS = {
@@ -1567,12 +2240,25 @@ def go_edges(output):
 
 @unittest.skipUnless(GO, "Install the go grammar")
 class GoSqlTests(unittest.TestCase):
-    """The tree-sitter rules, as they read Go without the Go toolchain."""
+    """The tree-sitter rules, as they read Go files the type checker did
+    not check."""
 
-    def test_sql_text_and_gorm_table_names(self):
+    def test_missing_go_fails_loudly(self):
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch("deepthought.go_facts.toolchain", return_value=None),
+        ):
+            write(directory, GO_SQL)
+            with self.assertRaises(GoMissing):
+                asyncio.run(DataContractTool(directory).analyze("r", languages=["go"]))
+
+    def test_sql_text_and_gorm_table_names(self):
+        def unchecked(root, files, modules):
+            return GoFacts(uncovered=dict.fromkeys(files, "not_checked"))
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch("deepthought.go_facts.collect", side_effect=unchecked),
         ):
             write(directory, GO_SQL)
             output = asyncio.run(
@@ -1612,7 +2298,7 @@ class GoSqlTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            metrics["go_type_facts"]["files_not_checked"], {"go_not_installed": 2}
+            metrics["go_type_facts"]["files_not_checked"], {"not_checked": 2}
         )
 
 
@@ -1771,10 +2457,14 @@ class GoTypeFactsTests(unittest.TestCase):
         self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
         self.assertEqual(metrics["go_type_facts"]["files_checked"], 6)
 
-    def test_same_calls_without_go(self):
-        # Without go/types none of these is read: the files that run SQL do
-        # not import a SQL package, and the TableName is a constant.
-        with mock.patch("deepthought.go_facts.toolchain", return_value=None):
+    def test_same_calls_unchecked(self):
+        # In files go/types did not check none of these is read: the files
+        # that run SQL do not import a SQL package, and the TableName is a
+        # constant.
+        def unchecked(root, files, modules):
+            return GoFacts(uncovered=dict.fromkeys(files, "not_checked"))
+
+        with mock.patch("deepthought.go_facts.collect", side_effect=unchecked):
             output = self.analyze(GO_TYPED)
         self.assertEqual(go_edges(output), [])
 
@@ -1808,11 +2498,23 @@ func Load(db *sql.DB, other dep.Conn) {
         )
 
     def test_files_outside_a_module(self):
-        files = {"main.go": "package main\n\nfunc main() {}\n"}
+        # A GOPATH-era package: checked as a module of its own.
+        files = {
+            "cmd/load/main.go": """package main
+
+import "database/sql"
+
+func Load(db *sql.DB) {
+\tdb.Query("SELECT id FROM accounts")
+}
+""",
+        }
         output = self.analyze(files)
         self.assertEqual(
-            output.metadata.custom_metrics["go_type_facts"]["files_not_checked"],
-            {"no_go_module": 1},
+            go_edges(output), [("READS", "Load", "accounts", "go-sql-types")]
+        )
+        self.assertFalse(
+            output.metadata.custom_metrics["go_type_facts"].get("files_not_checked")
         )
 
 
@@ -1897,7 +2599,7 @@ func {_service.capitalize()}(db *sql.DB) {{
 
 
 class ComposeDatabaseTests(unittest.TestCase):
-    @needs_go
+    @needs_deploy_tools
     def test_services_naming_one_compose_database_share_its_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SHARED_COMPOSE_DATABASE)
@@ -2453,6 +3155,7 @@ class GormTests(unittest.TestCase):
         ):
             self.assertEqual(gorm_table_name(name), table)
 
+    @needs_go
     def test_models_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, GORM)
@@ -2489,6 +3192,7 @@ class GormTests(unittest.TestCase):
             metrics["gorm_access_resolution"], {"linked": 5, "not_a_model": 1}
         )
 
+    @needs_go
     def test_naming_strategy_leaves_defaults_out(self):
         files = {
             **GORM,

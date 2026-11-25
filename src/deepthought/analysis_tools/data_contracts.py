@@ -41,7 +41,6 @@ from ..data_contracts import (
     extract_java_sql,
     extract_mybatis_xml,
     extract_prisma_client,
-    extract_prisma_schema,
     extract_python_sql,
     extract_script_sql,
     extract_ruby_models,
@@ -54,6 +53,10 @@ from ..data_contracts import (
     annotated_classes,
     sqlmodel_default_mappings,
     extract_typeorm,
+    extract_typeorm_calls,
+    typeorm_builder,
+    typeorm_call_entities,
+    _TYPEORM_WRITES,
     extract_sequelize,
     extract_mongodb_collections,
     extract_knex,
@@ -87,6 +90,7 @@ from ..data_contracts import (
 )
 from ..calls import name_bindings
 from ..engine import analyze_repository
+from ..prisma_schema import SchemaRead, read_schemas
 from ..scip_calls import ScipReferences
 from .. import deploy_facts
 from ..deployments import compose_databases
@@ -235,6 +239,19 @@ DRIZZLE_QUERY_RULE = register_rule(
         "query key resolves to the one table variable of that name in the "
         "caller's namespace, else in the repository. The receiver is not checked to be a "
         "Drizzle database.",
+    )
+)
+DRIZZLE_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to drizzle-orm's "
+        "own query builder (from and the joins read, insert, update and "
+        "delete write, a relational query's findMany/findFirst reads) and "
+        "the written table name (the argument, the property of an imported "
+        "object or the db.query key) to the variable that holds a Drizzle "
+        "table (data-contracts.drizzle-table), through imports, re-exports "
+        "and export * as the index follows them.",
     )
 )
 RAILS_SCHEMA_RULE = register_rule(
@@ -554,6 +571,18 @@ SQL_RULES = {
     )
 }
 
+SQL_RULES["typeorm-sql"] = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-sql",
+        "resolved",
+        "A scip-typescript index resolves the call to TypeORM's query "
+        "method (Repository, EntityManager, DataSource, Connection or "
+        "QueryRunner), and the SQL it is passed (string literals, template "
+        "strings and + concatenation, the parts the code does not fix "
+        "dropped) names this table.",
+    )
+)
+
 GORM_TABLE_RULE = register_rule(
     EvidenceRule(
         "data-contracts.gorm-table-name",
@@ -603,8 +632,9 @@ PRISMA_MODEL_RULE = register_rule(
     EvidenceRule(
         "data-contracts.prisma-model",
         "resolved",
-        "The Prisma schema declares a model for this table: its @@map name, "
-        "else the model name.",
+        "Prisma's own schema engine (the prisma-schema-wasm build the "
+        "project's Prisma pins) reads a model for this table from the "
+        "schema: its @@map name, else the model name.",
     )
 )
 PRISMA_CLIENT_RULE = register_rule(
@@ -669,6 +699,22 @@ TYPEORM_WRAPPER_RULE = register_rule(
         "a TypeORM entity: the one such entity of the caller's namespace, "
         "else of the repository. Reads and writes follow the chained method "
         "as for data-contracts.typeorm-repository.",
+    )
+)
+
+TYPEORM_SCIP_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.typeorm-scip",
+        "resolved",
+        "A scip-typescript index resolves the called method to a read "
+        "(find, count and the like: READS) or write (save, update, delete "
+        "and the like: WRITES) method of TypeORM's Repository, "
+        "TreeRepository, MongoRepository or EntityManager, and the entity "
+        "class to a TypeORM entity: the receiver's declared type "
+        "Repository<E> (a property, parameter or variable, or this in a "
+        "class extending it), a TypeORM getRepository(E) call or a variable "
+        "holding one, or an entity manager method's first argument; every "
+        "name resolved through the index.",
     )
 )
 
@@ -1053,14 +1099,17 @@ class DataContractTool(AnalysisTool):
             if found:
                 digests[path] = sha256(content).hexdigest()
                 doctrine_mapped.extend(found)
+        prisma_texts = {}
         for path in _sql_files(root, include, exclude, ".prisma"):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
-            found = extract_prisma_schema(path, content)
-            if found is None:
+            try:
+                prisma_texts[path] = content.decode("utf-8")
+            except UnicodeDecodeError:
                 unreadable.append(path)
-            else:
-                prisma.extend(found)
+        # Prisma's own schema engine, the build the project's Prisma pins.
+        prisma_read = read_schemas(root, prisma_texts) if prisma_texts else SchemaRead()
+        prisma.extend(prisma_read.models)
         for path in _sql_files(root, include, exclude):
             content = (root / path).read_bytes()
             digests[path] = sha256(content).hexdigest()
@@ -1585,7 +1634,9 @@ class DataContractTool(AnalysisTool):
             + [
                 item
                 for file, content, tree in script_trees
-                for item in extract_script_sql(tree, content, file, result.definitions)
+                for item in extract_script_sql(
+                    tree, content, file, result.definitions, references
+                )
             ]
         )
         for item in uses:
@@ -1789,11 +1840,22 @@ class DataContractTool(AnalysisTool):
                 {"line": model.line, "model": model.model},
             )
         orm_counts = {"prisma_linked": 0, "prisma_ambiguous": 0}
+        # A caller whose own namespace has a schema the engine did not read
+        # is not linked to another namespace's model of the same name.
+        unread_scopes = {scope(path) for path in prisma_read.unread}
+        if unread_scopes:
+            orm_counts["prisma_schema_unread"] = 0
         for file, content, tree in script_trees:
             for use in extract_prisma_client(
                 tree, content, file, result.definitions, set(prisma_targets)
             ):
-                targets = _nearest(prisma_targets[use.model], scope(use.file))
+                use_scope = scope(use.file)
+                if use_scope in unread_scopes and all(
+                    s != use_scope for s, _ in prisma_targets[use.model]
+                ):
+                    orm_counts["prisma_schema_unread"] += 1
+                    continue
+                targets = _nearest(prisma_targets[use.model], use_scope)
                 if len(targets) != 1:
                     orm_counts["prisma_ambiguous"] += 1
                     continue
@@ -1818,9 +1880,10 @@ class DataContractTool(AnalysisTool):
             typeorm_mappings.extend(found[0])
             typeorm_uses.extend(found[1])
             typeorm_children.extend(found[2])
-        typeorm_targets = {}
+        typeorm_targets, typeorm_by_model = {}, {}
         for mapping in typeorm_mappings:
             target = table(mapping.file, mapping.table)
+            typeorm_by_model[mapping.model_id] = target
             typeorm_targets.setdefault(mapping.name, set()).add(
                 (scope(mapping.file), target)
             )
@@ -1847,6 +1910,7 @@ class DataContractTool(AnalysisTool):
                 typeorm_targets.setdefault(child.name, set()).add(
                     (scope(child.file), target)
                 )
+                typeorm_by_model[child.model_id] = target
                 link(
                     "MAPS_TO",
                     symbol(child.model_id),
@@ -1865,7 +1929,24 @@ class DataContractTool(AnalysisTool):
         # A wrapper call names no entity more often than not: count those
         # apart so the TypeORM API's own misses stay visible.
         orm_counts.update(typeorm_wrapper_not_an_entity=0)
+        # In files a scip-typescript index covers, TypeORM's own repository
+        # and entity manager calls are read through the index (below), and
+        # the decorator-level name rule is not used.
+        # Where the index records no symbol, or only a local one, at the
+        # getRepository or InjectRepository name, it could not type the call
+        # (its imports did not resolve, as in a package importing its own
+        # unbuilt dist): the index read nothing there, and the run counts
+        # it (typeorm_index_unresolved).
+        orm_counts.update(typeorm_name_rule_replaced=0, typeorm_index_unresolved=0)
         for use in typeorm_uses:
+            if not use.wrapper and references.covers(use.file):
+                called = references.symbols(
+                    use.file, use.callee_line, use.callee_column
+                )
+                if any(not c.startswith("local ") for c in called or ()):
+                    orm_counts["typeorm_name_rule_replaced"] += 1
+                    continue
+                orm_counts["typeorm_index_unresolved"] += 1
             targets = _nearest(typeorm_targets.get(use.model, set()), scope(use.file))
             if len(targets) != 1:
                 orm_counts[
@@ -1885,6 +1966,87 @@ class DataContractTool(AnalysisTool):
                     TYPEORM_WRAPPER_RULE if use.wrapper else TYPEORM_REPOSITORY_RULE,
                     {"entity": use.model, "line": use.line, "column": use.column},
                 )
+        typeorm_scip_counts = {
+            "linked": 0,
+            "no_scip_index": 0,
+            "not_typeorm": 0,
+            "entity_unknown": 0,
+            "not_an_entity": 0,
+            "builders": 0,
+            "relation_builders": 0,
+        }
+        if typeorm_mappings or typeorm_children:
+            ts_trees = {file: (content, tree) for file, content, tree in script_trees}
+            for file, content, tree in script_trees:
+                for call in extract_typeorm_calls(
+                    tree, content, file, result.definitions
+                ):
+                    if call.method == "createQueryBuilder":
+                        status, builder = typeorm_builder(references, ts_trees, call)
+                        if status != "resolved":
+                            typeorm_scip_counts[status] += 1
+                            continue
+                        if builder.table is not None:
+                            targets = [table(call.file, table_key(builder.table))]
+                        else:
+                            targets = sorted(
+                                {
+                                    typeorm_by_model[e.id]
+                                    for e in builder.entities
+                                    if e.id in typeorm_by_model
+                                },
+                                key=str,
+                            )
+                        if len(targets) != 1:
+                            typeorm_scip_counts["not_an_entity"] += 1
+                            continue
+                        typeorm_scip_counts["linked"] += 1
+                        typeorm_scip_counts["builders"] += 1
+                        tool, receipt = references.tool(call.file)
+                        link(
+                            "WRITES" if builder.writes else "READS",
+                            code(call.file, call.caller_id),
+                            targets[0],
+                            TYPEORM_SCIP_RULE,
+                            {
+                                "method": call.method,
+                                "line": call.line,
+                                "column": call.column,
+                                "indexer": tool,
+                                "receipt": receipt,
+                            },
+                        )
+                        continue
+                    status, entities = typeorm_call_entities(references, ts_trees, call)
+                    if status != "resolved":
+                        typeorm_scip_counts[status] += 1
+                        continue
+                    targets = sorted(
+                        {
+                            typeorm_by_model[e.id]
+                            for e in entities
+                            if e.id in typeorm_by_model
+                        },
+                        key=str,
+                    )
+                    if len(targets) != 1:
+                        typeorm_scip_counts["not_an_entity"] += 1
+                        continue
+                    typeorm_scip_counts["linked"] += 1
+                    tool, receipt = references.tool(call.file)
+                    link(
+                        "WRITES" if call.method in _TYPEORM_WRITES else "READS",
+                        code(call.file, call.caller_id),
+                        targets[0],
+                        TYPEORM_SCIP_RULE,
+                        {
+                            "method": call.method,
+                            "line": call.line,
+                            "column": call.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                    )
         # Sequelize: migrations, models and their static calls.
         sequelize_models, sequelize_inits, sequelize_uses, defines = [], {}, [], []
         for path in _sql_files(root, include, exclude, ".json"):
@@ -2537,8 +2699,63 @@ class DataContractTool(AnalysisTool):
                 found |= exported_table(resolve_import(file, source), name, seen)
             return found - {"?"} if found - {"?"} else found
 
-        drizzle_access = {"linked": 0, "not_a_table": 0}
+        # In files a scip-typescript index covers, a use is read through the
+        # index: its method must resolve to drizzle-orm and its table name to
+        # a table variable's definition. The name rule below runs only where
+        # the index records no symbol, or only a local one, at the method
+        # (it could not type the call: drizzle_scip index_unresolved).
+        table_at = {
+            (item.file, item.line, item.column): table(file, item.table)
+            for file, variables in drizzle_tables.items()
+            for items in variables.values()
+            for item in items
+            if item.table != PLACEHOLDER
+        }
+        drizzle_scip = {
+            "linked": 0,
+            "no_scip_index": 0,
+            "index_unresolved": 0,
+            "not_drizzle": 0,
+            "not_a_table": 0,
+        }
+        by_name_rule = []
         for use in drizzle_uses:
+            called = references.symbols(use.file, use.line, use.column)
+            if called is None:
+                drizzle_scip["no_scip_index"] += 1
+                by_name_rule.append(use)
+                continue
+            if all(c.startswith("local ") for c in called):
+                drizzle_scip["index_unresolved"] += 1
+                by_name_rule.append(use)
+                continue
+            if not any(" npm drizzle-orm " in c for c in called):
+                drizzle_scip["not_drizzle"] += 1
+                continue
+            sites = references.definition_sites(use.file, use.ref_line, use.ref_column)
+            targets = {table_at[s] for s in sites if s in table_at}
+            if len(targets) != 1:
+                drizzle_scip["not_a_table"] += 1
+                continue
+            drizzle_scip["linked"] += 1
+            tool, receipt = references.tool(use.file)
+            for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
+                if used:
+                    link(
+                        kind,
+                        code(use.file, use.caller_id),
+                        next(iter(targets)),
+                        DRIZZLE_SCIP_RULE,
+                        {
+                            "variable": use.ref.name,
+                            "line": use.line,
+                            "column": use.column,
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                    )
+        drizzle_access = {"linked": 0, "not_a_table": 0}
+        for use in by_name_rule:
             ref = use.ref
             if ref.how == "local":
                 targets = exported_table(use.file, ref.name)
@@ -2651,10 +2868,17 @@ class DataContractTool(AnalysisTool):
         )
         status = (
             "partial"
-            if unreadable or kysely_unindexed or result.status != "succeeded"
+            if unreadable
+            or kysely_unindexed
+            or prisma_read.unread
+            or result.status != "succeeded"
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
+        warnings += [
+            f"prisma_schema_unread: {path}: {reason}"
+            for path, reason in sorted(prisma_read.unread.items())
+        ]
         if kysely_unindexed:
             warnings.append(
                 f"no_scip_index: {len(kysely_unindexed)} files importing kysely "
@@ -2697,6 +2921,7 @@ class DataContractTool(AnalysisTool):
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
                     "ddl_statements": len(ddl),
+                    "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
                     "repositories": len(repositories),
@@ -2712,6 +2937,11 @@ class DataContractTool(AnalysisTool):
                     "go_type_facts": {
                         "modules": dict(Counter(facts.modules.values())),
                         "toolchains": dict(Counter(facts.toolchains.values())),
+                        "downloads": dict(
+                            Counter(
+                                s.partition(":")[0] for s in facts.downloads.values()
+                            )
+                        ),
                         "files_checked": len(facts.checked) - len(facts.partial),
                         "files_partly_checked": len(facts.partial),
                         "files_not_checked": dict(Counter(facts.uncovered.values())),
@@ -2722,12 +2952,17 @@ class DataContractTool(AnalysisTool):
                     "gorm_default_table_names": gorm_defaults,
                     "gorm_access_resolution": gorm_access,
                     "prisma_models": len(prisma),
+                    "prisma_schema": {
+                        "engines": dict(sorted(prisma_read.engines.items())),
+                        "unread": len(prisma_read.unread),
+                    },
                     "typeorm_entities": len(typeorm_mappings),
                     "typeorm_child_entities": typeorm_child_counts,
                     "mongodb_collections": mongodb_counts,
                     "knex": knex_counts,
                     "kysely": kysely_counts,
                     "orm_access_resolution": orm_counts,
+                    "typeorm_scip": typeorm_scip_counts,
                     "sequelize_models": len(sequelize_tables),
                     "sequelize_unresolved": len(sequelize_unresolved),
                     "sequelize_access_resolution": sequelize_counts,
@@ -2749,6 +2984,7 @@ class DataContractTool(AnalysisTool):
                     "eloquent_access_resolution": eloquent_counts,
                     "drizzle_tables": drizzle_counts,
                     "drizzle_access_resolution": drizzle_access,
+                    "drizzle_scip": drizzle_scip,
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,
