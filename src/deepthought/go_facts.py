@@ -163,6 +163,9 @@ class GoFacts:
     table_names: list[GoTableName] = field(default_factory=list)
     literals: list[GoLiteral] = field(default_factory=list)
     passes: list[GoPass] = field(default_factory=list)
+    # (assigned reference, assigned-from reference) of library-typed values
+    # assigned from a variable, field or parameter.
+    aliases: list[tuple] = field(default_factory=list)
     constructors: list[GoNew] = field(default_factory=list)
     # Files the type checker read, and the reason for the others.
     checked: set[str] = field(default_factory=set)
@@ -618,6 +621,13 @@ def _read(text, directory, members, facts):
                     ),
                 )
             )
+        elif kind == "alias":
+            file = relative(item["file"])
+            key = (file, item["line"], item["column"], "alias")
+            if file not in members or key in seen:
+                continue
+            seen.add(key)
+            facts.aliases.append((ref(item["assigned"]), ref(item["operand"])))
         elif kind == "new":
             file = relative(item["file"])
             key = (file, item["line"], item["column"], "new")

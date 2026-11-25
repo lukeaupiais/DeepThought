@@ -434,39 +434,6 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		}
 		return objectRef(info.Defs[literal.Type.Params.List[0].Names[0]])
 	}
-	// The variable or field each call's result is assigned to.
-	assigned := map[*ast.CallExpr]string{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		switch n := node.(type) {
-		case *ast.AssignStmt:
-			if len(n.Lhs) == len(n.Rhs) {
-				for i, right := range n.Rhs {
-					if call, ok := ast.Unparen(right).(*ast.CallExpr); ok {
-						assigned[call] = reference(n.Lhs[i])
-					}
-				}
-			} else if len(n.Rhs) == 1 {
-				if call, ok := ast.Unparen(n.Rhs[0]).(*ast.CallExpr); ok {
-					assigned[call] = reference(n.Lhs[0])
-				}
-			}
-		case *ast.ValueSpec:
-			for i, right := range n.Values {
-				if call, ok := ast.Unparen(right).(*ast.CallExpr); ok && i < len(n.Names) {
-					assigned[call] = objectRef(info.Defs[n.Names[i]])
-				}
-			}
-		case *ast.KeyValueExpr:
-			if call, ok := ast.Unparen(n.Value).(*ast.CallExpr); ok {
-				if key, ok := n.Key.(*ast.Ident); ok {
-					if v, ok := info.Uses[key].(*types.Var); ok && v.IsField() {
-						assigned[call] = objectRef(v)
-					}
-				}
-			}
-		}
-		return true
-	})
 	// A named type of a library outside the module and the standard
 	// library (a router), through pointers.
 	library := func(t types.Type) *types.Named {
@@ -486,6 +453,66 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 		}
 		return n
 	}
+	// The variable or field each call's result is assigned to; and, as
+	// "alias" facts, a library-typed variable, field or parameter assigned
+	// to another (a struct field set from a constructor's parameter).
+	assigned := map[*ast.CallExpr]string{}
+	alias := func(left string, right ast.Expr) {
+		if left == "" {
+			return
+		}
+		if _, ok := ast.Unparen(right).(*ast.CallExpr); ok {
+			return
+		}
+		if library(info.TypeOf(right)) == nil {
+			return
+		}
+		if r := reference(right); r != "" {
+			out := fact{Kind: "alias", Assigned: left, Operand: r}
+			out.File, out.Line, out.Column = where(right.Pos())
+			emit(out)
+		}
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i, right := range n.Rhs {
+					if call, ok := ast.Unparen(right).(*ast.CallExpr); ok {
+						assigned[call] = reference(n.Lhs[i])
+					} else {
+						alias(reference(n.Lhs[i]), right)
+					}
+				}
+			} else if len(n.Rhs) == 1 {
+				if call, ok := ast.Unparen(n.Rhs[0]).(*ast.CallExpr); ok {
+					assigned[call] = reference(n.Lhs[0])
+				}
+			}
+		case *ast.ValueSpec:
+			for i, right := range n.Values {
+				if i >= len(n.Names) {
+					break
+				}
+				if call, ok := ast.Unparen(right).(*ast.CallExpr); ok {
+					assigned[call] = objectRef(info.Defs[n.Names[i]])
+				} else {
+					alias(objectRef(info.Defs[n.Names[i]]), right)
+				}
+			}
+		case *ast.KeyValueExpr:
+			if key, ok := n.Key.(*ast.Ident); ok {
+				if v, ok := info.Uses[key].(*types.Var); ok && v.IsField() {
+					if call, ok := ast.Unparen(n.Value).(*ast.CallExpr); ok {
+						assigned[call] = objectRef(v)
+					} else {
+						alias(objectRef(v), n.Value)
+					}
+				}
+			}
+		}
+		return true
+	})
 	describe := func(arg ast.Expr) argument {
 		a := argument{}
 		if val := stringValue(arg, info, flows); val.known {

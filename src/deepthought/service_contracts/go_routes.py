@@ -184,6 +184,9 @@ class GoRouters:
                 if new.assigned is not None:
                     self.assigned.setdefault(new.assigned, []).append(("new", None))
         self.passed = {}
+        for left, right in facts.aliases:
+            if left is not None and right is not None:
+                self.passed.setdefault(left, []).append(right)
         for passing in facts.passes:
             for argument, parameter in passing.arguments:
                 if argument is not None and parameter is not None:
