@@ -2163,7 +2163,14 @@ that does nothing keeps it from running. On grpc-node (ca7f83f) the
 `grpc-js-xds` and `proto-loader` projects used to fail scip-typescript (their
 tsconfig extends `./node_modules/gts/...`, never installed), leaving 542
 files `indexer_failed`; now every file is covered. A directory without a
-lockfile runs `npm install --ignore-scripts --no-package-lock`.
+lockfile runs `npm install --ignore-scripts --no-package-lock`. A lockfile
+counts only beside a package.json, so a stray one (Apollo's
+fullstack-tutorial has a root `package-lock.json` and no root package.json)
+neither installs nor keeps the packages below it from installing. A
+directory with several lockfiles tries them in the order above until one
+installs: a stale `yarn.lock` fails its frozen install, and the directory's
+`package-lock.json` is tried next (nestjs-realworld-example-app). The
+install record names the lockfile used and the `failed_attempts` before it.
 scip-typescript then indexes
 the copy, so the workspace is left as it was and document paths are the
 same. Packages are installed once per `index_workspace`, for both
