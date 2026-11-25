@@ -20,6 +20,7 @@ and JdbcClient) name the tables they read and write (``SqlUse``).
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
+import logging
 import re
 
 from .service_contracts.http import PLACEHOLDER
@@ -31,6 +32,10 @@ from .service_contracts.spring import (
     _package,
     _text,
 )
+
+# sqlglot warns on every statement it passes through as text; those are
+# counted in the run's metrics (sql_text, ddl_readers) instead.
+logging.getLogger("sqlglot").setLevel(logging.ERROR)
 
 _PERSISTENCE = ("jakarta.persistence", "javax.persistence")
 _SPRING_DATA = "org.springframework.data"
@@ -48,13 +53,6 @@ READ_ONLY_REPOSITORIES = {
     "ReactiveSortingRepository",
 }
 
-_NAME = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)'
-_CREATE_TABLE = re.compile(
-    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL|LOCAL)\s+)?"
-    r"(TEMP(?:ORARY)?\s+)?(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
-    rf"({_NAME}(?:\s*\.\s*{_NAME}){{0,2}})",
-    re.IGNORECASE,
-)
 _COMMENT_OR_STRING = re.compile(r"--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'", re.DOTALL)
 
 
@@ -64,6 +62,8 @@ class Ddl:
     line: int
     name: str
     schema: str | None = None
+    # "sqlglot", or "tokens_not_parsed" for a CREATE TABLE no dialect parses.
+    reader: str = "sqlglot"
 
 
 @dataclass(frozen=True)
@@ -104,27 +104,149 @@ def _blank(match):
     return re.sub(r"[^\n]", " ", match.group(0))
 
 
+# Dialects sqlglot tries for schema files, in order. ClickHouse is read
+# here only: its DDL (engines, codecs) is in migrations, its queries are not.
+DDL_DIALECTS = ("postgres", "mysql", "sqlite", "tsql", "oracle", "clickhouse", None)
+
+
 def extract_ddl(file, content: bytes):
-    """The permanent tables a SQL file's CREATE TABLE statements declare."""
+    """The permanent tables a SQL file's CREATE TABLE statements declare.
+
+    The file is split into statements by sqlglot's tokenizer (so semicolons
+    in strings, comments and dollar-quoted bodies do not split it) and each
+    statement holding CREATE and TABLE tokens is parsed by sqlglot in the
+    first of DDL_DIALECTS that accepts it. A CREATE TABLE statement no
+    dialect parses (syntax sqlglot does not know yet, or invalid SQL) is
+    read from its tokens with ``reader="tokens_not_parsed"``. Temporary
+    tables are not part of the schema. None when the file is not UTF-8 or
+    no dialect tokenizes it."""
+    import sqlglot
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    text = _COMMENT_OR_STRING.sub(_blank, text)
+    tokens = None
+    for dialect in DDL_DIALECTS:
+        try:
+            tokens = sqlglot.Dialect.get_or_raise(dialect).tokenize(text)
+        except (SqlglotError, ValueError):
+            continue
+        break
+    if tokens is None:
+        return None
+    statements, current = [], []
+    for token in tokens:
+        if token.token_type == TokenType.SEMICOLON:
+            statements.append(current)
+            current = []
+        else:
+            current.append(token)
+    statements.append(current)
     found = []
-    for match in _CREATE_TABLE.finditer(text):
-        if match.group(1):
-            continue  # Temporary tables are not part of the schema.
-        parts = [p.strip() for p in re.split(rf"\s*\.\s*(?={_NAME})", match.group(2))]
-        found.append(
-            Ddl(
-                file,
-                text.count("\n", 0, match.start()) + 1,
-                table_key(parts[-1]),
-                table_key(parts[-2]) if len(parts) > 1 else None,
-            )
+    for statement in statements:
+        types = {t.token_type for t in statement}
+        if TokenType.CREATE not in types or TokenType.TABLE not in types:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        offset = text.count("\n", 0, start)
+        parsed = _sqlglot_ddl(text[start:end])
+        if parsed is None:
+            table = _token_ddl(statement)
+            if table is not None:
+                name, schema, line = table
+                found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
+            continue
+        found.extend(
+            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
         )
     return found
+
+
+def _sqlglot_ddl(text):
+    """(line, name, schema) of each permanent table a statement creates, or
+    None when no dialect parses it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    for dialect in DDL_DIALECTS:
+        try:
+            trees = [t for t in sqlglot.parse(text, read=dialect) if t is not None]
+        except (SqlglotError, ValueError, RecursionError):
+            continue
+        if not trees or any(isinstance(t, exp.Command) for t in trees):
+            continue  # A statement sqlglot only passes through as text.
+        found = []
+        for tree in trees:
+            for create in tree.find_all(exp.Create):
+                if (create.args.get("kind") or "").upper() != "TABLE":
+                    continue
+                properties = create.args.get("properties")
+                if properties and any(
+                    isinstance(p, exp.TemporaryProperty) for p in properties.expressions
+                ):
+                    continue
+                table = create.this
+                if isinstance(table, exp.Schema):
+                    table = table.this
+                if not isinstance(table, exp.Table) or not isinstance(
+                    table.this, exp.Identifier
+                ):
+                    continue
+                found.append(
+                    (
+                        table.this.meta.get("line", 1),
+                        table.name.lower(),
+                        table.db.lower() or None,
+                    )
+                )
+        return found
+    return None
+
+
+def _token_ddl(statement):
+    """(name, schema, line) of the table a CREATE TABLE statement no dialect
+    parses names, read from sqlglot's tokens: CREATE, modifiers, TABLE, an
+    optional IF NOT EXISTS, then a dotted name. None for a temporary table
+    or another statement."""
+    from sqlglot.tokens import TokenType
+
+    words = iter(statement)
+    if next(words).token_type != TokenType.CREATE:
+        return None
+    for token in words:
+        if token.token_type == TokenType.TABLE:
+            break
+        if token.text.upper() in ("TEMP", "TEMPORARY"):
+            return None
+        if token.text.upper() not in ("OR", "REPLACE", "GLOBAL", "LOCAL", "UNLOGGED"):
+            return None
+    else:
+        return None
+    rest = list(words)
+    if [t.text.upper() for t in rest[:3]] == ["IF", "NOT", "EXISTS"]:
+        rest = rest[3:]
+    parts = []
+    for token in rest:
+        if parts and len(parts) % 2 == 1:
+            if token.token_type != TokenType.DOT:
+                break
+            parts.append(token)
+        elif token.token_type in (TokenType.VAR, TokenType.IDENTIFIER):
+            parts.append(token)
+        else:
+            break
+    names = parts[::2]
+    if not names:
+        return None
+    return (
+        names[-1].text.lower(),
+        names[-2].text.lower() if len(names) > 1 else None,
+        names[-1].line,
+    )
 
 
 # Words that end a table reference list or cannot be a table or an alias.

@@ -2780,6 +2780,7 @@ class DataContractTool(AnalysisTool):
                     "capabilities": ["data-contracts"],
                     "tables": len(tables),
                     "ddl_statements": len(ddl),
+                    "ddl_readers": dict(Counter(d.reader for d in set(ddl))),
                     "entities": len(entities),
                     "association_tables": sum(1 for m in mappings if m.member),
                     "repositories": len(repositories),
