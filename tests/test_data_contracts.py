@@ -16,6 +16,7 @@ from deepthought.analysis_tools import (
     TreeSitterTool,
 )
 from deepthought.analysis_tools.evidence import get_rule
+from deepthought.go_facts import GoFacts, GoMissing
 from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
@@ -1431,12 +1432,25 @@ def go_edges(output):
 
 @unittest.skipUnless(GO, "Install the go grammar")
 class GoSqlTests(unittest.TestCase):
-    """The tree-sitter rules, as they read Go without the Go toolchain."""
+    """The tree-sitter rules, as they read Go files the type checker did
+    not check."""
 
-    def test_sql_text_and_gorm_table_names(self):
+    def test_missing_go_fails_loudly(self):
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch("deepthought.go_facts.toolchain", return_value=None),
+        ):
+            write(directory, GO_SQL)
+            with self.assertRaises(GoMissing):
+                asyncio.run(DataContractTool(directory).analyze("r", languages=["go"]))
+
+    def test_sql_text_and_gorm_table_names(self):
+        def unchecked(root, files, modules):
+            return GoFacts(uncovered=dict.fromkeys(files, "not_checked"))
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch("deepthought.go_facts.collect", side_effect=unchecked),
         ):
             write(directory, GO_SQL)
             output = asyncio.run(
@@ -1469,7 +1483,7 @@ class GoSqlTests(unittest.TestCase):
             {"statements": 3, "not_fixed": 1, "unknown_entity": 0},
         )
         self.assertEqual(
-            metrics["go_type_facts"]["files_not_checked"], {"go_not_installed": 2}
+            metrics["go_type_facts"]["files_not_checked"], {"not_checked": 2}
         )
 
 
@@ -1621,10 +1635,14 @@ class GoTypeFactsTests(unittest.TestCase):
         self.assertEqual(metrics["go_type_facts"]["modules"], {"checked": 1})
         self.assertEqual(metrics["go_type_facts"]["files_checked"], 6)
 
-    def test_same_calls_without_go(self):
-        # Without go/types none of these is read: the files that run SQL do
-        # not import a SQL package, and the TableName is a constant.
-        with mock.patch("deepthought.go_facts.toolchain", return_value=None):
+    def test_same_calls_unchecked(self):
+        # In files go/types did not check none of these is read: the files
+        # that run SQL do not import a SQL package, and the TableName is a
+        # constant.
+        def unchecked(root, files, modules):
+            return GoFacts(uncovered=dict.fromkeys(files, "not_checked"))
+
+        with mock.patch("deepthought.go_facts.collect", side_effect=unchecked):
             output = self.analyze(GO_TYPED)
         self.assertEqual(go_edges(output), [])
 

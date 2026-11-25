@@ -13,6 +13,8 @@ from deepthought.storage.graph.write_coordinator import (
     _combine,
 )
 
+from go_stubs import go_mod, go_stub_files
+
 READY = importlib.util.find_spec("tree_sitter") and all(
     importlib.util.find_spec(f"tree_sitter_{name}") for name in ("python", "go", "java")
 )
@@ -235,7 +237,10 @@ class MessagingContractTests(unittest.TestCase):
                 ),
                 f"order/{java}/order/config/Legacy.java": LEGACY,
                 f"legacy/{java}/order/config/Legacy.java": LEGACY,
+                **go_stub_files(),
+                "dispatch/go.mod": go_mod("dispatch", "github.com/streadway/amqp"),
                 "dispatch/main.go": DISPATCH,
+                "audit/go.mod": go_mod("audit", "github.com/rabbitmq/amqp091-go"),
                 "audit/main.go": AUDIT,
             },
         )

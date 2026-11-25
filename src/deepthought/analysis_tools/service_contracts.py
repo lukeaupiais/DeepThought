@@ -9,7 +9,7 @@ callers are the tree-sitter declarations of the same files, with the same
 identities, so a revision that also contains tree-sitter output joins them.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from hashlib import sha256
 import dataclasses
 from pathlib import PurePosixPath
@@ -29,6 +29,7 @@ from ..data_contracts import (
     resolve_script_module,
 )
 from ..engine import analyze_repository
+from .. import go_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -65,6 +66,7 @@ from ..service_contracts.messaging import (
     MessageEndpoint,
     MessageUnread,
     extract_messaging,
+    go_broker_file,
     stomp_prefixes,
 )
 from ..service_contracts.oapi_codegen import generated_requests
@@ -397,36 +399,36 @@ MESSAGE_RULES = {
     ),
     ("kafka-go", "publish"): _message_rule(
         "service-contracts.kafka-go-writer",
-        "A segmentio/kafka-go Writer, WriterConfig or Message literal written "
-        "with Topic names this topic; the producer is where the literal is "
-        "written." + _SAME_NAME,
+        "A segmentio/kafka-go Writer, WriterConfig or Message literal (its "
+        "type resolved by go/types) whose Topic has this value names this "
+        "topic; the producer is where the literal is written." + _SAME_NAME,
     ),
     ("kafka-go", "consume"): _message_rule(
         "service-contracts.kafka-go-reader",
-        "A segmentio/kafka-go ReaderConfig literal written with Topic or "
-        "GroupTopics names this topic; the consumer is where the literal is "
-        "written." + _SAME_NAME,
+        "A segmentio/kafka-go ReaderConfig literal (its type resolved by "
+        "go/types) whose Topic or GroupTopics has this value names this topic; "
+        "the consumer is where the literal is written." + _SAME_NAME,
     ),
     ("sarama", "publish"): _message_rule(
         "service-contracts.sarama-producer-message",
-        "A sarama ProducerMessage literal written with Topic names this "
-        "topic." + _SAME_NAME,
+        "A sarama ProducerMessage literal (its type resolved by go/types) "
+        "whose Topic has this value names this topic." + _SAME_NAME,
     ),
     ("sarama", "consume"): _message_rule(
         "service-contracts.sarama-consume",
-        "ConsumePartition(topic, ...) or a consumer group's Consume(ctx, "
-        "[]string{...}, handler), in a file importing sarama, names this "
-        "topic." + _SAME_NAME,
+        "ConsumePartition(topic, ...) or ConsumerGroup.Consume(ctx, "
+        "[]string{...}, handler), methods go/types resolves to sarama, names "
+        "this topic." + _SAME_NAME,
     ),
     ("confluent-kafka-go", "publish"): _message_rule(
         "service-contracts.confluent-kafka-go-produce",
-        "A confluent-kafka-go TopicPartition literal written with Topic names "
-        "this topic." + _SAME_NAME,
+        "A confluent-kafka-go TopicPartition literal (its type resolved by "
+        "go/types) whose Topic has this value names this topic." + _SAME_NAME,
     ),
     ("confluent-kafka-go", "consume"): _message_rule(
         "service-contracts.confluent-kafka-go-subscribe",
-        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), in a "
-        "file importing confluent-kafka-go, names this topic; a topic "
+        "Subscribe(topic, ...) or SubscribeTopics([]string{...}, ...), methods "
+        "go/types resolves to confluent-kafka-go, names this topic; a topic "
         "starting with ^ is a pattern and is not read." + _SAME_NAME,
     ),
     ("amqplib", "publish"): _message_rule(
@@ -474,14 +476,15 @@ MESSAGE_RULES = {
     ),
     ("go-amqp", "publish"): _message_rule(
         "service-contracts.go-amqp-publish",
-        "Publish in a file importing an amqp client package names this exchange "
-        "and routing key." + _SAME_NAME,
+        "Publish or PublishWithContext, a method go/types resolves to an amqp "
+        "client package, names this exchange and routing key." + _SAME_NAME,
     ),
     ("go-amqp", "consume"): _message_rule(
         "service-contracts.go-amqp-consume",
-        "Consume in a file importing an amqp client package consumes a queue "
-        "that receives this destination: the default exchange keyed with the "
-        "queue name, or a QueueBind of that queue in the same file." + _SAME_NAME,
+        "Consume or ConsumeWithContext, a method go/types resolves to an amqp "
+        "client package, consumes a queue that receives this destination: the "
+        "default exchange keyed with the queue name, or a QueueBind of that "
+        "queue in the same file." + _SAME_NAME,
     ),
     ("spring-stomp", "consume"): _message_rule(
         "service-contracts.spring-stomp-message-mapping",
@@ -1598,6 +1601,36 @@ def _go_modules(root, sources):
     return found
 
 
+def _go_messaging_facts(root, sources):
+    """{file: (calls, literals, reason)} from the Go type checker for the Go
+    sources that import a broker client; reason is why a file was not, or
+    only partly, checked. go_facts downloads each module's dependencies
+    first; without the Go toolchain it raises GoMissing."""
+    files = [
+        c.file
+        for c, content, _ in sources
+        if c.language == "go" and c.file.endswith(".go") and go_broker_file(content)
+    ]
+    if not files:
+        return {}
+    facts = go_facts.collect(root, files, list(_go_modules(root, sources).values()))
+    calls, literals = defaultdict(list), defaultdict(list)
+    for call in facts.calls:
+        calls[call.file].append(call)
+    for literal in facts.literals:
+        literals[literal.file].append(literal)
+    found = {}
+    for file in files:
+        if file in facts.uncovered:
+            reason = "not_type_checked"
+        elif file in facts.partial:
+            reason = "partly_type_checked"
+        else:
+            reason = None
+        found[file] = (calls[file], literals[file], reason)
+    return found
+
+
 def _go_router_mounts(root, sources):
     """{package directory: {(function, parameter index): prefixes}}: the Gin
     and Echo routers each function's router parameters receive from calls
@@ -2017,6 +2050,7 @@ class ServiceContractTool(AnalysisTool):
         symfony_clients = {}
         php_wrappers = _php_wrapper_calls(sources)
         go_mounts = _go_router_mounts(root, sources)
+        go_messaging = _go_messaging_facts(root, sources)
         next_apps = next_projects(
             root,
             [
@@ -2216,6 +2250,7 @@ class ServiceContractTool(AnalysisTool):
                         if calls is not None and coverage.file in scripts.sources
                         else None
                     ),
+                    go_facts=go_messaging.get(coverage.file),
                 )
                 endpoints.extend(found[0])
                 messaging_unread.extend(found[1])

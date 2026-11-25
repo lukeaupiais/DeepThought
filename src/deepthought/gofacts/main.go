@@ -11,6 +11,13 @@
 //     there (followed through assignments, += and branches; see flow), of a
 //   - join (operands without a value written as Placeholder) or of sqlx's
 //     Rebind.
+//     An argument that is a []string literal (or a local assigned one once)
+//     has the value of each element instead; one that is field F of a local
+//     assigned from one call (q, err := ch.QueueDeclare(...); q.Name) names
+//     that call's position, result index and F.
+//   - "literal": every keyed composite literal of a named struct type
+//     declared in another package, with its type and, per key, the value its
+//     element has, as for arguments (&x has x's value).
 //   - "table_name": every TableName method with no parameters whose body is
 //     one return of a constant string.
 //   - "error": a package that did not type-check completely; its facts are
@@ -52,9 +59,23 @@ type namedType struct {
 	Line    int    `json:"line,omitempty"`
 }
 
+type resultField struct {
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
+	Index  int    `json:"index"`
+	Field  string `json:"field"`
+}
+
 type argument struct {
-	Texts []string   `json:"texts,omitempty"`
-	Type  *namedType `json:"type,omitempty"`
+	Texts   []string     `json:"texts,omitempty"`
+	Strings [][]string   `json:"strings,omitempty"`
+	Result  *resultField `json:"result,omitempty"`
+	Type    *namedType   `json:"type,omitempty"`
+}
+
+type element struct {
+	Key string `json:"key"`
+	argument
 }
 
 type fact struct {
@@ -69,6 +90,7 @@ type fact struct {
 	Receiver  *namedType `json:"receiver,omitempty"`
 	Arguments []argument `json:"arguments,omitempty"`
 	Type      *namedType `json:"type,omitempty"`
+	Elements  []element  `json:"elements,omitempty"`
 	Table     string     `json:"table,omitempty"`
 	Package   string     `json:"package,omitempty"`
 	Message   string     `json:"message,omitempty"`
@@ -191,8 +213,10 @@ func main() {
 		}
 		var problems []string
 		conf := types.Config{
-			Importer: imp,
-			Error:    func(err error) { problems = append(problems, err.Error()) },
+			// import "C" in the module's own cgo files: C.x is not resolved.
+			FakeImportC: true,
+			Importer:    imp,
+			Error:       func(err error) { problems = append(problems, err.Error()) },
 		}
 		path := name
 		if module != "" && !strings.HasSuffix(name, "_test") {
@@ -253,14 +277,14 @@ func main() {
 			for _, file := range c.files {
 				f, _, _ := where(file.Pos())
 				emit(fact{Kind: "file", File: f, Package: name})
-				facts(file, c.info, emit, where, named)
+				facts(file, c.info, emit, where, named, c.pkg.Path())
 			}
 		}
 	}
 }
 
 // facts prints the call and TableName facts of one file.
-func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType) {
+func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.Pos) (string, int, int), named func(types.Type) *namedType, own string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -290,7 +314,60 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			flows.expressions(d, nil)
 		}
 	}
+	literals, results := once(file, info)
+	describe := func(arg ast.Expr) argument {
+		a := argument{}
+		if val := stringValue(arg, info, flows); val.known {
+			a.Texts = val.texts
+		} else if values, ok := stringsValue(arg, info, flows, literals); ok {
+			a.Strings = values
+		} else if selector, ok := ast.Unparen(arg).(*ast.SelectorExpr); ok {
+			if id, ok := selector.X.(*ast.Ident); ok {
+				if v, ok := info.Uses[id].(*types.Var); ok {
+					if r, ok := results[v]; ok {
+						_, line, column := where(r.call.Pos())
+						a.Result = &resultField{line, column, r.index, selector.Sel.Name}
+					}
+				}
+			}
+		}
+		return a
+	}
 	ast.Inspect(file, func(node ast.Node) bool {
+		if literal, ok := node.(*ast.CompositeLit); ok {
+			t := info.TypeOf(literal)
+			if t == nil {
+				return true
+			}
+			if _, ok := t.Underlying().(*types.Struct); !ok {
+				return true
+			}
+			n := named(t)
+			if n == nil || n.Package == own {
+				return true
+			}
+			out := fact{Kind: "literal", Type: n}
+			out.File, out.Line, out.Column = where(literal.Pos())
+			for _, e := range literal.Elts {
+				kv, ok := e.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := kv.Key.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				value := kv.Value
+				if unary, ok := value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+					value = unary.X
+				}
+				out.Elements = append(out.Elements, element{key.Name, describe(value)})
+			}
+			if len(out.Elements) > 0 {
+				emit(out)
+			}
+			return true
+		}
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -318,10 +395,8 @@ func facts(file *ast.File, info *types.Info, emit func(fact), where func(token.P
 			if i == 3 {
 				break
 			}
-			a := argument{Type: named(info.TypeOf(arg))}
-			if val := stringValue(arg, info, flows); val.known {
-				a.Texts = val.texts
-			}
+			a := describe(arg)
+			a.Type = named(info.TypeOf(arg))
 			out.Arguments = append(out.Arguments, a)
 		}
 		emit(out)
@@ -451,18 +526,29 @@ type flow struct {
 
 func newFlow(file *ast.File, info *types.Info) *flow {
 	f := &flow{info: info, escaped: map[*types.Var]bool{}, uses: map[*ast.Ident]value{}}
-	// Variables a func literal assigns, or whose address is taken.
+	// Variables a func literal assigns, or whose address is taken other
+	// than as a keyed element of a composite literal
+	// (kafka.TopicPartition{Topic: &topic}, read as topic's value there).
+	stored := map[*ast.UnaryExpr]bool{}
 	var visit func(node ast.Node, inside []*ast.FuncLit)
 	visit = func(node ast.Node, inside []*ast.FuncLit) {
 		ast.Inspect(node, func(n ast.Node) bool {
 			switch n := n.(type) {
+			case *ast.CompositeLit:
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+							stored[unary] = true
+						}
+					}
+				}
 			case *ast.FuncLit:
 				if n != node {
 					visit(n.Body, append(inside, n))
 					return false
 				}
 			case *ast.UnaryExpr:
-				if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND {
+				if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND && !stored[n] {
 					if v := f.local(id); v != nil {
 						f.escaped[v] = true
 					}
@@ -881,4 +967,156 @@ func valueOf(arg ast.Expr, info *types.Info, variable func(*ast.Ident) (value, b
 		return valueOf(e.Args[0], info, variable, depth+1)
 	}
 	return unknown
+}
+
+// resultOf is the call a local variable is assigned from, and which of the
+// call's results it holds.
+type resultOf struct {
+	call  *ast.CallExpr
+	index int
+}
+
+// once maps each local variable of a file that is assigned exactly once,
+// from a composite literal, to that literal; and each local assigned exactly
+// once, from one result of a multi-value call, to that call. A variable
+// whose address is taken (other than as a keyed element of a composite
+// literal) is in neither.
+func once(file ast.Node, info *types.Info) (map[*types.Var]*ast.CompositeLit, map[*types.Var]resultOf) {
+	count := map[*types.Var]int{}
+	literals := map[*types.Var]*ast.CompositeLit{}
+	calls := map[*types.Var]resultOf{}
+	escaped := map[*types.Var]bool{}
+	stored := map[*ast.UnaryExpr]bool{}
+	variable := func(id *ast.Ident) *types.Var {
+		obj := info.Defs[id]
+		if obj == nil {
+			obj = info.Uses[id]
+		}
+		v, _ := obj.(*types.Var)
+		return v
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			for i, left := range n.Lhs {
+				id, ok := left.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				v := variable(id)
+				if v == nil {
+					continue
+				}
+				count[v]++
+				if n.Tok != token.ASSIGN && n.Tok != token.DEFINE {
+					count[v]++
+					continue
+				}
+				if len(n.Rhs) == len(n.Lhs) {
+					if literal, ok := ast.Unparen(n.Rhs[i]).(*ast.CompositeLit); ok {
+						literals[v] = literal
+					}
+				} else if call, ok := n.Rhs[0].(*ast.CallExpr); ok && len(n.Rhs) == 1 {
+					calls[v] = resultOf{call, i}
+				}
+			}
+		case *ast.ValueSpec:
+			for i, id := range n.Names {
+				v := variable(id)
+				if v == nil {
+					continue
+				}
+				count[v]++
+				if len(n.Values) == len(n.Names) {
+					if literal, ok := ast.Unparen(n.Values[i]).(*ast.CompositeLit); ok {
+						literals[v] = literal
+					}
+				} else if len(n.Values) == 1 {
+					if call, ok := n.Values[0].(*ast.CallExpr); ok {
+						calls[v] = resultOf{call, i}
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			for _, e := range []ast.Expr{n.Key, n.Value} {
+				if id, ok := e.(*ast.Ident); ok {
+					if v := variable(id); v != nil {
+						count[v] += 2
+					}
+				}
+			}
+		case *ast.IncDecStmt:
+			if id, ok := n.X.(*ast.Ident); ok {
+				if v := variable(id); v != nil {
+					count[v] += 2
+				}
+			}
+		case *ast.CompositeLit:
+			// &x as a keyed element (kafka.TopicPartition{Topic: &topic})
+			// stores the pointer in a field; it is not read as a write.
+			for _, e := range n.Elts {
+				if kv, ok := e.(*ast.KeyValueExpr); ok {
+					if unary, ok := kv.Value.(*ast.UnaryExpr); ok && unary.Op == token.AND {
+						stored[unary] = true
+					}
+				}
+			}
+		case *ast.UnaryExpr:
+			if id, ok := ast.Unparen(n.X).(*ast.Ident); ok && n.Op == token.AND && !stored[n] {
+				if v := variable(id); v != nil {
+					escaped[v] = true
+				}
+			}
+		}
+		return true
+	})
+	for v := range literals {
+		if count[v] != 1 || escaped[v] {
+			delete(literals, v)
+		}
+	}
+	for v := range calls {
+		if count[v] != 1 || escaped[v] {
+			delete(calls, v)
+		}
+	}
+	return literals, calls
+}
+
+// stringsValue is the texts of each element of a []string literal, or of
+// the one such literal assigned to a local variable assigned once; nil for
+// an element without one.
+func stringsValue(arg ast.Expr, info *types.Info, f *flow, literals map[*types.Var]*ast.CompositeLit) ([][]string, bool) {
+	arg = ast.Unparen(arg)
+	if id, ok := arg.(*ast.Ident); ok {
+		v, ok := info.Uses[id].(*types.Var)
+		if !ok || literals[v] == nil {
+			return nil, false
+		}
+		arg = literals[v]
+	}
+	literal, ok := arg.(*ast.CompositeLit)
+	if !ok {
+		return nil, false
+	}
+	t := info.TypeOf(literal)
+	if t == nil {
+		return nil, false
+	}
+	slice, ok := t.Underlying().(*types.Slice)
+	if !ok {
+		return nil, false
+	}
+	if b, ok := slice.Elem().Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
+		return nil, false
+	}
+	values := [][]string{}
+	for _, e := range literal.Elts {
+		if val := stringValue(e, info, f); val.known {
+			values = append(values, val.texts)
+		} else {
+			values = append(values, nil)
+		}
+	}
+	return values, true
 }
