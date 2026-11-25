@@ -454,7 +454,8 @@ Most unmatched labels are browser or load-generator calls that reach a backend
 through a gateway route. The one wrong call site is the developer test client
 `AdServiceClient.java` inside adservice, which calls its own service.
 
-The two GraphQL corpora are labelled by graphql-core, not by hand
+The two GraphQL corpora are labelled by graphql-js, not by hand or by the
+graphql-core parser the engine uses
 (`tools/graphql_client_oracle.py`, see the fixtures README). A prediction is a
 REQUESTS edge to a GraphqlField, placed at the request line and at the
 field's declaration. The fullstack tutorial's `start/` client, whose own
@@ -730,6 +731,53 @@ a sample (`"scope": "labelled"`), so other engine lines are not counted as
 extra. A write labels its target as WRITES and every other table it names as
 READS. The engine was developed against both apps, so they are regression
 gates, not held-out checks.
+
+### Python ORM tables
+
+Manifest `tables` entries with `"language": "python-orm"` score every
+`data-contracts.*` READS/WRITES edge that the engine makes in Python, per
+line, against labels read by hand. full-stack-fastapi-template is labelled in
+full, so engine lines outside the labels count as extra. The labels cover:
+
+- every line under `backend/` that names a `table=True` SQLModel class in
+  `select()`, `select_from()`, `delete()` or `Session.get()`;
+- every line that passes an instance of one to `Session.add()`, `delete()` or
+  `refresh()`;
+- the SQL strings that the Alembic migrations pass to `op.execute`, leaving
+  out CREATE statements.
+
+SQLModel names the tables `user` and `item` after the classes. A statement is
+labelled on the line that names the model. The CI job has no scip-python, so
+the gate scores the engine's name-based path.
+
+### SQL statements
+
+The manifest entry `sql-statements-sqlc-endtoend` scores the engine's SQL
+reader (`deepthought.data_contracts.statement_tables`) statement by statement,
+with no workspace to fetch. Its labels come from the database engines' own
+parsers, not from the reader under test. `tools/sql_statement_truth.py
+SQLC_TESTDATA` reads sqlc's end-to-end cases (`internal/endtoend/testdata` at
+sqlc 3ad8b20), which pair a schema with named queries for one engine:
+
+- PostgreSQL queries are parsed by libpg_query (through pglast). Every
+  RangeVar is a table, and the relation of INSERT, UPDATE, DELETE and MERGE
+  and the relations of TRUNCATE are written. A name the statement's WITH
+  clause defines and a `FOR UPDATE OF` name are not tables. DDL and utility
+  statements are not labelled.
+- SQLite queries are prepared, with `EXPLAIN`, against an in-memory database
+  built from the case's schema, under an authorizer that SQLite calls for
+  each table it reads or writes. A query that names a view is skipped, since
+  SQLite reports the view's base tables.
+
+sqlc's macros (`sqlc.arg`, `sqlc.narg`, `sqlc.slice`, `@name`, `sqlc.embed`)
+are rewritten to plain parameters first. Names are compared unquoted, in lower
+case, without their schema; system catalogs are left out, and a written table
+is not also listed as read. Cases sqlc expects to fail are skipped, as are
+queries the engine's parser rejects. A statement is *found* when the reader
+gives exactly the labelled reads and writes, *missed* when it gives none, and
+*wrong* otherwise. SQLite's planner drops a LEFT JOIN table no column uses,
+so its authorizer never reports it; for SQLite a read the labels do not name
+is not judged. pglast is needed only to relabel, not to score.
 
 ### Knex query-builder tables
 
@@ -1058,6 +1106,8 @@ are `blocked`. A package whose own build fails never has its test variant
 compiled under `./...`, so its tests are compiled one package at a time.
 `go_compile_truth.py compare compile.tsv calls.tsv` then checks that every
 SCIP call row whose target was sampled is one of the compiler's references.
+A method of an interface type can be renamed too: calls through the
+interface then fail, and each type that satisfied it is an `implements` row.
 On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
 fall in blocked packages, and 2 references are not calls (a middleware
 passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66
@@ -1086,7 +1136,8 @@ value, so a call row it does not report on a line its precision report
 marks as holding Any is `untyped` and not judged. A method that overrides a
 base method is skipped, because its uses resolve to the base and its rename
 breaks nothing; mypy decides that too, by rejecting `@typing.override` on a
-method that overrides nothing. Each edit gets a new modification time,
+method that overrides nothing. `type: ignore` comments under the targets
+are blanked first, since one would hide the error a rename adds. Each edit gets a new modification time,
 since mypy trusts its cache when a file's size and whole-second time are
 unchanged. On click, 38 sampled declarations give 93 call rows, all
 confirmed, with 14 in `docs` and `examples`, which are not checked; on httpx,

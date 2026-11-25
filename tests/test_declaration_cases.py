@@ -116,6 +116,38 @@ class DeclarationTests(unittest.TestCase):
                     ["helpers" if language == "python" else "./helpers"],
                 )
 
+    def test_jsx_class_attributes_parse(self):
+        # The JavaScript grammar rejects `class` as a JSX attribute name.
+        with tempfile.TemporaryDirectory() as directory:
+            for name, text in (
+                (
+                    "view.jsx",
+                    'function View() { return <div class="a" />; }\n'
+                    'function Other() { render(<ul class = "b">x</ul>); }\n'
+                    "const same = a.class == b;\n",
+                ),
+                ("bad.jsx", 'function Bad( { <div class="a" />\n'),
+            ):
+                (Path(directory) / name).write_text(text)
+            result = analyze_repository(
+                directory, repository_id="fixture", languages=("javascript",)
+            )
+        self.assertEqual(
+            {c.file: c.status for c in result.coverage},
+            {"view.jsx": "analyzed", "bad.jsx": "partial"},
+        )
+        self.assertEqual(
+            sorted(
+                (d.symbol, d.line, d.column, d.end_column)
+                for d in result.definitions
+                if d.file == "view.jsx"
+            ),
+            [("Other", 2, 0, 52), ("View", 1, 0, 45)],
+        )
+        self.assertEqual(
+            [(s.callee, s.line) for s in result.call_sites], [("render", 2)]
+        )
+
     def test_generic_call_signatures_without_separators_parse(self):
         # The grammar reads `<K ...>(...)` after a member that ends without
         # a separator as part of that member's type.
