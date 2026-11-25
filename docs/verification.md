@@ -564,6 +564,44 @@ kind in all three: Go 4/4, Java 4/4, Node 10/10, streaming 4/4 each. Online
 Boutique's servers are 15 of 20: the 5 misses are the C# cartservice, whose
 servers are not read (C# is not a contract language yet).
 
+### .proto files
+
+The engine reads .proto files only with protoc. `tools/proto_truth.py REPO
+...` checks that reader against github.com/emicklei/proto
+(`tools/proto_oracle`, built with `go build`), a Go parser that shares no
+code with protoc. For every .proto file that git tracks, both list each rpc
+as (file, `package.Service`, method, line of the rpc, streaming kind), and
+each `google.api.http` binding as (file, `package.Service`, method, verb,
+path), including `additional_bindings` and the `(google.api.http).post = ...`
+form.
+
+A misread is either of these, and the tool exits 1 on any:
+
+- an rpc or binding the engine lists that the oracle does not;
+- one the engine misses in a file protoc compiled.
+
+The oracle parses each file on its own, so it also reads files that protoc
+cannot compile. Their rpcs are counted separately, and protoc's verdict
+stands: an import outside the repository, or a file protoc rejects.
+
+| Repository | .proto files | Compiled | rpcs agree | HTTP bindings agree | rpcs in uncompiled files |
+|---|---|---|---|---|---|
+| grpc-node route guide corpus | 43 | 38 | 113 / 113 | 0 / 0 | 7 |
+| grpc-java route guide corpus | 199 | 199 | 104 / 104 | 1 / 1 | 0 |
+| grpc-go route guide corpus | 13 | 13 | 18 / 18 | 0 / 0 | 0 |
+| online-boutique | 8 | 8 | 66 / 66 | 0 / 0 | 0 |
+| eShop (gRPC) | 2 | 2 | 6 / 6 | 0 / 0 | 0 |
+| simplebank | 12 | 12 | 4 / 4 | 4 / 4 | 0 |
+| grpc-gateway 5dbb59a | 38 | 38 | 121 / 121 | 149 / 149 | 0 |
+| kratos 56cfd65 | 16 | 16 | 2 / 2 | 1 / 1 | 0 |
+| envoy d4c3cc2 | 913 | 119 | 44 / 44 | 37 / 37 | 88 |
+
+There are no misreads. The uncompiled grpc-node files import `vendor.proto`
+through an include path that only their tests set, or use the reserved
+`uninterpreted_option`, which protoc rejects. 794 of envoy's files import
+protos that Bazel fetches (udpa, xds, validate, opentelemetry), which are
+not in the repository.
+
 ### Routes and GraphQL fields
 
 The contract corpora score links between services, so a route the engine
