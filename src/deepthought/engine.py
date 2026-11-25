@@ -100,9 +100,7 @@ def _rust_item_macros(root, include, exclude, max_file_bytes):
     found = {}
     parser = None
     for directory, dirs, names, directory_fd in os.fwalk(root, follow_symlinks=False):
-        dirs[:] = sorted(
-            d for d in dirs if d not in {".git", ".venv", "node_modules", "__pycache__"}
-        )
+        dirs[:] = sorted(d for d in dirs if d not in _SKIPPED_DIRECTORIES)
         for name in sorted(names):
             relative = (Path(directory) / name).relative_to(root).as_posix()
             if (
@@ -199,6 +197,41 @@ def reusable_files(previous, repository_id):
     return facts, None
 
 
+_SKIPPED_DIRECTORIES = frozenset({".git", ".venv", "node_modules", "__pycache__"})
+
+
+def _source_language(name, languages):
+    """The language of ``languages`` whose source suffix ``name`` has, or
+    None."""
+    suffix = Path(name).suffix
+    if suffix == ".h" and "cpp" in languages:
+        # A header is read as C++ when C++ is selected: C++ code includes
+        # it, and the C++ grammar reads C declarations too.
+        return "cpp"
+    return next((lang for lang in languages if suffix in LANGUAGES[lang][0]), None)
+
+
+def source_languages(root, include=("*",), exclude=()):
+    """{language: number of source files} of a workspace, for every language
+    the engine reads: the files ``analyze_repository`` with all languages
+    would select by their suffix (manifests left out)."""
+    root = Path(root)
+    languages = tuple(sorted(LANGUAGES))
+    counts = {}
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in _SKIPPED_DIRECTORIES)
+        for name in names:
+            relative = (Path(directory) / name).relative_to(root).as_posix()
+            if not any(fnmatchcase(relative, pattern) for pattern in include) or any(
+                fnmatchcase(relative, pattern) for pattern in exclude
+            ):
+                continue
+            language = _source_language(name, languages)
+            if language is not None:
+                counts[language] = counts.get(language, 0) + 1
+    return counts
+
+
 def analyze_repository(
     path: str | Path,
     *,
@@ -284,13 +317,7 @@ def analyze_repository(
             ):
                 continue
             suffix = Path(name).suffix
-            language = next(
-                (lang for lang in languages if suffix in LANGUAGES[lang][0]), None
-            )
-            if suffix == ".h" and "cpp" in languages:
-                # A header is read as C++ when C++ is selected: C++ code
-                # includes it, and the C++ grammar reads C declarations too.
-                language = "cpp"
+            language = _source_language(name, languages)
             if name == "go.mod" and "go" in languages:
                 # Go module files declare the import path prefix of their tree.
                 language = "go"
