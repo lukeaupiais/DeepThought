@@ -1,6 +1,7 @@
 """Database tables: SQL DDL, JPA entity mappings and Spring Data repositories."""
 
 import asyncio
+import json
 import importlib.util
 import os
 from pathlib import Path
@@ -32,6 +33,7 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
+from deploy_tools_ready import needs_deploy_tools
 from go_stubs import needs_go
 
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
@@ -283,11 +285,107 @@ CREATE TABLE odd (x int REFERENCES users NOT SQL AT ALL (((;
         )
         self.assertEqual(
             output.metadata.custom_metrics["foreign_keys"],
-            {"sql": 1, "prisma": 0, "sql_not_parsed": 1},
+            {
+                "sql": 1,
+                "prisma": 0,
+                "sql_not_parsed": 1,
+                "drizzle_snapshot": 0,
+                "drizzle_snapshot_unread": 0,
+                "prisma_migration_files_superseded": 0,
+            },
         )
         self.assertIn(
             "foreign_key_not_parsed: db/schema.sql:3: no sqlglot dialect parses "
             "this statement, so its foreign keys are not read",
+            output.metadata.warnings,
+        )
+
+    def test_drizzle_snapshot_states_the_foreign_keys(self):
+        snapshot = {
+            "version": "7",
+            "dialect": "postgresql",
+            "tables": {
+                "public.posts": {
+                    "name": "posts",
+                    "foreignKeys": {
+                        "posts_author_id_users_id_fk": {
+                            "name": "posts_author_id_users_id_fk",
+                            "tableFrom": "posts",
+                            "tableTo": "users",
+                            "columnsFrom": ["author_id"],
+                            "columnsTo": ["id"],
+                            "onDelete": "cascade",
+                        }
+                    },
+                },
+                "public.users": {"name": "users", "foreignKeys": {}},
+            },
+        }
+        files = {
+            "package.json": '{"name": "app"}',
+            "drizzle/meta/_journal.json": '{"entries": [{"idx": 0}, {"idx": 1}]}',
+            # The first snapshot still has the key the second migration drops.
+            "drizzle/meta/0000_snapshot.json": "{}",
+            "drizzle/meta/0001_snapshot.json": json.dumps(snapshot, indent=2),
+            "drizzle/0000_init.sql": "CREATE TABLE users (id int);\n"
+            "CREATE TABLE posts (id int, author_id int);\n"
+            "CREATE TABLE tags (id int, user_id int REFERENCES users (id));\n"
+            "DO $$ BEGIN ALTER TABLE posts ADD CONSTRAINT posts_author_id_users_id_fk"
+            " FOREIGN KEY (author_id) REFERENCES users (id); END $$;\n",
+            "drizzle/0001_drop.sql": "DROP TABLE tags;\n",
+            "broken/meta/_journal.json": '{"entries": []}',
+            "broken/0000_init.sql": "CREATE TABLE a (b int REFERENCES c (id));\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        keys = [r for r in output.relationships if r.type == "REFERENCES_TABLE"]
+        self.assertEqual(
+            [
+                (
+                    r.source_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.properties["rule_id"],
+                    r.properties["file_path"],
+                    r.properties["line"],
+                    r.properties.get("on_delete"),
+                )
+                for r in keys
+            ],
+            [
+                (
+                    "a",
+                    "c",
+                    "data-contracts.sql-foreign-key",
+                    "broken/0000_init.sql",
+                    1,
+                    None,
+                ),
+                (
+                    "posts",
+                    "users",
+                    "data-contracts.drizzle-foreign-key",
+                    "drizzle/meta/0001_snapshot.json",
+                    8,
+                    "CASCADE",
+                ),
+            ],
+        )
+        metrics = output.metadata.custom_metrics["foreign_keys"]
+        # The folder whose last snapshot is missing is read migration by
+        # migration, and the warning says so.
+        self.assertEqual(
+            (metrics["sql"], metrics["drizzle_snapshot"]),
+            (1, 1),
+        )
+        self.assertEqual(metrics["drizzle_snapshot_unread"], 1)
+        self.assertTrue(
+            any(
+                w.startswith("drizzle_snapshot_unread: drizzle-kit snapshot of broken")
+                for w in output.metadata.warnings
+            ),
             output.metadata.warnings,
         )
 
@@ -1813,7 +1911,8 @@ TYPESCRIPT = importlib.util.find_spec("tree_sitter") and importlib.util.find_spe
     "tree_sitter_typescript"
 )
 SCRIPT_ORMS = {
-    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}}',
+    "package.json": '{"name": "shop", "devDependencies": {"prisma": "6.19.0"}, '
+    '"dependencies": {"typeorm": "0.3.28"}}',
     "prisma/schema.prisma": """// The shop's tables.
 datasource db {
   provider = "postgresql"
@@ -1905,6 +2004,30 @@ def _npm_registry():
 
 
 NODE = _npm_registry()
+
+
+def _go_proxy():
+    """go, and the module proxy reachable: the engine builds GORM's own
+    NamingStrategy against the gorm release a module pins. The acceptance
+    sandbox has no network; the graph-port job, which has, runs these
+    tests."""
+    go = shutil.which("go")
+    if not go:
+        return False
+    try:
+        return (
+            subprocess.run(
+                [go, "mod", "download", "gorm.io/gorm@v1.25.12"],
+                capture_output=True,
+                timeout=120,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+GORM_RELEASES = _go_proxy()
 
 
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
@@ -2000,6 +2123,62 @@ class ScriptOrmTests(unittest.TestCase):
         for relationship in output.relationships:
             self.assertIsNotNone(get_rule(relationship.properties["rule_id"]))
 
+    def test_typeorm_release_of_an_entity(self):
+        from deepthought.typeorm_naming import project_release
+
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "package.json": '{"dependencies": {"typeorm": "^0.3.0"}}',
+                    "api/package.json": '{"dependencies": {"typeorm": "^0.2.0"}}',
+                    "api/src/a.ts": "",
+                    "web/src/b.ts": "",
+                    "web/yarn.lock": 'typeorm@^0.3.0:\n  version "0.3.17"\n',
+                    # NestJS projects lock @nestjs/typeorm next to typeorm.
+                    "pnpm/src/d.ts": "",
+                    "pnpm/package.json": '{"dependencies": {"typeorm": "^0.3.17"}}',
+                    "pnpm/pnpm-lock.yaml": "lockfileVersion: '9.0'\npackages:\n"
+                    "  '@nestjs/typeorm@10.0.2':\n    resolution: {}\n"
+                    "  typeorm@0.3.20:\n    resolution: {}\nsnapshots:\n"
+                    "  '@nestjs/typeorm@10.0.2(typeorm@0.3.20(pg@8.11.3))':\n"
+                    "    dependencies: {}\n",
+                    "pnpm8/src/e.ts": "",
+                    "pnpm8/pnpm-lock.yaml": "packages:\n"
+                    "  /@nestjs/typeorm@10.0.2:\n    resolution: {}\n"
+                    "  /typeorm@0.3.19:\n    resolution: {}\n",
+                    "bun/src/f.ts": "",
+                    "bun/bun.lock": '{"packages": {"@nestjs/typeorm": '
+                    '["@nestjs/typeorm@10.0.2", ""], "typeorm": ["typeorm@0.3.18", ""]}}',
+                    "cli/src/c.ts": "",
+                    "cli/node_modules/typeorm/package.json": '{"version": "0.3.20"}',
+                    "cli/package-lock.json": '{"packages": {"node_modules/typeorm": '
+                    '{"version": "0.3.1"}}}',
+                },
+            )
+            # The nearest declared range, when nothing is locked or installed.
+            self.assertEqual(
+                project_release(directory, "api/src/a.ts"), ("range", "^0.2.0")
+            )
+            self.assertEqual(
+                project_release(directory, "web/src/b.ts"), ("release", "0.3.17")
+            )
+            for file, release in (
+                ("pnpm/src/d.ts", "0.3.20"),
+                ("pnpm8/src/e.ts", "0.3.19"),
+                ("bun/src/f.ts", "0.3.18"),
+            ):
+                self.assertEqual(
+                    project_release(directory, file), ("release", release), file
+                )
+            # Installed before locked, in the same directory.
+            self.assertEqual(
+                project_release(directory, "cli/src/c.ts"), ("release", "0.3.20")
+            )
+
+    @unittest.skipUnless(
+        NODE, "TypeORM's naming strategy is installed with npm from its registry"
+    )
     def test_typeorm_wrappers_and_child_entities(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, TYPEORM_WRAPPERS)
@@ -2151,6 +2330,44 @@ class PrismaVersionTests(unittest.TestCase):
     NODE, "Prisma schemas are read with node, npm and the npm registry"
 )
 class PrismaSchemaTests(unittest.TestCase):
+    def test_schema_stands_for_its_migrations(self):
+        files = {
+            **PRISMA_FOLDER,
+            "apps/api/prisma/migrations/migration_lock.toml": 'provider = "postgresql"\n',
+            # An old table, dropped since: its key is not in the schema.
+            "apps/api/prisma/migrations/0_init/migration.sql": "CREATE TABLE "
+            '"Draft" (id int, "authorId" int REFERENCES "Author" (id));\n',
+            # Not Prisma Migrate's: no lock file beside it.
+            "db/migrations/0_init/migration.sql": "CREATE TABLE notes "
+            "(id int, author int REFERENCES writers (id));\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        self.assertEqual(
+            sorted(
+                (
+                    r.source_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.target_match["qualified_name"].rsplit("::", 1)[-1],
+                    r.properties["rule_id"],
+                )
+                for r in output.relationships
+                if r.type == "REFERENCES_TABLE"
+            ),
+            [
+                ("notes", "writers", "data-contracts.sql-foreign-key"),
+                ("posts", "author", "data-contracts.prisma-foreign-key"),
+            ],
+        )
+        self.assertEqual(
+            output.metadata.custom_metrics["foreign_keys"][
+                "prisma_migration_files_superseded"
+            ],
+            1,
+        )
+
     def test_folders_rejections_and_missing_versions(self):
         from deepthought.prisma_schema import read_schemas
 
@@ -2255,6 +2472,7 @@ class PrismaSchemaTests(unittest.TestCase):
 
 
 TYPEORM_WRAPPERS = {
+    "package.json": '{"name": "stock", "dependencies": {"typeorm": "0.3.28"}}',
     "src/entity.ts": """import { ChildEntity, Entity, TableInheritance } from "typeorm";
 
 @Entity()
@@ -2710,6 +2928,63 @@ func Load(db *sql.DB) {
             output.metadata.custom_metrics["go_type_facts"].get("files_not_checked")
         )
 
+    def test_gopath_packages_record_what_they_resolved(self):
+        # The package imports a module served by a local module proxy; the
+        # versions and go.sum the check resolved are kept on the facts.
+        with tempfile.TemporaryDirectory() as proxy:
+            _module_proxy(
+                proxy,
+                "example.com/dbx",
+                "v1.2.0",
+                {"dbx.go": 'package dbx\n\nconst Table = "accounts"\n'},
+            )
+            environment = {
+                "GOPROXY": Path(proxy).as_uri(),
+                "GOSUMDB": "off",
+                "GOFLAGS": "",
+            }
+            files = {
+                "cmd/load/main.go": """package main
+
+import (
+\t"database/sql"
+
+\t"example.com/dbx"
+)
+
+func Load(db *sql.DB) {
+\tdb.Query("SELECT id FROM " + dbx.Table)
+}
+""",
+            }
+            with mock.patch.dict(os.environ, environment):
+                output = self.analyze(files)
+        packages = output.metadata.custom_metrics["go_type_facts"]["gopath_packages"]
+        self.assertEqual(list(packages), ["cmd/load"])
+        self.assertEqual(packages["cmd/load"]["status"], "gopath_latest")
+        self.assertEqual(packages["cmd/load"]["modules"], {"example.com/dbx": "v1.2.0"})
+        self.assertRegex(packages["cmd/load"]["go_sum_sha256"], "^[0-9a-f]{64}$")
+
+
+def _module_proxy(directory, path, version, sources):
+    """A GOPROXY=file:// directory serving one module version."""
+    import json
+    import zipfile
+
+    base = Path(directory) / path / "@v"
+    base.mkdir(parents=True)
+    (base / "list").write_text(version + "\n", encoding="utf-8")
+    (base / f"{version}.info").write_text(
+        json.dumps({"Version": version, "Time": "2020-01-01T00:00:00Z"}),
+        encoding="utf-8",
+    )
+    mod = f"module {path}\n\ngo 1.16\n"
+    (base / f"{version}.mod").write_text(mod, encoding="utf-8")
+    with zipfile.ZipFile(base / f"{version}.zip", "w") as archive:
+        archive.writestr(f"{path}@{version}/go.mod", mod)
+        for name, text in sources.items():
+            archive.writestr(f"{path}@{version}/{name}", text)
+
 
 class GoToolchainTests(unittest.TestCase):
     def test_wanted_toolchain(self):
@@ -2792,7 +3067,7 @@ func {_service.capitalize()}(db *sql.DB) {{
 
 
 class ComposeDatabaseTests(unittest.TestCase):
-    @needs_go
+    @needs_deploy_tools
     def test_services_naming_one_compose_database_share_its_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SHARED_COMPOSE_DATABASE)
@@ -3276,7 +3551,7 @@ class RailsTests(unittest.TestCase):
 
 
 GORM = {
-    "go.mod": "module example.com/shop\n\ngo 1.22\n",
+    "go.mod": "module example.com/shop\n\ngo 1.22\n\nrequire gorm.io/gorm v1.25.12\n",
     "models/models.go": """\
 package models
 
@@ -3332,23 +3607,46 @@ func Save(db DB, value interface{}, rows []models.Legacy) {
 
 
 class GormTests(unittest.TestCase):
-    def test_default_names_match_gorm(self):
-        from deepthought.data_contracts import gorm_table_name
+    @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
+    def test_default_names_come_from_gorm(self):
+        from deepthought.gorm_naming import table_names
 
-        # Outputs of gorm.io/gorm 1.25.12 schema.NamingStrategy{}.TableName.
-        for name, table in (
-            ("UserModel", "user_models"),
-            ("HTTPSServer", "http_s_servers"),
-            ("Human", "humen"),
-            ("APIKey", "api_keys"),
-            ("UTF8Data", "utf8_data"),
-            ("Person", "people"),
-            ("Leaf", "leafs"),
-            ("Campus", "campus"),
-        ):
-            self.assertEqual(gorm_table_name(name), table)
+        # GORM's NamingStrategy at the version the module selects; these are
+        # gorm.io/gorm 1.25.12's answers.
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                directory,
+                {
+                    "svc/go.mod": "module example.com/svc\n\ngo 1.22\n\n"
+                    "require gorm.io/gorm v1.25.12\n",
+                },
+            )
+            names, reason = table_names(
+                directory,
+                "svc",
+                ["UserModel", "HTTPSServer", "Human", "APIKey", "Person", "Leaf"],
+            )
+            self.assertIsNone(reason)
+            self.assertEqual(
+                names,
+                {
+                    "UserModel": "user_models",
+                    "HTTPSServer": "http_s_servers",
+                    "Human": "humen",
+                    "APIKey": "api_keys",
+                    "Person": "people",
+                    "Leaf": "leafs",
+                },
+            )
+            # A module whose go.mod selects no GORM gets no names, and why.
+            write(directory, {"bare/go.mod": "module example.com/bare\n\ngo 1.22\n"})
+            names, reason = table_names(directory, "bare", ["User"])
+            self.assertEqual(names, {})
+            self.assertIn("the module graph selects no gorm.io/gorm", reason)
 
     @needs_go
+    @unittest.skipUnless(GORM_RELEASES, "needs the Go module proxy")
     def test_models_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, GORM)
@@ -3369,7 +3667,8 @@ class GormTests(unittest.TestCase):
             edges,
             [
                 ("MAPS_TO", "Address", "addresses", "gorm-default-table-name"),
-                ("MAPS_TO", "Legacy", "legacy_rows", "gorm-table-name"),
+                # The go.mod requires GORM, so go/types reads TableName.
+                ("MAPS_TO", "Legacy", "legacy_rows", "gorm-table-name-types"),
                 ("MAPS_TO", "UserModel", "user_models", "gorm-default-table-name"),
                 ("READS", "Load", "user_models", "gorm-call"),
                 # Association(...).Find reads the associated table.
