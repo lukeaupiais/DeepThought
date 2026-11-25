@@ -1,8 +1,140 @@
 # file	line	name	target_file	target_line	kind
+# indexed	adapters/aws-lambda/src/conninfo.test.ts
+# indexed	adapters/aws-lambda/src/conninfo.ts
+# indexed	adapters/aws-lambda/src/handler.test.ts
+# indexed	adapters/aws-lambda/src/handler.ts
+# indexed	adapters/aws-lambda/src/index.ts
+# indexed	adapters/aws-lambda/src/types.ts
+# indexed	adapters/aws-lambda/test/index.test.ts
+# indexed	adapters/aws-lambda/test/mock.ts
+# indexed	adapters/aws-lambda/test/stream-backpressure.test.ts
+# indexed	adapters/aws-lambda/test/stream-mock.ts
+# indexed	adapters/aws-lambda/test/stream.test.ts
+# indexed	adapters/aws-lambda/vite.config.ts
+# indexed	adapters/bun/src/conninfo.test.ts
+# indexed	adapters/bun/src/conninfo.ts
+# indexed	adapters/bun/src/index.ts
+# indexed	adapters/bun/src/serve-static.ts
+# indexed	adapters/bun/src/server.test.ts
+# indexed	adapters/bun/src/server.ts
+# indexed	adapters/bun/src/ssg.ts
+# indexed	adapters/bun/src/websocket.test.ts
+# indexed	adapters/bun/src/websocket.ts
+# indexed	adapters/bun/test/index.test.ts
+# indexed	adapters/bun/vite.config.ts
+# indexed	adapters/cloudflare-workers/src/conninfo.test.ts
+# indexed	adapters/cloudflare-workers/src/conninfo.ts
+# indexed	adapters/cloudflare-workers/src/index.ts
+# indexed	adapters/cloudflare-workers/src/serve-static-module.ts
+# indexed	adapters/cloudflare-workers/src/serve-static.test.ts
+# indexed	adapters/cloudflare-workers/src/serve-static.ts
+# indexed	adapters/cloudflare-workers/src/utils.test.ts
+# indexed	adapters/cloudflare-workers/src/utils.ts
+# indexed	adapters/cloudflare-workers/src/websocket.test.ts
+# indexed	adapters/cloudflare-workers/src/websocket.ts
+# indexed	adapters/cloudflare-workers/test/websocket.test.ts
+# indexed	adapters/cloudflare-workers/test/worker.ts
+# indexed	adapters/cloudflare-workers/vite.config.ts
+# indexed	adapters/deno/src/conninfo.test.ts
+# indexed	adapters/deno/src/conninfo.ts
+# indexed	adapters/deno/src/deno.d.ts
+# indexed	adapters/deno/src/index.ts
+# indexed	adapters/deno/src/serve-static.ts
+# indexed	adapters/deno/src/ssg.ts
+# indexed	adapters/deno/src/websocket.test.ts
+# indexed	adapters/deno/src/websocket.ts
+# indexed	adapters/deno/test/assert.ts
+# indexed	adapters/deno/test/serve-static.test.ts
+# indexed	adapters/deno/test/ssg.test.ts
+# indexed	adapters/deno/vite.config.ts
+# indexed	adapters/lambda-edge/src/conninfo.test.ts
+# indexed	adapters/lambda-edge/src/conninfo.ts
+# indexed	adapters/lambda-edge/src/handler.test.ts
+# indexed	adapters/lambda-edge/src/handler.ts
+# indexed	adapters/lambda-edge/src/index.ts
+# indexed	adapters/lambda-edge/test/index.test.ts
+# indexed	adapters/lambda-edge/vite.config.ts
+# indexed	adapters/netlify/src/conninfo.test.ts
+# indexed	adapters/netlify/src/conninfo.ts
+# indexed	adapters/netlify/src/handler.ts
+# indexed	adapters/netlify/src/index.ts
+# indexed	adapters/netlify/src/mod.ts
+# indexed	adapters/netlify/vite.config.ts
+# indexed	adapters/service-worker/src/handler.test.ts
+# indexed	adapters/service-worker/src/handler.ts
+# indexed	adapters/service-worker/src/index.ts
+# indexed	adapters/service-worker/src/types.ts
+# indexed	adapters/service-worker/vite.config.ts
+# indexed	adapters/vercel/src/conninfo.test.ts
+# indexed	adapters/vercel/src/conninfo.ts
+# indexed	adapters/vercel/src/handler.test.ts
+# indexed	adapters/vercel/src/handler.ts
+# indexed	adapters/vercel/src/index.ts
+# indexed	adapters/vercel/vite.config.ts
+# indexed	benchmarks/fetch/bench.mts
+# indexed	benchmarks/fetch/summarize.mts
+# indexed	benchmarks/http-server/benchmark.ts
+# indexed	benchmarks/jsx-dom/benchmark.ts
+# indexed	benchmarks/jsx/src/benchmark.ts
+# indexed	benchmarks/jsx/src/hono.ts
+# indexed	benchmarks/jsx/src/nano.ts
+# indexed	benchmarks/jsx/src/page-react.tsx
+# indexed	benchmarks/jsx/src/page.tsx
+# indexed	benchmarks/jsx/src/preact.ts
+# indexed	benchmarks/jsx/src/react-jsx/benchmark.ts
+# indexed	benchmarks/jsx/src/react-jsx/hono.ts
+# indexed	benchmarks/jsx/src/react-jsx/nano.ts
+# indexed	benchmarks/jsx/src/react-jsx/page-hono.tsx
+# indexed	benchmarks/jsx/src/react-jsx/page-nano.tsx
+# indexed	benchmarks/jsx/src/react-jsx/page-preact.tsx
+# indexed	benchmarks/jsx/src/react-jsx/page-react.tsx
+# indexed	benchmarks/jsx/src/react-jsx/preact.ts
+# indexed	benchmarks/jsx/src/react-jsx/react.ts
+# indexed	benchmarks/jsx/src/react.ts
+# indexed	benchmarks/query-param/src/bench.mts
+# indexed	benchmarks/query-param/src/fast-querystring.mts
+# indexed	benchmarks/query-param/src/hono.mts
+# indexed	benchmarks/query-param/src/qs.mts
+# indexed	benchmarks/routers-deno/src/bench.mts
+# indexed	benchmarks/routers-deno/src/find-my-way.mts
+# indexed	benchmarks/routers-deno/src/hono.mts
+# indexed	benchmarks/routers-deno/src/koa-router.mts
+# indexed	benchmarks/routers-deno/src/koa-tree-router.mts
+# indexed	benchmarks/routers-deno/src/medley-router.mts
+# indexed	benchmarks/routers-deno/src/tool.mts
+# indexed	benchmarks/routers-deno/src/trek-router.mts
+# indexed	benchmarks/routers/src/bench-includes-init.mts
+# indexed	benchmarks/routers/src/bench.mts
+# indexed	benchmarks/routers/src/express.mts
+# indexed	benchmarks/routers/src/find-my-way.mts
+# indexed	benchmarks/routers/src/hono.mts
+# indexed	benchmarks/routers/src/koa-router.mts
+# indexed	benchmarks/routers/src/koa-tree-router.mts
+# indexed	benchmarks/routers/src/medley-router.mts
+# indexed	benchmarks/routers/src/memoirist.mts
+# indexed	benchmarks/routers/src/radix3.mts
+# indexed	benchmarks/routers/src/rou3.mts
+# indexed	benchmarks/routers/src/tool.mts
+# indexed	benchmarks/routers/src/trek-router.mts
+# indexed	benchmarks/utils/src/get-path.ts
+# indexed	build/declaration-emit.test.ts
+# indexed	build/dts-plugins.ts
+# indexed	build/fixtures/declaration-emit/index.ts
+# indexed	build/fixtures/json-parsed-exact/index.ts
+# indexed	build/fixtures/jsx-types/index.tsx
+# indexed	build/json-parsed-exact.test.ts
+# indexed	build/jsx-types.test.ts
+# indexed	build/release-adapter.ts
+# indexed	perf-measures/bundle-check/scripts/check-bundle-size.ts
+# indexed	perf-measures/type-check/client.ts
 # indexed	perf-measures/type-check/scripts/generate-app.ts
 # indexed	perf-measures/type-check/scripts/process-results.ts
 # indexed	runtime-tests/bun/color.test.ts
 # indexed	runtime-tests/bun/index.test.tsx
+# indexed	runtime-tests/deno-jsx/jsx.test.tsx
+# indexed	runtime-tests/deno/hono.test.ts
+# indexed	runtime-tests/deno/middleware.test.tsx
+# indexed	runtime-tests/deno/stream.test.ts
 # indexed	runtime-tests/fastly/index.test.ts
 # indexed	runtime-tests/fastly/vitest.config.ts
 # indexed	runtime-tests/node/index.test.ts
@@ -203,7 +335,6 @@
 # indexed	src/middleware/jwk/index.test.ts
 # indexed	src/middleware/jwk/index.ts
 # indexed	src/middleware/jwk/jwk.ts
-# indexed	src/middleware/jwk/keys.test.json
 # indexed	src/middleware/jwt/index.test.ts
 # indexed	src/middleware/jwt/index.ts
 # indexed	src/middleware/jwt/jwt.ts
@@ -326,6 +457,380 @@
 # indexed	src/validator/utils.ts
 # indexed	src/validator/validator.test.ts
 # indexed	src/validator/validator.ts
+# indexed	vite.config.ts
+# indexed	vitest.config.ts
+adapters/aws-lambda/src/conninfo.test.ts	1	import	-	0	external
+adapters/aws-lambda/src/conninfo.test.ts	2	import	adapters/aws-lambda/src/conninfo.ts	0	module
+adapters/aws-lambda/src/conninfo.ts	1	import	-	0	external
+adapters/aws-lambda/src/conninfo.ts	2	import	-	0	external
+adapters/aws-lambda/src/conninfo.ts	7	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/src/handler.test.ts	1	import	-	0	external
+adapters/aws-lambda/src/handler.test.ts	2	import	-	0	external
+adapters/aws-lambda/src/handler.test.ts	3	import	-	0	external
+adapters/aws-lambda/src/handler.test.ts	4	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/src/handler.test.ts	10	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/src/handler.test.ts	11	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/src/handler.ts	1	import	-	0	external
+adapters/aws-lambda/src/handler.ts	2	import	-	0	external
+adapters/aws-lambda/src/handler.ts	3	import	-	0	external
+adapters/aws-lambda/src/handler.ts	4	import	-	0	external
+adapters/aws-lambda/src/handler.ts	12	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/src/index.ts	6	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/src/index.ts	7	import	adapters/aws-lambda/src/conninfo.ts	0	module
+adapters/aws-lambda/src/index.ts	8	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/src/index.ts	14	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/test/index.test.ts	1	import	-	0	external
+adapters/aws-lambda/test/index.test.ts	2	import	-	0	external
+adapters/aws-lambda/test/index.test.ts	3	import	-	0	external
+adapters/aws-lambda/test/index.test.ts	4	import	-	0	external
+adapters/aws-lambda/test/index.test.ts	5	import	-	0	external
+adapters/aws-lambda/test/index.test.ts	13	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/index.test.ts	19	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/index.test.ts	25	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/test/index.test.ts	26	import	adapters/aws-lambda/test/mock.ts	0	module
+adapters/aws-lambda/test/mock.ts	1	import	-	0	external
+adapters/aws-lambda/test/mock.ts	2	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/mock.ts	3	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/test/mock.ts	15	import	-	0	external
+adapters/aws-lambda/test/stream-backpressure.test.ts	1	import	-	0	external
+adapters/aws-lambda/test/stream-backpressure.test.ts	2	import	-	0	external
+adapters/aws-lambda/test/stream-backpressure.test.ts	3	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/stream-backpressure.test.ts	4	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/test/stream-mock.ts	1	import	-	0	external
+adapters/aws-lambda/test/stream-mock.ts	2	import	-	0	external
+adapters/aws-lambda/test/stream-mock.ts	3	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/stream-mock.ts	4	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/test/stream.test.ts	1	import	-	0	external
+adapters/aws-lambda/test/stream.test.ts	2	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/stream.test.ts	3	import	adapters/aws-lambda/src/handler.ts	0	module
+adapters/aws-lambda/test/stream.test.ts	8	import	adapters/aws-lambda/src/types.ts	0	module
+adapters/aws-lambda/test/stream.test.ts	9	import	adapters/aws-lambda/test/stream-mock.ts	0	module
+adapters/aws-lambda/vite.config.ts	1	import	-	0	external
+adapters/aws-lambda/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/bun/src/conninfo.test.ts	1	import	-	0	external
+adapters/bun/src/conninfo.test.ts	2	import	-	0	external
+adapters/bun/src/conninfo.test.ts	3	import	-	0	external
+adapters/bun/src/conninfo.test.ts	4	import	adapters/bun/src/conninfo.ts	0	module
+adapters/bun/src/conninfo.ts	1	import	-	0	external
+adapters/bun/src/conninfo.ts	2	import	-	0	external
+adapters/bun/src/conninfo.ts	3	import	adapters/bun/src/server.ts	0	module
+adapters/bun/src/index.ts	6	import	adapters/bun/src/serve-static.ts	0	module
+adapters/bun/src/index.ts	7	import	adapters/bun/src/ssg.ts	0	module
+adapters/bun/src/index.ts	8	import	adapters/bun/src/websocket.ts	0	module
+adapters/bun/src/index.ts	9	import	adapters/bun/src/websocket.ts	0	module
+adapters/bun/src/index.ts	10	import	adapters/bun/src/conninfo.ts	0	module
+adapters/bun/src/index.ts	11	import	adapters/bun/src/server.ts	0	module
+adapters/bun/src/serve-static.ts	2	import	-	0	external
+adapters/bun/src/serve-static.ts	3	import	-	0	external
+adapters/bun/src/serve-static.ts	4	import	-	0	external
+adapters/bun/src/serve-static.ts	5	import	-	0	external
+adapters/bun/src/serve-static.ts	6	import	-	0	external
+adapters/bun/src/server.test.ts	1	import	-	0	external
+adapters/bun/src/server.test.ts	2	import	-	0	external
+adapters/bun/src/server.test.ts	3	import	adapters/bun/src/server.ts	0	module
+adapters/bun/src/server.ts	5	import	-	0	external
+adapters/bun/src/ssg.ts	2	import	-	0	external
+adapters/bun/src/ssg.ts	3	import	-	0	external
+adapters/bun/src/websocket.test.ts	1	import	-	0	external
+adapters/bun/src/websocket.test.ts	2	import	-	0	external
+adapters/bun/src/websocket.test.ts	3	import	adapters/bun/src/websocket.ts	0	module
+adapters/bun/src/websocket.test.ts	4	import	adapters/bun/src/websocket.ts	0	module
+adapters/bun/src/websocket.ts	1	import	-	0	external
+adapters/bun/src/websocket.ts	2	import	-	0	external
+adapters/bun/src/websocket.ts	3	import	adapters/bun/src/server.ts	0	module
+adapters/bun/test/index.test.ts	1	import	-	0	external
+adapters/bun/test/index.test.ts	2	import	-	0	external
+adapters/bun/test/index.test.ts	3	import	-	0	external
+adapters/bun/test/index.test.ts	4	import	-	0	external
+adapters/bun/test/index.test.ts	5	import	-	0	external
+adapters/bun/test/index.test.ts	6	import	adapters/bun/src/index.ts	0	module
+adapters/bun/test/index.test.ts	7	import	adapters/bun/src/index.ts	0	module
+adapters/bun/vite.config.ts	1	import	-	0	external
+adapters/bun/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/cloudflare-workers/src/conninfo.test.ts	1	import	-	0	external
+adapters/cloudflare-workers/src/conninfo.test.ts	2	import	adapters/cloudflare-workers/src/conninfo.ts	0	module
+adapters/cloudflare-workers/src/conninfo.ts	1	import	-	0	external
+adapters/cloudflare-workers/src/index.ts	6	import	adapters/cloudflare-workers/src/serve-static-module.ts	0	module
+adapters/cloudflare-workers/src/index.ts	7	import	adapters/cloudflare-workers/src/websocket.ts	0	module
+adapters/cloudflare-workers/src/index.ts	8	import	adapters/cloudflare-workers/src/conninfo.ts	0	module
+adapters/cloudflare-workers/src/serve-static-module.ts	2	import	-	0	external
+adapters/cloudflare-workers/src/serve-static-module.ts	3	import	adapters/cloudflare-workers/src/serve-static.ts	0	module
+adapters/cloudflare-workers/src/serve-static-module.ts	4	import	adapters/cloudflare-workers/src/serve-static.ts	0	module
+adapters/cloudflare-workers/src/serve-static.test.ts	1	import	-	0	external
+adapters/cloudflare-workers/src/serve-static.test.ts	2	import	-	0	external
+adapters/cloudflare-workers/src/serve-static.test.ts	3	import	-	0	external
+adapters/cloudflare-workers/src/serve-static.test.ts	4	import	adapters/cloudflare-workers/src/serve-static.ts	0	module
+adapters/cloudflare-workers/src/serve-static.ts	1	import	-	0	external
+adapters/cloudflare-workers/src/serve-static.ts	2	import	-	0	external
+adapters/cloudflare-workers/src/serve-static.ts	3	import	-	0	external
+adapters/cloudflare-workers/src/serve-static.ts	4	import	adapters/cloudflare-workers/src/utils.ts	0	module
+adapters/cloudflare-workers/src/utils.test.ts	1	import	adapters/cloudflare-workers/src/utils.ts	0	module
+adapters/cloudflare-workers/src/websocket.test.ts	1	import	-	0	external
+adapters/cloudflare-workers/src/websocket.test.ts	2	import	adapters/cloudflare-workers/src/index.ts	0	module
+adapters/cloudflare-workers/src/websocket.ts	1	import	-	0	external
+adapters/cloudflare-workers/src/websocket.ts	2	import	-	0	external
+adapters/cloudflare-workers/test/websocket.test.ts	1	import	-	0	external
+adapters/cloudflare-workers/test/websocket.test.ts	2	import	-	0	external
+adapters/cloudflare-workers/test/worker.ts	1	import	-	0	external
+adapters/cloudflare-workers/test/worker.ts	2	import	adapters/cloudflare-workers/src/index.ts	0	module
+adapters/cloudflare-workers/vite.config.ts	1	import	-	0	external
+adapters/cloudflare-workers/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/deno/src/conninfo.test.ts	1	import	-	0	external
+adapters/deno/src/conninfo.test.ts	2	import	adapters/deno/src/conninfo.ts	0	module
+adapters/deno/src/conninfo.ts	1	import	-	0	external
+adapters/deno/src/index.ts	6	import	adapters/deno/src/serve-static.ts	0	module
+adapters/deno/src/index.ts	7	import	adapters/deno/src/ssg.ts	0	module
+adapters/deno/src/index.ts	8	import	adapters/deno/src/websocket.ts	0	module
+adapters/deno/src/index.ts	9	import	adapters/deno/src/conninfo.ts	0	module
+adapters/deno/src/serve-static.ts	1	import	-	0	external
+adapters/deno/src/serve-static.ts	2	import	-	0	external
+adapters/deno/src/serve-static.ts	3	import	-	0	external
+adapters/deno/src/serve-static.ts	4	import	-	0	external
+adapters/deno/src/ssg.ts	1	import	-	0	external
+adapters/deno/src/ssg.ts	2	import	-	0	external
+adapters/deno/src/websocket.test.ts	1	import	-	0	external
+adapters/deno/src/websocket.test.ts	2	import	adapters/deno/src/websocket.ts	0	module
+adapters/deno/src/websocket.ts	1	import	-	0	external
+adapters/deno/src/websocket.ts	2	import	-	0	external
+adapters/deno/test/serve-static.test.ts	1	import	-	0	external
+adapters/deno/test/serve-static.test.ts	2	import	adapters/deno/src/index.ts	0	module
+adapters/deno/test/serve-static.test.ts	3	import	adapters/deno/test/assert.ts	0	module
+adapters/deno/test/ssg.test.ts	1	import	-	0	external
+adapters/deno/test/ssg.test.ts	2	import	adapters/deno/src/index.ts	0	module
+adapters/deno/test/ssg.test.ts	3	import	adapters/deno/test/assert.ts	0	module
+adapters/deno/vite.config.ts	1	import	-	0	external
+adapters/deno/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/lambda-edge/src/conninfo.test.ts	1	import	-	0	external
+adapters/lambda-edge/src/conninfo.test.ts	2	import	adapters/lambda-edge/src/conninfo.ts	0	module
+adapters/lambda-edge/src/conninfo.test.ts	3	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/src/conninfo.ts	1	import	-	0	external
+adapters/lambda-edge/src/conninfo.ts	2	import	-	0	external
+adapters/lambda-edge/src/conninfo.ts	3	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/src/handler.test.ts	1	import	-	0	external
+adapters/lambda-edge/src/handler.test.ts	2	import	-	0	external
+adapters/lambda-edge/src/handler.test.ts	3	import	-	0	external
+adapters/lambda-edge/src/handler.test.ts	4	import	-	0	external
+adapters/lambda-edge/src/handler.test.ts	5	import	-	0	external
+adapters/lambda-edge/src/handler.test.ts	6	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/src/handler.test.ts	7	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/src/handler.ts	1	import	-	0	external
+adapters/lambda-edge/src/handler.ts	2	import	-	0	external
+adapters/lambda-edge/src/handler.ts	3	import	-	0	external
+adapters/lambda-edge/src/index.ts	6	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/src/index.ts	7	import	adapters/lambda-edge/src/conninfo.ts	0	module
+adapters/lambda-edge/src/index.ts	14	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/test/index.test.ts	1	import	-	0	external
+adapters/lambda-edge/test/index.test.ts	2	import	-	0	external
+adapters/lambda-edge/test/index.test.ts	8	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/test/index.test.ts	9	import	adapters/lambda-edge/src/handler.ts	0	module
+adapters/lambda-edge/vite.config.ts	1	import	-	0	external
+adapters/lambda-edge/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/netlify/src/conninfo.test.ts	1	import	-	0	external
+adapters/netlify/src/conninfo.test.ts	2	import	adapters/netlify/src/conninfo.ts	0	module
+adapters/netlify/src/conninfo.ts	1	import	-	0	external
+adapters/netlify/src/conninfo.ts	2	import	-	0	external
+adapters/netlify/src/handler.ts	2	import	-	0	external
+adapters/netlify/src/index.ts	6	import	adapters/netlify/src/mod.ts	0	module
+adapters/netlify/src/mod.ts	1	import	adapters/netlify/src/handler.ts	0	module
+adapters/netlify/src/mod.ts	2	import	adapters/netlify/src/conninfo.ts	0	module
+adapters/netlify/vite.config.ts	1	import	-	0	external
+adapters/netlify/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/service-worker/src/handler.test.ts	1	import	-	0	external
+adapters/service-worker/src/handler.test.ts	2	import	adapters/service-worker/src/handler.ts	0	module
+adapters/service-worker/src/handler.test.ts	3	import	adapters/service-worker/src/types.ts	0	module
+adapters/service-worker/src/handler.ts	6	import	-	0	external
+adapters/service-worker/src/handler.ts	7	import	-	0	external
+adapters/service-worker/src/handler.ts	8	import	adapters/service-worker/src/types.ts	0	module
+adapters/service-worker/src/index.ts	5	import	-	0	external
+adapters/service-worker/src/index.ts	6	import	-	0	external
+adapters/service-worker/src/index.ts	7	import	adapters/service-worker/src/handler.ts	0	module
+adapters/service-worker/src/index.ts	8	import	adapters/service-worker/src/handler.ts	0	module
+adapters/service-worker/vite.config.ts	1	import	-	0	external
+adapters/service-worker/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+adapters/vercel/src/conninfo.test.ts	1	import	-	0	external
+adapters/vercel/src/conninfo.test.ts	2	import	adapters/vercel/src/conninfo.ts	0	module
+adapters/vercel/src/conninfo.ts	1	import	-	0	external
+adapters/vercel/src/handler.test.ts	1	import	-	0	external
+adapters/vercel/src/handler.test.ts	2	import	adapters/vercel/src/handler.ts	0	module
+adapters/vercel/src/handler.ts	2	import	-	0	external
+adapters/vercel/src/index.ts	6	import	adapters/vercel/src/handler.ts	0	module
+adapters/vercel/src/index.ts	7	import	adapters/vercel/src/conninfo.ts	0	module
+adapters/vercel/vite.config.ts	1	import	-	0	external
+adapters/vercel/vite.config.ts	2	import	build/dts-plugins.ts	0	module
+benchmarks/fetch/bench.mts	17	import	benchmarks/fetch/ts-resolve.mjs	0	module
+benchmarks/fetch/bench.mts	18	import	-	0	external
+benchmarks/fetch/bench.mts	19	import	-	0	external
+benchmarks/fetch/summarize.mts	3	import	-	0	external
+benchmarks/http-server/benchmark.ts	17	import	-	0	external
+benchmarks/http-server/benchmark.ts	18	import	-	0	external
+benchmarks/http-server/benchmark.ts	19	import	-	0	external
+benchmarks/jsx-dom/benchmark.ts	3	import	src/jsx/dom/jsx-runtime.ts	0	module
+benchmarks/jsx-dom/benchmark.ts	4	import	src/jsx/dom/render.ts	0	module
+benchmarks/jsx-dom/benchmark.ts	5	import	src/jsx/dom/render.ts	0	module
+benchmarks/jsx/src/benchmark.ts	1	import	-	0	external
+benchmarks/jsx/src/benchmark.ts	2	import	-	0	external
+benchmarks/jsx/src/benchmark.ts	3	import	benchmarks/jsx/src/hono.ts	0	module
+benchmarks/jsx/src/benchmark.ts	4	import	benchmarks/jsx/src/nano.ts	0	module
+benchmarks/jsx/src/benchmark.ts	5	import	benchmarks/jsx/src/preact.ts	0	module
+benchmarks/jsx/src/benchmark.ts	6	import	benchmarks/jsx/src/react.ts	0	module
+benchmarks/jsx/src/hono.ts	1	import	src/jsx/index.ts	0	module
+benchmarks/jsx/src/hono.ts	2	import	benchmarks/jsx/src/page.tsx	0	module
+benchmarks/jsx/src/nano.ts	1	import	-	0	external
+benchmarks/jsx/src/nano.ts	2	import	benchmarks/jsx/src/page.tsx	0	module
+benchmarks/jsx/src/preact.ts	1	import	-	0	external
+benchmarks/jsx/src/preact.ts	2	import	-	0	external
+benchmarks/jsx/src/preact.ts	3	import	benchmarks/jsx/src/page.tsx	0	module
+benchmarks/jsx/src/react-jsx/benchmark.ts	1	import	-	0	external
+benchmarks/jsx/src/react-jsx/benchmark.ts	2	import	-	0	external
+benchmarks/jsx/src/react-jsx/benchmark.ts	3	import	benchmarks/jsx/src/react-jsx/hono.ts	0	module
+benchmarks/jsx/src/react-jsx/benchmark.ts	4	import	benchmarks/jsx/src/react-jsx/nano.ts	0	module
+benchmarks/jsx/src/react-jsx/benchmark.ts	5	import	benchmarks/jsx/src/react-jsx/preact.ts	0	module
+benchmarks/jsx/src/react-jsx/benchmark.ts	6	import	benchmarks/jsx/src/react-jsx/react.ts	0	module
+benchmarks/jsx/src/react-jsx/hono.ts	1	import	benchmarks/jsx/src/react-jsx/page-hono.tsx	0	module
+benchmarks/jsx/src/react-jsx/nano.ts	1	import	-	0	external
+benchmarks/jsx/src/react-jsx/nano.ts	2	import	benchmarks/jsx/src/react-jsx/page-nano.tsx	0	module
+benchmarks/jsx/src/react-jsx/preact.ts	1	import	-	0	external
+benchmarks/jsx/src/react-jsx/preact.ts	2	import	benchmarks/jsx/src/react-jsx/page-preact.tsx	0	module
+benchmarks/jsx/src/react-jsx/react.ts	1	import	-	0	external
+benchmarks/jsx/src/react-jsx/react.ts	2	import	benchmarks/jsx/src/react-jsx/page-react.tsx	0	module
+benchmarks/jsx/src/react.ts	1	import	-	0	external
+benchmarks/jsx/src/react.ts	2	import	-	0	external
+benchmarks/jsx/src/react.ts	3	import	benchmarks/jsx/src/page-react.tsx	0	module
+benchmarks/query-param/src/bench.mts	1	import	-	0	external
+benchmarks/query-param/src/bench.mts	2	import	src/utils/url.ts	0	module
+benchmarks/query-param/src/bench.mts	3	import	benchmarks/query-param/src/fast-querystring.mts	0	module
+benchmarks/query-param/src/bench.mts	4	import	benchmarks/query-param/src/hono.mts	0	module
+benchmarks/query-param/src/bench.mts	5	import	benchmarks/query-param/src/qs.mts	0	module
+benchmarks/query-param/src/fast-querystring.mts	1	import	-	0	external
+benchmarks/query-param/src/hono.mts	1	import	src/utils/url.ts	0	module
+benchmarks/query-param/src/qs.mts	1	import	-	0	external
+benchmarks/routers-deno/src/bench.mts	1	import	-	0	external
+benchmarks/routers-deno/src/bench.mts	2	import	benchmarks/routers-deno/src/find-my-way.mts	0	module
+benchmarks/routers-deno/src/bench.mts	3	import	benchmarks/routers-deno/src/hono.mts	0	module
+benchmarks/routers-deno/src/bench.mts	4	import	benchmarks/routers-deno/src/koa-router.mts	0	module
+benchmarks/routers-deno/src/bench.mts	5	import	benchmarks/routers-deno/src/koa-tree-router.mts	0	module
+benchmarks/routers-deno/src/bench.mts	6	import	benchmarks/routers-deno/src/medley-router.mts	0	module
+benchmarks/routers-deno/src/bench.mts	7	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/bench.mts	8	import	benchmarks/routers-deno/src/trek-router.mts	0	module
+benchmarks/routers-deno/src/find-my-way.mts	1	import	-	0	external
+benchmarks/routers-deno/src/find-my-way.mts	2	import	-	0	external
+benchmarks/routers-deno/src/find-my-way.mts	3	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/find-my-way.mts	4	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/hono.mts	1	import	src/router/pattern-router/index.ts	0	module
+benchmarks/routers-deno/src/hono.mts	2	import	src/router/reg-exp-router/index.ts	0	module
+benchmarks/routers-deno/src/hono.mts	3	import	src/router/trie-router/index.ts	0	module
+benchmarks/routers-deno/src/hono.mts	4	import	src/router.ts	0	module
+benchmarks/routers-deno/src/hono.mts	5	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/hono.mts	6	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/koa-router.mts	1	import	-	0	external
+benchmarks/routers-deno/src/koa-router.mts	2	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/koa-router.mts	3	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/koa-tree-router.mts	1	import	-	0	external
+benchmarks/routers-deno/src/koa-tree-router.mts	2	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/koa-tree-router.mts	3	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/medley-router.mts	1	import	-	0	external
+benchmarks/routers-deno/src/medley-router.mts	2	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/medley-router.mts	3	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/trek-router.mts	1	import	-	0	external
+benchmarks/routers-deno/src/trek-router.mts	2	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers-deno/src/trek-router.mts	3	import	benchmarks/routers-deno/src/tool.mts	0	module
+benchmarks/routers/src/bench-includes-init.mts	1	import	-	0	external
+benchmarks/routers/src/bench-includes-init.mts	2	import	-	0	external
+benchmarks/routers/src/bench-includes-init.mts	3	import	-	0	external
+benchmarks/routers/src/bench-includes-init.mts	4	import	-	0	external
+benchmarks/routers/src/bench-includes-init.mts	5	import	-	0	external
+benchmarks/routers/src/bench-includes-init.mts	6	import	-	0	external
+benchmarks/routers/src/bench-includes-init.mts	7	import	src/router/linear-router/index.ts	0	module
+benchmarks/routers/src/bench-includes-init.mts	12	import	src/router/reg-exp-router/index.ts	0	module
+benchmarks/routers/src/bench-includes-init.mts	13	import	src/router/trie-router/index.ts	0	module
+benchmarks/routers/src/bench-includes-init.mts	14	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/bench-includes-init.mts	15	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/bench.mts	1	import	-	0	external
+benchmarks/routers/src/bench.mts	2	import	benchmarks/routers/src/express.mts	0	module
+benchmarks/routers/src/bench.mts	3	import	benchmarks/routers/src/find-my-way.mts	0	module
+benchmarks/routers/src/bench.mts	4	import	benchmarks/routers/src/hono.mts	0	module
+benchmarks/routers/src/bench.mts	5	import	benchmarks/routers/src/koa-router.mts	0	module
+benchmarks/routers/src/bench.mts	6	import	benchmarks/routers/src/koa-tree-router.mts	0	module
+benchmarks/routers/src/bench.mts	7	import	benchmarks/routers/src/medley-router.mts	0	module
+benchmarks/routers/src/bench.mts	8	import	benchmarks/routers/src/memoirist.mts	0	module
+benchmarks/routers/src/bench.mts	9	import	benchmarks/routers/src/radix3.mts	0	module
+benchmarks/routers/src/bench.mts	10	import	benchmarks/routers/src/rou3.mts	0	module
+benchmarks/routers/src/bench.mts	11	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/bench.mts	12	import	benchmarks/routers/src/trek-router.mts	0	module
+benchmarks/routers/src/express.mts	1	import	-	0	external
+benchmarks/routers/src/express.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/express.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/find-my-way.mts	1	import	-	0	external
+benchmarks/routers/src/find-my-way.mts	2	import	-	0	external
+benchmarks/routers/src/find-my-way.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/find-my-way.mts	4	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/hono.mts	1	import	src/router/pattern-router/index.ts	0	module
+benchmarks/routers/src/hono.mts	2	import	src/router/reg-exp-router/index.ts	0	module
+benchmarks/routers/src/hono.mts	3	import	src/router/trie-router/index.ts	0	module
+benchmarks/routers/src/hono.mts	4	import	src/router.ts	0	module
+benchmarks/routers/src/hono.mts	5	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/hono.mts	6	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/koa-router.mts	1	import	-	0	external
+benchmarks/routers/src/koa-router.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/koa-router.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/koa-tree-router.mts	1	import	-	0	external
+benchmarks/routers/src/koa-tree-router.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/koa-tree-router.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/medley-router.mts	1	import	-	0	external
+benchmarks/routers/src/medley-router.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/medley-router.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/memoirist.mts	1	import	-	0	external
+benchmarks/routers/src/memoirist.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/memoirist.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/radix3.mts	1	import	-	0	external
+benchmarks/routers/src/radix3.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/radix3.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/rou3.mts	1	import	-	0	external
+benchmarks/routers/src/rou3.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/rou3.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/trek-router.mts	1	import	-	0	external
+benchmarks/routers/src/trek-router.mts	2	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/routers/src/trek-router.mts	3	import	benchmarks/routers/src/tool.mts	0	module
+benchmarks/utils/src/get-path.ts	1	import	-	0	external
+build/declaration-emit.test.ts	1	import	-	0	external
+build/declaration-emit.test.ts	2	import	-	0	external
+build/declaration-emit.test.ts	3	import	-	0	external
+build/declaration-emit.test.ts	4	import	-	0	external
+build/declaration-emit.test.ts	5	import	-	0	external
+build/declaration-emit.test.ts	6	import	-	0	external
+build/declaration-emit.test.ts	7	import	-	0	external
+build/dts-plugins.ts	1	import	-	0	external
+build/dts-plugins.ts	2	import	-	0	external
+build/dts-plugins.ts	3	import	-	0	external
+build/dts-plugins.ts	4	import	-	0	external
+build/dts-plugins.ts	5	import	-	0	external
+build/fixtures/declaration-emit/index.ts	1	import	-	0	external
+build/fixtures/declaration-emit/index.ts	2	import	-	0	external
+build/fixtures/declaration-emit/index.ts	3	import	-	0	external
+build/fixtures/json-parsed-exact/index.ts	1	import	src/utils/types.ts	0	module
+build/fixtures/jsx-types/index.tsx	1	import	-	0	external
+build/json-parsed-exact.test.ts	1	import	-	0	external
+build/json-parsed-exact.test.ts	2	import	-	0	external
+build/json-parsed-exact.test.ts	3	import	-	0	external
+build/json-parsed-exact.test.ts	4	import	-	0	external
+build/jsx-types.test.ts	1	import	-	0	external
+build/jsx-types.test.ts	2	import	-	0	external
+build/jsx-types.test.ts	3	import	-	0	external
+build/jsx-types.test.ts	4	import	-	0	external
+build/release-adapter.ts	11	import	-	0	external
+build/release-adapter.ts	12	import	-	0	external
+build/release-adapter.ts	13	import	-	0	external
+perf-measures/bundle-check/scripts/check-bundle-size.ts	1	import	-	0	external
+perf-measures/bundle-check/scripts/check-bundle-size.ts	2	import	-	0	external
+perf-measures/bundle-check/scripts/check-bundle-size.ts	3	import	-	0	external
+perf-measures/bundle-check/scripts/check-bundle-size.ts	4	import	-	0	external
+perf-measures/type-check/client.ts	1	import	src/client/index.ts	0	module
+perf-measures/type-check/client.ts	2	import	-	0	external
+perf-measures/type-check/scripts/generate-app.ts	1	import	-	0	external
+perf-measures/type-check/scripts/generate-app.ts	2	import	-	0	external
+perf-measures/type-check/scripts/process-results.ts	1	import	-	0	external
+runtime-tests/bun/color.test.ts	1	import	-	0	external
+runtime-tests/bun/index.test.tsx	1	import	-	0	external
 runtime-tests/bun/index.test.tsx	2	import	src/helper/streaming/index.ts	0	module
 runtime-tests/bun/index.test.tsx	3	import	src/context.ts	0	module
 runtime-tests/bun/index.test.tsx	4	import	src/helper/adapter/index.ts	0	module
@@ -333,10 +838,33 @@ runtime-tests/bun/index.test.tsx	5	import	src/index.ts	0	module
 runtime-tests/bun/index.test.tsx	6	import	src/jsx/index.ts	0	module
 runtime-tests/bun/index.test.tsx	7	import	src/middleware/basic-auth/index.ts	0	module
 runtime-tests/bun/index.test.tsx	8	import	src/middleware/jwt/index.ts	0	module
+runtime-tests/deno-jsx/jsx.test.tsx	2	import	-	0	external
+runtime-tests/deno-jsx/jsx.test.tsx	3	import	src/helper/css/index.ts	0	module
+runtime-tests/deno-jsx/jsx.test.tsx	4	import	src/jsx/streaming.ts	0	module
+runtime-tests/deno-jsx/jsx.test.tsx	5	import	src/utils/html.ts	0	module
+runtime-tests/deno-jsx/jsx.test.tsx	6	import	src/utils/html.ts	0	module
+runtime-tests/deno/hono.test.ts	1	import	-	0	external
+runtime-tests/deno/hono.test.ts	2	import	src/context.ts	0	module
+runtime-tests/deno/hono.test.ts	3	import	src/helper/adapter/index.ts	0	module
+runtime-tests/deno/hono.test.ts	4	import	src/hono.ts	0	module
+runtime-tests/deno/middleware.test.tsx	1	import	-	0	external
+runtime-tests/deno/middleware.test.tsx	2	import	src/hono.ts	0	module
+runtime-tests/deno/middleware.test.tsx	3	import	src/middleware/basic-auth/index.ts	0	module
+runtime-tests/deno/middleware.test.tsx	4	import	src/middleware/jwt/index.ts	0	module
+runtime-tests/deno/stream.test.ts	1	import	-	0	external
+runtime-tests/deno/stream.test.ts	2	import	src/helper/streaming/index.ts	0	module
+runtime-tests/deno/stream.test.ts	3	import	src/hono.ts	0	module
+runtime-tests/fastly/index.test.ts	1	import	-	0	external
 runtime-tests/fastly/index.test.ts	2	import	src/helper/adapter/index.ts	0	module
 runtime-tests/fastly/index.test.ts	3	import	src/index.ts	0	module
 runtime-tests/fastly/index.test.ts	4	import	src/middleware/basic-auth/index.ts	0	module
 runtime-tests/fastly/index.test.ts	5	import	src/middleware/jwt/index.ts	0	module
+runtime-tests/fastly/vitest.config.ts	1	import	-	0	external
+runtime-tests/fastly/vitest.config.ts	2	import	-	0	external
+runtime-tests/node/index.test.ts	1	import	-	0	external
+runtime-tests/node/index.test.ts	2	import	-	0	external
+runtime-tests/node/index.test.ts	3	import	-	0	external
+runtime-tests/node/index.test.ts	4	import	-	0	external
 runtime-tests/node/index.test.ts	5	import	src/index.ts	0	module
 runtime-tests/node/index.test.ts	6	import	src/context.ts	0	module
 runtime-tests/node/index.test.ts	7	import	src/helper/adapter/index.ts	0	module
@@ -344,9 +872,13 @@ runtime-tests/node/index.test.ts	8	import	src/helper/streaming/index.ts	0	module
 runtime-tests/node/index.test.ts	9	import	src/middleware/basic-auth/index.ts	0	module
 runtime-tests/node/index.test.ts	10	import	src/middleware/compress/index.ts	0	module
 runtime-tests/node/index.test.ts	11	import	src/middleware/jwt/index.ts	0	module
+runtime-tests/node/vitest.config.ts	1	import	-	0	external
+runtime-tests/workerd/index.test.ts	1	import	-	0	external
+runtime-tests/workerd/index.test.ts	2	import	-	0	external
 runtime-tests/workerd/index.ts	1	import	src/helper/adapter/index.ts	0	module
 runtime-tests/workerd/index.ts	2	import	src/hono.ts	0	module
 runtime-tests/workerd/index.ts	3	import	src/utils/color.ts	0	module
+runtime-tests/workerd/vitest.config.ts	1	import	-	0	external
 src/adapter/aws-lambda/conninfo.test.ts	1	import	src/context.ts	0	module
 src/adapter/aws-lambda/conninfo.test.ts	2	import	src/adapter/aws-lambda/conninfo.ts	0	module
 src/adapter/aws-lambda/conninfo.ts	1	import	src/context.ts	0	module
@@ -358,6 +890,7 @@ src/adapter/aws-lambda/handler.test.ts	3	import	src/middleware/body-limit/index.
 src/adapter/aws-lambda/handler.test.ts	4	import	src/adapter/aws-lambda/handler.ts	0	module
 src/adapter/aws-lambda/handler.test.ts	10	import	src/adapter/aws-lambda/handler.ts	0	module
 src/adapter/aws-lambda/handler.test.ts	11	import	src/adapter/aws-lambda/types.ts	0	module
+src/adapter/aws-lambda/handler.ts	1	import	-	0	external
 src/adapter/aws-lambda/handler.ts	2	import	src/hono.ts	0	module
 src/adapter/aws-lambda/handler.ts	3	import	src/types.ts	0	module
 src/adapter/aws-lambda/handler.ts	4	import	src/utils/encode.ts	0	module
@@ -378,6 +911,8 @@ src/adapter/bun/index.ts	12	import	src/adapter/bun/websocket.ts	0	module
 src/adapter/bun/index.ts	13	import	src/adapter/bun/websocket.ts	0	module
 src/adapter/bun/index.ts	14	import	src/adapter/bun/conninfo.ts	0	module
 src/adapter/bun/index.ts	15	import	src/adapter/bun/server.ts	0	module
+src/adapter/bun/serve-static.ts	2	import	-	0	external
+src/adapter/bun/serve-static.ts	3	import	-	0	external
 src/adapter/bun/serve-static.ts	4	import	src/middleware/serve-static/index.ts	0	module
 src/adapter/bun/serve-static.ts	5	import	src/middleware/serve-static/index.ts	0	module
 src/adapter/bun/serve-static.ts	6	import	src/types.ts	0	module
@@ -437,6 +972,7 @@ src/adapter/deno/index.ts	10	import	src/adapter/deno/serve-static.ts	0	module
 src/adapter/deno/index.ts	11	import	src/adapter/deno/ssg.ts	0	module
 src/adapter/deno/index.ts	12	import	src/adapter/deno/websocket.ts	0	module
 src/adapter/deno/index.ts	13	import	src/adapter/deno/conninfo.ts	0	module
+src/adapter/deno/serve-static.ts	1	import	-	0	external
 src/adapter/deno/serve-static.ts	2	import	src/middleware/serve-static/index.ts	0	module
 src/adapter/deno/serve-static.ts	3	import	src/middleware/serve-static/index.ts	0	module
 src/adapter/deno/serve-static.ts	4	import	src/types.ts	0	module
@@ -453,12 +989,14 @@ src/adapter/lambda-edge/conninfo.test.ts	3	import	src/adapter/lambda-edge/handle
 src/adapter/lambda-edge/conninfo.ts	1	import	src/context.ts	0	module
 src/adapter/lambda-edge/conninfo.ts	2	import	src/helper/conninfo/index.ts	0	module
 src/adapter/lambda-edge/conninfo.ts	3	import	src/adapter/lambda-edge/handler.ts	0	module
+src/adapter/lambda-edge/handler.test.ts	1	import	-	0	external
 src/adapter/lambda-edge/handler.test.ts	2	import	src/helper/cookie/index.ts	0	module
 src/adapter/lambda-edge/handler.test.ts	3	import	src/hono.ts	0	module
 src/adapter/lambda-edge/handler.test.ts	4	import	src/middleware/body-limit/index.ts	0	module
 src/adapter/lambda-edge/handler.test.ts	5	import	src/utils/encode.ts	0	module
 src/adapter/lambda-edge/handler.test.ts	6	import	src/adapter/lambda-edge/handler.ts	0	module
 src/adapter/lambda-edge/handler.test.ts	7	import	src/adapter/lambda-edge/handler.ts	0	module
+src/adapter/lambda-edge/handler.ts	1	import	-	0	external
 src/adapter/lambda-edge/handler.ts	2	import	src/hono.ts	0	module
 src/adapter/lambda-edge/handler.ts	3	import	src/utils/encode.ts	0	module
 src/adapter/lambda-edge/index.ts	10	import	src/adapter/lambda-edge/handler.ts	0	module
@@ -490,6 +1028,9 @@ src/adapter/vercel/handler.test.ts	2	import	src/adapter/vercel/handler.ts	0	modu
 src/adapter/vercel/handler.ts	2	import	src/hono.ts	0	module
 src/adapter/vercel/index.ts	10	import	src/adapter/vercel/handler.ts	0	module
 src/adapter/vercel/index.ts	11	import	src/adapter/vercel/conninfo.ts	0	module
+src/client/client.test.ts	4	import	-	0	external
+src/client/client.test.ts	5	import	-	0	external
+src/client/client.test.ts	6	import	-	0	external
 src/client/client.test.ts	7	import	src/adapter/deno/websocket.ts	0	module
 src/client/client.test.ts	8	import	src/hono.ts	0	module
 src/client/client.test.ts	9	import	src/utils/cookie.ts	0	module
@@ -506,6 +1047,7 @@ src/client/client.ts	13	import	src/client/utils.ts	0	module
 src/client/index.ts	6	import	src/client/client.ts	0	module
 src/client/index.ts	7	import	src/client/utils.ts	0	module
 src/client/index.ts	17	import	src/client/types.ts	0	module
+src/client/types.test.ts	2	import	-	0	external
 src/client/types.test.ts	3	import	src/client/index.ts	0	module
 src/client/types.test.ts	4	import	src/index.ts	0	module
 src/client/types.test.ts	5	import	src/adapter/deno/websocket.ts	0	module
@@ -516,6 +1058,8 @@ src/client/types.ts	3	import	src/router.ts	0	module
 src/client/types.ts	4	import	src/types.ts	0	module
 src/client/types.ts	5	import	src/utils/http-status.ts	0	module
 src/client/types.ts	6	import	src/utils/types.ts	0	module
+src/client/utils.test.ts	1	import	-	0	external
+src/client/utils.test.ts	2	import	-	0	external
 src/client/utils.test.ts	3	import	src/hono.ts	0	module
 src/client/utils.test.ts	4	import	src/utils/types.ts	0	module
 src/client/utils.test.ts	5	import	src/client/client.ts	0	module
@@ -585,6 +1129,7 @@ src/helper/dev/index.ts	6	import	src/hono.ts	0	module
 src/helper/dev/index.ts	7	import	src/types.ts	0	module
 src/helper/dev/index.ts	8	import	src/utils/color.ts	0	module
 src/helper/dev/index.ts	9	import	src/utils/handler.ts	0	module
+src/helper/factory/index.test.ts	2	import	-	0	external
 src/helper/factory/index.test.ts	3	import	src/client/index.ts	0	module
 src/helper/factory/index.test.ts	4	import	src/client/types.ts	0	module
 src/helper/factory/index.test.ts	5	import	src/index.ts	0	module
@@ -638,6 +1183,7 @@ src/helper/ssg/ssg.ts	6	import	src/helper/ssg/middleware.ts	0	module
 src/helper/ssg/ssg.ts	7	import	src/helper/ssg/middleware.ts	0	module
 src/helper/ssg/ssg.ts	8	import	src/helper/ssg/plugins.ts	0	module
 src/helper/ssg/ssg.ts	15	import	src/helper/ssg/utils.ts	0	module
+src/helper/ssg/utils.test.ts	1	import	-	0	external
 src/helper/ssg/utils.test.ts	2	import	src/helper/ssg/utils.ts	0	module
 src/helper/ssg/utils.ts	1	import	src/hono.ts	0	module
 src/helper/ssg/utils.ts	2	import	src/router.ts	0	module
@@ -690,6 +1236,7 @@ src/hono-base.ts	28	import	src/types.ts	0	module
 src/hono-base.ts	29	import	src/utils/constants.ts	0	module
 src/hono-base.ts	30	import	src/utils/mount.ts	0	module
 src/hono-base.ts	31	import	src/utils/url.ts	0	module
+src/hono.test.ts	3	import	-	0	external
 src/hono.test.ts	4	import	src/client/index.ts	0	module
 src/hono.test.ts	5	import	src/context.ts	0	module
 src/hono.test.ts	6	import	src/hono.ts	0	module
@@ -732,6 +1279,7 @@ src/jsx/base.ts	26	import	src/jsx/utils.ts	0	module
 src/jsx/children.test.ts	1	import	src/jsx/index.ts	0	module
 src/jsx/children.test.ts	2	import	src/jsx/children.ts	0	module
 src/jsx/children.ts	1	import	src/jsx/base.ts	0	module
+src/jsx/components.test.tsx	3	import	-	0	external
 src/jsx/components.test.tsx	4	import	src/helper/html/index.ts	0	module
 src/jsx/components.test.tsx	5	import	src/utils/html.ts	0	module
 src/jsx/components.test.tsx	6	import	src/utils/html.ts	0	module
@@ -747,21 +1295,25 @@ src/jsx/components.ts	7	import	src/jsx/context.ts	0	module
 src/jsx/components.ts	8	import	src/jsx/dom/components.ts	0	module
 src/jsx/components.ts	9	import	src/jsx/dom/render.ts	0	module
 src/jsx/components.ts	10	import	src/jsx/streaming.ts	0	module
+src/jsx/context-isolation.test.ts	1	import	-	0	external
 src/jsx/context-isolation.test.ts	3	import	src/jsx/index.ts	0	module
 src/jsx/context-isolation.test.ts	4	import	src/jsx/streaming.ts	0	module
 src/jsx/context-isolation.test.ts	5	import	src/jsx/hooks/index.ts	0	module
+src/jsx/context-isolation.test.ts	6	import	-	0	external
 src/jsx/context.ts	1	import	src/helper/html/index.ts	0	module
 src/jsx/context.ts	2	import	src/utils/html.ts	0	module
 src/jsx/context.ts	3	import	src/jsx/index.ts	0	module
 src/jsx/context.ts	4	import	src/jsx/base.ts	0	module
 src/jsx/context.ts	5	import	src/jsx/constants.ts	0	module
 src/jsx/context.ts	6	import	src/jsx/dom/context.ts	0	module
+src/jsx/dom/client.test.tsx	2	import	-	0	external
 src/jsx/dom/client.test.tsx	3	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/client.test.tsx	4	import	src/jsx/dom/client.ts	0	module
 src/jsx/dom/client.ts	6	import	src/jsx/base.ts	0	module
 src/jsx/dom/client.ts	7	import	src/jsx/hooks/index.ts	0	module
 src/jsx/dom/client.ts	8	import	src/jsx/dom/render.ts	0	module
 src/jsx/dom/client.ts	9	import	src/jsx/dom/render.ts	0	module
+src/jsx/dom/components.test.tsx	2	import	-	0	external
 src/jsx/dom/components.test.tsx	3	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/components.test.tsx	4	import	src/jsx/index.ts	0	module
 src/jsx/dom/components.test.tsx	7	import	src/jsx/hooks/index.ts	0	module
@@ -769,6 +1321,7 @@ src/jsx/dom/components.ts	1	import	src/jsx/index.ts	0	module
 src/jsx/dom/components.ts	2	import	src/jsx/components.ts	0	module
 src/jsx/dom/components.ts	3	import	src/jsx/constants.ts	0	module
 src/jsx/dom/components.ts	4	import	src/jsx/dom/jsx-runtime.ts	0	module
+src/jsx/dom/context.test.tsx	2	import	-	0	external
 src/jsx/dom/context.test.tsx	5	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/context.test.tsx	11	import	src/jsx/index.ts	0	module
 src/jsx/dom/context.ts	1	import	src/jsx/base.ts	0	module
@@ -776,6 +1329,7 @@ src/jsx/dom/context.ts	2	import	src/jsx/constants.ts	0	module
 src/jsx/dom/context.ts	3	import	src/jsx/context.ts	0	module
 src/jsx/dom/context.ts	4	import	src/jsx/context.ts	0	module
 src/jsx/dom/context.ts	5	import	src/jsx/dom/utils.ts	0	module
+src/jsx/dom/css.test.tsx	2	import	-	0	external
 src/jsx/dom/css.test.tsx	5	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/css.test.tsx	6	import	src/jsx/index.ts	0	module
 src/jsx/dom/css.test.tsx	7	import	src/helper/css/index.ts	0	module
@@ -785,6 +1339,7 @@ src/jsx/dom/css.ts	6	import	src/jsx/index.ts	0	module
 src/jsx/dom/css.ts	12	import	src/helper/css/common.ts	0	module
 src/jsx/dom/css.ts	24	import	src/helper/css/common.ts	0	module
 src/jsx/dom/css.ts	25	import	src/helper/css/common.ts	0	module
+src/jsx/dom/hooks/index.test.tsx	2	import	-	0	external
 src/jsx/dom/hooks/index.test.tsx	3	import	src/jsx/dom/hooks/index.ts	0	module
 src/jsx/dom/hooks/index.test.tsx	4	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/hooks/index.ts	5	import	src/jsx/constants.ts	0	module
@@ -792,6 +1347,7 @@ src/jsx/dom/hooks/index.ts	6	import	src/jsx/context.ts	0	module
 src/jsx/dom/hooks/index.ts	7	import	src/jsx/context.ts	0	module
 src/jsx/dom/hooks/index.ts	8	import	src/jsx/hooks/index.ts	0	module
 src/jsx/dom/hooks/index.ts	9	import	src/jsx/dom/context.ts	0	module
+src/jsx/dom/index.test.tsx	2	import	-	0	external
 src/jsx/dom/index.test.tsx	15	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/index.test.tsx	16	import	src/jsx/index.ts	0	module
 src/jsx/dom/index.test.tsx	19	import	src/jsx/index.ts	0	module
@@ -813,6 +1369,7 @@ src/jsx/dom/index.ts	37	import	src/jsx/dom/render.ts	0	module
 src/jsx/dom/index.ts	39	import	src/jsx/dom/render.ts	0	module
 src/jsx/dom/index.ts	167	import	src/jsx/context.ts	0	module
 src/jsx/dom/index.ts	169	import	src/jsx/types.ts	0	module
+src/jsx/dom/intrinsic-element/components.test.tsx	2	import	-	0	external
 src/jsx/dom/intrinsic-element/components.test.tsx	3	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/intrinsic-element/components.test.tsx	4	import	src/jsx/hooks/index.ts	0	module
 src/jsx/dom/intrinsic-element/components.test.tsx	5	import	src/jsx/dom/intrinsic-element/components.ts	0	module
@@ -848,6 +1405,7 @@ src/jsx/dom/server.ts	8	import	src/jsx/base.ts	0	module
 src/jsx/dom/server.ts	9	import	src/jsx/streaming.ts	0	module
 src/jsx/dom/server.ts	10	import	src/jsx/dom/index.ts	0	module
 src/jsx/dom/utils.ts	1	import	src/jsx/constants.ts	0	module
+src/jsx/hooks/dom.test.tsx	2	import	-	0	external
 src/jsx/hooks/dom.test.tsx	19	import	src/jsx/hooks/index.ts	0	module
 src/jsx/hooks/dom.test.tsx	22	import	src/jsx/dom/index.ts	0	module
 src/jsx/hooks/index.ts	1	import	src/jsx/base.ts	0	module
@@ -908,6 +1466,7 @@ src/jsx/jsx-runtime.ts	11	import	src/utils/html.ts	0	module
 src/jsx/jsx-runtime.ts	12	import	src/jsx/base.ts	0	module
 src/jsx/jsx-runtime.ts	13	import	src/jsx/constants.ts	0	module
 src/jsx/jsx-runtime.ts	14	import	src/jsx/utils.ts	0	module
+src/jsx/streaming.test.tsx	3	import	-	0	external
 src/jsx/streaming.test.tsx	4	import	src/helper/html/index.ts	0	module
 src/jsx/streaming.test.tsx	5	import	src/utils/html.ts	0	module
 src/jsx/streaming.test.tsx	6	import	src/utils/html.ts	0	module
@@ -932,6 +1491,7 @@ src/jsx/types.ts	7	import	src/jsx/base.ts	0	module
 src/jsx/types.ts	8	import	src/jsx/hooks/index.ts	0	module
 src/jsx/types.ts	9	import	src/jsx/context.ts	0	module
 src/jsx/utils.test.ts	6	import	src/jsx/utils.ts	0	module
+src/middleware/basic-auth/index.test.ts	1	import	-	0	external
 src/middleware/basic-auth/index.test.ts	2	import	src/middleware/basic-auth/index.ts	0	module
 src/middleware/basic-auth/index.test.ts	3	import	src/hono.ts	0	module
 src/middleware/basic-auth/index.ts	6	import	src/context.ts	0	module
@@ -939,6 +1499,7 @@ src/middleware/basic-auth/index.ts	7	import	src/http-exception.ts	0	module
 src/middleware/basic-auth/index.ts	8	import	src/types.ts	0	module
 src/middleware/basic-auth/index.ts	9	import	src/utils/basic-auth.ts	0	module
 src/middleware/basic-auth/index.ts	10	import	src/utils/buffer.ts	0	module
+src/middleware/bearer-auth/index.test.ts	1	import	-	0	external
 src/middleware/bearer-auth/index.test.ts	2	import	src/middleware/bearer-auth/index.ts	0	module
 src/middleware/bearer-auth/index.test.ts	3	import	src/hono.ts	0	module
 src/middleware/bearer-auth/index.test.ts	4	import	src/index.ts	0	module
@@ -952,6 +1513,7 @@ src/middleware/body-limit/index.test.ts	2	import	src/hono.ts	0	module
 src/middleware/body-limit/index.ts	6	import	src/context.ts	0	module
 src/middleware/body-limit/index.ts	7	import	src/http-exception.ts	0	module
 src/middleware/body-limit/index.ts	8	import	src/types.ts	0	module
+src/middleware/cache/index.test.ts	1	import	-	0	external
 src/middleware/cache/index.test.ts	2	import	src/middleware/cache/index.ts	0	module
 src/middleware/cache/index.test.ts	3	import	src/context.ts	0	module
 src/middleware/cache/index.test.ts	4	import	src/hono.ts	0	module
@@ -976,6 +1538,7 @@ src/middleware/compress/index.ts	7	import	src/utils/accept.ts	0	module
 src/middleware/compress/index.ts	8	import	src/utils/compress.ts	0	module
 src/middleware/context-storage/index.test.ts	1	import	src/middleware/context-storage/index.ts	0	module
 src/middleware/context-storage/index.test.ts	2	import	src/hono.ts	0	module
+src/middleware/context-storage/index.ts	6	import	-	0	external
 src/middleware/context-storage/index.ts	7	import	src/context.ts	0	module
 src/middleware/context-storage/index.ts	8	import	src/types.ts	0	module
 src/middleware/cors/index.test.ts	1	import	src/hono.ts	0	module
@@ -1003,6 +1566,7 @@ src/middleware/ip-restriction/index.ts	7	import	src/helper/conninfo/index.ts	0	m
 src/middleware/ip-restriction/index.ts	8	import	src/http-exception.ts	0	module
 src/middleware/ip-restriction/index.ts	9	import	src/utils/ipaddr.ts	0	module
 src/middleware/ip-restriction/index.ts	18	import	src/utils/ipaddr.ts	0	module
+src/middleware/jsx-renderer/index.test.tsx	2	import	-	0	external
 src/middleware/jsx-renderer/index.test.tsx	3	import	src/middleware/jsx-renderer/index.ts	0	module
 src/middleware/jsx-renderer/index.test.tsx	4	import	src/helper/html/index.ts	0	module
 src/middleware/jsx-renderer/index.test.tsx	5	import	src/hono.ts	0	module
@@ -1014,6 +1578,8 @@ src/middleware/jsx-renderer/index.ts	9	import	src/jsx/index.ts	0	module
 src/middleware/jsx-renderer/index.ts	10	import	src/jsx/index.ts	0	module
 src/middleware/jsx-renderer/index.ts	11	import	src/jsx/streaming.ts	0	module
 src/middleware/jsx-renderer/index.ts	12	import	src/types.ts	0	module
+src/middleware/jwk/index.test.ts	1	import	-	0	external
+src/middleware/jwk/index.test.ts	2	import	-	0	external
 src/middleware/jwk/index.test.ts	3	import	src/middleware/jwk/index.ts	0	module
 src/middleware/jwk/index.test.ts	4	import	src/helper/cookie/index.ts	0	module
 src/middleware/jwk/index.test.ts	5	import	src/hono.ts	0	module
@@ -1037,6 +1603,7 @@ src/middleware/jwk/jwk.ts	12	import	src/context.ts	0	module
 src/middleware/jwk/jwk.ts	13	import	src/utils/jwt/jwa.ts	0	module
 src/middleware/jwk/jwk.ts	14	import	src/utils/jwt/jws.ts	0	module
 src/middleware/jwk/jwk.ts	15	import	src/utils/jwt/jwt.ts	0	module
+src/middleware/jwt/index.test.ts	1	import	-	0	external
 src/middleware/jwt/index.test.ts	2	import	src/middleware/jwt/index.ts	0	module
 src/middleware/jwt/index.test.ts	3	import	src/middleware/jwt/index.ts	0	module
 src/middleware/jwt/index.test.ts	4	import	src/hono.ts	0	module
@@ -1128,6 +1695,7 @@ src/middleware/serve-static/index.ts	9	import	src/utils/compress.ts	0	module
 src/middleware/serve-static/index.ts	10	import	src/utils/mime.ts	0	module
 src/middleware/serve-static/index.ts	11	import	src/utils/url.ts	0	module
 src/middleware/serve-static/index.ts	12	import	src/middleware/serve-static/path.ts	0	module
+src/middleware/serve-static/path.test.ts	1	import	-	0	external
 src/middleware/serve-static/path.test.ts	2	import	src/middleware/serve-static/path.ts	0	module
 src/middleware/timeout/index.test.ts	1	import	src/middleware/timeout/index.ts	0	module
 src/middleware/timeout/index.test.ts	2	import	src/middleware/timeout/index.ts	0	module
@@ -1173,6 +1741,7 @@ src/request.ts	15	import	src/utils/body.ts	0	module
 src/request.ts	16	import	src/utils/headers.ts	0	module
 src/request.ts	17	import	src/utils/types.ts	0	module
 src/request.ts	18	import	src/utils/url.ts	0	module
+src/router/common.case.test.ts	1	import	-	0	external
 src/router/common.case.test.ts	2	import	src/router.ts	0	module
 src/router/linear-router/index.ts	6	import	src/router/linear-router/router.ts	0	module
 src/router/linear-router/router.test.ts	1	import	src/router.ts	0	module
@@ -1234,6 +1803,7 @@ src/router/trie-router/router.test.ts	2	import	src/router/trie-router/router.ts	
 src/router/trie-router/router.ts	1	import	src/router.ts	0	module
 src/router/trie-router/router.ts	2	import	src/utils/url.ts	0	module
 src/router/trie-router/router.ts	3	import	src/router/trie-router/node.ts	0	module
+src/types.test.ts	2	import	-	0	external
 src/types.test.ts	3	import	src/client/index.ts	0	module
 src/types.test.ts	4	import	src/context.ts	0	module
 src/types.test.ts	5	import	src/helper/factory/index.ts	0	module
@@ -1256,13 +1826,16 @@ src/utils/body.test.ts	1	import	src/utils/body.ts	0	module
 src/utils/body.test.ts	2	import	src/utils/body.ts	0	module
 src/utils/body.ts	6	import	src/request.ts	0	module
 src/utils/body.ts	7	import	src/utils/buffer.ts	0	module
+src/utils/buffer.test.ts	1	import	-	0	external
 src/utils/buffer.test.ts	2	import	src/utils/buffer.ts	0	module
 src/utils/buffer.ts	6	import	src/utils/crypto.ts	0	module
+src/utils/color.test.ts	1	import	-	0	external
 src/utils/color.test.ts	2	import	src/utils/color.ts	0	module
 src/utils/concurrent.test.ts	1	import	src/utils/concurrent.ts	0	module
 src/utils/cookie.test.ts	1	import	src/utils/cookie.ts	0	module
 src/utils/cookie.test.ts	2	import	src/utils/cookie.ts	0	module
 src/utils/cookie.ts	6	import	src/utils/url.ts	0	module
+src/utils/crypto.test.ts	1	import	-	0	external
 src/utils/crypto.test.ts	2	import	src/utils/crypto.ts	0	module
 src/utils/crypto.ts	6	import	src/utils/types.ts	0	module
 src/utils/encode.test.ts	1	import	src/utils/encode.ts	0	module
@@ -1280,6 +1853,7 @@ src/utils/jwt/jws.ts	8	import	src/utils/encode.ts	0	module
 src/utils/jwt/jws.ts	9	import	src/utils/jwt/jwa.ts	0	module
 src/utils/jwt/jws.ts	10	import	src/utils/jwt/types.ts	0	module
 src/utils/jwt/jws.ts	11	import	src/utils/jwt/utf8.ts	0	module
+src/utils/jwt/jwt.test.ts	2	import	-	0	external
 src/utils/jwt/jwt.test.ts	3	import	src/utils/encode.ts	0	module
 src/utils/jwt/jwt.test.ts	4	import	src/utils/jwt/jwa.ts	0	module
 src/utils/jwt/jwt.test.ts	5	import	src/utils/jwt/jws.ts	0	module
@@ -1314,9 +1888,11 @@ src/utils/url.test.ts	13	import	src/utils/url.ts	0	module
 src/validator/index.ts	6	import	src/validator/validator.ts	0	module
 src/validator/index.ts	7	import	src/validator/validator.ts	0	module
 src/validator/index.ts	8	import	src/validator/utils.ts	0	module
+src/validator/utils.test.ts	1	import	-	0	external
 src/validator/utils.test.ts	2	import	src/validator/utils.ts	0	module
 src/validator/utils.ts	1	import	src/types.ts	0	module
 src/validator/utils.ts	2	import	src/utils/types.ts	0	module
+src/validator/validator.test.ts	2	import	-	0	external
 src/validator/validator.test.ts	3	import	src/context.ts	0	module
 src/validator/validator.test.ts	4	import	src/hono.ts	0	module
 src/validator/validator.test.ts	5	import	src/http-exception.ts	0	module
@@ -1333,3 +1909,11 @@ src/validator/validator.ts	4	import	src/types.ts	0	module
 src/validator/validator.ts	5	import	src/utils/body.ts	0	module
 src/validator/validator.ts	6	import	src/utils/buffer.ts	0	module
 src/validator/validator.ts	7	import	src/validator/utils.ts	0	module
+vite.config.ts	1	import	-	0	external
+vite.config.ts	2	import	-	0	external
+vite.config.ts	3	import	-	0	external
+vite.config.ts	4	import	-	0	external
+vite.config.ts	5	import	build/dts-plugins.ts	0	module
+vite.config.ts	81	import	package.json	0	module
+vite.config.ts	82	import	jsr.json	0	module
+vitest.config.ts	1	import	-	0	external

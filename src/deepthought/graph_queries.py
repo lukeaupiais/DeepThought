@@ -23,6 +23,7 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 # the dependent's side) and forwards (from the changed side).
 _IMPACT_BACKWARD = (
     "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
+    "|REFERENCES_TABLE"
 )
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
 # The labels a Contract node carries beside ``Contract``.
@@ -875,11 +876,12 @@ class GraphQueryService:
         Dependents are reached backwards over CALLS, INHERITS_FROM,
         IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
         a call through it can run, so a changed implementation reaches the
-        interface's callers), REQUESTS, CONSUMES and READS edges, and forwards over
+        interface's callers), REQUESTS, CONSUMES, READS and REFERENCES_TABLE
+        (a table with a foreign key to a changed table) edges, and forwards over
         HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
-        readers of that table) depend on the route. At most ``max_depth`` hops. Each dependent is listed
+        readers of that table, the tables referencing it) depend on the route. At most ``max_depth`` hops. Each dependent is listed
         once, with its strongest path: the path whose weakest edge evidence is
         strongest, then the shortest, then the first by edge identities.
 
@@ -972,8 +974,9 @@ class GraphQueryService:
         (or files) that HANDLE the route, PUBLISH to the destination, WRITE,
         map (MAPS_TO) or DECLARE the table, listed under ``providers``.
         Dependents are then found as ``get_impact`` finds them: the callers
-        that REQUEST the route, the consumers and readers, and their callers
-        in turn, also across services. ``offset``, ``exclude_roles`` and the
+        that REQUEST the route, the consumers and readers, the tables whose
+        foreign keys reference the table, and their callers in turn, also
+        across services. ``offset``, ``exclude_roles`` and the
         output are as for ``get_impact``; ``max_output_bytes`` is at least
         2048.
         """
