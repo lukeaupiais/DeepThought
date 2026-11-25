@@ -11,6 +11,7 @@ identities, so a revision that also contains tree-sitter output joins them.
 
 from collections import Counter, defaultdict
 from hashlib import sha256
+import contextlib
 import dataclasses
 from pathlib import PurePosixPath
 import functools
@@ -24,12 +25,10 @@ import time
 
 from .._version import __version__
 from ..data_contracts import (
-    read_tsconfig_paths,
-    resolve_script_alias,
     resolve_script_module,
 )
 from ..engine import analyze_repository, source_languages
-from .. import go_facts
+from .. import go_facts, ts_facts
 from ..service_contracts import grpc as grpc_contracts
 from ..service_contracts import resolve as contract_rules
 from ..service_contracts.cloud_stream import MavenModules, extract_stream
@@ -39,6 +38,7 @@ from ..service_contracts.deployed import (
     deployed_units,
     locust_host,
 )
+from ..service_contracts.folding import compiler_values
 from ..service_contracts.gateways import (
     nginx_routes,
     ocelot_routes,
@@ -1339,9 +1339,9 @@ def _config_paths(root, names):
 
 
 def _script_constants(root, sources):
-    """String constants the repository's scripts export, import or have
-    defined by angular.json, resolving relative imports and tsconfig.json
-    ``paths`` aliases to analyzed script files."""
+    """The repository's scripts with the TypeScript compiler's facts about
+    them (``ts_facts``: string values of names, and how imports resolve)
+    and the globals angular.json defines for them."""
     scripts = {
         coverage.file: (tree, content, coverage.language)
         for coverage, content, tree in sources
@@ -1349,30 +1349,15 @@ def _script_constants(root, sources):
     }
     if not scripts:
         return None
-    files = set(scripts)
-    ts_paths, defines = {}, []
-    for path in _config_paths(root, ("tsconfig.json", "angular.json")):
+    defines = []
+    for path in _config_paths(root, ("angular.json",)):
         try:
             content = (root / path).read_bytes()
         except OSError:
             continue
-        if path.endswith("angular.json"):
-            defines.extend(angular_defines(path, content))
-            continue
-        found = read_tsconfig_paths(path, content)
-        if found is not None:
-            ts_paths[path.rpartition("/")[0]] = found
-    cache = {}
-
-    def resolve(file, module):
-        key = (file, module)
-        if key not in cache:
-            cache[key] = resolve_script_module(
-                file, module, files
-            ) or resolve_script_alias(file, module, files, ts_paths)
-        return cache[key]
-
-    return ScriptConstants(scripts, resolve, defines)
+        defines.extend(angular_defines(path, content))
+    facts = ts_facts.collect(root, list(scripts), defines)
+    return ScriptConstants(scripts, facts, defines)
 
 
 # Build manifests: the nearest directory above a file with one of them is
@@ -1972,6 +1957,14 @@ class ServiceContractTool(AnalysisTool):
     async def analyze(
         self, repo_url, languages=None, file_patterns=None, skip_patterns=None
     ):
+        # The TypeScript compiler's values serve the folders of this run.
+        with contextlib.ExitStack() as stack:
+            self._compiler_stack = stack
+            return await self._analyze(
+                repo_url, languages, file_patterns, skip_patterns
+            )
+
+    async def _analyze(self, repo_url, languages, file_patterns, skip_patterns):
         started = time.monotonic()
         selected = tuple(
             sorted(
@@ -2159,6 +2152,15 @@ class ServiceContractTool(AnalysisTool):
         laravel_prefixes = _laravel_route_prefixes(root, sources, composer)
         python_mounts.update(_express_mounts(sources))
         scripts = _script_constants(root, sources)
+        if scripts is not None:
+            self._compiler_stack.enter_context(
+                compiler_values(
+                    {
+                        content: scripts.compiler.values.get(file, {})
+                        for file, (_, content, _) in scripts.sources.items()
+                    }
+                )
+            )
         axios_exported = {}
 
         def axios_imported(file):
@@ -3210,6 +3212,16 @@ class ServiceContractTool(AnalysisTool):
                 "proto_files": dict(sorted(grpc.proto_files.items())),
                 "proto_readers": dict(
                     sorted(Counter(grpc.proto_readers.values()).items())
+                ),
+                "typescript_compiler": (
+                    {
+                        "files": len(scripts.compiler.programs),
+                        "programs": len(set(scripts.compiler.programs.values())),
+                        "rejected_configs": len(scripts.compiler.rejected_configs),
+                        "names_failed": sum(scripts.compiler.failures.values()),
+                    }
+                    if scripts is not None
+                    else {}
                 ),
                 "scope": "Spring MVC, Flask, FastAPI, Express and Go net/http "
                 "routes; Feign, RestTemplate, WebClient, requests, httpx, Locust, "
