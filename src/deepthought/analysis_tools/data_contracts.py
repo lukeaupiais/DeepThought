@@ -521,6 +521,40 @@ DJANGO_COLUMN_KEY_RULE = register_rule(
         "lookups or field-name strings.",
     )
 )
+SA_COLUMN_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-column",
+        "pattern_matched",
+        "An attribute of a SQLAlchemy mapped class (or of a mixin or "
+        "single-table base it inherits) assigned Column(...) or "
+        "mapped_column(...), annotated Mapped[...] alone, or an annotated "
+        "field of a SQLModel table: its column is the name written in the "
+        "call, else the attribute's name (SQLAlchemy computes no column "
+        "name). Declared for a table whose migrations give no columns.",
+    )
+)
+SA_COLUMN_ACCESS_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-scip-column-access",
+        "resolved",
+        "A scip-python index resolves an attribute access to a column "
+        "attribute of a mapped class (data-contracts.sqlalchemy-column): an "
+        "assignment to it, or a dict key passed to values() or update(), "
+        "writes the column; an augmented assignment reads and writes it; "
+        "any other access reads it.",
+    )
+)
+SA_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.sqlalchemy-column-key",
+        "pattern_matched",
+        "A keyword or dict key of a query or statement on one mapped class "
+        "the index resolves (filter_by reads; values() of insert or update "
+        "and Query.update's dict write) or a keyword of a mapped class's "
+        "default constructor (writes), read against the class's column "
+        "attributes, as scip-python does not resolve keyword names.",
+    )
+)
 SA_TABLENAME_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sqlalchemy-tablename",
@@ -1846,6 +1880,158 @@ class DataContractTool(AnalysisTool):
             model = by_id[model_id]
             label = model.app_label or django_app(model.file, labels)[1]
             django_by_label.setdefault((label, model.name), set()).add(target)
+
+        def column_for(target, name, owner_file, rule, counts, field, line):
+            """The DbColumn of table ``target`` an ORM field names ``name``:
+            the table's column where migrations give its columns (None, and
+            counted, when they have no such column), else one declared by
+            the field (``line`` of ``owner_file``; None for an implicit
+            column)."""
+            known = table_columns.get(target)
+            if known is not None:
+                column = (
+                    name
+                    if name in known
+                    else next((c for c in known if c.lower() == name.lower()), None)
+                )
+                if column is None:
+                    counts["not_a_table_column"] += 1
+                    return None
+            else:
+                column = name
+            column_target = f"{target}::column::{column}"
+            if known is None and column_target not in column_nodes:
+                table_label = target.rsplit("::", 1)[-1]
+                column_nodes[column_target] = NodeData(
+                    ["DbColumn", "Contract"],
+                    {
+                        "qualified_name": column_target,
+                        "repo_url": repo_url,
+                        "name": f"{table_label}.{column}",
+                        "display_name": f"{table_label}.{column}",
+                        "table": table_label,
+                        "column": column,
+                        "protocol": "sql",
+                        "scope": scope(owner_file),
+                    },
+                )
+                link(
+                    "HAS_COLUMN",
+                    (["DbTable", "Contract"], target),
+                    column_target,
+                    rule,
+                    {"field": field},
+                    labels=("DbColumn", "Contract"),
+                )
+                if line is not None:
+                    link(
+                        "DECLARES",
+                        (["File"], f"{repo_url}::{owner_file}::file"),
+                        column_target,
+                        rule,
+                        {"line": line, "field": field},
+                        labels=("DbColumn", "Contract"),
+                    )
+                counts["columns_declared"] += 1
+            counts["columns"] += 1
+            return column_target
+
+        def link_field_accesses(field_at, field_name, trees, rule, counts):
+            """READS_COLUMN/WRITES_COLUMN edges of the attribute accesses the
+            index resolves to an ORM field (``field_at``: the field's
+            definition site -> {table: DbColumn}). An assignment writes, an
+            augmented assignment reads and writes, a key of a dict passed to
+            ``values()`` or ``update()`` writes; any other access reads.
+            Returns the sites linked."""
+            sites = set()
+            if not field_at:
+                return sites
+            owners_by_file = defaultdict(list)
+            for d in result.definitions:
+                owners_by_file[d.file].append(d)
+            for file, line, column, site in references.references_to(field_at):
+                holders = field_at[site]
+                if len(holders) != 1:
+                    counts["accesses_unattributed"] += 1
+                    for name in holders.values():
+                        if name in column_nodes:
+                            column_nodes[name].properties["reads_unattributed"] = True
+                    continue
+                entry = trees.get(file)
+                kinds = ("READS_COLUMN",)
+                if entry is not None:
+                    node = entry[1].root_node.descendant_for_point_range(
+                        (line - 1, column), (line - 1, column)
+                    )
+                    access = node.parent if node is not None else None
+                    holder = access.parent if access is not None else None
+                    if (
+                        access is not None
+                        and access.type == "keyword_argument"
+                        and access.child_by_field_name("name") == node
+                    ):
+                        # A keyword the index resolves to the field (a
+                        # synthesized __init__): read as a call key.
+                        counts["keyword_sites"] += 1
+                        continue
+                    if (
+                        access is not None
+                        and access.type == "attribute"
+                        and holder is not None
+                        and holder.child_by_field_name("left") == access
+                    ):
+                        if holder.type == "assignment":
+                            kinds = ("WRITES_COLUMN",)
+                        elif holder.type == "augmented_assignment":
+                            # ``x.f += 1`` reads the value it writes.
+                            kinds = ("READS_COLUMN", "WRITES_COLUMN")
+                    elif (
+                        access is not None
+                        and access.type == "attribute"
+                        and holder is not None
+                        and holder.type == "pair"
+                        and holder.child_by_field_name("key") == access
+                    ):
+                        # ``update(User).values({User.name: x})``.
+                        call = holder.parent
+                        while call is not None and call.type in (
+                            "dictionary",
+                            "list",
+                            "argument_list",
+                        ):
+                            call = call.parent
+                        function = (
+                            call.child_by_field_name("function")
+                            if call is not None and call.type == "call"
+                            else None
+                        )
+                        if (
+                            function is not None
+                            and function.type == "attribute"
+                            and function.child_by_field_name("attribute").text
+                            in (b"values", b"update")
+                        ):
+                            kinds = ("WRITES_COLUMN",)
+                sites.add((file, line, column))
+                tool, receipt = references.tool(file)
+                for kind in kinds:
+                    counts["writes" if kind == "WRITES_COLUMN" else "reads"] += 1
+                    link(
+                        kind,
+                        code(file, _owner_at(owners_by_file[file], file, line, column)),
+                        next(iter(holders.values())),
+                        rule,
+                        {
+                            "line": line,
+                            "column": column,
+                            "field": field_name[site],
+                            "indexer": tool,
+                            "receipt": receipt,
+                        },
+                        labels=("DbColumn", "Contract"),
+                    )
+            return sites
+
         # Django model fields: their columns by Django's own naming, the
         # accesses the index resolves to them, and the lookups and field
         # names of manager calls and model constructors.
@@ -1921,53 +2107,17 @@ class DataContractTool(AnalysisTool):
             name = django_names.get(request)
             if name is None:
                 continue
-            known = table_columns.get(target)
-            if known is not None:
-                column = (
-                    name
-                    if name in known
-                    else next((c for c in known if c.lower() == name.lower()), None)
-                )
-                if column is None:
-                    django_columns_counts["not_a_table_column"] += 1
-                    continue
-            else:
-                column = name
-            column_target = f"{target}::column::{column}"
-            if known is None and column_target not in column_nodes:
-                table_label = target.rsplit("::", 1)[-1]
-                column_nodes[column_target] = NodeData(
-                    ["DbColumn", "Contract"],
-                    {
-                        "qualified_name": column_target,
-                        "repo_url": repo_url,
-                        "name": f"{table_label}.{column}",
-                        "display_name": f"{table_label}.{column}",
-                        "table": table_label,
-                        "column": column,
-                        "protocol": "sql",
-                        "scope": scope(owner.file),
-                    },
-                )
-                link(
-                    "HAS_COLUMN",
-                    (["DbTable", "Contract"], target),
-                    column_target,
-                    DJANGO_COLUMN_RULE,
-                    {"field": request[1]},
-                    labels=("DbColumn", "Contract"),
-                )
-                if field is not None:
-                    link(
-                        "DECLARES",
-                        (["File"], f"{repo_url}::{owner.file}::file"),
-                        column_target,
-                        DJANGO_COLUMN_RULE,
-                        {"line": field.line, "field": field.name},
-                        labels=("DbColumn", "Contract"),
-                    )
-                django_columns_counts["columns_declared"] += 1
-            django_columns_counts["columns"] += 1
+            column_target = column_for(
+                target,
+                name,
+                owner.file,
+                DJANGO_COLUMN_RULE,
+                django_columns_counts,
+                request[1],
+                field.line if field is not None else None,
+            )
+            if column_target is None:
+                continue
             entry = django_models[target]
             entry["fields"][request[1]] = (
                 column_target,
@@ -1999,58 +2149,13 @@ class DataContractTool(AnalysisTool):
                             model_name, (target, name)
                         )
         # Attribute accesses the index resolves to a field.
-        django_sites = set()
-        if django_field_at:
-            owners_by_file = defaultdict(list)
-            for d in result.definitions:
-                owners_by_file[d.file].append(d)
-            for file, line, column, site in references.references_to(django_field_at):
-                holders = django_field_at[site]
-                if len(holders) != 1:
-                    django_columns_counts["accesses_unattributed"] += 1
-                    for name in holders.values():
-                        if name in column_nodes:
-                            column_nodes[name].properties["reads_unattributed"] = True
-                    continue
-                entry = django_trees.get(file)
-                kinds = ("READS_COLUMN",)
-                if entry is not None:
-                    node = entry[1].root_node.descendant_for_point_range(
-                        (line - 1, column), (line - 1, column)
-                    )
-                    access = node.parent if node is not None else None
-                    holder = access.parent if access is not None else None
-                    if (
-                        access is not None
-                        and access.type == "attribute"
-                        and holder is not None
-                        and holder.child_by_field_name("left") == access
-                    ):
-                        if holder.type == "assignment":
-                            kinds = ("WRITES_COLUMN",)
-                        elif holder.type == "augmented_assignment":
-                            # ``x.f += 1`` reads the value it writes.
-                            kinds = ("READS_COLUMN", "WRITES_COLUMN")
-                django_sites.add((file, line, column))
-                tool, receipt = references.tool(file)
-                for kind in kinds:
-                    django_columns_counts[
-                        "writes" if kind == "WRITES_COLUMN" else "reads"
-                    ] += 1
-                    link(
-                        kind,
-                        code(file, _owner_at(owners_by_file[file], file, line, column)),
-                        next(iter(holders.values())),
-                        DJANGO_COLUMN_ACCESS_RULE,
-                        {
-                            "line": line,
-                            "column": column,
-                            "field": django_field_name[site],
-                            "indexer": tool,
-                            "receipt": receipt,
-                        },
-                        labels=("DbColumn", "Contract"),
-                    )
+        django_sites = link_field_accesses(
+            django_field_at,
+            django_field_name,
+            django_trees,
+            DJANGO_COLUMN_ACCESS_RULE,
+            django_columns_counts,
+        )
 
         def django_keys(file, keyed, method):
             owners = [d for d in result.definitions if d.file == file]
@@ -2209,6 +2314,135 @@ class DataContractTool(AnalysisTool):
                 SA_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
+        # SQLAlchemy columns: the column attributes of each mapped class,
+        # with those of mixins and of single-table bases it inherits.
+        sa_columns_counts = Counter()
+        sa_class_by_id = {c.model_id: c for c in sa_classes}
+        sa_class_by_name = defaultdict(list)
+        for c in sa_classes:
+            sa_class_by_name[(c.file, c.name)].append(c)
+
+        def sa_bases(c):
+            found = []
+            for name, line, column, _ in c.bases:
+                declared = references.declarations(
+                    c.file, line, column, name.rsplit(".", 1)[-1]
+                )
+                found += (
+                    sa_class_by_name.get((c.file, name), [])
+                    if declared is None
+                    else [
+                        sa_class_by_id[d.id] for d in declared if d.id in sa_class_by_id
+                    ]
+                )
+            return found
+
+        def sa_mapped_base(c, seen=()):
+            """The table of the nearest mapped class ``c`` inherits."""
+            for base in sa_bases(c):
+                if base.model_id in seen:
+                    continue
+                if base.model_id in sa_by_model:
+                    return sa_by_model[base.model_id]
+                found = sa_mapped_base(base, seen + (c.model_id,))
+                if found is not None:
+                    return found
+            return None
+
+        def sa_fields(c, target, seen=()):
+            """(class, field) of ``c`` and of the bases mapped to no other
+            table (mixins, single-table bases), the class's own last."""
+            found = []
+            for base in sa_bases(c):
+                if base.model_id in seen:
+                    continue
+                other = sa_by_model.get(base.model_id)
+                if other is not None and other != target:
+                    continue  # joined inheritance: the base's table
+                found += sa_fields(base, target, seen + (c.model_id,))
+            return found + [(c, f) for f in c.fields]
+
+        # A subclass without __tablename__ or a primary key of its own is a
+        # single-table subclass: its queries and columns are its base's.
+        for c in sa_classes:
+            if c.model_id in sa_by_model or c.tablename or c.table:
+                continue
+            if any(f.primary for f in c.fields):
+                continue
+            target = sa_mapped_base(c)
+            if target is not None:
+                sa_by_model[c.model_id] = target
+        sa_models = defaultdict(dict)  # table -> {attribute: DbColumn}
+        sa_field_at, sa_field_name = defaultdict(dict), {}
+        for model_id, target in sorted(sa_by_model.items(), key=str):
+            c = sa_class_by_id.get(model_id)
+            if c is None:
+                continue
+            for owner, field in sa_fields(c, target):
+                if field.kind == "annotated" and not c.table:
+                    continue
+                column_target = column_for(
+                    target,
+                    field.column_name or field.name,
+                    owner.file,
+                    SA_COLUMN_RULE,
+                    sa_columns_counts,
+                    field.name,
+                    field.line,
+                )
+                if column_target is None:
+                    continue
+                sa_models[target][field.name] = column_target
+                site = (owner.file, field.line, field.column)
+                sa_field_at[site][target] = column_target
+                sa_field_name[site] = field.name
+        # Each class's attributes, with those of the joined-inheritance bases
+        # it inherits (which keep their own table's columns).
+        sa_attrs = {}
+
+        def sa_class_attrs(model_id, seen=()):
+            if model_id in sa_attrs:
+                return sa_attrs[model_id]
+            c = sa_class_by_id.get(model_id)
+            target = sa_by_model.get(model_id)
+            attrs = {}
+            if c is not None and target is not None:
+                for base in sa_bases(c):
+                    if base.model_id in seen or base.model_id == model_id:
+                        continue
+                    other = sa_by_model.get(base.model_id)
+                    if other is not None and other != target:
+                        attrs.update(sa_class_attrs(base.model_id, seen + (model_id,)))
+                attrs.update(sa_models.get(target, {}))
+            sa_attrs[model_id] = attrs
+            return attrs
+
+        sa_sites = link_field_accesses(
+            sa_field_at,
+            sa_field_name,
+            sa_trees,
+            SA_COLUMN_ACCESS_RULE,
+            sa_columns_counts,
+        )
+
+        def sa_keys(file, keys, model_id, method):
+            owners = [d for d in result.definitions if d.file == file]
+            for name, sets, line, column in keys:
+                column_target = sa_class_attrs(model_id).get(name)
+                if column_target is None or (file, line, column) in sa_sites:
+                    if column_target is None:
+                        sa_columns_counts["keys_unknown"] += 1
+                    continue
+                sa_columns_counts["call_keys"] += 1
+                link(
+                    "WRITES_COLUMN" if sets else "READS_COLUMN",
+                    code(file, _owner_at(owners, file, line, column)),
+                    column_target,
+                    SA_COLUMN_KEY_RULE,
+                    {"line": line, "column": column, "method": method, "field": name},
+                    labels=("DbColumn", "Contract"),
+                )
+
         sa_counts = {
             "linked": 0,
             "linked_scip": 0,
@@ -2289,6 +2523,9 @@ class DataContractTool(AnalysisTool):
                     sa_counts["scip_not_a_mapped_class"] += 1
                     continue
                 sa_counts["linked_scip"] += 1
+                model_ids = {d.id for d in declared if d.id in sa_by_model}
+                if len(model_ids) == 1:
+                    sa_keys(access.file, access.keys, model_ids.pop(), access.how)
                 tool, receipt = references.tool(access.file)
                 link(
                     "WRITES" if access.writes else "READS",
@@ -2320,6 +2557,61 @@ class DataContractTool(AnalysisTool):
                     "column": access.model_column,
                 },
             )
+        # Mapped(attribute=...) default constructors the index resolves.
+        if sa_models:
+            sa_names = {
+                c.name for c in sa_classes if sa_by_model.get(c.model_id) in sa_models
+            }
+
+            def sa_custom_init(c, seen=()):
+                return c.init or any(
+                    sa_custom_init(b, seen + (c.model_id,))
+                    for b in sa_bases(c)
+                    if b.model_id not in seen
+                )
+
+            for file, content, tree in python_trees:
+                if not references.covers(file):
+                    continue
+                for call in _descendants(tree.root_node, "call"):
+                    function = call.child_by_field_name("function")
+                    last = function
+                    if function is not None and function.type == "attribute":
+                        last = function.child_by_field_name("attribute")
+                    if last is None or last.type != "identifier":
+                        continue
+                    name = last.text.decode("utf-8", "replace")
+                    if name not in sa_names:
+                        continue
+                    declared = references.declarations(
+                        file, last.start_point.row + 1, last.start_point.column, name
+                    )
+                    found = {
+                        d.id
+                        for d in declared or ()
+                        if sa_by_model.get(d.id) in sa_models
+                    }
+                    if len(found) != 1:
+                        continue
+                    model_id = next(iter(found))
+                    if sa_custom_init(sa_class_by_id[model_id]):
+                        sa_columns_counts["constructor_custom_init"] += 1
+                        continue
+                    arguments = call.child_by_field_name("arguments")
+                    keys = []
+                    for child in arguments.named_children if arguments else ():
+                        if child.type == "keyword_argument":
+                            key = child.child_by_field_name("name")
+                            keys.append(
+                                (
+                                    key.text.decode("utf-8", "replace"),
+                                    True,
+                                    key.start_point.row + 1,
+                                    key.start_point.column,
+                                )
+                            )
+                    sa_columns_counts["constructors"] += 1
+                    sa_keys(file, keys, model_id, name)
         # SQL and JPQL text that Java code runs.
         entity_tables = {}
         for mapping in mappings:
@@ -4608,6 +4900,7 @@ class DataContractTool(AnalysisTool):
                     "sqlalchemy_mappings": len(sa_mappings),
                     "sqlalchemy_tables": len(sa_tables),
                     "sqlalchemy_access_resolution": sa_counts,
+                    "sqlalchemy_columns": dict(sa_columns_counts),
                     "sql_text": sql_counts,
                     "sql_columns": dict(column_counts),
                     "mybatis_mapper_statements": mybatis_counts,

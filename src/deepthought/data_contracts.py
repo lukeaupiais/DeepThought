@@ -2764,6 +2764,24 @@ class SaAccess:
     method: str = ""
     method_line: int = 0
     method_column: int = 0
+    # Column names the chain names by keyword or dict key: (name, writes,
+    # line, byte column), for a query or statement on one mapped class.
+    keys: tuple = ()
+
+
+@dataclass(frozen=True)
+class SaField:
+    """An attribute of a class body that may map a column: ``Column(...)``
+    or ``mapped_column(...)`` ("column"), ``x: Mapped[T]`` alone
+    ("mapped"), or any other annotated attribute ("annotated", a column
+    when the class is a SQLModel table)."""
+
+    name: str
+    column_name: str | None  # the name written in the call, else None
+    kind: str
+    primary: bool
+    line: int
+    column: int
 
 
 @dataclass(frozen=True)
@@ -2780,6 +2798,8 @@ class SaClass:
     bases: tuple[tuple[str, int, int, str | None], ...]
     table: bool  # SQLModel's ``table=True`` class keyword
     tablename: str | None
+    fields: tuple = ()
+    init: bool = False  # the class defines __init__
 
 
 SQLMODEL_BASE = "sqlmodel.SQLModel"
@@ -2813,6 +2833,195 @@ def _module_aliases(root, content):
                 module = _text(child, content)
                 aliases[module.split(".")[0]] = module.split(".")[0]
     return aliases
+
+
+# Class-body calls that map something other than a column of the table.
+_SA_NOT_COLUMNS = {
+    "relationship",
+    "Relationship",
+    "relation",
+    "backref",
+    "column_property",
+    "synonym",
+    "association_proxy",
+    "composite",
+    "deferred",
+    "query_expression",
+    "dynamic_loader",
+}
+_SA_MAPPED = re.compile(r"(?:\w+\.)*Mapped\[")
+
+
+def _sa_fields(body, content):
+    """The SaFields of a class body."""
+    found = []
+    for statement in body.named_children if body is not None else ():
+        if statement.type != "expression_statement" or not statement.named_children:
+            continue
+        node = statement.named_children[0]
+        if node.type != "assignment":
+            continue
+        left = node.child_by_field_name("left")
+        if left is None or left.type != "identifier":
+            continue
+        name = _text(left, content)
+        if name.startswith("_") or name == "model_config":
+            continue
+        annotation = node.child_by_field_name("type")
+        written = _text(annotation, content) if annotation is not None else ""
+        if "ClassVar" in written:
+            continue
+        right = node.child_by_field_name("right")
+        kind, column_name, primary = None, None, False
+        if right is not None and right.type == "call":
+            function = right.child_by_field_name("function")
+            last = function
+            if function is not None and function.type == "attribute":
+                last = function.child_by_field_name("attribute")
+            called = _text(last, content) if last is not None else ""
+            keywords = _keyword_arguments(right, content)
+            if called in ("column_property", "deferred"):
+                # column_property(Column(...), ...): the attribute maps the
+                # column it wraps.
+                arguments = right.child_by_field_name("arguments")
+                inner = next(
+                    (
+                        c
+                        for c in arguments.named_children
+                        if c.type not in ("keyword_argument", "comment")
+                    ),
+                    None,
+                )
+                function = (
+                    inner.child_by_field_name("function")
+                    if (inner is not None and inner.type == "call")
+                    else None
+                )
+                last = function
+                if function is not None and function.type == "attribute":
+                    last = function.child_by_field_name("attribute")
+                if last is None or _text(last, content) not in (
+                    "Column",
+                    "mapped_column",
+                ):
+                    continue
+                right, called = inner, _text(last, content)
+                keywords = _keyword_arguments(right, content)
+            if called in ("Column", "mapped_column"):
+                kind = "column"
+                arguments = right.child_by_field_name("arguments")
+                first = next(
+                    (
+                        c
+                        for c in arguments.named_children
+                        if c.type not in ("keyword_argument", "comment")
+                    ),
+                    None,
+                )
+                column_name = _string(first, content) or _string(
+                    keywords.get("name"), content
+                )
+            elif called in _SA_NOT_COLUMNS or _SA_MAPPED.match(written):
+                continue
+            elif annotation is not None:
+                kind = "annotated"
+                column = keywords.get("sa_column")
+                if column is not None and column.type == "call":
+                    inner = _keyword_arguments(column, content)
+                    arguments = column.child_by_field_name("arguments")
+                    first = next(
+                        (
+                            c
+                            for c in arguments.named_children
+                            if c.type not in ("keyword_argument", "comment")
+                        ),
+                        None,
+                    )
+                    column_name = _string(first, content) or _string(
+                        inner.get("name"), content
+                    )
+                    keywords = {**keywords, **inner}
+            value = keywords.get("primary_key")
+            primary = value is not None and value.type == "true"
+        elif annotation is not None:
+            kind = "mapped" if _SA_MAPPED.match(written) else "annotated"
+        if kind is None:
+            continue
+        found.append(
+            SaField(
+                name,
+                column_name,
+                kind,
+                primary,
+                left.start_point.row + 1,
+                left.start_point.column,
+            )
+        )
+    return tuple(found)
+
+
+def _sa_chain_keys(node, writes, how, content):
+    """The column names a query or statement chain names after ``node``:
+    keywords of filter_by (read); keywords and dict keys of values (written
+    by insert and update); string keys of Query.update's dict (written). It
+    stops at a join, after which filter_by names another entity."""
+    keys = []
+
+    def strings(argument, sets):
+        dicts = [argument]
+        if argument.type == "list":
+            dicts = list(argument.named_children)
+        for item in dicts:
+            if item.type != "dictionary":
+                continue
+            for pair in item.named_children:
+                key = pair.child_by_field_name("key") if pair.type == "pair" else None
+                text = _string(key, content)
+                if text:
+                    keys.append(
+                        (text, sets, key.start_point.row + 1, key.start_point.column)
+                    )
+
+    current = node
+    while True:
+        parent = current.parent
+        if (
+            parent is None
+            or parent.type != "attribute"
+            or parent.child_by_field_name("object") != current
+        ):
+            break
+        call = parent.parent
+        if (
+            call is None
+            or call.type != "call"
+            or call.child_by_field_name("function") != parent
+        ):
+            break
+        method = _text(parent.child_by_field_name("attribute"), content)
+        if method in ("join", "outerjoin", "join_from", "select_from"):
+            break
+        arguments = call.child_by_field_name("arguments")
+        children = arguments.named_children if arguments is not None else ()
+        if method in ("filter_by", "values") or (
+            method == "update" and how in ("query", "model_query")
+        ):
+            sets = method != "filter_by" and (writes or method == "update")
+            for child in children:
+                if child.type == "keyword_argument" and method != "update":
+                    name = child.child_by_field_name("name")
+                    keys.append(
+                        (
+                            _text(name, content),
+                            sets,
+                            name.start_point.row + 1,
+                            name.start_point.column,
+                        )
+                    )
+                elif method != "filter_by":
+                    strings(child, sets)
+        current = call
+    return tuple(keys)
 
 
 def _from_sqlalchemy(origin):
@@ -2901,6 +3110,25 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     tuple(bases),
                     table,
                     name.lower() if name else None,
+                    _sa_fields(node.child_by_field_name("body"), content),
+                    any(
+                        (
+                            c.child_by_field_name("definition")
+                            if c.type == "decorated_definition"
+                            else c
+                        ).type
+                        == "function_definition"
+                        and _text(
+                            (
+                                c.child_by_field_name("definition")
+                                if c.type == "decorated_definition"
+                                else c
+                            ).child_by_field_name("name"),
+                            content,
+                        )
+                        == "__init__"
+                        for c in node.child_by_field_name("body").named_children
+                    ),
                 )
             )
         if importing and definition is not None and name:
@@ -2915,7 +3143,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                 )
             )
 
-    def access(node, model, writes, how, method=None):
+    def access(node, model, writes, how, method=None, keys=False):
         accesses.append(
             SaAccess(
                 file,
@@ -2934,8 +3162,9 @@ def extract_sqlalchemy(tree, content, file, definitions):
                         method.start_point.column,
                     )
                     if method is not None
-                    else ()
+                    else ("", 0, 0)
                 ),
+                _sa_chain_keys(node, writes, how, content) if keys else (),
             )
         )
 
@@ -2957,7 +3186,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                     and parent.child_by_field_name("function") == node
                 )
             ):
-                access(node, target, False, "model_query")
+                access(node, target, False, "model_query", keys=True)
             continue
         if node.type != "call":
             continue
@@ -3019,7 +3248,9 @@ def extract_sqlalchemy(tree, content, file, definitions):
             while argument.type == "attribute":
                 argument = argument.child_by_field_name("object")
             if argument.type == "identifier":
-                access(node, argument, writes, how)
+                # Keys are read for a chain on one class: filter_by names
+                # the last entity, so several are ambiguous.
+                access(node, argument, writes, how, keys=len(considered) == 1)
     return mappings, tables, accesses, classes
 
 
