@@ -22,6 +22,7 @@ from deepthought.go_facts import GoFacts, GoMissing
 from deepthought.data_contracts import (
     UNKNOWN,
     default_table_name,
+    extract_column_changes,
     extract_ddl,
     extract_schema_changes,
     extract_foreign_keys,
@@ -486,6 +487,88 @@ RENAME TABLE m TO n;
             (1, 3, 1, 1),
         )
 
+    def test_column_changes(self):
+        text = b"""ALTER TABLE users ADD COLUMN email text, ADD age int;
+ALTER TABLE users DROP COLUMN IF EXISTS age, DROP COLUMN nick;
+ALTER TABLE "Users" RENAME COLUMN "Name" TO full_name;
+ALTER TABLE `m` CHANGE `a` `b` int;
+ALTER TABLE users ALTER COLUMN email TYPE varchar(80);
+ALTER TABLE users ADD CONSTRAINT u UNIQUE (email);
+"""
+        found, unparsed = extract_column_changes("m.sql", text)
+        self.assertEqual(
+            [(c.line, c.table, c.action, c.column, c.new_name) for c in found],
+            [
+                (1, "users", "add", "email", None),
+                (1, "users", "add", "age", None),
+                (2, "users", "drop", "age", None),
+                (2, "users", "drop", "nick", None),
+                # A quoted name keeps its case, as Postgres keeps it.
+                (3, "users", "rename", "Name", "full_name"),
+                (4, "m", "rename", "a", "b"),
+            ],
+        )
+        self.assertEqual(unparsed, [])
+
+    def test_migrations_replay_columns(self):
+        files = {
+            "package.json": '{"name": "app"}',
+            "db/migrations/0001_init.sql": "CREATE TABLE users (\n"
+            "  id int PRIMARY KEY,\n"
+            "  name text,\n"
+            "  nick text\n"
+            ");\n",
+            "db/migrations/0002_change.sql": "ALTER TABLE users ADD COLUMN email text;\n"
+            "ALTER TABLE users DROP COLUMN nick;\n"
+            "ALTER TABLE users RENAME COLUMN name TO full_name;\n"
+            "ALTER TABLE users RENAME TO accounts;\n",
+            # Another set whose ALTER TABLE no dialect parses: its columns
+            # are not known.
+            "other/schema.sql": "CREATE TABLE logs (id int);\n"
+            "ALTER TABLE logs ADD COLUMN ((( broken;\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, files)
+            output = asyncio.run(
+                DataContractTool(directory).analyze("r", languages=["python"])
+            )
+        columns = sorted(
+            (
+                r.target_match["qualified_name"].split("::")[-3:],
+                r.source_match["qualified_name"].split("::")[-2],
+                r.properties["line"],
+                r.properties["rule_id"],
+            )
+            for r in output.relationships
+            if r.type == "DECLARES" and "DbColumn" in r.target_labels
+        )
+        self.assertEqual(
+            [(c[0][0], c[0][2], c[1], c[2]) for c in columns],
+            [
+                ("accounts", "email", "db/migrations/0002_change.sql", 1),
+                ("accounts", "full_name", "db/migrations/0002_change.sql", 3),
+                ("accounts", "id", "db/migrations/0001_init.sql", 2),
+            ],
+        )
+        self.assertEqual({c[3] for c in columns}, {"data-contracts.sql-column"})
+        tables = {
+            n.properties["name"]: n.properties
+            for n in output.nodes
+            if "DbTable" in n.labels
+        }
+        self.assertTrue(tables["accounts"]["columns_read"])
+        self.assertNotIn("columns_read", tables["logs"])
+        self.assertEqual(sum(r.type == "HAS_COLUMN" for r in output.relationships), 3)
+        metrics = output.metadata.custom_metrics
+        self.assertEqual(
+            (
+                metrics["ddl_columns"],
+                metrics["ddl_tables_columns_unknown"],
+                metrics["ddl_alter_unparsed"],
+            ),
+            (3, 1, 1),
+        )
+
     def test_migrations_replay_dropped_and_renamed_tables(self):
         files = {
             "package.json": '{"name": "app"}',
@@ -511,7 +594,7 @@ RENAME TABLE m TO n;
                 r.properties["line"],
             )
             for r in output.relationships
-            if r.type == "DECLARES"
+            if r.type == "DECLARES" and "DbTable" in r.target_labels
         )
         self.assertEqual(
             declared,
@@ -572,7 +655,7 @@ class ToolTests(unittest.TestCase):
                 r.properties["rule_id"],
             )
             for r in output.relationships
-            if r.type != "CONTAINS"
+            if r.type != "CONTAINS" and "DbColumn" not in r.target_labels
         )
         store = "store/pom.xml::db-table::"
         self.assertEqual(
@@ -3232,7 +3315,7 @@ class ComposeDatabaseTests(unittest.TestCase):
                 r.target_match["qualified_name"],
             )
             for r in output.relationships
-            if r.type != "CONTAINS"
+            if r.type != "CONTAINS" and "DbColumn" not in r.target_labels
         )
         # checker names the api's database: one monitor table. legacy names
         # another database of the same server; web names no database and

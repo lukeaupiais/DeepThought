@@ -67,6 +67,11 @@ class Ddl:
     schema: str | None = None
     # "sqlglot", or "tokens_not_parsed" for a CREATE TABLE no dialect parses.
     reader: str = "sqlglot"
+    # The table's columns, each (name, file, line) of the statement that
+    # declares it; complete only when ``columns_read`` (sqlglot parsed the
+    # CREATE TABLE and every ALTER TABLE of its migration set).
+    columns: tuple[tuple[str, str, int], ...] = ()
+    columns_read: bool = False
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,17 @@ def table_key(name):
     if name[:1] in '"`[' and len(name) >= 2:
         name = name[1:-1]
     return name.lower()
+
+
+def column_key(node):
+    """A column's name as the database keeps it: a quoted identifier as
+    written, an unquoted one folded to lower case."""
+    from sqlglot import exp
+
+    identifier = node if isinstance(node, exp.Identifier) else node.this
+    if isinstance(identifier, exp.Identifier) and identifier.quoted:
+        return identifier.name
+    return node.name.lower()
 
 
 def _blank(match):
@@ -144,7 +160,15 @@ def extract_ddl(file, content: bytes):
                 found.append(Ddl(file, line, name, schema, "tokens_not_parsed"))
             continue
         found.extend(
-            Ddl(file, line + offset, name, schema) for line, name, schema in parsed
+            Ddl(
+                file,
+                line + offset,
+                name,
+                schema,
+                columns=tuple((column, file, at + offset) for column, at in columns),
+                columns_read=True,
+            )
+            for line, name, schema, columns in parsed
         )
     return found
 
@@ -215,6 +239,127 @@ class TableRename:
     line: int
     table: str
     new_name: str
+
+
+@dataclass(frozen=True)
+class ColumnChange:
+    """ALTER TABLE ``table`` ADD ``column`` (``action`` "add"), DROP COLUMN
+    (``"drop"``), or RENAME COLUMN / MySQL's CHANGE (``"rename"``, to
+    ``new_name``)."""
+
+    file: str
+    line: int
+    table: str
+    action: str
+    column: str
+    new_name: str | None = None
+
+
+_COLUMN_WORDS = frozenset({"ADD", "DROP", "RENAME", "CHANGE", "MODIFY", "COLUMN"})
+
+
+def _altered_table(statement):
+    """The table an ALTER TABLE statement's tokens name (ALTER TABLE, an
+    optional IF EXISTS and ONLY, then a dotted name), or None."""
+    words = [t.text for t in statement[2:]]
+    while words and words[0].upper() in ("IF", "EXISTS", "ONLY"):
+        words.pop(0)
+    if not words:
+        return None
+    name = words[0]
+    while len(words) >= 3 and words[1] == ".":
+        name = words[2]
+        words = words[2:]
+    return table_key(name)
+
+
+def extract_column_changes(file, content: bytes):
+    """(changes, statements not parsed) of a SQL file's ALTER TABLE
+    statements that add, drop or rename columns, read by sqlglot in the
+    first of DDL_DIALECTS that parses each. An ALTER TABLE statement no
+    dialect parses whose words may change columns (ADD, DROP, RENAME,
+    CHANGE, MODIFY, COLUMN) is not read; its (line, table) is returned,
+    table from its tokens or None, since that table's columns are then
+    unknown. None when the file is not UTF-8 or no dialect tokenizes it."""
+    import sqlglot
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+    from sqlglot.tokens import TokenType
+
+    split = _ddl_statements(content)
+    if split is None:
+        return None
+    text, statements = split
+    found, unparsed = [], []
+    for statement in statements:
+        if not statement or statement[0].token_type != TokenType.ALTER:
+            continue
+        if TokenType.TABLE not in {t.token_type for t in statement[:3]}:
+            continue
+        start, end = statement[0].start, statement[-1].end + 1
+        line = statement[0].line
+        for dialect in DDL_DIALECTS:
+            try:
+                trees = [
+                    t
+                    for t in sqlglot.parse(text[start:end], read=dialect)
+                    if t is not None
+                ]
+            except (SqlglotError, ValueError, RecursionError):
+                continue
+            if trees and all(isinstance(t, exp.Alter) for t in trees):
+                break
+        else:
+            words = {t.text.upper() for t in statement}
+            if words & _COLUMN_WORDS:
+                unparsed.append((line, _altered_table(statement)))
+            continue
+        for tree in trees:
+            owner = tree.this
+            if not isinstance(owner, exp.Table) or not owner.name:
+                continue
+            table = owner.name.lower()
+            for action in tree.args.get("actions") or ():
+                if isinstance(action, exp.ColumnDef) and action.name:
+                    found.append(
+                        ColumnChange(file, line, table, "add", column_key(action))
+                    )
+                elif (
+                    isinstance(action, exp.Drop)
+                    and (action.args.get("kind") or "").upper() == "COLUMN"
+                ):
+                    found.extend(
+                        ColumnChange(file, line, table, "drop", column_key(c))
+                        for c in action.args.get("tables") or ()
+                        if c.name
+                    )
+                elif isinstance(action, exp.RenameColumn):
+                    old, new = action.this, action.args.get("to")
+                    if old is not None and new is not None:
+                        found.append(
+                            ColumnChange(
+                                file,
+                                line,
+                                table,
+                                "rename",
+                                column_key(old),
+                                column_key(new),
+                            )
+                        )
+                elif isinstance(action, exp.ModifyColumn):
+                    renamed = action.args.get("rename_from")
+                    if renamed is not None and action.this is not None:
+                        found.append(
+                            ColumnChange(
+                                file,
+                                line,
+                                table,
+                                "rename",
+                                column_key(renamed),
+                                column_key(action.this),
+                            )
+                        )
+    return found, unparsed
 
 
 def extract_foreign_keys(file, content: bytes):
@@ -562,7 +707,9 @@ def replay_tables(files):
     """The tables left once a migration set's files run in order, as
     ``replay_foreign_keys`` orders them: ``files`` holds (path, tables,
     changes). DROP TABLE removes a table; RENAME TO moves it, declared
-    where it is renamed. A table created twice keeps its first declaration.
+    where it is renamed; ColumnChange adds, drops and renames its columns
+    (a renamed column is declared where it is renamed). A table created
+    twice keeps its first declaration.
     Returns (tables, dropped count, renamed count)."""
     state, dropped, renamed = {}, 0, 0
     for _, found, changes in sorted(files, key=lambda f: _natural(f[0])):
@@ -570,6 +717,32 @@ def replay_tables(files):
         for _, kind, item in sorted(events, key=lambda e: (e[0], e[1])):
             if kind:
                 state.setdefault(item.name.lower(), item)
+            elif isinstance(item, ColumnChange):
+                table = state.get(item.table)
+                if table is None:
+                    continue
+                names = [c[0] for c in table.columns]
+                target = item.column
+                if target not in names:
+                    target = next(
+                        (n for n in names if n.lower() == target.lower()), target
+                    )
+                columns = [c for c in table.columns if c[0] != target]
+                if item.action == "add":
+                    columns = [
+                        *table.columns,
+                        *(
+                            ()
+                            if len(columns) < len(table.columns)
+                            else ((item.column, item.file, item.line),)
+                        ),
+                    ]
+                elif item.action == "rename":
+                    columns = [
+                        (item.new_name, item.file, item.line) if c[0] == target else c
+                        for c in table.columns
+                    ]
+                state[item.table] = replace(table, columns=tuple(columns))
             elif isinstance(item, TableRename):
                 if item.table in state:
                     state[item.new_name] = replace(
@@ -585,8 +758,8 @@ def replay_tables(files):
 
 
 def _sqlglot_ddl(text):
-    """(line, name, schema) of each permanent table a statement creates, or
-    None when no dialect parses it."""
+    """(line, name, schema, columns) of each permanent table a statement
+    creates, columns as (name, line), or None when no dialect parses it."""
     import sqlglot
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -615,11 +788,25 @@ def _sqlglot_ddl(text):
                     table.this, exp.Identifier
                 ):
                     continue
+                schema = create.this
+                columns = (
+                    tuple(
+                        (
+                            column_key(column),
+                            column.this.meta.get("line", 1),
+                        )
+                        for column in schema.expressions
+                        if isinstance(column, exp.ColumnDef) and column.name
+                    )
+                    if isinstance(schema, exp.Schema)
+                    else ()
+                )
                 found.append(
                     (
                         table.this.meta.get("line", 1),
                         table.name.lower(),
                         table.db.lower() or None,
+                        columns,
                     )
                 )
         return found

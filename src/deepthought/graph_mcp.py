@@ -147,7 +147,12 @@ def create_server():
     Roles = list[Literal["test", "example"]] | None
     ContractKind = (
         Literal[
-            "DbTable", "GraphqlField", "GrpcMethod", "HttpRoute", "MessageDestination"
+            "DbColumn",
+            "DbTable",
+            "GraphqlField",
+            "GrpcMethod",
+            "HttpRoute",
+            "MessageDestination",
         ]
         | None
     )

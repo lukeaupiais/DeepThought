@@ -176,6 +176,7 @@ def parser():
             q.add_argument(
                 "--kind",
                 choices=(
+                    "DbColumn",
                     "DbTable",
                     "GraphqlField",
                     "GrpcMethod",

@@ -28,6 +28,7 @@ _IMPACT_BACKWARD = (
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
+    "DbColumn",
     "DbTable",
     "GraphqlField",
     "GrpcMethod",
