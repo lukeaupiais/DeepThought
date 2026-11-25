@@ -135,6 +135,10 @@ def _value(value):
     raise ValueError("Unsupported non-JSON query value: " + type(value).__name__)
 
 
+# Storage keys of an EdgeCoverage node, not facts of the record.
+_COVERAGE_STORAGE = {"qualified_name", "repo_url", "snapshot_id"}
+
+
 class GraphQueryService:
     """Single query implementation shared by programmatic and agent callers.
 
@@ -176,6 +180,7 @@ class GraphQueryService:
         repository_scope=False,
         required_capability=None,
         metric=None,
+        bare=False,
     ):
         _text(repo_url, "repo_url")
         if not repository_scope:
@@ -242,6 +247,14 @@ class GraphQueryService:
                 if repository_scope:
                     # Several snapshots; their own analysis facts are per item.
                     del response["capabilities"], response["analysis_status"]
+                if bare:
+                    # The snapshot's facts are read once (describe_snapshot),
+                    # not repeated with every answer.
+                    # A snapshot that is not wholly analyzed says so still.
+                    kept = ("status", "items", "returned", "truncated")
+                    if response["analysis_status"] != "succeeded":
+                        kept += ("analysis_status",)
+                    response = {key: response[key] for key in kept}
                 async for record in result:
                     if len(response["items"]) >= limit:
                         response["truncated"] = True
@@ -2091,6 +2104,43 @@ class GraphQueryService:
             timeout=timeout,
         )
 
+    async def describe_snapshot(
+        self, repo_url, *, snapshot_id, max_output_bytes=16000, timeout=5
+    ):
+        """The snapshot's own facts, which raw Cypher answers leave out: its
+        repository and ID, capabilities, analysis status, content hash, the
+        tool that published it, when, the commits it came from, and its
+        ``coverage``: for each language and edge family, whether a
+        deterministic resolver linked it (``EdgeCoverage`` nodes)."""
+        response = await self._read(
+            """MATCH (s:AnalysisSnapshot {repo_url:$repo_url,snapshot_id:$snapshot_id,
+                status:'complete'})
+            OPTIONAL MATCH (c:EdgeCoverage {repo_url:$repo_url,snapshot_id:$snapshot_id})
+            WITH s,c ORDER BY c.family,c.protocol,c.language
+            WITH s,collect(properties(c)) AS coverage
+            RETURN s.content_hash AS content_hash,s.tool_name AS tool_name,
+                s.completed_at AS completed_at,
+                coalesce(s.source_commits,[]) AS commits,coverage""",
+            {},
+            repo_url,
+            snapshot_id,
+            limit=1,
+            max_output_bytes=max_output_bytes,
+            timeout=timeout,
+        )
+        from .storage.graph.encoding import decode_properties
+
+        for item in response["items"]:
+            item["coverage"] = [
+                {
+                    key: value
+                    for key, value in sorted(decode_properties(record).items())
+                    if key not in _COVERAGE_STORAGE
+                }
+                for record in item["coverage"]
+            ]
+        return response
+
     async def get_unknown_symbols(
         self, repo_url, *, snapshot_id, limit=20, max_output_bytes=16000, timeout=5
     ):
@@ -2166,6 +2216,9 @@ class GraphQueryService:
     ):
         """Execute bounded parameterized reads in a dedicated snapshot database.
 
+        The answer holds only ``status``, ``items``, ``returned`` and
+        ``truncated``; ``describe_snapshot`` gives the snapshot's own facts.
+
         This is deliberately explicit opt-in: arbitrary Cypher is database-scoped,
         not automatically rewritten for repository/tenant isolation. Database read
         privileges/read-only configuration remain required for untrusted callers.
@@ -2205,4 +2258,5 @@ class GraphQueryService:
             max_output_bytes=max_output_bytes,
             timeout=timeout,
             database_scope=True,
+            bare=True,
         )

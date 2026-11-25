@@ -161,12 +161,13 @@ def parser():
         "contracts",
         "contract-impact",
         "call-sites",
+        "snapshot",
         "cypher",
     ):
         q = commands.add_parser(name)
         q.add_argument("--repository-id", required=True)
         q.add_argument("--snapshot", required=True)
-        if name != "explain-edge":
+        if name not in {"explain-edge", "snapshot"}:
             q.add_argument("--limit", type=int, default=20)
         q.add_argument("--max-output-bytes", type=int, default=16000)
         if name in {"search", "cypher"}:
@@ -528,6 +529,12 @@ async def _execute(args, scip_report, scip_indexes):
         if args.command == "explain-edge":
             return await service.explain_edge(
                 args.edge_id,
+                args.repository_id,
+                snapshot_id=args.snapshot,
+                max_output_bytes=args.max_output_bytes,
+            )
+        if args.command == "snapshot":
+            return await service.describe_snapshot(
                 args.repository_id,
                 snapshot_id=args.snapshot,
                 max_output_bytes=args.max_output_bytes,
