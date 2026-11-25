@@ -902,6 +902,47 @@ schema qualifier is dropped (`app.users` names `users`), since tables join
 across readers by name, and a database's own catalog (`information_schema.*`,
 `pg_catalog.*`, `pg_*`, `sqlite_*`, ...) is listed under `not_counted`.
 
+### Go message destinations
+
+The manifest's `messages` entries label every Kafka and AMQP site in five
+Go repositories. The labels were written by hand from the pinned source,
+without the engine's type-checker facts, and cover each client the engine
+reads:
+
+| Corpus | Client | Root | Sites |
+|---|---|---|---|
+| rabbitmq-tutorials | amqp091-go | `go` | 17 |
+| go-clean-template | amqp091-go | `.` | 2 |
+| kafka-go | kafka-go | `examples` | 4 |
+| sarama | sarama | `examples` | 10 |
+| confluent-kafka-go | confluent-kafka-go | `examples` | 48 |
+
+A label is one call or literal, and says one of three things:
+
+- `destinations`: the destinations it names. Kafka destinations are the
+  topic. An AMQP publish is `exchange/routing-key`. An AMQP consume is
+  `/queue` on the default exchange, plus `exchange/key` for each binding
+  of that queue.
+- `unresolved`: no reading of the source can name it. Examples are a
+  flag, the environment, the command line, a request's `ReplyTo`, or a
+  queue the server names (`QueueDeclare("", ...)`).
+- `none`: the line sends and receives nothing, such as a `TopicPartition`
+  passed to `CommitOffsets` or to an admin call.
+
+`also_at` lists the other lines a site may be reported on, where a call
+and its literal start on different lines.
+
+`check` reports four numbers:
+
+- *found*: labelled destinations the engine reports;
+- *wrong*: endpoints naming another destination, or any endpoint at an
+  `unresolved` or `none` site;
+- *extra*: endpoints at lines the labels do not list (paths under
+  `not_counted` excepted);
+- *unresolved_sites*: how many labels say the destination cannot be known.
+
+The gate fails when *found* drops or *wrong* or *extra* rises.
+
 ## Metamorphic checks
 
 An edit whose effect on the graph is known in advance must change exactly

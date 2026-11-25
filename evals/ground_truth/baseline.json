@@ -1249,6 +1249,43 @@
     "unjudged": 1,
     "unresolved_unjudged": 11392
   },
+  "messages": {
+    "messages-confluent-kafka-go-examples": {
+      "expected": 13,
+      "extra": 0,
+      "found": 6,
+      "unresolved_sites": 26,
+      "wrong": 0
+    },
+    "messages-go-clean-template-amqp": {
+      "expected": 0,
+      "extra": 0,
+      "found": 0,
+      "unresolved_sites": 2,
+      "wrong": 1
+    },
+    "messages-kafka-go-examples": {
+      "expected": 0,
+      "extra": 0,
+      "found": 0,
+      "unresolved_sites": 4,
+      "wrong": 0
+    },
+    "messages-rabbitmq-tutorials-go": {
+      "expected": 8,
+      "extra": 0,
+      "found": 3,
+      "unresolved_sites": 9,
+      "wrong": 4
+    },
+    "messages-sarama-examples": {
+      "expected": 2,
+      "extra": 0,
+      "found": 2,
+      "unresolved_sites": 8,
+      "wrong": 0
+    }
+  },
   "preact": {
     "ambiguous_no_candidates": 38,
     "by_rule": {

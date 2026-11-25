@@ -1140,6 +1140,86 @@ def score_line_tables(labels, workspace, examples, rule_prefix, languages):
     return report, samples
 
 
+def score_messages(corpus, workspace, examples=10):
+    """Message destinations against hand labels (evals/ground_truth/messages).
+
+    Each label is one publish or consume site: the destinations it names
+    (``destinations``), or ``unresolved`` when no static reading can name
+    one (a flag, the environment, a server-named queue), or ``none`` when
+    the line sends and receives nothing (a TopicPartition given to an offset
+    call). A label may accept the site at nearby lines (``also_at``), where
+    the call and its literal start on different lines.
+
+    *found* counts the labelled (site, destination) pairs the engine reports.
+    *wrong* is an endpoint at a labelled line that names a destination the
+    label does not, or any endpoint at an ``unresolved`` or ``none`` line.
+    *extra* is an endpoint at a line the labels do not list (outside
+    ``not_counted``): every broker site under the corpus root is labelled.
+    """
+    import asyncio
+
+    from deepthought.analysis_tools import ServiceContractTool
+
+    tool = ServiceContractTool(Path(workspace))
+    asyncio.run(tool.analyze("messages"))
+    endpoints, _unread = tool.last_messages
+    labels = json.loads((CORPUS / corpus["labels"]).read_text("utf-8"))
+    at = {}
+    for site in labels["sites"]:
+        for line in [site["line"], *site.get("also_at", ())]:
+            at[(site["file"], line)] = site
+
+    def counted(file, line):
+        for entry in labels.get("not_counted", ()):
+            if entry["line"] is None:
+                if file == entry["file"] or file.startswith(entry["file"] + "/"):
+                    return False
+            elif (file, line) == (entry["file"], entry["line"]):
+                return False
+        return True
+
+    expected = {
+        (site["file"], site["line"], site["role"], site["broker"], d)
+        for site in labels["sites"]
+        for d in site.get("destinations", ())
+    }
+    found, wrong, extra = set(), [], []
+    for e in endpoints:
+        if not counted(e.file, e.line):
+            continue
+        site = at.get((e.file, e.line))
+        got = [e.file, e.line, e.role, e.broker, e.destination]
+        if site is None:
+            extra.append(got)
+            continue
+        key = (site["file"], site["line"], e.role, e.broker, e.destination)
+        if key in expected:
+            found.add(key)
+        else:
+            reason = (
+                "none"
+                if "none" in site
+                else "unresolved"
+                if "unresolved" in site
+                else "other destination"
+            )
+            wrong.append(got + [reason])
+    missed = sorted(expected - found)
+    report = {
+        "expected": len(expected),
+        "found": len(found),
+        "wrong": len(wrong),
+        "extra": len(extra),
+        "unresolved_sites": sum("unresolved" in s for s in labels["sites"]),
+    }
+    samples = {
+        "missed": [list(m) for m in missed[:examples]],
+        "wrong": sorted(wrong)[:examples],
+        "extra": sorted(extra)[:examples],
+    }
+    return report, samples
+
+
 def table_regressions(report, before):
     """Fewer models found, more wrong or extra ones, or changed labels."""
     problems = [
@@ -1213,7 +1293,11 @@ def missing_requirements(manifest, names=()):
             modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
     if any(
         selected(c)
-        for c in [*manifest.get("contracts", ()), *manifest.get("routes", ())]
+        for c in [
+            *manifest.get("contracts", ()),
+            *manifest.get("routes", ()),
+            *manifest.get("messages", ()),
+        ]
     ):
         modules.update(CONTRACT_MODULES)
         modules.update(LANGUAGES[lang][1] for lang in CONTRACT_LANGUAGES)
@@ -1464,6 +1548,26 @@ def check(names, cache, update=False, examples=10):
         }
         if update:
             tabled[corpus["name"]] = report
+    messaged = baseline.setdefault("messages", {})
+    for corpus in manifest.get("messages", ()):
+        if names and corpus["name"] not in names:
+            continue
+        workspace = fetch(corpus, cache) / corpus.get("root", ".")
+        report, samples = score_messages(corpus, workspace, examples)
+        problems = (
+            table_regressions(report, messaged[corpus["name"]])
+            if (corpus["name"] in messaged and not update)
+            else []
+        )
+        failed |= bool(problems)
+        reports[corpus["name"]] = {
+            "commit": corpus["commit"],
+            "messages": report,
+            "regressions": problems,
+            "examples": samples,
+        }
+        if update:
+            messaged[corpus["name"]] = report
     if update:
         baseline_path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n")
     return reports, failed
@@ -1798,6 +1902,7 @@ SUMMARY_METRICS = {
     "contracts": (("true_positive", True), ("false_positive", False)),
     "routes": (("found", True), ("extra", False), ("expected", True)),
     "tables": (("found", True), ("wrong", False), ("extra", False)),
+    "messages": (("found", True), ("wrong", False), ("extra", False)),
 }
 
 
@@ -1831,6 +1936,8 @@ def summary(reports, baseline):
                 )
         elif "tables" in report:
             yield "tables", report["tables"], base.get("tables", {}).get(name)
+        elif "messages" in report:
+            yield "messages", report["messages"], base.get("messages", {}).get(name)
         elif "routes" in report:
             before = base.get("routes", {}).get(name, {})
             for kind, counts in sorted(report["routes"].items()):
