@@ -13,7 +13,7 @@ from deepthought.storage.graph.write_coordinator import (
     _combine,
 )
 
-from go_stubs import go_mod, go_stub_files
+from go_stubs import go_mod, go_stub_files, needs_go
 
 READY = importlib.util.find_spec("tree_sitter") and all(
     importlib.util.find_spec(f"tree_sitter_{name}") for name in ("python", "go", "java")
@@ -208,6 +208,7 @@ def _write(root, files):
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_go
 class MessagingContractTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

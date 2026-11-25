@@ -30,6 +30,7 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
+from go_stubs import needs_go
 
 JAVA = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_java"
@@ -1765,6 +1766,7 @@ func {_service.capitalize()}(db *sql.DB) {{
 
 
 class ComposeDatabaseTests(unittest.TestCase):
+    @needs_go
     def test_services_naming_one_compose_database_share_its_tables(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, SHARED_COMPOSE_DATABASE)
@@ -2320,6 +2322,7 @@ class GormTests(unittest.TestCase):
         ):
             self.assertEqual(gorm_table_name(name), table)
 
+    @needs_go
     def test_models_and_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, GORM)
@@ -2356,6 +2359,7 @@ class GormTests(unittest.TestCase):
             metrics["gorm_access_resolution"], {"linked": 5, "not_a_model": 1}
         )
 
+    @needs_go
     def test_naming_strategy_leaves_defaults_out(self):
         files = {
             **GORM,

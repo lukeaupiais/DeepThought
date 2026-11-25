@@ -9,7 +9,7 @@ import unittest
 from deepthought.analysis_tools import ServiceContractTool
 from deepthought.analysis_tools.evidence import get_rule
 
-from go_stubs import go_mod, go_stub_files
+from go_stubs import go_mod, go_stub_files, needs_go
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_go"
@@ -107,6 +107,7 @@ FILES = {
 
 
 @unittest.skipUnless(READY, "tree-sitter grammars are not installed")
+@needs_go
 class GoKafkaTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
