@@ -2,7 +2,7 @@
 
 Each is the part of a client library's API the tests call, in a module
 directory of its own; ``go_mod`` writes a go.mod that requires the modules
-and replaces them with these directories, so ``go mod download`` and the
+and replaces them with these directories, so the download and the
 type checker read them without the network.
 """
 

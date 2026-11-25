@@ -3643,6 +3643,15 @@ No edge is wrong. On the corpora, nothing changes.
 
 No Go edge is wrong. On the corpora, nothing changes.
 
+Reading Go from go/types instead of import patterns, on the 18 Go
+repositories with a broker client (the three client repositories fully
+checked out): 3 links are gained and 4 lost. The gains are confluent-kafka-go
+examples whose consumer topic is a local the old rule could not follow.
+The losses are robot-shop's `dispatch` service, a GOPATH-era program with
+no `go.mod`, counted twice because the corpus holds two copies of it. The
+type checker cannot check it, so its file is now
+`go_types:not_type_checked`.
+
 #### NestJS microservices
 
 NestJS microservice patterns are read with broker `nestjs`:
@@ -4305,7 +4314,9 @@ methods returning a constant. It is built once per toolchain into
 `~/.cache/deepthought` (or `DEEPTHOUGHT_CACHE`) with the `go` on `PATH` (or
 `DEEPTHOUGHT_GO`). The Go toolchain is required: without it the analysis
 raises `GoMissing` rather than reading Go another way. Before the check,
-the engine runs `go mod download` in each module (with `GOTOOLCHAIN=auto`,
+the engine downloads what each module's packages and tests import (`go
+list -e -deps -test ./...`, so only the modules providing imported
+packages are fetched, not the whole module graph; with `GOTOOLCHAIN=auto`,
 which also fetches the Go release the module asks for), against copies of
 its `go.mod` and `go.sum` passed with `-modfile`, so the repository's files
 are never written. The check itself builds and runs nothing of the

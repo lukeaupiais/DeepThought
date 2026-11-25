@@ -159,7 +159,7 @@ class GoKafkaTests(unittest.TestCase):
         )
 
     def test_module_files_are_not_written(self):
-        # go mod download records into copies of go.mod and go.sum.
+        # The go command records into copies of go.mod and go.sum.
         root = Path(self.directory.name)
         for name, text in FILES.items():
             if name.endswith("go.mod"):

@@ -8,8 +8,9 @@ arguments (constants, locals assigned once, ``+`` joins), and GORM
 ``TableName`` methods returning a constant. Name resolution, constant
 folding and method selection are the compiler's, not rules of ours.
 
-Before the run, the engine downloads each module's dependencies with ``go mod
-download`` (and, with GOTOOLCHAIN=auto, the Go release a module asks for),
+Before the run, the engine downloads the modules providing the packages each
+module imports, with ``go list -deps -test`` (and, with GOTOOLCHAIN=auto, the
+Go release a module asks for), into copies of its go.mod and go.sum,
 so imports are typed from the module cache. The Go toolchain is required:
 without it ``collect`` raises ``GoMissing``.
 
@@ -219,9 +220,10 @@ def module_files(directory, scratch):
 
 
 def download(go, directory, modfile, timeout=900):
-    """Run ``go mod download`` in a module directory, with ``modfile`` (a
-    copy of its go.mod) taking the updates: its dependencies (and the Go
-    release it asks for) into the module cache. "downloaded", or
+    """Download what type-checking a module needs, with ``modfile`` (a copy
+    of its go.mod) taking the updates: ``go list -deps -test ./...`` fetches
+    the modules providing every package its packages and tests import (and
+    the Go release it asks for) into the module cache. "downloaded", or
     "download_failed: <first line of the error>"."""
     environment = dict(os.environ)
     environment.update(
@@ -232,7 +234,9 @@ def download(go, directory, modfile, timeout=900):
     )
     try:
         subprocess.run(
-            [go, "mod", "download", "all"],
+            # The modules of the packages the module's own packages and
+            # tests import, and nothing else of the module graph.
+            [go, "list", "-e", "-deps", "-test", "-f", "", "./..."],
             cwd=directory,
             capture_output=True,
             text=True,
