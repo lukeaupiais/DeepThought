@@ -52,7 +52,7 @@ jobs:
           node-version: '22'
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: false
       - name: Provision build and acceptance tools
         run: |
@@ -129,7 +129,7 @@ jobs:
           node-version: '22'
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: false
       - name: Install the pinned SCIP indexers, pyright and callgraph
         run: |
@@ -178,7 +178,7 @@ jobs:
           node-version: '22'
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: false
       - name: Install the pinned SCIP indexers and pyright
         run: |
