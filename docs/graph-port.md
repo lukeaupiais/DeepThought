@@ -268,14 +268,22 @@ written at the call, unless an import binds that name to it (the index may
 follow a star re-export to the wrong function), and an external target for
 `self.x()` when the enclosing class or a repository base declares `x` (the
 index may name a builtin). Both are `scip_suspect_target`: the parser's link
-stands if it has one, otherwise the call stays unlinked. Files no index covers
+stands if it has one, otherwise the call stays unlinked. In a JavaScript or
+TypeScript file, a `scip_external` call that the TypeScript compiler binds
+through an import (`call-imported-name`, `call-module-attribute`,
+`typescript.call-compiler-export`, `typescript.call-declaration-file`) keeps
+the compiler's link. scip-typescript 0.6.2 leaves a package that imports
+itself by name (preact's `compat/` importing `preact`) to `node_modules`, and
+calls those symbols external. The compiler resolves the same import to the
+workspace file the package's `exports` name. Files no index covers
 keep the parser's rules, which also run in shadow over covered files;
 `tools/ground_truth.py score ... --scip INDEX --disagreements OUT.tsv` writes
 the covered call sites where the two targets differ (file, line, callee, SCIP
 target file and line, parser target file and line, reason, rule). The
 tool's `call_resolution_by_resolver` metric counts call outcomes separately for
 `scip` (the index decided, its "nothing here" included), `scip_suspect_parser`
-(the parser's link kept over a suspect index target) and `tree-sitter` (files
+(the parser's link kept over a suspect index target), `typescript` (the
+compiler's link kept over an external index target) and `tree-sitter` (files
 no index covers).
 
 | Rule | Links |

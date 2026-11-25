@@ -463,6 +463,114 @@ class ScipCallTests(unittest.TestCase):
         self.assertEqual(scored(), (0, 1))
         self.assertEqual(scored("--scip", str(self.indexes / "impact.scip")), (1, 0))
 
+    def test_calls_the_index_calls_external_keep_the_compilers_binding(self):
+        files = {
+            "lib.ts": "export function run() {}\nexport function other() {}\n",
+            "index.ts": "export { other as again } from './lib';\n",
+            "types.d.ts": "export declare function typed(): void;\n",
+            "main.ts": (
+                "import { run, run as go } from './lib';\n"
+                "import * as m from './lib';\n"
+                "run(); m.other(); go(); log(); again(); typed();\n"
+                "function log() {}\n"
+                "import { again } from './index';\n"
+                "import { typed } from './types';\n"
+            ),
+            "c.py": "def f():\n    pass\n",
+            "b.py": "from c import f\nf()\n",
+        }
+        for name, text in files.items():
+            (self.root / name).write_text(text)
+        # The index names ./lib's exports by a package it does not define,
+        # as scip-typescript does for a package that imports itself.
+        outside = "scip-typescript npm self 1 lib.ts/"
+        ts = self.index(
+            "ts",
+            "scip-typescript",
+            [
+                (
+                    "main.ts",
+                    [
+                        (0, "go", "local 1", True, 0),
+                        (2, "run", outside + "run().", False, 0),
+                        (2, "other", outside + "other().", False, 0),
+                        (2, "go", "local 1", False, 0),
+                        (2, "log", outside + "log().", False, 0),
+                        (2, "again", outside + "other().", False, 0),
+                        (2, "typed", outside + "typed().", False, 0),
+                    ],
+                ),
+                ("lib.ts", []),
+            ],
+            2,
+        )
+        py = self.index(
+            "py",
+            "scip-python",
+            [("b.py", [(1, "f", "scip-python python c 1 c/f().", False, 0)])],
+            2,
+        )
+        result = analyze_repository(
+            self.root, repository_id="r", languages=("typescript", "python")
+        )
+        binding = scip_calls.bind_calls(result, [ts, py], self.root)
+        names = {d.id: d.symbol for d in result.definitions}
+        sites = {s.id: s for s in result.call_sites}
+        found = {
+            (sites[r.call_id].file, sites[r.call_id].callee): (
+                names.get(r.target_id),
+                r.rule_id,
+                r.reason,
+                binding.resolver(r.call_id),
+            )
+            for r in binding.resolutions
+        }
+        self.assertEqual(
+            found,
+            {
+                # The compiler resolves ./lib in the workspace: its binding
+                # stands where the index calls the symbol external.
+                ("main.ts", "run"): (
+                    "run",
+                    deepthought.calls.CALL_IMPORTED_NAME,
+                    None,
+                    "typescript",
+                ),
+                ("main.ts", "m.other"): (
+                    "other",
+                    deepthought.calls.CALL_MODULE_ATTRIBUTE,
+                    None,
+                    "typescript",
+                ),
+                ("main.ts", "again"): (
+                    "other",
+                    deepthought.calls.CALL_TS_COMPILER_EXPORT,
+                    None,
+                    "typescript",
+                ),
+                ("main.ts", "typed"): (
+                    "typed",
+                    deepthought.calls.CALL_TS_DECLARATION_FILE,
+                    None,
+                    "typescript",
+                ),
+                # A target the index defines but the parser does not
+                # declare, and a call no import binds, stay the index's.
+                ("main.ts", "go"): (
+                    None,
+                    None,
+                    scip_calls.NOT_DECLARATION,
+                    "scip",
+                ),
+                ("main.ts", "log"): (None, None, scip_calls.EXTERNAL, "scip"),
+                # Only JavaScript and TypeScript imports are the compiler's.
+                ("b.py", "f"): (None, None, scip_calls.EXTERNAL, "scip"),
+            },
+        )
+        self.assertNotIn(
+            next(i for i, s in sites.items() if s.callee == "run"), binding.producers
+        )
+
     def test_without_indexes_the_parser_resolves_every_call(self):
         (self.root / "a.ts").write_text(TS)
         result = analyze_repository(

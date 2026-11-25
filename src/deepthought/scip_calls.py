@@ -12,7 +12,14 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .calls import CallResolution, resolve_calls
+from .calls import (
+    CALL_IMPORTED_NAME,
+    CALL_MODULE_ATTRIBUTE,
+    CALL_TS_COMPILER_EXPORT,
+    CALL_TS_DECLARATION_FILE,
+    CallResolution,
+    resolve_calls,
+)
 from .inheritance import resolve_supertypes
 from .models import AnalysisResult
 
@@ -26,6 +33,18 @@ NO_OCCURRENCE = "scip_no_occurrence"
 EXTERNAL = "scip_external"
 NOT_DECLARATION = "scip_target_not_declaration"
 SUSPECT = "scip_suspect_target"
+
+# Calls bound through an import as the TypeScript compiler resolves it and
+# says what the module exports (``deepthought.ts_modules``).
+_COMPILER_IMPORT_RULES = frozenset(
+    {
+        CALL_IMPORTED_NAME,
+        CALL_MODULE_ATTRIBUTE,
+        CALL_TS_COMPILER_EXPORT,
+        CALL_TS_DECLARATION_FILE,
+    }
+)
+_SCRIPT_LANGUAGES = frozenset({"javascript", "typescript"})
 
 # The columns an indexer writes when its documents leave the encoding
 # unspecified: scip-python counts UTF-16 code units, as the language server
@@ -81,15 +100,21 @@ class CallBinding:
     # Calls in covered files whose index target was suspect, so the
     # parser's link was kept.
     parser_kept: frozenset = frozenset()
+    # JavaScript and TypeScript calls in covered files that the index calls
+    # external while the TypeScript compiler binds them in the workspace.
+    compiler_kept: frozenset = frozenset()
 
     def resolver(self, call_id) -> str:
         """Who decided a call: ``scip``, ``scip_suspect_parser`` (a covered
-        call whose parser link was kept) or ``tree-sitter`` (a file no index
-        covers)."""
+        call whose parser link was kept), ``typescript`` (a covered call the
+        index calls external and the compiler binds) or ``tree-sitter`` (a
+        file no index covers)."""
         if call_id in self.producers:
             return "scip"
         if call_id in self.parser_kept:
             return "scip_suspect_parser"
+        if call_id in self.compiler_kept:
+            return "typescript"
         return "tree-sitter"
 
 
@@ -135,7 +160,9 @@ def bind_calls(
         for coverage in index.coverage:
             covering.setdefault(coverage.file, view)
     bases = _Bases(result, definitions)
+    languages = {c.file: c.language for c in result.coverage}
     resolutions, producers, disagreements, kept = [], {}, [], set()
+    compiler_kept = set()
     for resolution in parsed:
         site = sites[resolution.call_id]
         view = covering.get(site.file)
@@ -154,10 +181,22 @@ def bind_calls(
         ):
             bound = CallResolution(site.id, "unresolved", reason=SUSPECT)
         chosen = bound
-        if bound.reason == SUSPECT and by_call[site.id].status == "linked":
+        parser = by_call[site.id]
+        if bound.reason == SUSPECT and parser.status == "linked":
             # A target the index may have wrong: the parser's stands.
-            chosen = by_call[site.id]
+            chosen = parser
             kept.add(site.id)
+        elif (
+            bound.reason == EXTERNAL
+            and parser.rule_id in _COMPILER_IMPORT_RULES
+            and languages.get(site.file) in _SCRIPT_LANGUAGES
+        ):
+            # The index names a symbol it does not define, such as a
+            # package importing itself by name, which scip-typescript leaves
+            # to node_modules; the TypeScript compiler resolves that import
+            # to a workspace file and binds the call there.
+            chosen = parser
+            compiler_kept.add(site.id)
         else:
             producers[site.id] = (view.tool, view.receipt)
         resolutions.append(chosen)
@@ -165,7 +204,11 @@ def bind_calls(
         if disagreement is not None:
             disagreements.append(disagreement)
     return CallBinding(
-        tuple(resolutions), producers, tuple(disagreements), frozenset(kept)
+        tuple(resolutions),
+        producers,
+        tuple(disagreements),
+        frozenset(kept),
+        frozenset(compiler_kept),
     )
 
 
