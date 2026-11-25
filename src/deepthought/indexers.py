@@ -277,10 +277,24 @@ def _top_level_modules(directory):
     return found
 
 
-def _environment(spec, root, environ, platform=None, dependencies=None):
+def python_path(workspace, base):
+    """Workspace-relative import roots of a scip-python run from ``base``: its
+    own roots first, then the workspace's, so a nested project (flask's
+    examples/tutorial) still imports the workspace's own packages ahead of
+    an installed release of them."""
+    workspace, base = Path(workspace), Path(base)
+    prefix = base.relative_to(workspace).as_posix()
+    own = [
+        r if prefix == "." else (prefix if r == "." else f"{prefix}/{r}")
+        for r in python_source_roots(base)
+    ]
+    return own + [r for r in python_source_roots(workspace) if r not in own]
+
+
+def _environment(spec, root, environ, platform=None, dependencies=None, base=None):
     env = dict(os.environ if environ is None else environ)
     if spec.name == "scip-python":
-        roots = [str((root / r).resolve()) for r in python_source_roots(root)]
+        roots = [str((root / r).resolve()) for r in python_path(root, base or root)]
         if dependencies is not None:
             # pyright asks the first `python` on PATH for its import paths:
             # an empty environment, plus the project's installed packages.
@@ -447,6 +461,76 @@ def go_modules(workspace):
     return sorted(found)
 
 
+def python_projects(workspace):
+    """Workspace-relative directories below the root that hold a Python
+    project of their own (a ``pyproject.toml`` or ``setup.cfg``), each
+    indexed from its own directory.
+
+    A service in a monorepo imports its own modules by bare names
+    (``from schemas import Order`` in src/OrderService): those resolve only
+    from the service's directory, and two services' ``schemas`` on one path
+    would bind to whichever came first."""
+    root = Path(workspace).resolve(strict=True)
+    found = []
+    for directory, names, filenames in os.walk(root, followlinks=False):
+        names[:] = sorted(
+            name
+            for name in names
+            if name not in _SKIP_DIRECTORIES
+            and name != "node_modules"
+            and not name.startswith(".")
+            and not (Path(directory) / name / "pyvenv.cfg").is_file()
+            and not (Path(directory) / name).is_symlink()
+        )
+        if (
+            Path(directory) != root
+            and ("pyproject.toml" in filenames or "setup.cfg" in filenames)
+            and _imports_own_modules(Path(directory))
+        ):
+            found.append(Path(directory).relative_to(root).as_posix())
+    return found
+
+
+def _imports_own_modules(project):
+    """Whether a file of the project imports one of the project's own
+    top-level modules (or its src layout's) by absolute name, as Python's own
+    parser reads the imports. Only such a project needs its own directory as
+    an import root; a fixture that never imports itself does not get a run."""
+    import ast
+
+    own = _top_level_modules(project)
+    if (project / "src").is_dir():
+        own |= _top_level_modules(project / "src")
+    if not own:
+        return False
+    for directory, names, filenames in os.walk(project, followlinks=False):
+        names[:] = sorted(
+            n
+            for n in names
+            if n not in _SKIP_DIRECTORIES
+            and n != "node_modules"
+            and not n.startswith(".")
+            and not (Path(directory) / n / "pyvenv.cfg").is_file()
+        )
+        for filename in sorted(filenames):
+            if not filename.endswith(".py"):
+                continue
+            try:
+                tree = ast.parse((Path(directory) / filename).read_bytes())
+            except (SyntaxError, ValueError, OSError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    heads = [a.name.split(".")[0] for a in node.names]
+                elif isinstance(node, ast.ImportFrom) and not node.level:
+                    heads = [(node.module or "").split(".")[0]]
+                else:
+                    continue
+                if own.intersection(heads):
+                    return True
+    return False
+
+
 def _yarn_workspaces(root):
     """Whether scip-typescript can list the root's workspaces with
     ``--yarn-workspaces``: Yarn lists them only for a private root package,
@@ -558,9 +642,14 @@ def run_indexer(
         raise ValueError("Only scip-typescript and scip-go index chosen files")
     if platform is not None and spec.name != "scip-go":
         raise ValueError("Only scip-go indexes for another platform")
-    if module is not None and spec.name not in {"scip-go", "scip-typescript"}:
+    if module is not None and spec.name not in {
+        "scip-go",
+        "scip-typescript",
+        "scip-python",
+    }:
         raise ValueError(
-            "Only scip-go and scip-typescript index one directory of a workspace"
+            "Only scip-go, scip-typescript and scip-python index one directory "
+            "of a workspace"
         )
     from ._scip import scip_pb2
 
@@ -612,6 +701,14 @@ def run_indexer(
             project_name or "workspace",
         )
         cwd = base
+        if spec.name == "scip-python":
+            # A nested project is indexed from the workspace root, limited to
+            # its directory, with that directory first on the import path:
+            # scip-python names a file outside --cwd with a local symbol, so
+            # its calls into the workspace's own packages would bind nowhere.
+            cwd = indexed_root
+            if module not in (None, "."):
+                argv += ["--target-only", module]
         project = None
         if files is not None and spec.name == "scip-go":
             # The packages of the chosen files, named one by one: the go
@@ -667,9 +764,17 @@ def run_indexer(
             argv = [a for a in argv if a != "--infer-tsconfig"] + [str(config)]
         dependencies = None
         if spec.name == "scip-python":
-            from .python_dependencies import install
+            from .python_dependencies import install, workspace_distributions
 
-            dependencies = install(root, scratch, environ=environ, timeout=timeout)
+            # A nested project's own declarations, not the whole workspace's;
+            # the workspace's own packages are read from its source.
+            dependencies = install(
+                base,
+                scratch,
+                environ=environ,
+                timeout=timeout,
+                provided=workspace_distributions(root),
+            )
             run.dependencies = {
                 k: dependencies[k]
                 for k in (
@@ -681,6 +786,7 @@ def run_indexer(
                     "packages",
                     "failed",
                     "without_dependencies",
+                    "provided",
                 )
             }
         while True:
@@ -692,7 +798,7 @@ def run_indexer(
                     text=True,
                     timeout=timeout,
                     check=False,
-                    env=_environment(spec, root, environ, platform, dependencies),
+                    env=_environment(spec, root, environ, platform, dependencies, base),
                 )
             except subprocess.TimeoutExpired:
                 run.reason = "indexer_timeout"
@@ -772,7 +878,7 @@ def run_indexer(
                 "version": spec.version,
                 "executable_sha256": _hash(executable.resolve()),
                 **(
-                    {"python_path": python_source_roots(root)}
+                    {"python_path": python_path(root, base)}
                     if spec.name == "scip-python"
                     else {}
                 ),
@@ -1057,6 +1163,7 @@ def _index_workspace(
     projects = (
         typescript_projects(root) if present & {"typescript", "javascript"} else []
     )
+    python = python_projects(root) if "python" in present else []
     for spec in INDEXERS.values():
         if not present & set(spec.languages):
             continue
@@ -1067,13 +1174,14 @@ def _index_workspace(
             units = modules or ["."]
         elif spec.name == "scip-typescript":
             units = [None, *projects]
+        elif spec.name == "scip-python":
+            units = [None, *python]
         for module in units:
             name = spec.name
             if module not in (None, "."):
                 name += "-" + module.replace("/", "__")
-            inner = [
-                p for p in projects if module is None or p.startswith(module + "/")
-            ]
+            nested = python if spec.name == "scip-python" else projects
+            inner = [p for p in nested if module is None or p.startswith(module + "/")]
             runs.append(
                 run_indexer(
                     spec,
@@ -1084,7 +1192,9 @@ def _index_workspace(
                     environ=environ,
                     module=module,
                     dependencies_dir=packages,
-                    exclude_dirs=inner if spec.name == "scip-typescript" else (),
+                    exclude_dirs=inner
+                    if spec.name in {"scip-typescript", "scip-python"}
+                    else (),
                 )
             )
     by_language = {
@@ -1098,6 +1208,11 @@ def _index_workspace(
         run.module: run
         for run in runs
         if run.indexer == "scip-typescript" and run.module is not None
+    }
+    python_runs = {
+        run.module: run
+        for run in runs
+        if run.indexer == "scip-python" and run.module is not None
     }
     # Second passes, for files the first leaves out: path -> (run, fields).
     passes = {}
@@ -1249,6 +1364,9 @@ def _index_workspace(
         elif language in {"typescript", "javascript"}:
             # The innermost nested tsconfig project above the file.
             run = typescript_runs.get(go_module_of(path, list(typescript_runs)), run)
+        elif language == "python":
+            # The innermost nested Python project above the file.
+            run = python_runs.get(go_module_of(path, list(python_runs)), run)
         if run is None:
             # A Go file under no go.mod, in a workspace with nested modules.
             coverage[path] = {
