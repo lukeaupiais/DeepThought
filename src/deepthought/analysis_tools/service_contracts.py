@@ -146,6 +146,56 @@ _LARAVEL_RULE = register_rule(
     )
 )
 
+PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-body-type",
+            "resolved",
+            "A NestJS route handler's parameter decorated @Body() of "
+            "@nestjs/common is written with this type: the TypeScript "
+            "compiler resolves the type's name (through imports, re-exports "
+            "and path aliases) to this declaration of the repository; "
+            "Promise<T>, Observable<T>, arrays, unions and Partial<T> carry "
+            "the types inside them.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-response-type",
+            "resolved",
+            "A NestJS route handler's written return type names this type: "
+            "the TypeScript compiler resolves the name to this declaration "
+            "of the repository; Promise<T>, Observable<T>, arrays, unions "
+            "and Partial<T> carry the types inside them. An inferred return "
+            "type is not read.",
+        )
+    ),
+}
+
+MESSAGE_PAYLOAD_RULES = {
+    "request": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-message-payload-type",
+            "resolved",
+            "A NestJS @MessagePattern or @EventPattern handler's parameter "
+            "decorated @Payload() (else its first parameter, when that has "
+            "no decorator) is written with this type: the TypeScript "
+            "compiler resolves the type's name to this declaration of the "
+            "repository; Promise<T>, Observable<T>, arrays, unions and "
+            "Partial<T> carry the types inside them.",
+        )
+    ),
+    "response": register_rule(
+        EvidenceRule(
+            "service-contracts.nestjs-message-reply-type",
+            "resolved",
+            "A NestJS @MessagePattern handler's written return type names "
+            "this type: the TypeScript compiler resolves the name to this "
+            "declaration of the repository; Promise<T>, Observable<T>, "
+            "arrays, unions and Partial<T> carry the types inside them.",
+        )
+    ),
+}
 ROUTE_RULES = {
     "aspnet-controller": register_rule(
         EvidenceRule(
@@ -2669,6 +2719,65 @@ class ServiceContractTool(AnalysisTool):
                     },
                 )
             )
+        # A route or message destination carries the types its handler
+        # writes for the request and the response, as the TypeScript
+        # compiler resolves them.
+        declared = defaultdict(list)
+        for d in definitions.values():
+            declared[(d.file, d.symbol.rsplit(".", 1)[-1])].append(d)
+        carried = 0
+        carried_edges = set()
+        payload_unresolved = 0
+
+        def carries(file, payloads, labels, name, line, rules):
+            nonlocal carried, payload_unresolved
+            types = {} if scripts is None else scripts.compiler.types.get(file, {})
+            missing = (
+                {}
+                if scripts is None
+                else scripts.compiler.unresolved_types.get(file, {})
+            )
+            for direction, start, end in payloads:
+                payload_unresolved += missing.get((start, end), 0)
+                for type_file, type_name, type_line, _ in types.get((start, end), ()):
+                    found = [
+                        d
+                        for d in declared.get((type_file, type_name), ())
+                        if d.line <= type_line <= d.end_line
+                    ]
+                    if len(found) != 1:
+                        continue
+                    if (name, found[0].id, direction) in carried_edges:
+                        continue
+                    carried_edges.add((name, found[0].id, direction))
+                    target_labels, target = symbol_node(found[0].id)
+                    carried += 1
+                    relationships.append(
+                        RelationshipData(
+                            "CARRIES",
+                            labels,
+                            {"qualified_name": name, "repo_url": repo_url},
+                            target_labels,
+                            {"qualified_name": target, "repo_url": repo_url},
+                            {
+                                "direction": direction,
+                                "file_path": file,
+                                "line": line,
+                                **_evidence(rules[direction]),
+                            },
+                        )
+                    )
+
+        for route in routes:
+            if route.payloads:
+                carries(
+                    route.file,
+                    route.payloads,
+                    ["HttpRoute", "Contract"],
+                    f"{repo_url}::{route.file}::http-route::{route.id}",
+                    route.line,
+                    PAYLOAD_RULES,
+                )
         by_id = {r.id: r for r in requests}
         counts = {}
         undisclosed = {}
@@ -3027,6 +3136,15 @@ class ServiceContractTool(AnalysisTool):
                     },
                 ),
             )
+            if endpoint.payloads:
+                carries(
+                    endpoint.file,
+                    endpoint.payloads,
+                    ["MessageDestination", "Contract"],
+                    name,
+                    endpoint.line,
+                    MESSAGE_PAYLOAD_RULES,
+                )
             if endpoint.declaration_id is None:
                 source = file_node(endpoint.file)
             else:
@@ -3168,6 +3286,8 @@ class ServiceContractTool(AnalysisTool):
                 "http_request_resolution": dict(sorted(counts.items())),
                 "unread": dict(sorted(unread_counts.items())),
                 "gateway_routes": len(gateways),
+                "payload_types": carried,
+                "payload_types_unresolved": payload_unresolved,
                 "message_endpoints": len(endpoints),
                 "message_destinations": len(topics),
                 **({"go_gopath_packages": go_gopath} if go_gopath else {}),

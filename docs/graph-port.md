@@ -3287,6 +3287,40 @@ four client operations in files the grammar parses fully are read. Three
 link to their mutations, and `subscribeWebPush` is
 `graphql:client_field_unknown`: the server no longer declares it.
 
+### Payload types
+
+A route or message destination CARRIES the types its handler writes for
+what goes over it, so a change to such a type reaches the contract and,
+through it, the clients that must change with it (`get_impact` follows
+CARRIES backwards):
+
+| Edge | Rule | Evidence | What fires it |
+| --- | --- | --- | --- |
+| HttpRoute -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-body-type` | resolved | the type written on a NestJS route handler's parameter decorated `@Body()` of `@nestjs/common` |
+| HttpRoute -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-response-type` | resolved | the return type written on a NestJS route handler; an inferred return type is not read |
+| MessageDestination -[:CARRIES {direction: request}]-> Symbol | `service-contracts.nestjs-message-payload-type` | resolved | the type written on a NestJS `@MessagePattern` or `@EventPattern` handler's parameter decorated `@Payload()`, else on its first parameter when that has no decorator (Nest passes the data first) |
+| MessageDestination -[:CARRIES {direction: response}]-> Symbol | `service-contracts.nestjs-message-reply-type` | resolved | the return type written on a NestJS `@MessagePattern` handler |
+
+The TypeScript compiler (`tsfacts/main.js`, `declaredTypes`) resolves each
+name written in such a type, through imports, re-exports and the project's
+path aliases, to the repository's class, interface, type alias or enum
+declaration, the tree-sitter Symbol the edge ends at. Arrays, unions,
+intersections and type arguments are read through (`Promise<T>`,
+`Observable<T>`, `Page<T>` and `Partial<T>` carry `T`); primitives and
+inline object types carry no declaration. A name the compiler resolves to
+no declaration at all, such as a type of a workspace package that is not
+installed, is counted in the metric `payload_types_unresolved`, next to
+`payload_types` (the edges written). Types declared only in `node_modules`
+(Prisma's generated client, say) are not the repository's and give no
+edge.
+
+On the 11 NestJS repositories of the contract corpus, 197 edges are
+written. Every written handler type that names a declaration of the
+repository has its edge. The types not linked are of
+`prisma-examples`, whose models come from the generated client outside the
+repository, and of `travel_booking_microservice`, whose DTOs come from the
+`building-blocks` workspace package, which only an install links.
+
 ### Gateways
 
 Browser and load-test code usually calls a gateway, not the service:
