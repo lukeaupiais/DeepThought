@@ -3424,8 +3424,9 @@ spreads another object). A call of its `GET`, `POST`, `PUT`, `DELETE`,
 trailing slashes, and each `{parameter}` of the path is unknown text.
 
 Not read: a client reached through something other than such a binding,
-such as an object of clients (`providers.tmdb.GET`) or a wrapper class whose
-getters return the client's methods. Telling those apart needs the
+such as an object of clients (`providers.tmdb.GET`), a function that returns
+one (`getApiClient().GET`) or a wrapper class whose getters return the
+client's methods. Telling those apart needs the
 TypeScript type checker, which cannot type the client without the
 repository's dependencies installed.
 
@@ -3449,8 +3450,8 @@ repository's FastAPI stand-in for that external API; they are correct for
 the path, and the stand-in is the only server of it in the repository. Of
 clawdi's 520 `api.METHOD(` calls, most of the rest go through the
 `ApiClient` wrapper class, which is not read. riven-frontend reaches its
-clients through an object of clients, and databasus does not call through
-an openapi-fetch client.
+clients through an object of clients, and databasus through a function that
+returns one (`getApiClient().GET(...)`); neither is read.
 
 ### gRPC
 
