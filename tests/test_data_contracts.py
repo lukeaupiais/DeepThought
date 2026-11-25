@@ -3108,6 +3108,40 @@ class GoToolchainTests(unittest.TestCase):
             older = "module m\n\ngo 1.22\n"
             self.assertEqual(module_toolchain("go", info, older), "go")
 
+    def test_installed_versions_with_suffixes_order_by_their_release(self):
+        from deepthought.go_facts import _release, module_toolchain
+
+        for name, release in (
+            ("go1.27.4-X:nodwarf5", (1, 27, 4)),
+            ("go1.27rc1", (1, 27, -1)),
+            ("go1.27beta2", (1, 27, -1)),
+            ("devel go1.28-abc", (1, 28, 0)),
+            ("go1.26", (1, 26, 0)),
+            ("go1.26.10", (1, 26, 10)),
+            ("weird", None),
+            ("", None),
+        ):
+            self.assertEqual(_release(name), release, name)
+        with tempfile.TemporaryDirectory() as cache:
+            path = (
+                Path(cache) / "golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64/bin/go"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text("")
+            info = {"GOMODCACHE": cache, "GOOS": "linux", "GOARCH": "amd64"}
+            wants = "module m\n\ngo 1.27.0\n"
+            for goversion, chosen in (
+                # An experiment suffix is the release it extends.
+                ("go1.27.4-X:nodwarf5", "go"),
+                # A pre-release comes before the release a module asks for.
+                ("go1.27rc1", str(path)),
+                ("devel go1.28-abc", "go"),
+                # A version naming no release leaves the installed go.
+                ("weird", "go"),
+            ):
+                info["GOVERSION"] = goversion
+                self.assertEqual(module_toolchain("go", info, wants), chosen, goversion)
+
 
 SHARED_COMPOSE_DATABASE = {
     "docker-compose.yml": """\

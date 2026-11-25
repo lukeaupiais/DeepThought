@@ -160,6 +160,21 @@ def _version(name):
     return tuple(int(part or 0) for part in match.groups()) if match else None
 
 
+def _release(goversion):
+    """The release a ``go env GOVERSION`` names, as ``_version`` orders
+    them: the go1.N[.M] it starts with (after ``devel `` for a development
+    build), with anything after it, such as an experiment suffix
+    (go1.27.4-X:nodwarf5), ignored. A pre-release (go1.27rc1) orders before
+    its first release. None when it names no release."""
+    match = re.match(
+        r"(?:devel )?go(\d+)\.(\d+)(?:\.(\d+)|(rc|beta)\d+)?", goversion or ""
+    )
+    if not match:
+        return None
+    major, minor, patch, pre = match.groups()
+    return (int(major), int(minor), -1 if pre else int(patch or 0))
+
+
 def wanted_toolchain(text):
     """The toolchain a go.mod asks for: its toolchain line, else the release
     its go line names (go 1.26.0 is go1.26.0; from Go 1.21, go 1.22 is
@@ -178,7 +193,8 @@ def module_toolchain(go, info, text):
     for a newer release that the module cache already holds (as ``go``
     with GOTOOLCHAIN=auto would download it). Nothing is downloaded."""
     wanted = wanted_toolchain(text)
-    if wanted is None or _version(wanted) <= _version(info["GOVERSION"]):
+    installed = _release(info["GOVERSION"])
+    if wanted is None or installed is None or _version(wanted) <= installed:
         return go
     cached = (
         Path(info["GOMODCACHE"])
