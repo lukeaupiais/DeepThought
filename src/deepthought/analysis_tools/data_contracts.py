@@ -357,33 +357,6 @@ SA_TABLE_RULE = register_rule(
         "first argument.",
     )
 )
-SA_QUERY_RULE = register_rule(
-    EvidenceRule(
-        "data-contracts.sqlalchemy-session-query",
-        "pattern_matched",
-        "The code calls .query() with an argument naming (or an attribute "
-        "of) the one SQLAlchemy mapped class of the repository with that "
-        "class name; the receiver is not checked to be a Session.",
-    )
-)
-SA_STATEMENT_RULE = register_rule(
-    EvidenceRule(
-        "data-contracts.sqlalchemy-statement",
-        "pattern_matched",
-        "The code calls SQLAlchemy's select (READS) or insert, update or "
-        "delete (WRITES) on the one mapped class of the repository with that "
-        "class name.",
-    )
-)
-
-FSA_MODEL_QUERY_RULE = register_rule(
-    EvidenceRule(
-        "data-contracts.flask-sqlalchemy-model-query",
-        "pattern_matched",
-        "The code reads Flask-SQLAlchemy's Model.query on (an attribute of) "
-        "the one SQLAlchemy mapped class of the repository with that name.",
-    )
-)
 SQLMODEL_DEFAULT_RULE = register_rule(
     EvidenceRule(
         "data-contracts.sqlmodel-default-table",
@@ -394,11 +367,6 @@ SQLMODEL_DEFAULT_RULE = register_rule(
         "name lowercased.",
     )
 )
-SA_NAME_RULES = {
-    "query": SA_QUERY_RULE,
-    "statement": SA_STATEMENT_RULE,
-    "model_query": FSA_MODEL_QUERY_RULE,
-}
 SA_SCIP_RULES = {
     how: register_rule(
         EvidenceRule(f"data-contracts.sqlalchemy-scip-{name}", "resolved", text)
@@ -1383,10 +1351,9 @@ class DataContractTool(AnalysisTool):
         sa_mappings.extend(
             sqlmodel_default_mappings(sa_classes, references, sa_mappings)
         )
-        sa_targets, sa_by_model = {}, {}
+        sa_by_model = {}
         for mapping in sa_mappings:
             target = table(mapping.file, mapping.table)
-            sa_targets.setdefault(mapping.name, []).append(target)
             sa_by_model[mapping.model_id] = target
             link(
                 "MAPS_TO",
@@ -1403,11 +1370,12 @@ class DataContractTool(AnalysisTool):
                 SA_TABLE_RULE,
                 {"line": item.line, "column": item.column},
             )
+        sa_unindexed = set()
         sa_counts = {
-            "linked": 0,
             "linked_scip": 0,
-            "not_a_mapped_class": 0,
             "scip_not_a_mapped_class": 0,
+            "scip_no_reference": 0,
+            "no_scip_index": 0,
             "instance_no_scip_index": 0,
             "instance_method_unresolved": 0,
             "instance_not_session": 0,
@@ -1420,6 +1388,7 @@ class DataContractTool(AnalysisTool):
                 )
                 if called is None:
                     sa_counts["instance_no_scip_index"] += 1
+                    sa_unindexed.add(access.file)
                     continue
                 if all(c.startswith("local ") for c in called):
                     # The indexer resolved the method to nothing outside the
@@ -1498,22 +1467,13 @@ class DataContractTool(AnalysisTool):
                     },
                 )
                 continue
-            targets = sa_targets.get(access.model, [])
-            if access.how == "get" or len(targets) != 1:
-                sa_counts["not_a_mapped_class"] += 1
-                continue
-            sa_counts["linked"] += 1
-            link(
-                "WRITES" if access.writes else "READS",
-                code(access.file, access.caller_id),
-                targets[0],
-                SA_NAME_RULES[access.how],
-                {
-                    "model": access.model,
-                    "line": access.model_line,
-                    "column": access.model_column,
-                },
-            )
+            # The indexer decides what a name is; without its index the
+            # access is not read, and the run says so.
+            if references.covers(access.file):
+                sa_counts["scip_no_reference"] += 1
+            else:
+                sa_counts["no_scip_index"] += 1
+                sa_unindexed.add(access.file)
         # SQL and JPQL text that Java code runs.
         entity_tables = {}
         for mapping in mappings:
@@ -2653,7 +2613,10 @@ class DataContractTool(AnalysisTool):
         )
         status = (
             "partial"
-            if unreadable or kysely_unindexed or result.status != "succeeded"
+            if unreadable
+            or kysely_unindexed
+            or sa_unindexed
+            or result.status != "succeeded"
             else "succeeded"
         )
         warnings = [f"{path}: not UTF-8 text" for path in unreadable]
@@ -2662,6 +2625,12 @@ class DataContractTool(AnalysisTool):
                 f"no_scip_index: {len(kysely_unindexed)} files importing kysely "
                 "have no scip-typescript index, so their Kysely queries are not "
                 "read; run deepthought index-scip and pass the index"
+            )
+        if sa_unindexed:
+            warnings.append(
+                f"no_scip_index: {len(sa_unindexed)} files using SQLAlchemy "
+                "mapped classes have no scip-python index, so their queries "
+                "are not read; run deepthought index-scip and pass the index"
             )
         # A limit stops the source walk: the files after it are unread, so
         # the tables and edges reported are a lower bound.

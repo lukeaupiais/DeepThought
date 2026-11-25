@@ -483,23 +483,29 @@ class SqlAlchemyTests(unittest.TestCase):
                 ("DECLARES", "app/models.py", "user_tags", "sqlalchemy-table"),
                 ("MAPS_TO", "Account", "accounts", "sqlalchemy-tablename"),
                 ("MAPS_TO", "User", "users", "sqlalchemy-tablename"),
-                ("READS", "find", "users", "sqlalchemy-session-query"),
-                ("READS", "ids", "users", "sqlalchemy-statement"),
-                ("WRITES", "purge", "users", "sqlalchemy-statement"),
             ],
         )
         self.assertEqual(
             output.metadata.custom_metrics["sqlalchemy_access_resolution"],
             {
-                "linked": 3,
                 "linked_scip": 0,
-                "not_a_mapped_class": 1,
                 "scip_not_a_mapped_class": 0,
+                "scip_no_reference": 0,
+                "no_scip_index": 4,
                 "instance_no_scip_index": 0,
                 "instance_method_unresolved": 0,
                 "instance_not_session": 0,
                 "instance_type_unknown": 0,
             },
+        )
+        # The indexer decides what a name is: without its index the run is
+        # partial and says which files were not read.
+        self.assertEqual(output.metadata.custom_metrics["analysis_status"], "partial")
+        self.assertIn(
+            "no_scip_index: 1 files using SQLAlchemy mapped classes have no "
+            "scip-python index, so their queries are not read; run deepthought "
+            "index-scip and pass the index",
+            output.metadata.warnings,
         )
 
 
@@ -674,18 +680,16 @@ class SqlModelTests(unittest.TestCase):
                 ("MAPS_TO", "Hero", "heroes", "sqlalchemy-tablename"),
                 ("MAPS_TO", "Item", "item", "sqlmodel-default-table"),
                 ("MAPS_TO", "Item", "old_items", "sqlalchemy-tablename"),
-                ("READS", "heroes", "heroes", "flask-sqlalchemy-model-query"),
             ],
         )
-        # select(Item) names two mapped classes; get() and instances passed
-        # to a Session need an index.
+        # Without an index no access is read.
         self.assertEqual(
             metrics["sqlalchemy_access_resolution"],
             {
-                "linked": 1,
                 "linked_scip": 0,
-                "not_a_mapped_class": 4,
                 "scip_not_a_mapped_class": 0,
+                "scip_no_reference": 0,
+                "no_scip_index": 5,
                 "instance_no_scip_index": 7,
                 "instance_method_unresolved": 0,
                 "instance_not_session": 0,
@@ -720,10 +724,10 @@ class SqlModelTests(unittest.TestCase):
         self.assertEqual(
             metrics["sqlalchemy_access_resolution"],
             {
-                "linked": 0,
                 "linked_scip": 9,
-                "not_a_mapped_class": 1,
                 "scip_not_a_mapped_class": 0,
+                "scip_no_reference": 1,
+                "no_scip_index": 0,
                 "instance_no_scip_index": 0,
                 "instance_method_unresolved": 0,
                 "instance_not_session": 1,

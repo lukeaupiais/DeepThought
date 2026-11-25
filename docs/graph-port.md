@@ -4031,11 +4031,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-manager-call` | pattern_matched | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, `Model` being the one model of the repository with that class name; instance `save()`/`delete()`, other managers and raw SQL are not read |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlalchemy-tablename` | pattern_matched | a class in a module importing SQLAlchemy, Flask-SQLAlchemy or SQLModel that sets `__tablename__` (plain or annotated) to a string literal |
 | File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
-| Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-statement` | pattern_matched | SQLAlchemy's `select` (READS) or `insert`, `update`, `delete` (WRITES) on a mapped class |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlmodel-default-table` | pattern_matched | a class with the `table=True` class keyword and no `__tablename__` that inherits from `sqlmodel.SQLModel` (bases followed through a SCIP index, or by name in the same file): SQLModel's default name, the class name lowercased |
-| Symbol\|File -[:READS]-> DbTable | `data-contracts.flask-sqlalchemy-model-query` | pattern_matched | Flask-SQLAlchemy's `Model.query` (an attribute read, not a call) on the one mapped class of the repository with that name |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class; they replace the name rules in the files the index covers |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class. There is no name rule: a file no scip-python index covers is not read, it is counted `no_scip_index` and named in a warning, and the run is partial |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-instance` | resolved | `session.add(x)`, `delete(x)`, `merge(x)` (WRITES) or `refresh(x)` (READS) with one variable argument, where the scip-python index resolves the method to SQLAlchemy's `Session`, `scoped_session`, `AsyncSession` or `async_scoped_session` and `x` is a mapped class: the type scip-python documents for the local, else its declared type (a parameter's or variable's annotation, through `Annotated`, `Optional`, `T \| None` and module-level aliases, the return annotation of the function it is assigned from, or `Session.get(Model, ...)`), every name resolved through the index; there is no name rule for it |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
@@ -4606,8 +4603,10 @@ module-level alias (`CurrentUser = Annotated[User, Depends(...)]`, as
 FastAPI writes them) give `T`; every name in them is resolved through the
 index. Types only inference gives (`db.exec(select(User)).first()`) are not
 linked. The metric
-`sqlalchemy_access_resolution` counts `linked`, `linked_scip`,
-`not_a_mapped_class`, `scip_not_a_mapped_class`, and for instances
+`sqlalchemy_access_resolution` counts `linked_scip`,
+`scip_not_a_mapped_class`, `scip_no_reference` (the index covers the file
+but records no reference at the name), `no_scip_index` (no index covers
+the file: not read, and the run is partial), and for instances
 `instance_no_scip_index`, `instance_method_unresolved` (the index resolves
 the method to nothing outside the file, as when the app's dependencies
 were not installed for the indexer), `instance_not_session` and
