@@ -190,25 +190,33 @@ class EvaluationTests(unittest.TestCase):
             (root / "a.ts").write_text(
                 "export function f() { return 1 }\nexport function g() { f() }\n"
             )
-            # The project leaves b.ts (selected) and c.ts (not) unindexed.
+            # The project leaves b.ts (selected) and c.ts (not) to the pass
+            # over files outside every tsconfig; no platform builds ign.go.
             (root / "tsconfig.json").write_text('{"include": ["a.ts"]}')
             for name in ("b.ts", "c.ts"):
                 (root / name).write_text("export const x = 1\n")
+            (root / "go.mod").write_text("module example.com/m\n\ngo 1.21\n")
+            (root / "ign.go").write_text("//go:build ignore\n\npackage main\n")
             scenario = deepcopy(self.scenario)
-            scenario["languages"] = ["typescript"]
+            scenario["languages"] = ["typescript", "go"]
             scenario["source"] = {
                 "kind": "synthetic",
                 "files": {
                     name: sha256((root / name).read_bytes()).hexdigest()
-                    for name in ("a.ts", "b.ts")
+                    for name in ("a.ts", "b.ts", "ign.go")
                 },
             }
             scenario["expected"] = [
                 {"file": "a.ts", "symbol": "f", "kind": "Function", "line": 1}
             ]
             prepared = prepare(scenario, root)
-            (receipt,) = prepared["provenance"]["scip"]["runs"]
-            self.assertEqual(prepared["provenance"]["scip"]["uncovered"], ["b.ts"])
+            runs = prepared["provenance"]["scip"]["runs"]
+            self.assertEqual(
+                [run["indexer"] for run in runs],
+                ["scip-typescript", "scip-go", "scip-typescript"],
+            )
+            receipt = runs[0]
+            self.assertEqual(prepared["provenance"]["scip"]["uncovered"], ["ign.go"])
             calls = [
                 r["properties"]
                 for r in prepared["contexts"]["treatment"]["tool_output"][
