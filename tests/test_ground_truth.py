@@ -492,7 +492,7 @@ class ImportTruthTests(unittest.TestCase):
     def test_score_imports(self):
         truth = ground_truth.derive_imports(self.root, self.index, "python")
         result = ground_truth.analyze(self.root, ["python"])
-        report, samples = ground_truth.score_imports(result, truth)
+        report, samples = ground_truth.score_imports(result, truth, self.root)
         self.assertEqual(report["expected"], 2)
         self.assertEqual(report["contradicted"], 0)
         self.assertEqual(report["recall"], 1.0)
@@ -503,9 +503,35 @@ class ImportTruthTests(unittest.TestCase):
             {**truth[0], ("pkg/a.py", 1, "import"): {("pkg/__init__.py", 0, "module")}},
             truth[1],
         )
-        report, samples = ground_truth.score_imports(result, wrong)
+        report, samples = ground_truth.score_imports(result, wrong, self.root)
         self.assertEqual(report["contradicted"], 1)
         self.assertEqual(samples["missed"], [["pkg/a.py", 1]])
+
+
+class ScriptImportScoreTests(unittest.TestCase):
+    def test_script_imports_are_scored_as_the_compiler_resolves_them(self):
+        from deepthought.ts_modules import TypeScriptUnavailable, locate_typescript
+
+        try:
+            locate_typescript()
+        except TypeScriptUnavailable:
+            self.skipTest("Install node and the pinned scip-typescript")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.js").write_text('import { f } from "./lib";\nf();\n')
+            (root / "lib.d.ts").write_text("export declare function f(): void;\n")
+            (root / "lib.js").write_text("export function f() {}\n")
+            result = ground_truth.analyze(root, ["javascript", "typescript"])
+            indexed = {"a.js", "lib.d.ts", "lib.js"}
+            # The compiler takes the declaration file; the .js beside it is
+            # what a JavaScript resolver would take.
+            for target, confirmed in (("lib.d.ts", 1), ("lib.js", 0)):
+                truth = ({("a.js", 1, "import"): {(target, 0, "module")}}, indexed)
+                report, _ = ground_truth.score_imports(result, truth, root)
+                self.assertEqual(
+                    (report["confirmed"], report["contradicted"]),
+                    (confirmed, 1 - confirmed),
+                )
 
 
 class CorpusFilesTest(unittest.TestCase):

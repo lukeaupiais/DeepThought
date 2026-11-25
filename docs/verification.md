@@ -273,16 +273,30 @@ a package that is not installed, is external.
 | hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 516 | 487 | 0 | 1.0 | 0.9438 |
+| preact | 516 | 472 | 0 | 1.0 | 0.9147 |
+
+The engine's JavaScript and TypeScript imports are scored as it resolves them:
+through the TypeScript compiler (`deepthought.ts_modules`). The compiler
+resolves a package with a `types` field to its declaration file, so preact's
+imports are scored over an analysis that also takes its TypeScript files
+(`import_languages` in the manifest), while its calls are still scored over
+JavaScript alone; the judge stays the JavaScript truth. The 94 preact imports
+counted `not_indexed` are those of the `.d.ts` files this adds, which the truth
+does not judge.
 
 Every external import is left unresolved (click 320, ky 121, hono 223,
 preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
 groups:
 
-- dynamic `import()` calls: ky 4, hono 5, preact 7;
+- dynamic `import()` calls: ky 4, hono 5, preact 7 (all in `demo/`);
 - imports in hono's benchmark packages: 69;
 - preact's `require()` calls: 8;
-- static imports in preact's demo folder, which no project includes: 8.
+- static imports in preact's demo folder: preact's jsconfig excludes it, and
+  `demo/tsconfig.json` (whose `paths` name `preact`) does not allow JavaScript,
+  so its `.jsx` files get default options and no `preact`: 26;
+- the three imports of `compat/test/browser/unstable_batchedUpdates.test.jsx`:
+  a `.js` file of the same name sits beside it, and the compiler includes only
+  one file per name in a project, so the `.jsx` gets default options.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 

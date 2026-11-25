@@ -1210,7 +1210,10 @@ def missing_requirements(manifest, names=()):
     modules = set()
     for corpus in manifest["corpora"] + manifest.get("declarations", []):
         if selected(corpus):
-            modules.update(LANGUAGES[lang][1] for lang in corpus["languages"])
+            modules.update(
+                LANGUAGES[lang][1]
+                for lang in corpus["languages"] + corpus.get("import_languages", [])
+            )
     if any(
         selected(c)
         for c in [*manifest.get("contracts", ()), *manifest.get("routes", ())]
@@ -1303,9 +1306,17 @@ def check(names, cache, update=False, examples=10):
                     for p in regressions(inherits, baseline[corpus["name"]]["inherits"])
                 ]
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result,
+                imports_of,
                 read_truth(CORPUS / corpus["imports"]),
+                workspace,
                 corpus.get("imports_granularity") == "directory",
                 examples,
             )
@@ -1367,8 +1378,18 @@ def check(names, cache, update=False, examples=10):
             else []
         )
         if "imports" in corpus:
+            # Imports may resolve to files of a language the call truth
+            # leaves out (preact's hand-written .d.ts files).
+            imports_of = result
+            if "import_languages" in corpus:
+                imports_of = analyze(
+                    workspace, corpus["import_languages"], corpus.get("exclude", ())
+                )
             imported, import_samples = score_imports(
-                result, read_truth(CORPUS / corpus["imports"]), examples=examples
+                imports_of,
+                read_truth(CORPUS / corpus["imports"]),
+                workspace,
+                examples=examples,
             )
             report["imports"] = imported
             samples = {"declarations": samples, "imports": import_samples}
@@ -1574,7 +1595,7 @@ def derive_imports(workspace, index, language, directory=False):
     return expected, indexed
 
 
-def score_imports(result, truth, directory=False, examples=10):
+def score_imports(result, truth, workspace, directory=False, examples=10):
     """Import resolutions judged against module-reference truth.
 
     An import statement is judged by the truth lines it spans. It is
@@ -1585,13 +1606,22 @@ def score_imports(result, truth, directory=False, examples=10):
     target: found when an import spanning the line links to one of them.
     """
     from deepthought.imports import resolve_imports
+    from deepthought.ts_modules import _LANGUAGES, bind_imports, compiler_imports
 
     expected, indexed = truth
+    # JavaScript and TypeScript imports as the engine resolves them: by the
+    # TypeScript compiler (deepthought.ts_modules).
+    scripts = sorted(c.file for c in result.coverage if c.language in _LANGUAGES)
+    resolutions = resolve_imports(result)
+    if scripts:
+        resolutions = bind_imports(
+            result, workspace, compiler_imports(workspace, scripts), resolutions
+        )
     imports = {i.id: i for i in result.imports}
     counts = Counter()
     found = set()
     samples = {"contradicted": [], "linked_external": [], "missed": []}
-    for resolution in resolve_imports(result):
+    for resolution in resolutions:
         item = imports[resolution.import_id]
         if item.file not in indexed:
             counts["not_indexed"] += 1

@@ -1299,14 +1299,13 @@
       "unjudged": 475
     },
     "imports": {
-      "ambiguous_expected": 5,
-      "confirmed": 487,
+      "confirmed": 472,
       "contradicted": 0,
       "expected": 516,
-      "not_indexed": 26,
+      "not_indexed": 94,
       "precision": 1.0,
-      "recall": 0.9438,
-      "unresolved_expected": 9,
+      "recall": 0.9147,
+      "unresolved_expected": 29,
       "unresolved_external": 131
     },
     "missed": 42,

@@ -81,6 +81,10 @@
       "languages": [
         "javascript"
       ],
+      "import_languages": [
+        "javascript",
+        "typescript"
+      ],
       "truth": "calls/preact.tsv",
       "oracle": "scip-typescript 0.6.2, typescript 5.9.3",
       "oracle_command": "git ls-files -z '*.d.ts' | xargs -0 rm && python tools/javascript_tsconfig.py . --alias preact=src/index.js --alias preact/compat=compat/src/index.js --alias preact/jsx-runtime=jsx-runtime/src/index.js --alias preact/jsx-dev-runtime=jsx-runtime/src/index.js --alias preact/debug=debug/src/index.js --alias preact/devtools=devtools/src/index.js --alias preact/hooks=hooks/src/index.js --alias preact/test-utils=test-utils/src/index.js && scip-typescript index && python tools/ground_truth.py derive . index.scip | awk -F'\\t' '!(($1 ~ /\\.tsx?$/) || ($1==\"# indexed\" && $2 ~ /\\.tsx?$/))' > calls.tsv",
