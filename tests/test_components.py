@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from uuid import uuid4
 
+from deepthought import deploy_facts
 from deepthought.analysis_tools import ComponentsTool, TreeSitterTool
 from deepthought.analysis_tools.evidence import get_rule
 from deepthought.components import (
@@ -20,6 +21,8 @@ from deepthought.storage.graph.write_coordinator import (
     WriteCoordinatorConfig,
     _combine,
 )
+from deepthought.deployments import compose_declarations
+from deploy_tools_ready import needs_deploy_tools
 
 READY = importlib.util.find_spec("tree_sitter") and importlib.util.find_spec(
     "tree_sitter_python"
@@ -682,10 +685,13 @@ class ComposeTests(unittest.TestCase):
             write(directory, files)
             return asyncio.run(ComponentsTool(directory).analyze("repo"))
 
+    @needs_deploy_tools
     def test_services_contexts_and_images(self):
-        found, _ = __import__(
-            "deepthought.deployments", fromlist=["extract_compose"]
-        ).extract_compose("compose.yaml", COMPOSE["compose.yaml"].encode())
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, COMPOSE)
+            declared, errors = compose_declarations(deploy_facts.collect(directory))
+        self.assertEqual(errors, {})
+        found, _ = declared["compose.yaml"]
         self.assertEqual(
             [(c.name, c.context, c.image) for c in found],
             [
@@ -698,6 +704,7 @@ class ComposeTests(unittest.TestCase):
             ],
         )
 
+    @needs_deploy_tools
     def test_edges(self):
         output = self.analyze(COMPOSE)
         edges = sorted(
@@ -764,9 +771,103 @@ class ComposeTests(unittest.TestCase):
         )
         self.assertEqual(part_of, ["api", "api", "python_project", "worker"])
 
+    @needs_deploy_tools
     def test_invalid_compose_file(self):
         output = self.analyze({"compose.yaml": "services: [\n"})
         self.assertEqual(output.metadata.custom_metrics["analysis_status"], "partial")
+
+
+RENDERED = {
+    "api/go.mod": "module example.com/api\n",
+    "skaffold.yaml": "apiVersion: skaffold/v4beta6\nkind: Config\n"
+    "build:\n  artifacts:\n  - image: api\n    context: api\n",
+    "chart/Chart.yaml": "apiVersion: v2\nname: shop\nversion: 1.0.0\n",
+    "chart/values.yaml": "image: api\n",
+    "chart/templates/api.yaml": "apiVersion: apps/v1\nkind: Deployment\n"
+    "metadata: {name: '{{ .Release.Name }}-api'}\n"
+    "spec:\n  template:\n    metadata: {labels: {app: api}}\n"
+    "    spec:\n      containers: [{name: api, image: '{{ .Values.image }}'}]\n"
+    "---\napiVersion: v1\nkind: Service\nmetadata: {name: api}\n"
+    "spec: {selector: {app: api}}\n",
+    "k8s/kustomization.yaml": "resources: [api.yaml]\nnamePrefix: prod-\n",
+    "k8s/api.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\n"
+    "spec:\n  template:\n    spec:\n      containers: [{name: api, image: api}]\n",
+    # Next to the kustomization but not listed: applied on its own.
+    "k8s/job.yaml": "apiVersion: batch/v1\nkind: Job\nmetadata: {name: migrate}\n"
+    "spec:\n  template:\n    spec:\n      containers: [{name: m, image: api}]\n",
+    "broken/Chart.yaml": "apiVersion: v2\nname: broken\nversion: 1.0.0\n"
+    "dependencies:\n  - {name: redis, version: 1.0.0, repository: https://x.example}\n",
+    "compose.yaml": "services:\n  api:\n    image: ${REGISTRY}/api:${TAG}\n",
+    "compose.override.yaml": "services:\n  api:\n    build: ./api\n",
+    ".env": "REGISTRY=registry.example\n",
+}
+
+
+@needs_deploy_tools
+@unittest.skipUnless(YAML, "Provision PyYAML")
+class RenderedDeploymentTests(unittest.TestCase):
+    def test_charts_kustomizations_and_override_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(directory, RENDERED)
+            scan = scan_components(directory)
+        self.assertEqual(
+            sorted(
+                (c.kind, c.manifest, c.name, c.context, c.image, c.images)
+                for c in scan.components
+                if c.kind in ("compose_service", "k8s_workload", "k8s_service")
+            ),
+            [
+                # The override file's build is the project's; the image is
+                # interpolated from .env, the unset tag unknown.
+                (
+                    "compose_service",
+                    "compose.yaml",
+                    "api",
+                    "api",
+                    "registry.example/api:{?}",
+                    (),
+                ),
+                (
+                    "k8s_service",
+                    "chart/Chart.yaml",
+                    "Service/api",
+                    None,
+                    None,
+                    (),
+                ),
+                (
+                    "k8s_workload",
+                    "chart/Chart.yaml",
+                    "Deployment/release-name-api",
+                    "api",
+                    None,
+                    ("api",),
+                ),
+                (
+                    "k8s_workload",
+                    "k8s/job.yaml",
+                    "Job/migrate",
+                    "api",
+                    None,
+                    ("api",),
+                ),
+                (
+                    "k8s_workload",
+                    "k8s/kustomization.yaml",
+                    "Deployment/prod-api",
+                    "api",
+                    None,
+                    ("api",),
+                ),
+            ],
+        )
+        manifests = [path for path, _ in scan.manifests]
+        self.assertNotIn("k8s/api.yaml", manifests)
+        self.assertNotIn("compose.override.yaml", [c.manifest for c in scan.components])
+        self.assertEqual(
+            [(path, message.split(":")[0]) for path, message in scan.diagnostics],
+            [("broken/Chart.yaml", "helm could not render it")],
+        )
 
 
 KUBERNETES = {
