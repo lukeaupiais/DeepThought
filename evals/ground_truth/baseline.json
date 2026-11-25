@@ -1468,6 +1468,13 @@
       "missed": 43,
       "wrong": 0
     },
+    "tables-immich-typeorm": {
+      "expected": 203,
+      "extra": 0,
+      "found": 0,
+      "missed": 203,
+      "wrong": 0
+    },
     "tables-forem": {
       "expected": 134,
       "extra": 0,

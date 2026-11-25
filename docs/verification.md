@@ -750,6 +750,36 @@ SQLModel names the tables `user` and `item` after the classes. A statement is
 labelled on the line that names the model. The CI job has no scip-python, so
 the gate scores the engine's name-based path.
 
+### TypeORM tables
+
+Manifest `tables` entries with `"language": "typeorm"` score every
+`data-contracts.*` READS/WRITES edge that the engine makes in TypeScript, per
+line, against labels read by hand. immich (v1.106.4, `server/`) is a NestJS app
+that injects TypeORM repositories with `@InjectRepository`, passes them by
+position into its access classes, and reaches TypeORM through each
+repository's `manager` and an injected `DataSource`. Its labels cover every
+TypeORM call in `server/src/repositories/*.repository.ts` except
+`database.repository.ts`, which touches only system catalogs, extensions and
+tables named at run time. The labels are a sample (`"scope": "labelled"`).
+The rules for labelling are:
+
+- A `Repository<E>` or `EntityManager` method that reads or writes is labelled
+  on the line of its method name. The table is E's `@Entity` table, or the table
+  of the entity class the manager method takes. The access is READS for reads
+  and WRITES for writes. `save`, `upsert` and `softRemove` are WRITES only.
+- A query builder is labelled on its `createQueryBuilder` line with its root
+  table only. That is the repository's entity, the entity argument, or the
+  table its `from`/`into` names. The access is WRITES for an update, delete or
+  insert, and READS otherwise. A builder used only as a subquery or CTE is
+  READS. Joined relations are not labelled.
+- A raw query whose SQL is a literal at the call is labelled with that SQL's
+  tables.
+- The app's own `save`/`create` wrappers are not accesses themselves.
+  `Repository.create` touches no table, so it is not labelled.
+
+The gate scores the engine as `DataContractTool` runs it, with no
+scip-typescript index and no installed `node_modules`.
+
 ### SQL statements
 
 The manifest entry `sql-statements-sqlc-endtoend` scores the engine's SQL

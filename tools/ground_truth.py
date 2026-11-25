@@ -882,6 +882,10 @@ def score_tables(corpus, workspace, examples=10):
         return score_line_tables(
             labels, workspace, examples, "data-contracts.", ["python"]
         )
+    if language == "typeorm":
+        return score_line_tables(
+            labels, workspace, examples, "data-contracts.", ["typescript"]
+        )
     mongoose = language == "mongoose"
     languages = list(MONGOOSE_LANGUAGES) if mongoose else [language]
     suffix, separator = (None, None) if mongoose else TABLE_LANGUAGES[language]
@@ -1223,6 +1227,8 @@ def missing_requirements(manifest, names=()):
                 if language == "go-sql"
                 else ("python",)
                 if language == "python-orm"
+                else ("typescript",)
+                if language == "typeorm"
                 else ()
                 if language == "sql-statements"
                 else (language,)

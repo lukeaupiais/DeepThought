@@ -623,6 +623,15 @@
       "oracle": "hand-read: every SQLModel table access under backend/"
     },
     {
+      "name": "tables-immich-typeorm",
+      "url": "https://github.com/immich-app/immich",
+      "commit": "8c2195c8205156f6e3168cc52fa34db334568ea9",
+      "license": "AGPL-3.0",
+      "language": "typeorm",
+      "labels": "tables/immich-typeorm.json",
+      "oracle": "hand-read: every TypeORM table access in server/src/repositories (a sample)"
+    },
+    {
       "name": "sql-statements-sqlc-endtoend",
       "url": "https://github.com/sqlc-dev/sqlc",
       "commit": "3ad8b20fb02b5bea81591b673da0758b8685d951",
