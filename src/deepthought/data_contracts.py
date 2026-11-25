@@ -1285,11 +1285,16 @@ class SaAccess:
     caller_id: str | None
     model: str
     writes: bool
-    how: str  # "query", "model_query", "get" or "statement"
+    how: str  # "query", "model_query", "get", "statement" or "instance"
     line: int
     column: int
     model_line: int = 0  # where the model's name is written (byte column)
     model_column: int = 0
+    # "instance": the Session method called (add, delete, merge, refresh)
+    # and where its name is written; ``model`` is the variable passed.
+    method: str = ""
+    method_line: int = 0
+    method_column: int = 0
 
 
 @dataclass(frozen=True)
@@ -1309,6 +1314,20 @@ class SaClass:
 
 
 SQLMODEL_BASE = "sqlmodel.SQLModel"
+# Session methods taking a mapped instance, and whether they write it.
+SESSION_INSTANCE_METHODS = {
+    "add": True,
+    "delete": True,
+    "merge": True,
+    "refresh": False,
+}
+# The scip-python symbols of those methods on SQLAlchemy's sessions.
+SESSION_METHOD_SYMBOL = re.compile(
+    r"scip-python python \S+ \S+ `sqlalchemy\.(?:orm\.session|orm\.scoping|"
+    r"ext\.asyncio\.session|ext\.asyncio\.scoping)`/"
+    r"(?:Session|scoped_session|AsyncSession|async_scoped_session)#"
+    r"(add|delete|merge|refresh)\(\)\."
+)
 
 
 def _module_aliases(root, content):
@@ -1427,7 +1446,7 @@ def extract_sqlalchemy(tree, content, file, definitions):
                 )
             )
 
-    def access(node, model, writes, how):
+    def access(node, model, writes, how, method=None):
         accesses.append(
             SaAccess(
                 file,
@@ -1439,6 +1458,15 @@ def extract_sqlalchemy(tree, content, file, definitions):
                 node.start_point.column,
                 model.start_point.row + 1,
                 model.start_point.column,
+                *(
+                    (
+                        _text(method, content),
+                        method.start_point.row + 1,
+                        method.start_point.column,
+                    )
+                    if method is not None
+                    else ()
+                ),
             )
         )
 
@@ -1500,6 +1528,18 @@ def extract_sqlalchemy(tree, content, file, definitions):
             )
         elif method == "query":
             how, writes, considered = "query", False, positional
+        elif method in SESSION_INSTANCE_METHODS:
+            # session.add(user): linked only where a SCIP index resolves the
+            # method to SQLAlchemy's Session and infers the variable's type.
+            if len(positional) == 1 and positional[0].type == "identifier":
+                access(
+                    node,
+                    positional[0],
+                    SESSION_INSTANCE_METHODS[method],
+                    "instance",
+                    function.child_by_field_name("attribute"),
+                )
+            continue
         elif method in ("get", "select_from"):
             # Session.get(Model, key) and select_from(Model): linked only
             # where a SCIP index resolves the name to a mapped class.

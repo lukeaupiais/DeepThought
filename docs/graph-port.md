@@ -3983,6 +3983,7 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlmodel-default-table` | pattern_matched | a class with the `table=True` class keyword and no `__tablename__` that inherits from `sqlmodel.SQLModel` (bases followed through a SCIP index, or by name in the same file): SQLModel's default name, the class name lowercased |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.flask-sqlalchemy-model-query` | pattern_matched | Flask-SQLAlchemy's `Model.query` (an attribute read, not a call) on the one mapped class of the repository with that name |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-query`, `-scip-statement`, `-scip-model-query`, `-scip-get` | resolved | the same `.query(Model)`, statement and `Model.query` forms, and `.get(Model, key)` or `.select_from(Model)`, where a scip-python index resolves the written name to a mapped class; they replace the name rules in the files the index covers |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.sqlalchemy-scip-instance` | resolved | `session.add(x)`, `delete(x)`, `merge(x)` (WRITES) or `refresh(x)` (READS) with one variable argument, where the scip-python index resolves the method to SQLAlchemy's `Session`, `scoped_session`, `AsyncSession` or `async_scoped_session` and documents the type pyright infers for the local variable `x` as a mapped class; there is no name rule for it |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.spring-data-query` | pattern_matched | a method's Spring Data `@Query`: JPQL entity names resolve to the one entity with that name (`@Entity(name)` or class name), `nativeQuery = true` SQL names tables |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jpa-query` | pattern_matched | `createQuery` (JPQL) or `createNativeQuery` (SQL) text in a file importing `jakarta.persistence` or `javax.persistence` |
 | Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.jdbc-sql` | pattern_matched | SQL passed to `JdbcClient.sql` or a JdbcTemplate `query*`, `update`, `batchUpdate` or `execute` call on a field or local, in a file importing `org.springframework.jdbc` |
@@ -4527,9 +4528,19 @@ the call's first line. A resolved declaration must carry the written name,
 as in call binding. Files no index covers keep the name rules, which link
 only when one mapped class of the repository has the name; `.get` and
 `.select_from` are linked only through an index, since `get` is the
-method of every mapping. The metric `sqlalchemy_access_resolution` counts
-`linked`, `linked_scip`, `not_a_mapped_class` and
-`scip_not_a_mapped_class`.
+method of every mapping. An instance passed to a session (`session.add(user)`) is linked only
+through the index: the method must resolve to one of SQLAlchemy's session
+classes, and the variable to a local whose type scip-python documents
+(`app.models.User`, as `Definition.value_type`), which names the class
+through that class's own SCIP symbol. Parameters (scip-python documents no
+type for them) and values pyright infers as a union or leaves unknown
+(`session.get(...)` results) are not linked. The metric
+`sqlalchemy_access_resolution` counts `linked`, `linked_scip`,
+`not_a_mapped_class`, `scip_not_a_mapped_class`, and for instances
+`instance_no_scip_index`, `instance_method_unresolved` (the index resolves
+the method to nothing outside the file, as when the app's dependencies
+were not installed for the indexer), `instance_not_session` and
+`instance_type_unknown`.
 
 Why not hand rules: the misses were name resolution. Superset's migrations
 redefine `Slice`, `Dashboard` and other models under the same names, so the
@@ -4549,8 +4560,7 @@ link made by name was lost or moved to another table):
 Without an index, Redash gets the same 92 links by name and the SQLModel
 template 16 of its 28. 30 sampled new Superset links and every `get` call
 whose receiver is not named like a session were read in the source and are
-right. Still not read: `session.add`/`delete` of an instance (the index
-records no types of locals), `cls.query` in a model's class methods, and
+right. Still not read: `cls.query` in a model's class methods, and
 Superset's index is 124 MB, past `ingest_scip`'s default 50 MB cap.
 
 **Kysely.** Kysely queries name tables as string literals typed against
