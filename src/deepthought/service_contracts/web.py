@@ -586,7 +586,10 @@ def extract_python(context):
                     path = _python_path(
                         prefix + context.folder.evaluate(path_node), framework
                     )
-                    context.route(call, methods, path, framework, handler)
+                    # A prefix the code does not fix (a setting) leaves the
+                    # route, with its base marked unknown.
+                    path, base_unknown = _unknown_base(path)
+                    context.route(call, methods, path, framework, handler, base_unknown)
         elif node.type == "call":
             function = node.child_by_field_name("function")
             if function.type != "attribute":
