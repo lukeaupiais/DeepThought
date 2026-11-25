@@ -2191,7 +2191,7 @@ pinned tarball comes from the configured registry and is still checked
 against the lockfile's integrity hash; if that fails, it runs again with the
 hosts the lockfile names, for packages only a private host serves.
 nestjs-realworld-example-app (c1c2cc4) pins 194 tarballs to a third-party
-mirror that does not answer; npm retried it until the install timed out
+mirror (`npm.styque.de`) the test environment cannot reach; npm retried it until the install timed out
 after 15 minutes, and all 35 files were covered with
 `dependencies_unavailable`. Now its 660 packages install in seconds and the
 warning is gone.
