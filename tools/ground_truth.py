@@ -882,7 +882,7 @@ def score_tables(corpus, workspace, examples=10):
         return score_line_tables(
             labels, workspace, examples, "data-contracts.", ["python"]
         )
-    if language == "typeorm":
+    if language in ("typeorm", "drizzle"):
         return score_line_tables(
             labels, workspace, examples, "data-contracts.", ["typescript"]
         )
@@ -1228,7 +1228,7 @@ def missing_requirements(manifest, names=()):
                 else ("python",)
                 if language == "python-orm"
                 else ("typescript",)
-                if language == "typeorm"
+                if language in ("typeorm", "drizzle")
                 else ()
                 if language == "sql-statements"
                 else (language,)
@@ -1443,7 +1443,11 @@ def check(names, cache, update=False, examples=10):
         if names and corpus["name"] not in names:
             continue
         workspace = (
-            None if corpus.get("language") == "sql-statements" else fetch(corpus, cache)
+            None
+            if corpus.get("language") == "sql-statements"
+            # A corpus can be one package of a repository: it is analyzed
+            # on its own and its paths are relative to it.
+            else fetch(corpus, cache) / corpus.get("root", ".")
         )
         report, samples = score_tables(corpus, workspace, examples)
         problems = (

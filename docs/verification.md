@@ -780,6 +780,34 @@ The rules for labelling are:
 The gate scores the engine as `DataContractTool` runs it, with no
 scip-typescript index and no installed `node_modules`.
 
+### Drizzle tables
+
+Manifest `tables` entries with `"language": "drizzle"` are scored like the
+TypeORM ones. A `root` names the package to analyze, and label paths are
+relative to that package. The lobe-chat entry analyzes `packages/database`.
+Its tables are declared with `pgTable` in about 120 files under
+`src/schemas` and reach the models through the schemas index. Its labels
+cover every Drizzle access in six model files:
+
+- `src/models/apiKey.ts`
+- `aiProvider.ts`
+- `asyncTask.ts`
+- `chunk.ts`
+- `session.ts`
+- `thread.ts`
+
+The labels are a sample. An access is labelled on the line where the table is
+passed:
+
+- `select().from(t)` and the join methods read `t`, and so does a select
+  used as a subquery;
+- `insert(t)`, `update(t)` and `delete(t)` only write `t`;
+- `db.query.t.findFirst()` and `findMany()` read `t`, on the line that names
+  `t`.
+
+Column references and `sql` fragments that name no other table are not
+accesses.
+
 ### SQL statements
 
 The manifest entry `sql-statements-sqlc-endtoend` scores the engine's SQL
