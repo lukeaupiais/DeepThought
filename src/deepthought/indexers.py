@@ -349,7 +349,9 @@ _GO_IGNORED = {"vendor", "testdata", "node_modules"}
 
 def go_modules(workspace):
     """Workspace-relative directories holding a go.mod (``.`` for the root),
-    outside vendor, testdata and hidden directories."""
+    outside vendor, testdata and hidden directories. One under a directory
+    whose name begins with ``_`` counts: the go command leaves such
+    directories out of ``./...``, not out of being modules."""
     root = Path(workspace).resolve(strict=True)
     found = []
     for directory, names, filenames in os.walk(root, followlinks=False):
@@ -358,12 +360,22 @@ def go_modules(workspace):
             for name in names
             if name not in _SKIP_DIRECTORIES
             and name not in _GO_IGNORED
-            and not name.startswith((".", "_"))
+            and not name.startswith(".")
             and not (Path(directory) / name).is_symlink()
         )
         if "go.mod" in filenames:
             found.append(Path(directory).relative_to(root).as_posix())
     return sorted(found)
+
+
+def _underscored(path, module):
+    """Whether a Go file of ``module`` sits under a directory whose name
+    begins with ``_`` (and none the go command ignores outright)."""
+    relative = path if module == "." else path[len(module) + 1 :]
+    directories = Path(relative).parent.parts
+    return any(d.startswith("_") for d in directories) and not any(
+        d in _GO_IGNORED for d in directories
+    )
 
 
 def go_module_of(path, modules):
@@ -419,8 +431,12 @@ def run_indexer(
     files=None,
     module=None,
     platform=None,
+    packages=None,
 ):
     """Run one pinned indexer; return an IndexRun, never raise for tool failures.
+
+    ``packages`` (scip-go only) are package patterns indexed in place of
+    ``./...``, relative to the module's directory.
 
     ``files`` (scip-typescript only) indexes just those workspace files, as one
     project that extends the workspace's root tsconfig.json: the pass for
@@ -432,6 +448,8 @@ def run_indexer(
         raise ValueError("Only scip-go indexes for another platform")
     if module is not None and spec.name != "scip-go":
         raise ValueError("Only scip-go indexes one module of a workspace")
+    if packages is not None and spec.name != "scip-go":
+        raise ValueError("Only scip-go indexes chosen packages")
     from ._scip import scip_pb2
 
     started = time.monotonic()
@@ -466,6 +484,8 @@ def run_indexer(
         temporary = Path(scratch) / "index.scip"
         argv, cwd = _arguments(spec, root, temporary, project_name or root.name)
         cwd = base
+        if packages is not None:
+            argv = [*argv, *packages]
         project = None
         if files is not None and spec.name == "scip-typescript":
             project = _uncovered_project(root, files)
@@ -783,6 +803,40 @@ def index_workspace(
             runs.append(second)
             for path in second.documents:
                 passes[path] = (second, {"pass": "outside_tsconfig"})
+    # The go command leaves directories whose names begin with _ (chi's
+    # _examples) out of ./..., but each is still a package by its path: the
+    # Go files there get a scip-go pass naming their packages.
+    for module, run in sorted(go_runs.items()):
+        if run.status != "indexed":
+            continue
+        hidden = sorted(
+            path
+            for path, language in sources.items()
+            if language == "go"
+            and go_module_of(path, list(go_runs)) == module
+            and path not in run.documents
+            and _underscored(path, module)
+        )
+        if not hidden:
+            continue
+        name = "scip-go" + ("" if module == "." else "-" + module.replace("/", "__"))
+        prefix = "" if module == "." else module + "/"
+        extra = run_indexer(
+            INDEXERS["scip-go"],
+            root,
+            directory / f"{name}-underscore.scip",
+            project_name=project_name,
+            timeout=timeout,
+            environ=environ,
+            files=hidden,
+            module=module,
+            packages=sorted(
+                {"./" + Path(path[len(prefix) :]).parent.as_posix() for path in hidden}
+            ),
+        )
+        runs.append(extra)
+        for path in extra.documents:
+            passes[path] = (extra, {"pass": "underscore_directory"})
     # Go files that build only on another platform (command_windows.go) get a
     # scip-go pass for the first platform, in the go command's own list, that
     # compiles them.

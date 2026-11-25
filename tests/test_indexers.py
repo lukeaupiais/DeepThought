@@ -39,6 +39,16 @@ FAKE = textwrap.dedent(
         documents = [os.path.relpath(f) for f in project["files"]] + documents
     # Only files under the directory it runs in, as a real indexer.
     documents = [path for path in documents if os.path.isfile(path)]
+    # As scip-go: ./... leaves out directories named _x; named packages
+    # are indexed in its place.
+    patterns = [a[2:] for a in argv if a.startswith("./")]
+    if patterns:
+        documents = [p for p in documents if os.path.dirname(p) in patterns]
+    elif os.environ["FAKE_NAME"] == "scip-go":
+        documents = [
+            p for p in documents
+            if not any(d.startswith("_") for d in p.split("/")[:-1])
+        ]
     # As scip-go: a file for another platform builds only there.
     documents = [
         path
@@ -299,6 +309,96 @@ class IndexersTest(unittest.TestCase):
         receipt = indexers.validate_receipt(self.root, self.out / "scip-go-svc.scip")
         self.assertEqual(receipt["documents"], ["svc/main.go"])
         self.assertEqual(receipt["producer"]["module"], "svc")
+
+    def test_go_under_underscore_directories_gets_a_pass_naming_its_packages(self):
+        (self.root / "go.mod").write_text("module example.com/m\n")
+        (self.root / "main.go").write_text("package main\n")
+        examples = self.root / "_examples"
+        for name in ("hello", "deep/_inner", "testdata/_x"):
+            (examples / name).mkdir(parents=True)
+            (examples / name / "main.go").write_text("package main\n")
+        # A module under _examples is a module of its own.
+        (examples / "rest").mkdir()
+        (examples / "rest" / "go.mod").write_text("module example.com/rest\n")
+        (examples / "rest" / "rest.go").write_text("package main\n")
+        (examples / "rest" / "_more").mkdir()
+        (examples / "rest" / "_more" / "more.go").write_text("package more\n")
+        # Left out of the first pass for other reasons: no pass names them.
+        (self.root / "skip.go").write_text("package main\n")
+        (examples / "rest" / "extra").mkdir()
+        (examples / "rest" / "extra" / "x.go").write_text("package extra\n")
+        self.assertEqual(indexers.go_modules(self.root), [".", "_examples/rest"])
+        self.fake("scip-go")
+        report = indexers.index_workspace(
+            self.root,
+            self.out,
+            languages=("go",),
+            environ=self.environ(
+                FAKE_NAME="scip-go",
+                FAKE_VERSION="0.1.26",
+                FAKE_DOCUMENTS=",".join(
+                    (
+                        "main.go",
+                        "_examples/hello/main.go",
+                        "_examples/deep/_inner/main.go",
+                        "_examples/testdata/_x/main.go",
+                        "rest.go",
+                        "_more/more.go",
+                    )
+                ),
+            ),
+        )
+        coverage = report["coverage"]
+        self.assertEqual(
+            {path: entry.get("pass") for path, entry in coverage.items()},
+            {
+                "main.go": None,
+                "_examples/hello/main.go": "underscore_directory",
+                "_examples/deep/_inner/main.go": "underscore_directory",
+                # The go command ignores testdata outright.
+                "_examples/testdata/_x/main.go": None,
+                "_examples/rest/rest.go": None,
+                "_examples/rest/_more/more.go": "underscore_directory",
+                "skip.go": None,
+                "_examples/rest/extra/x.go": None,
+            },
+        )
+        self.assertEqual(
+            coverage["_examples/testdata/_x/main.go"]["status"], "uncovered"
+        )
+        receipt = indexers.validate_receipt(
+            self.root, self.out / "scip-go-underscore.scip"
+        )
+        self.assertEqual(
+            receipt["documents"],
+            ["_examples/deep/_inner/main.go", "_examples/hello/main.go"],
+        )
+
+        def packages(receipt):
+            arguments = receipt["producer"]["arguments"]
+            return arguments[arguments.index("--quiet") + 1 :]
+
+        self.assertEqual(
+            packages(receipt), ["./_examples/deep/_inner", "./_examples/hello"]
+        )
+        nested = indexers.validate_receipt(
+            self.root, self.out / "scip-go-_examples__rest-underscore.scip"
+        )
+        self.assertEqual(nested["documents"], ["_examples/rest/_more/more.go"])
+        self.assertEqual(packages(nested), ["./_more"])
+        # A module whose own pass failed gets no further pass.
+        failed = indexers.index_workspace(
+            self.root,
+            self.root.parent / "failed",
+            languages=("go",),
+            environ=self.environ(
+                FAKE_NAME="scip-go", FAKE_VERSION="0.1.26", FAKE_EXIT="1"
+            ),
+        )
+        self.assertEqual(
+            [(run["module"], run["status"]) for run in failed["runs"]],
+            [(".", "failed"), ("_examples/rest", "failed")],
+        )
 
     def test_go_files_for_another_platform_get_a_pass_for_it(self):
         (self.root / "go.mod").write_text("module example.com/m\n")

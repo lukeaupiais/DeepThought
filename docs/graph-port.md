@@ -2064,6 +2064,16 @@ project with workspace-relative paths, its coverage entries say
 indexes never cover the same file. On hono it covers the 75 files the first
 pass leaves out.
 
+The go command leaves directories whose names begin with `_` out of `./...`,
+though each is still a package by its path. A `go.mod` under such a directory
+is a module of its own and gets its own run. The Go files of a module under
+such directories (outside `testdata` and `vendor`) get a further scip-go pass
+that names their packages (`./_examples/hello-world`), written to
+`scip-go[-<module>]-underscore.scip` with `pass: underscore_directory`, and it
+keeps only those files' documents. On chi, the two `_examples` modules and
+this pass cover the 19 Go files the root module's run left out, so all 90 are
+covered.
+
 The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
