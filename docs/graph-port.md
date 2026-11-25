@@ -2066,7 +2066,11 @@ stderr with its reason. When an indexer is missing or failed, the run stops
 before importing anything; only files no compiler can index keep the parser's
 call rules. The import report carries a
 `scip` object: each indexer run, the covered file count and the uncovered
-files with their reasons. `--include` and `--exclude` limit which files must
+files with their reasons. The indexes a run writes are checked against their
+receipts again before they are read, and are read whole: the 50 MB cap
+`ingest_scip` keeps for an index from elsewhere does not apply to them
+(scip-python writes over 100 MB for a large monorepo such as superset).
+`--include` and `--exclude` limit which files must
 be covered; a run whose languages have no indexer (`--language rust`) indexes
 nothing.
 
