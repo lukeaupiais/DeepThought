@@ -806,7 +806,9 @@ class GraphQueryService:
         """Every call site that calls ``name`` (the last name of its callee,
         ``param`` for ``c.req.param()``): linked ones by their CALLS edge and
         target, the others with the reason no rule linked them, and how many
-        there are of each."""
+        there are of each. Each names its ``caller``, the function, method or
+        file around it (qualified name, name, kind and line span), and the
+        ``source_roles`` of its file (``test``, ``example``)."""
         _text(name, "name")
         if file_path is not None:
             _text(file_path, "file_path")
@@ -817,7 +819,16 @@ class GraphQueryService:
               AND target.repo_url=$repo_url AND target.snapshot_id=$snapshot_id
               AND ($file_path IS NULL OR caller.file_path=$file_path)"""
         unlinked = """MATCH (call:UnresolvedCall {repo_url:$repo_url,snapshot_id:$snapshot_id,name:$name})
-            WHERE $file_path IS NULL OR call.file_path=$file_path"""
+            WHERE $file_path IS NULL OR call.file_path=$file_path
+            OPTIONAL MATCH (caller)-[:HAS_UNRESOLVED_CALL]->(call)"""
+        # The function, method or file around the call, and whether its file
+        # is a test or an example.
+        enclosing = (
+            "caller {.qualified_name,.name,.start_line,.end_line,"
+            "kind:coalesce(caller.kind, 'File')} AS caller,"
+            "[role IN $roles WHERE coalesce(caller.file_path, caller.path, '') "
+            "=~ role.pattern | role.name] AS source_roles,"
+        )
         counts = await self._read(
             "CALL () { "
             + linked
@@ -836,17 +847,27 @@ class GraphQueryService:
             "CALL () { "
             + linked
             + " RETURN 'linked' AS status,r.callee AS callee,caller.file_path AS file_path,"
-            "r.line AS line,r.column AS column,null AS reason,null AS resolver,"
+            "r.line AS line,r.column AS column,"
+            + enclosing
+            + "null AS reason,null AS resolver,"
             "target.qualified_name AS target,[] AS candidates,r AS relationship UNION ALL "
             + unlinked
             + " RETURN call.status AS status,call.callee AS callee,call.file_path AS file_path,"
-            "call.line AS line,call.column AS column,call.reason AS reason,"
+            "call.line AS line,call.column AS column,"
+            + enclosing
+            + "call.reason AS reason,"
             "call.resolver AS resolver,null AS target,"
             "coalesce(call.candidates,[]) AS candidates,null AS relationship } "
-            "RETURN status,callee,file_path,line,column,reason,resolver,target,candidates,"
-            "relationship "
+            "RETURN status,callee,file_path,line,column,caller,source_roles,reason,"
+            "resolver,target,candidates,relationship "
             "ORDER BY file_path,line,column,callee LIMIT $fetch_limit",
-            parameters,
+            parameters
+            | {
+                "roles": [
+                    {"name": role, "pattern": ROLE_PATTERNS[role]}
+                    for role in sorted(ROLE_PATTERNS)
+                ]
+            },
             repo_url,
             snapshot_id,
             limit=limit,

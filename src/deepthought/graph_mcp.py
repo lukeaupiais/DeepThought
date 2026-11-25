@@ -522,7 +522,7 @@ def create_server():
         file_path: str | None = None,
         max_elements: Annotated[int, Field(ge=1, le=100)] = 20,
     ) -> dict:
-        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them."""
+        """List the call sites of a name (the callee's last name, `param` for `c.req.param()`) and count them: linked ones with their target and rule, unresolved and ambiguous ones with the reason no rule linked them. Each call site names its caller (the function, method or file around it, with its line span) and whether that file is a test or an example."""
         return await ctx.request_context.lifespan_context.get_call_sites(
             name,
             repository_id,

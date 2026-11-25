@@ -2123,6 +2123,10 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "x.run()\n"
             )
             (root / "other.py").write_text("def f(y):\n    y.run()\n")
+            (root / "tests").mkdir()
+            (root / "tests" / "test_run.py").write_text(
+                "def test_run(y):\n    y.run()\n"
+            )
             (root / "dup.py").write_text(
                 "if x:\n    def dup(): pass\nelse:\n    def dup(): pass\ndup()\n"
             )
@@ -2138,7 +2142,7 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sites["status"], "succeeded")
         self.assertEqual(
-            sites["counts"], {"linked": 1, "ambiguous": 0, "unresolved": 3}
+            sites["counts"], {"linked": 1, "ambiguous": 0, "unresolved": 4}
         )
         self.assertEqual(
             [
@@ -2150,7 +2154,38 @@ class CallNeo4jIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 ("main.py", 8, "x.run", "unresolved", "local_binding"),
                 ("main.py", 10, "x.run", "unresolved", "attribute_call"),
                 ("other.py", 2, "y.run", "unresolved", "local_binding"),
+                ("tests/test_run.py", 2, "y.run", "unresolved", "local_binding"),
             ],
+        )
+        # Each call names the function or file around it, and whether that
+        # is a test.
+        self.assertEqual(
+            [
+                (
+                    i["caller"]["name"],
+                    i["caller"]["kind"],
+                    i["caller"]["start_line"],
+                    i["caller"]["end_line"],
+                    i["source_roles"],
+                )
+                for i in sites["items"]
+            ],
+            [
+                ("go", "Function", 6, 9, []),
+                ("go", "Function", 6, 9, []),
+                ("main.py", "File", None, None, []),
+                ("f", "Function", 1, 2, []),
+                ("test_run", "Function", 1, 2, ["test"]),
+            ],
+        )
+        self.assertTrue(
+            sites["items"][0]["caller"]["qualified_name"].endswith(
+                next(
+                    "::go::" + n.properties["definition_id"]
+                    for n in output.nodes
+                    if n.properties.get("name") == "go"
+                )
+            )
         )
         self.assertTrue(
             sites["items"][0]["target"].endswith(

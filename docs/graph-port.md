@@ -172,7 +172,10 @@ or the file) reaches it by `HAS_UNRESOLVED_CALL`, a structural edge with rule
 query counts the linked, ambiguous and unresolved calls of a name:
 `get_call_sites` (CLI `call-sites --name N [--file F]`, MCP `getCallSites`)
 returns those counts and the call sites, each linked one with its target and
-rule. Snapshots written before this change have no such nodes and answer
+rule. Each call site names its `caller`, the function, method or file around
+it (qualified name, name, kind, `start_line` and `end_line`), and the
+`source_roles` of that file (`test`, `example`), so an answer about who calls
+a name stops at the enclosing declarations rather than bare lines. Snapshots written before this change have no such nodes and answer
 `unsupported_or_unobserved`. Calls made through another name (an alias, a
 callback, dynamic dispatch) are not counted.
 
