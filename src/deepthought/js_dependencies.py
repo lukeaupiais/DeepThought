@@ -10,6 +10,9 @@ bun, ``yarn.lock`` Yarn (Yarn 2 and later as the project's own release, with
 the node-modules linker), ``npm-shrinkwrap.json`` or ``package-lock.json``
 ``npm ci``, otherwise ``npm install``. They read their
 usual configuration (``.npmrc``, ``npm_config_registry``), so a mirror works.
+``npm ci`` first fetches every pinned tarball from the configured registry
+(``--replace-registry-host=always``; the lockfile's integrity hashes still
+check each one), then, if that fails, from the hosts the lockfile names.
 A workspace that already has ``node_modules`` is indexed as it is.
 """
 
@@ -95,6 +98,17 @@ def _managers(directory):
         if (Path(directory) / lockfile).is_file():
             if lockfile == "yarn.lock" and _yarn_berry(directory):
                 found.append(("yarn", YARN_BERRY, lockfile))
+            elif manager == "npm":
+                # A lockfile may pin tarballs to a mirror that is gone or
+                # unreachable (nestjs-realworld pins 194 to one, and npm
+                # retries it until the install times out). The configured
+                # registry serves the same bytes, checked against the
+                # lockfile's integrity hashes; the lockfile's own hosts
+                # are tried next, for packages only a private host has.
+                found.append(
+                    (manager, [*arguments, "--replace-registry-host=always"], lockfile)
+                )
+                found.append((manager, arguments, lockfile))
             else:
                 found.append((manager, arguments, lockfile))
     return found or [(*NO_LOCKFILE, None)]
