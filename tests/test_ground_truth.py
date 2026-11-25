@@ -606,6 +606,35 @@ class RequirementTests(unittest.TestCase):
                 ["tree_sitter_python"],
             )
 
+    def test_missing_indexer_of_a_scip_table_corpus_is_reported(self):
+        from unittest import mock
+
+        manifest = {
+            "corpora": [],
+            "tables": [
+                {"name": "orm", "language": "python-orm"},
+                {"name": "rails", "language": "ruby"},
+            ],
+        }
+        with (
+            mock.patch("importlib.util.find_spec", return_value=object()),
+            mock.patch("deepthought.indexers.locate", return_value=None),
+        ):
+            missing = ground_truth.missing_requirements(manifest)
+            self.assertEqual(len(missing), 1)
+            self.assertTrue(missing[0].startswith("scip-python "), missing)
+            self.assertEqual(ground_truth.missing_requirements(manifest, {"rails"}), [])
+
+    def test_only_scip_table_corpora_are_indexed(self):
+        # No indexer runs for a corpus whose rules read no SCIP index, or
+        # without a cache to build the indexes in.
+        self.assertEqual(
+            ground_truth.table_indexes({"language": "ruby"}, "/w", "/cache"), ()
+        )
+        self.assertEqual(
+            ground_truth.table_indexes({"language": "python-orm"}, "/w", None), ()
+        )
+
     def test_missing_indexer_of_a_calls_corpus_is_reported_with_scip(self):
         from unittest import mock
 
