@@ -273,7 +273,7 @@ a package that is not installed, is external.
 | hono | 1,203 | 1,128 | 0 | 1.0 | 0.9377 |
 | cobra | 12 | 12 | 0 | 1.0 | 1.0 |
 | chi | 31 | 31 | 0 | 1.0 | 1.0 |
-| preact | 516 | 472 | 0 | 1.0 | 0.9147 |
+| preact | 516 | 499 | 0 | 1.0 | 0.9671 |
 
 The engine's JavaScript and TypeScript imports are scored as it resolves them:
 through the TypeScript compiler (`deepthought.ts_modules`). The compiler
@@ -289,14 +289,10 @@ preact 131, cobra 174). Most JavaScript and TypeScript misses fall into four
 groups:
 
 - dynamic `import()` calls: ky 4, hono 5, preact 7 (all in `demo/`);
-- imports in hono's benchmark packages: 69;
+- imports in hono's benchmark packages, whose `.mts` files the parser does not
+  read: 69;
 - preact's `require()` calls: 8;
-- static imports in preact's demo folder: preact's jsconfig excludes it, and
-  `demo/tsconfig.json` (whose `paths` name `preact`) does not allow JavaScript,
-  so its `.jsx` files get default options and no `preact`: 26;
-- the three imports of `compat/test/browser/unstable_batchedUpdates.test.jsx`:
-  a `.js` file of the same name sits beside it, and the compiler includes only
-  one file per name in a project, so the `.jsx` gets default options.
+- side-effect imports of stylesheets in preact's demo folder: 2.
 Rust is not covered: rust-analyzer references the item a `use` names, not a
 module, and the engine links items too, so it needs its own derivation.
 

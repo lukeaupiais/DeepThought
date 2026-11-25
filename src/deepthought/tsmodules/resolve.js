@@ -6,14 +6,17 @@
 // stdout: one JSON object per line, per import the compiler records in a
 // file (import, export ... from, side-effect import, import(), require() in
 // JavaScript, import x = require()), with the file's project:
-//   {"file", "line", "character", "specifier", "resolved", "project"}
+//   {"file", "line", "character", "specifier", "resolved", "project",
+//    "options_from"}
 // ``line`` and ``character`` (0-based, UTF-16) are where the specifier's
 // string literal starts. ``resolved`` is an absolute path, symbolic links
 // resolved (a workspace package linked into node_modules is its own file),
 // or null.
 // ``project`` is the workspace-relative tsconfig.json or jsconfig.json that
-// includes the file, or null for a file no project includes, which gets the
-// options TypeScript's language service gives such a file.
+// includes the file, or null for a file no project includes. Such a file gets
+// the options of the nearest config above it (``options_from``), JavaScript
+// allowed, or, with none, the options TypeScript's language service gives a
+// file outside every project.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -57,6 +60,19 @@ function including(config, file, seen) {
   return null;
 }
 
+function nearestConfig(file) {
+  // The nearest tsconfig.json, then jsconfig.json, directory by directory.
+  let directory = path.dirname(file);
+  for (;;) {
+    for (const name of ["tsconfig.json", "jsconfig.json"]) {
+      const config = path.join(directory, name);
+      if (fs.existsSync(config)) return parse(config);
+    }
+    if (directory === root || path.dirname(directory) === directory) return null;
+    directory = path.dirname(directory);
+  }
+}
+
 function projectOf(file) {
   // The nearest config that includes the file, as the language service
   // looks for one: tsconfig.json, then jsconfig.json, directory by directory.
@@ -82,15 +98,28 @@ const groups = new Map();
 for (const relative of input.files) {
   const file = canonical(path.join(root, relative));
   const project = projectOf(file);
-  const key = project ? project.config : "";
-  if (!groups.has(key)) groups.set(key, { project, files: [] });
+  // A file no config includes (excluded, or left out for a file of the same
+  // name with another extension) gets the options of the nearest config,
+  // JavaScript allowed, in one program per such config: as the compiler
+  // would run there, its paths and baseUrl apply.
+  const nearest = project ? null : nearestConfig(file);
+  const key = project
+    ? project.config
+    : nearest
+      ? "inferred:" + nearest.config
+      : "";
+  if (!groups.has(key)) groups.set(key, { project, nearest, files: [] });
   groups.get(key).files.push(file);
 }
 
 const out = [];
 for (const key of [...groups.keys()].sort()) {
-  const { project, files } = groups.get(key);
-  const options = project ? project.options : INFERRED;
+  const { project, nearest, files } = groups.get(key);
+  const options = project
+    ? project.options
+    : nearest
+      ? { ...nearest.options, allowJs: true, noEmit: true }
+      : INFERRED;
   // References are not passed: they would redirect imports of a referenced
   // project to its built declarations, where the language service reads its
   // sources, as here.
@@ -115,6 +144,9 @@ for (const key of [...groups.keys()].sort()) {
           resolved: module ? fs.realpathSync(module.resolvedFileName) : null,
           project: project
             ? path.relative(root, project.config).split(path.sep).join("/")
+            : null,
+          options_from: nearest
+            ? path.relative(root, nearest.config).split(path.sep).join("/")
             : null,
         }),
       );

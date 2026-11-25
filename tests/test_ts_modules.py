@@ -52,8 +52,10 @@ FILES = {
     "typed/package.json": '{"name": "typed", "types": "index.d.ts"}',
     "typed/index.d.ts": "export default 1;\n",
     "typed/index.js": "export default 1;\n",
-    # No project includes it: the language service's options.
+    # No project includes these: the options of the nearest config, here
+    # the root's, whose paths apply.
     "other/x.ts": 'import { y } from "./y";\n',
+    "other/p.ts": 'import { x } from "@lib/m";\n',
     # Configs above the workspace are not read.
     "other/up.ts": 'import { y } from "@up/y";\n',
     "other/y.ts": "export const y = 1;\n",
@@ -68,6 +70,11 @@ FILES = {
     "js/b.js": 'import l from "linkedpkg";\n',
     "js/a.js": 'import { w } from "~/w";\n',
     "js/w.js": "export const w = 1;\n",
+    # The compiler includes one file per name: the .jsx beside d.js is left
+    # out of the project, and resolved with its options in a program of
+    # its own.
+    "js/d.js": "export const d = 1;\n",
+    "js/d.jsx": 'import { w } from "~/w";\n',
     # A solution config includes its files through references, to a file
     # and to a directory; a reference back to it is not followed again.
     "sol/tsconfig.json": (
@@ -212,12 +219,19 @@ class CompilerImportTests(unittest.TestCase):
                     (("packages/linkedpkg/index.d.ts", rule),),
                 ),
                 ("src/u.ts", 1): ("./b", "linked", None, (("src/b.ts", rule),)),
+                ("other/p.ts", 1): (
+                    "@lib/m",
+                    "linked",
+                    None,
+                    (("src/lib/m.ts", rule),),
+                ),
             },
         )
         for key, target in (
             ("other/z.js", "other/y.ts"),
             ("js/a.js", "js/w.js"),
             ("js/b.js", "packages/linkedpkg/index.d.ts"),
+            ("js/d.jsx", "js/w.js"),
         ):
             self.assertEqual(outcomes[(key, 1)][3], ((target, rule),))
         # Both statements on a line are bound, each at its own specifier.
@@ -246,6 +260,9 @@ class CompilerImportTests(unittest.TestCase):
         projects = {(row.file, row.project) for row in found}
         self.assertIn(("src/a.ts", "tsconfig.json"), projects)
         self.assertIn(("other/x.ts", None), projects)
+        options = {(row.file, row.project, row.options_from) for row in found}
+        self.assertIn(("other/p.ts", None, "tsconfig.json"), options)
+        self.assertIn(("js/d.jsx", None, "js/jsconfig.json"), options)
 
     def test_an_import_the_compiler_does_not_record_is_reported(self):
         result = analyze_repository(

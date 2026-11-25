@@ -6,7 +6,10 @@ compiler resolves them to.
 references followed) and asks the compiler where each of its imports
 resolves: ``paths``, ``baseUrl``, extensions, index files, ``package.json``
 ``types`` and ``exports``, and the resolution mode of each import are the
-compiler's. A file no project includes gets the options the language service
+compiler's. A file no project includes (excluded from it, or left out for a
+file of the same name with another extension) gets the options of the
+nearest config above it, JavaScript allowed, so its ``paths`` and
+``baseUrl`` apply; with no config above it, the options the language service
 gives such a file. Nothing is type-checked or emitted.
 
 The compiler is the ``typescript`` package the pinned scip-typescript
@@ -45,7 +48,10 @@ class CompilerImport:
     character: int  # UTF-16, 0-based, where the specifier's literal starts
     specifier: str
     resolved: str | None  # absolute, symbolic links resolved
-    project: str | None
+    project: str | None  # the config that includes the file
+    # For a file no config includes: the nearest config, whose options
+    # (JavaScript allowed) it was resolved with; None when there is none.
+    options_from: str | None = None
 
 
 def locate_typescript(environ=None):
@@ -120,6 +126,7 @@ def compiler_imports(root, files, environ=None, timeout=1800):
             row["specifier"],
             row["resolved"],
             row["project"],
+            row["options_from"],
         )
         for row in map(json.loads, completed.stdout.splitlines())
     ]

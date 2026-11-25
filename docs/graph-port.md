@@ -147,8 +147,13 @@ config's `references` followed. It builds a program for each project and
 asks the compiler where every import resolves, with that import's resolution
 mode, so `paths`, `baseUrl`, extensions, index files, `package.json`
 `types`, `typesVersions` and `exports` are the compiler's. Configs above the
-workspace are not read. A file that no project includes gets the options the
-language service gives such a file (`allowJs`, the latest target). Nothing is
+workspace are not read. A file that no project includes, because its
+project excludes it or because the compiler took a file of the same name
+with another extension (`a.js` over `a.jsx`), is resolved with the options
+of the nearest config above it, `allowJs` added, in a program for that
+config's such files, so its `paths` and `baseUrl` still apply. With no
+config above it, it gets the options the language service gives a file
+outside every project (`allowJs`, the latest target). Nothing is
 type-checked or emitted. The compiler is the `typescript` package that the
 pinned scip-typescript installs (`TYPESCRIPT_VERSION`). Any other version,
 or a missing one, stops the run.
