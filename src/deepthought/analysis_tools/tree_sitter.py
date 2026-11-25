@@ -21,6 +21,7 @@ from .. import inheritance as base_rules
 from ..engine import RUST_ITEM_MACROS, analyze_repository
 from .. import scip_calls
 from ..scip_calls import bind_calls
+from ..edge_coverage import edge_coverage
 from ..syntax import (
     DEFAULT_LANGUAGES,
     LANGUAGES,
@@ -1094,6 +1095,38 @@ class TreeSitterTool(AnalysisTool):
                     [kinds[method], "Symbol"],
                     {"qualified_name": qualified[method], "repo_url": repo_url},
                     _evidence(GO_INTERFACE_RULE),
+                )
+            )
+        # Which families a deterministic resolver linked, per language.
+        coverage_records = edge_coverage(
+            result,
+            f"tree-sitter@{__version__}",
+            (
+                [(site.id, site.file) for site in result.call_sites],
+                {r.call_id: r.status for r in binding.resolutions},
+                {key: value[0] for key, value in binding.producers.items()},
+            ),
+            (
+                [(r.import_id, imports[r.import_id].file) for r in resolutions],
+                {r.import_id: r.status for r in resolutions},
+                # Every import is decided by the parser's rules.
+                {},
+            ),
+        )
+        for record in coverage_records:
+            nodes.append(
+                NodeData(
+                    ["EdgeCoverage"],
+                    {
+                        "qualified_name": f"{repo_url}::edge-coverage::"
+                        f"{record.family}::{record.language}",
+                        "repo_url": repo_url,
+                        **{
+                            key: value
+                            for key, value in record.to_dict().items()
+                            if value is not None
+                        },
+                    },
                 )
             )
         status_counts = dict.fromkeys(("linked", "ambiguous", "unresolved"), 0)
