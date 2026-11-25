@@ -1242,6 +1242,17 @@ def statement_tables(text, jpql=False):
     # JDBC and JPA positional parameters (?1), which no dialect reads, are
     # bind markers like ``?``.
     masked = _COMMENT_OR_STRING.sub(_blank, text)
+    # So are named parameters: sqlc's @name, SQL Server's @p, MySQL's @var
+    # (never a table or column; PostgreSQL would read @ as its absolute
+    # value operator). @@ system variables stay.
+    for match in reversed(list(re.finditer(r"(?<![@\w])@[A-Za-z_]\w*", masked))):
+        text = (
+            text[: match.start()]
+            + "?"
+            + " " * (len(match.group()) - 1)
+            + text[match.end() :]
+        )
+    masked = _COMMENT_OR_STRING.sub(_blank, text)
     for match in reversed(list(re.finditer(r"\?\d+", masked))):
         text = (
             text[: match.start()]
@@ -1276,7 +1287,6 @@ def _sqlglot_tables(text):
             continue  # A statement sqlglot only passes through as text.
         reads, writes = [], []
         for tree in trees:
-            ctes = {table_key(c.alias_or_name) for c in tree.find_all(exp.CTE)}
             aliases = {
                 table_key(t.alias): t
                 for t in tree.find_all(exp.Table)
@@ -1300,13 +1310,13 @@ def _sqlglot_tables(text):
                     if not target.db and table_key(target.name) in aliases:
                         target = aliases[table_key(target.name)]
                         written.add(id(target))
-                    name = _sqlglot_name(target, ctes)
+                    name = _sqlglot_name(target)
                     if name is not None:
                         writes.append(name)
             for table in tree.find_all(exp.Table):
                 if id(table) in written or table.find_ancestor(exp.Lock):
                     continue  # FOR UPDATE OF t names a table already read.
-                name = _sqlglot_name(table, ctes)
+                name = _sqlglot_name(table)
                 if name is not None:
                     reads.append(name)
         return tuple(dict.fromkeys(reads)), tuple(dict.fromkeys(writes)), dialect
@@ -1599,15 +1609,51 @@ class _Columns:
             self._all_tables(tree)
 
 
-def _sqlglot_name(table, ctes):
-    """The table key of a sqlglot Table, or None for a CTE, ``dual``, a
-    catalog or a table-valued function."""
+def _visible_ctes(table):
+    """The names of the common table expressions a table reference can
+    name: those of every enclosing WITH, except that inside the body of one
+    of them only the earlier ones are visible (and itself, under
+    RECURSIVE). sqlglot's scope builder does not build scopes for
+    data-modifying CTEs (``WITH t AS (UPDATE t ... RETURNING *)``), so the
+    SQL visibility rule is applied here."""
+    from sqlglot import exp
+
+    names, node = set(), table
+    while node is not None:
+        parent = node.parent
+        if isinstance(parent, exp.With):
+            # ``node`` is one CTE of this WITH: the earlier ones are visible.
+            ctes = list(parent.expressions)
+            index = next((i for i, c in enumerate(ctes) if c is node), len(ctes))
+            if parent.args.get("recursive"):
+                index += 1
+            names |= {table_key(c.alias_or_name) for c in ctes[:index]}
+        elif parent is not None:
+            # The WITH of an enclosing statement (arg "with_" in sqlglot 30,
+            # "with" before).
+            clause = next(
+                (
+                    v
+                    for k, v in parent.args.items()
+                    if k in ("with", "with_") and isinstance(v, exp.With)
+                ),
+                None,
+            )
+            if clause is not None and clause is not node:
+                names |= {table_key(c.alias_or_name) for c in clause.expressions}
+        node = parent
+    return names
+
+
+def _sqlglot_name(table, ctes=None):
+    """The table key of a sqlglot Table, or None for a CTE it can name,
+    ``dual``, a catalog or a table-valued function."""
     from sqlglot import exp
 
     if not table.name or not isinstance(table.this, exp.Identifier):
         return None
     parts = [table_key(p) for p in (table.catalog, table.db, table.name) if p]
-    if len(parts) == 1 and parts[0] in ctes:
+    if len(parts) == 1 and parts[0] in _visible_ctes(table):
         return None
     if parts[-1] == "dual" or is_catalog(parts):
         return None
