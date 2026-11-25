@@ -73,6 +73,9 @@ DJANGO = {
     "    return list(Urgent.objects.all())\n"
     "def other():\n"
     "    return Plain.objects.all()\n",
+    "shop/migrations/0002_close.py": "def close(apps, schema_editor):\n"
+    '    Order = apps.get_model("store", "Order")\n'
+    "    Order.objects.filter(open=True).update(open=False)\n",
 }
 
 MODEL = "store/src/main/java/shop/model/"
@@ -389,11 +392,21 @@ class ToolTests(unittest.TestCase):
 
 @unittest.skipUnless(PYTHON, "Provision the python grammar")
 class DjangoTests(unittest.TestCase):
-    def test_models_tables_and_manager_calls(self):
+    TABLES = [
+        ("MAPS_TO", "Line", "sales_line", "django-default-table-name", None),
+        ("MAPS_TO", "Order", "store_order", "django-default-table-name", None),
+        ("MAPS_TO", "Order", "store_order_tags", "django-many-to-many-table", "tags"),
+        ("MAPS_TO", "Tag", "shop_tags", "django-db-table", None),
+    ]
+
+    def analyze(self, with_index):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, DJANGO)
+            indexes = (self.index(directory),) if with_index else ()
             output = asyncio.run(
-                DataContractTool(directory).analyze("r", languages=["python"])
+                DataContractTool(directory).analyze(
+                    "r", languages=["python"], scip_indexes=indexes
+                )
             )
         edges = sorted(
             (
@@ -405,31 +418,108 @@ class DjangoTests(unittest.TestCase):
             )
             for r in output.relationships
         )
+        return edges, output.metadata
+
+    def index(self, directory):
+        """A scip-python index of DJANGO's model names, ingested. Urgent is
+        not imported in views.py, so the index records no reference there."""
+        import deepthought
+        from deepthought._scip import scip_pb2 as wire
+
+        orders = "scip-python python site 0 `shop.models.orders`/"
+        documents = {
+            "shop/models/orders.py": [
+                (3, "Tag", orders + "Tag#", True),
+                (6, "Order", orders + "Order#", True),
+                (8, "Line", orders + "Line#", True),
+                (11, "Urgent", orders + "Urgent#", True),
+                (11, "Order", orders + "Order#", False),
+                (14, "Plain", orders + "Plain#", True),
+            ],
+            "shop/migrations/0002_close.py": [
+                (1, "Order", "local 0", True),
+                (2, "Order", "local 0", False),
+            ],
+            "shop/views.py": [
+                (0, "Order", orders + "Order#", False),
+                (0, "Tag", orders + "Tag#", False),
+                (1, "Order", orders + "Order#", False),
+                (3, "Order", orders + "Order#", False),
+                (4, "Tag", orders + "Tag#", False),
+                (8, "Plain", orders + "Plain#", False),
+            ],
+        }
+        index = wire.Index()
+        index.metadata.tool_info.name = "scip-python"
+        index.metadata.tool_info.version = "0.6.8"
+        for path, occurrences in documents.items():
+            lines = DJANGO[path].split("\n")
+            document = index.documents.add(relative_path=path)
+            for line, text, symbol, definition in occurrences:
+                column = lines[line].index(text)
+                document.occurrences.add(
+                    symbol=symbol,
+                    range=[line, column, column + len(text)],
+                    symbol_roles=wire.Definition if definition else 0,
+                )
+        path = Path(directory) / ".index.scip"
+        path.write_bytes(index.SerializeToString())
+        return deepthought.ingest_scip(path, repository_id="r"), "sha256:test"
+
+    def test_models_and_tables_without_an_index(self):
+        edges, metadata = self.analyze(False)
+        self.assertEqual(edges, self.TABLES)
+        metrics = metadata.custom_metrics
+        self.assertEqual(metrics["django_models"], 4)
+        # The indexer decides what a name is: no manager call is read, and
+        # the run says so.
+        self.assertEqual(
+            metrics["django_access_resolution"],
+            {
+                "linked_scip": 0,
+                "historical": 0,
+                "not_a_model": 0,
+                "scip_no_reference": 0,
+                "no_scip_index": 6,
+            },
+        )
+        self.assertEqual(metrics["analysis_status"], "partial")
+        self.assertIn(
+            "no_scip_index: 2 files calling Django managers have no scip-python "
+            "index, so their queries are not read; run deepthought index-scip "
+            "and pass the index",
+            metadata.warnings,
+        )
+
+    def test_manager_calls_resolved_through_a_scip_index(self):
+        edges, metadata = self.analyze(True)
+        rule = "django-scip-manager-call"
+        # The migration's Order is the store app's model, by get_model.
+        historical = "django-historical-manager-call"
         self.assertEqual(
             edges,
-            [
-                ("MAPS_TO", "Line", "sales_line", "django-default-table-name", None),
-                ("MAPS_TO", "Order", "store_order", "django-default-table-name", None),
-                (
-                    "MAPS_TO",
-                    "Order",
-                    "store_order_tags",
-                    "django-many-to-many-table",
-                    "tags",
-                ),
-                ("MAPS_TO", "Tag", "shop_tags", "django-db-table", None),
-                ("READS", "close", "shop_tags", "django-manager-call", None),
-                ("READS", "close", "store_order", "django-manager-call", None),
-                ("READS", "shop/views.py", "store_order", "django-manager-call", None),
-                ("READS", "urgent", "store_order", "django-manager-call", None),
-                ("WRITES", "close", "shop_tags", "django-manager-call", None),
-                ("WRITES", "close", "store_order", "django-manager-call", None),
-            ],
+            sorted(
+                self.TABLES
+                + [
+                    ("READS", "close", "shop_tags", rule, None),
+                    ("READS", "close", "store_order", rule, None),
+                    ("READS", "close", "store_order", historical, None),
+                    ("READS", "shop/views.py", "store_order", rule, None),
+                    ("WRITES", "close", "shop_tags", rule, None),
+                    ("WRITES", "close", "store_order", rule, None),
+                    ("WRITES", "close", "store_order", historical, None),
+                ]
+            ),
         )
-        metrics = output.metadata.custom_metrics
-        self.assertEqual(metrics["django_models"], 4)
         self.assertEqual(
-            metrics["django_access_resolution"], {"linked": 4, "not_a_model": 1}
+            metadata.custom_metrics["django_access_resolution"],
+            {
+                "linked_scip": 3,
+                "historical": 1,
+                "not_a_model": 1,
+                "scip_no_reference": 1,
+                "no_scip_index": 0,
+            },
         )
 
 

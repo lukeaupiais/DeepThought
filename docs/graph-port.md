@@ -4028,7 +4028,8 @@ component roll-up like HTTP routes and message destinations:
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-db-table` | pattern_matched | a Django model (a `django.db.models.Model` base, directly or through repository models named by unique class name) whose own `Meta.db_table` names the table |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-default-table-name` | pattern_matched | a concrete model without `db_table`: `{app_label}_{class name lower case}`, the app label being `Meta.app_label`, else the literal `label` of the app's `AppConfig` in `apps.py`, else the package holding the models module; a proxy uses its concrete base's table, an abstract model has none |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.django-many-to-many-table` | pattern_matched | a `ManyToManyField` without `through` on the model or an abstract model it extends: its `db_table`, else `{model table}_{field}`; the edge names the field |
-| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-manager-call` | pattern_matched | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, `Model` being the one model of the repository with that class name; instance `save()`/`delete()`, other managers and raw SQL are not read |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-scip-manager-call` | resolved | a `Model.objects...` call chain with a reading (`filter`, `get`, `all`, `count`, ...) or writing (`create`, `update`, `delete`, `bulk_create`, ...) QuerySet method, where a scip-python index resolves the written `Model` to a Django model class. There is no name rule: a file no scip-python index covers is not read, it is counted `no_scip_index` and named in a warning, and the run is partial. Instance `save()`/`delete()`, other managers and raw SQL are not read |
+| Symbol\|File -[:READS]-> / -[:WRITES]-> DbTable | `data-contracts.django-historical-manager-call` | pattern_matched | the same call chain where the index resolves `Model` to a variable assigned `<registry>.get_model("label", "Model")` (or `"label.Model"`), as data migrations take historical models from the migration state: the model of that app label and class name. Why not a tool: the migration state's registry is built at run time and no index types it; `get_model`'s arguments name the model |
 | Symbol -[:MAPS_TO]-> DbTable | `data-contracts.sqlalchemy-tablename` | pattern_matched | a class in a module importing SQLAlchemy, Flask-SQLAlchemy or SQLModel that sets `__tablename__` (plain or annotated) to a string literal |
 | File -[:DECLARES]-> DbTable | `data-contracts.sqlalchemy-table` | pattern_matched | a call of SQLAlchemy's `Table` (imported from `sqlalchemy`, or through an imported SQLAlchemy module such as `sa.Table` or `db.Table`) with a literal name |
 | Symbol\|File -[:READS]-> DbTable | `data-contracts.sqlalchemy-session-query` | pattern_matched | `.query(Model)` or `.query(Model.column)`, `Model` being the one mapped class of the repository with that name; the receiver is not checked to be a session |
@@ -4545,6 +4546,18 @@ unresolved. Over the whole repository, including Django's test apps, 1,580
 models give 1,697 tables in 33 s. 3,578 manager calls are linked, and 7,472
 are left unlinked because the class name is not a model or names several
 models.
+
+Manager calls are now read only through scip-python: the index resolves
+the written model name to its class, so a name that several models share
+resolves to the one imported. The metric `django_access_resolution` counts
+`linked_scip`, `historical` (a data migration's `get_model` model),
+`not_a_model`, `scip_no_reference` and `no_scip_index`. On
+healthchecks/healthchecks `c1039ad` with its scip-python 0.6.8 index, the
+754 READS/WRITES edges are exactly those the name rule made: 686 calls
+resolve to a model class, 39 in data migrations to `get_model`'s model, and
+the same 33 calls stay unlinked (their names are not models of the
+repository, such as `django.contrib.auth`'s `User`). Without an index no
+manager call is read and the run is partial.
 
 On FreshRSS/FreshRSS `fa16ffd` the PHP rule reads 82 statements: 64 name
 fixed tables (`_entry`, `_feed`, `_category`, `_tag`, `_entrytag`), 16 are
