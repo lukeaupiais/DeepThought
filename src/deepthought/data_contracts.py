@@ -65,10 +65,11 @@ class Ddl:
     line: int
     name: str
     schema: str | None = None
-    # "sqlglot", or "tokens_not_parsed" for a CREATE TABLE no dialect parses.
+    # "sqlglot"; "postgres" for a CREATE TABLE no sqlglot dialect parses and
+    # PostgreSQL's parser does; "tokens_not_parsed" when neither parses it.
     reader: str = "sqlglot"
     # The table's columns, each (name, file, line) of the statement that
-    # declares it; complete only when ``columns_read`` (sqlglot parsed the
+    # declares it; complete only when ``columns_read`` (a parser read the
     # CREATE TABLE and every ALTER TABLE of its migration set).
     columns: tuple[tuple[str, str, int], ...] = ()
     columns_read: bool = False
@@ -153,6 +154,9 @@ def extract_ddl(file, content: bytes):
         start, end = statement[0].start, statement[-1].end + 1
         offset = text.count("\n", 0, start)
         parsed = _sqlglot_ddl(text[start:end])
+        reader = "sqlglot"
+        if parsed is None:
+            parsed, reader = _postgres_ddl(text[start:end]), "postgres"
         if parsed is None:
             table = _token_ddl(statement)
             if table is not None:
@@ -165,12 +169,58 @@ def extract_ddl(file, content: bytes):
                 line + offset,
                 name,
                 schema,
+                reader,
                 columns=tuple((column, file, at + offset) for column, at in columns),
-                columns_read=True,
+                columns_read=complete,
             )
-            for line, name, schema, columns in parsed
+            for line, name, schema, columns, complete in parsed
         )
     return found
+
+
+def _postgres_ddl(text):
+    """(line, name, schema, columns, complete) of the permanent table a
+    CREATE TABLE statement declares, read by PostgreSQL's own parser
+    (libpg_query, through pglast), columns as in _sqlglot_ddl; complete is
+    False for a table that takes columns from elsewhere (LIKE, INHERITS,
+    PARTITION OF, OF type). [] for a temporary table, None when the parser
+    does not read ``text`` as one CREATE TABLE."""
+    from pglast import parse_sql
+    from pglast.parser import ParseError
+
+    try:
+        parsed = parse_sql(text)
+    except ParseError:
+        return None
+    if len(parsed) != 1 or type(parsed[0].stmt).__name__ != "CreateStmt":
+        return None
+    statement = parsed[0].stmt
+    relation = statement.relation
+    if relation.relpersistence == "t":
+        return []
+
+    def line(location):
+        return text.count("\n", 0, max(location or 0, 0)) + 1
+
+    columns, complete = (
+        [],
+        not (statement.inhRelations or statement.partbound or statement.ofTypename),
+    )
+    for element in statement.tableElts or ():
+        kind = type(element).__name__
+        if kind == "ColumnDef":
+            columns.append((element.colname, line(element.location)))
+        elif kind == "TableLikeClause":
+            complete = False
+    return [
+        (
+            line(relation.location),
+            relation.relname.lower(),
+            relation.schemaname.lower() if relation.schemaname else None,
+            tuple(columns),
+            complete,
+        )
+    ]
 
 
 def _ddl_statements(content: bytes):
@@ -258,6 +308,15 @@ class ColumnChange:
 _COLUMN_WORDS = frozenset({"ADD", "DROP", "RENAME", "CHANGE", "MODIFY", "COLUMN"})
 
 
+def _runs_plpgsql(statement):
+    """Whether a statement's tokens begin a DO block or CREATE [OR
+    REPLACE] FUNCTION or PROCEDURE."""
+    words = [t.text.upper() for t in statement[:4]]
+    return words[0] == "DO" or (
+        words[0] == "CREATE" and bool({"FUNCTION", "PROCEDURE"} & set(words))
+    )
+
+
 def _altered_table(statement):
     """The table an ALTER TABLE statement's tokens name (ALTER TABLE, an
     optional IF EXISTS and ONLY, then a dotted name), or None."""
@@ -273,14 +332,130 @@ def _altered_table(statement):
     return table_key(name)
 
 
+_ALTER_TABLE = re.compile(r"\bALTER\s+TABLE\b", re.IGNORECASE)
+_ALTER = re.compile(r"\bALTER\b", re.IGNORECASE)
+
+
+def _plpgsql_statements(text):
+    """Whether a DO block's or a PL/pgSQL function's statement runs when
+    the migration does, and (line, SQL, dynamic) of each statement its
+    body runs, read by libpg_query (pglast); lines are 1-based in
+    ``text``, and for a dynamic EXECUTE the SQL is the expression that
+    builds the statement. None when ``text`` is not one such statement that
+    pglast parses."""
+    from pglast import parse_plpgsql, parse_sql
+    from pglast.parser import ParseError
+
+    try:
+        parsed = parse_sql(text)
+    except ParseError:
+        return None
+    if len(parsed) != 1:
+        return None
+    statement = parsed[0].stmt
+    kind = type(statement).__name__
+    if kind == "DoStmt":
+        options = {o.defname: o for o in statement.args or ()}
+        language = options.get("language")
+        if language is not None and language.arg.sval.lower() != "plpgsql":
+            return None
+        body = options.get("as")
+        if body is None:
+            return None
+        # The body opens after its dollar quote; PL/pgSQL numbers the
+        # lines of the wrapped function from that line.
+        quote = text.index("$", body.arg_location) if "$" in text else -1
+        base = text.count("\n", 0, max(quote, 0))
+        function = (
+            "CREATE FUNCTION __do() RETURNS void AS $__do$"
+            + body.arg.sval
+            + "$__do$ LANGUAGE plpgsql"
+        )
+        runs = True
+    elif kind == "CreateFunctionStmt":
+        options = {o.defname: o for o in statement.options or ()}
+        language = options.get("language")
+        if language is None or language.arg.sval.lower() != "plpgsql":
+            return None
+        body = options.get("as")
+        if body is None:
+            return None
+        quote = text.index("$", body.arg_location) if "$" in text else -1
+        base = text.count("\n", 0, max(quote, 0))
+        function, runs = text, False
+    else:
+        return None
+    try:
+        tree = parse_plpgsql(function)
+    except ParseError:
+        return None
+    found = []
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(reversed(node))
+            continue
+        if not isinstance(node, dict):
+            continue
+        for key, value in node.items():
+            if key == "PLpgSQL_stmt_execsql":
+                query = value["sqlstmt"]["PLpgSQL_expr"]["query"]
+                found.append((base + value.get("lineno", 1) - 1, query, False))
+            elif key == "PLpgSQL_stmt_dynexecute":
+                query = value["query"]["PLpgSQL_expr"]["query"]
+                found.append((base + value.get("lineno", 1) - 1, query, True))
+            stack.append(value)
+    return runs, found
+
+
+def _postgres_column_changes(text):
+    """(table, action, column, new name) of each column an ALTER TABLE
+    statement adds, drops or renames, read by PostgreSQL's own parser
+    (libpg_query, through pglast), which keeps quoted names' case and
+    folds unquoted ones; None when it does not parse ``text`` as one ALTER
+    TABLE or column rename."""
+    from pglast import parse_sql
+    from pglast.enums import AlterTableType, ObjectType
+    from pglast.parser import ParseError
+
+    try:
+        parsed = parse_sql(text)
+    except ParseError:
+        return None
+    if len(parsed) != 1:
+        return None
+    statement = parsed[0].stmt
+    kind = type(statement).__name__
+    relation = getattr(statement, "relation", None)
+    if relation is None or kind not in ("AlterTableStmt", "RenameStmt"):
+        return None
+    table = relation.relname.lower()
+    if kind == "RenameStmt":
+        if statement.renameType != ObjectType.OBJECT_COLUMN:
+            return []
+        return [(table, "rename", statement.subname, statement.newname)]
+    found = []
+    for command in statement.cmds or ():
+        if command.subtype == AlterTableType.AT_AddColumn:
+            found.append((table, "add", command.def_.colname, None))
+        elif command.subtype == AlterTableType.AT_DropColumn:
+            found.append((table, "drop", command.name, None))
+    return found
+
+
 def extract_column_changes(file, content: bytes):
     """(changes, statements not parsed) of a SQL file's ALTER TABLE
     statements that add, drop or rename columns, read by sqlglot in the
-    first of DDL_DIALECTS that parses each. An ALTER TABLE statement no
-    dialect parses whose words may change columns (ADD, DROP, RENAME,
-    CHANGE, MODIFY, COLUMN) is not read; its (line, table) is returned,
-    table from its tokens or None, since that table's columns are then
-    unknown. None when the file is not UTF-8 or no dialect tokenizes it."""
+    first of DDL_DIALECTS that parses each, else by PostgreSQL's parser.
+    The statements a DO block runs are read the same way, from libpg_query's
+    PL/pgSQL parse. An ALTER TABLE statement neither parses whose words may
+    change columns (ADD, DROP, RENAME, CHANGE, MODIFY, COLUMN), a column
+    change in a function body (it runs only if called) and a dynamic
+    EXECUTE whose expression holds ALTER are not read; their (line, table)
+    is returned, table from the tokens or None, since that table's columns
+    are then unknown. None when the file is not UTF-8 or no dialect
+    tokenizes it."""
     import sqlglot
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -292,6 +467,34 @@ def extract_column_changes(file, content: bytes):
     text, statements = split
     found, unparsed = [], []
     for statement in statements:
+        if statement and _runs_plpgsql(statement):
+            start, end = statement[0].start, statement[-1].end + 1
+            line = statement[0].line
+            inner = _plpgsql_statements(text[start:end])
+            if inner is None:
+                if _ALTER_TABLE.search(text, start, end):
+                    unparsed.append((line, None))
+                continue
+            runs, inner = inner
+            for at, query, dynamic in inner:
+                at += line
+                if dynamic:
+                    # The statement is built when it runs; one whose
+                    # expression holds ALTER may change any table's columns.
+                    if _ALTER.search(query):
+                        unparsed.append((at, None))
+                    continue
+                read = extract_column_changes(file, query.encode())
+                if read is None:
+                    continue
+                changes, missed = read
+                if runs:
+                    found.extend(replace(c, line=at) for c in changes)
+                else:
+                    # A function body runs only if something calls it.
+                    unparsed.extend((at, c.table) for c in changes)
+                unparsed.extend((at, table) for _, table in missed)
+            continue
         if not statement or statement[0].token_type != TokenType.ALTER:
             continue
         if TokenType.TABLE not in {t.token_type for t in statement[:3]}:
@@ -310,6 +513,15 @@ def extract_column_changes(file, content: bytes):
             if trees and all(isinstance(t, exp.Alter) for t in trees):
                 break
         else:
+            # Syntax sqlglot does not know (ADD CONSTRAINT ... USING INDEX,
+            # ALTER COLUMN ... SET STATISTICS): PostgreSQL's parser reads it.
+            read = _postgres_column_changes(text[start:end])
+            if read is not None:
+                found.extend(
+                    ColumnChange(file, line, table, action, column, new_name)
+                    for table, action, column, new_name in read
+                )
+                continue
             words = {t.text.upper() for t in statement}
             if words & _COLUMN_WORDS:
                 unparsed.append((line, _altered_table(statement)))
@@ -758,8 +970,9 @@ def replay_tables(files):
 
 
 def _sqlglot_ddl(text):
-    """(line, name, schema, columns) of each permanent table a statement
-    creates, columns as (name, line), or None when no dialect parses it."""
+    """(line, name, schema, columns, complete) of each permanent table a
+    statement creates, columns as (name, line), complete False when it takes
+    columns from elsewhere; None when no dialect parses it."""
     import sqlglot
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -801,12 +1014,30 @@ def _sqlglot_ddl(text):
                     if isinstance(schema, exp.Schema)
                     else ()
                 )
+                # Columns taken from elsewhere (AS SELECT, LIKE, INHERITS,
+                # PARTITION OF) are not listed.
+                complete = (
+                    isinstance(schema, exp.Schema)
+                    and create.expression is None
+                    and not any(
+                        isinstance(
+                            node,
+                            (
+                                exp.LikeProperty,
+                                exp.InheritsProperty,
+                                exp.PartitionedOfProperty,
+                            ),
+                        )
+                        for node in create.walk()
+                    )
+                )
                 found.append(
                     (
                         table.this.meta.get("line", 1),
                         table.name.lower(),
                         table.db.lower() or None,
                         columns,
+                        complete,
                     )
                 )
         return found
