@@ -138,6 +138,42 @@ root, self-imports and modules outside the analyzed files are reported instead:
 each File node lists its `unresolved_imports` and `ambiguous_imports`
 specifiers, and tool metadata counts linked, ambiguous and unresolved imports.
 
+JavaScript and TypeScript imports take their target from the TypeScript
+compiler instead of the rules above (`deepthought.ts_modules`). For each
+file, `tsmodules/resolve.js` finds the project the language service would
+use: the nearest `tsconfig.json`, else `jsconfig.json`, directory by
+directory up to the workspace root, whose file list includes it, a solution
+config's `references` followed. It builds a program for each project and
+asks the compiler where every import resolves, with that import's resolution
+mode, so `paths`, `baseUrl`, extensions, index files, `package.json`
+`types`, `typesVersions` and `exports` are the compiler's. Configs above the
+workspace are not read. A file that no project includes gets the options the
+language service gives such a file (`allowJs`, the latest target). Nothing is
+type-checked or emitted. The compiler is the `typescript` package that the
+pinned scip-typescript installs (`TYPESCRIPT_VERSION`). Any other version,
+or a missing one, stops the run.
+
+The edge has rule `typescript.compiler-module` (`resolved`) and
+`producer: typescript@<version>`. An import resolves to the file itself,
+with symbolic links followed, so a workspace package that is linked into
+`node_modules` (as pnpm and yarn workspaces do) links to its source in the
+repository. When it gets no edge, the reason is one of these:
+
+- `compiler_module_not_found`: nothing resolves, such as a package that is
+  not installed.
+- `compiler_external_module`: the import resolves outside the workspace or
+  into `node_modules`.
+- `compiler_target_not_analyzed`: the import resolves to a file that was not
+  analyzed, such as `.json`.
+- `compiler_no_import`: the parser sees an import that the compiler does
+  not record.
+
+`require()` and `import()` calls that the compiler resolves have no import
+fact yet, so they get no edge. The TypeScript and JavaScript rules above
+still resolve imports for call binding (`deepthought.calls`) and for the
+ground-truth import scorer. Moving those onto the compiler, and removing the
+rules, is the next step.
+
 An IMPORTS edge says which file a statement imports, not where an imported name
 is defined; a package re-export links to the package's `__init__.py` or index
 file. Schema 2 artifacts, including SCIP ingestion output, serialize exactly as
@@ -2014,8 +2050,26 @@ with a reason:
 | `indexer_failed`, `indexer_timeout` | The indexer exited non-zero, wrote nothing or ran past `--timeout` |
 | `indexer_version_mismatch` | The index names another indexer version than the pin |
 | `inputs_changed_during_indexing` | Inputs differed before and after the run |
-| `no_go_module` | No `go.mod` at the workspace root (nested modules are not indexed yet) |
+| `no_go_module` | No `go.mod` in the file's directory or any directory above it |
+| `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
+
+scip-go indexes one module per run, so each `go.mod` in the workspace
+(outside `vendor`, `testdata` and hidden directories) gets its own run from its
+own directory, written to `scip-go.scip` for the root module and
+`scip-go-<dir>.scip` (slashes as `__`) for a nested one. Document paths are
+made workspace-relative and the receipt names the module. A Go file belongs to
+the innermost module above it. Global symbols name the module, so a call from
+one module into another binds across their indexes.
+
+Go runs are pinned to `linux/amd64` with `CGO_ENABLED=0`, so the files a
+module compiles do not depend on the machine or on a C toolchain; the receipt
+records the platform and `go env GOVERSION`. A file the go command ignores on
+that platform (`command_windows.go`) gets a scip-go pass for the first
+platform in `go tool dist list` (first-class ports first) whose `go list`
+compiles it, written to `scip-go[-<dir>]-<goos>-<goarch>.scip` with only those
+files' documents; coverage says `pass: platform` and the platform. On cobra
+this covers `command_win.go`.
 
 TypeScript and JavaScript files outside every tsconfig.json of the workspace
 (Deno and Bun scripts, benchmarks, build configs) get a second scip-typescript
@@ -2031,8 +2085,8 @@ The indexers are required engine dependencies and there is no opt-out. It
 exits 3 when a file is uncovered because an indexer is missing, failed, timed
 out, is another version or saw its inputs change, so a missing or failing
 indexer is never read as a file without references. A file no compiler can
-index (`no_go_module`, `not_in_index`) is named on stderr
-with its reason and does not fail the run. On the
+index (`no_go_module`, `build_constraints`, `not_in_index`) is named on
+stderr with its reason and does not fail the run. On the
 pinned hono, click and cobra corpora, two runs give byte-identical indexes, and
 the indexes give the committed call truth again: equal for cobra, and a
 superset for hono (`--pnpm-workspaces` also indexes `adapters/`) and click
