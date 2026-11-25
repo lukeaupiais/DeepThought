@@ -8,6 +8,8 @@ A handler's call of one of these methods carries that argument's type:
 
 - request: gin's ``Context.Bind``/``ShouldBind``/``BindJSON``/
   ``ShouldBindJSON``, echo's ``Context.Bind``, fiber's ``Ctx.BodyParser``
+  (v3: ``Ctx.Bind().Body`` and its JSON, XML, Form, MultipartForm,
+  MsgPack and CBOR)
   (the first argument), and ``encoding/json``'s ``Decoder.Decode`` on a
   decoder made by ``json.NewDecoder(r.Body)`` where ``r`` is the handler's
   ``*http.Request`` parameter;
@@ -46,6 +48,20 @@ _CALLS = {
     },
     **{(fiber, "Ctx", "BodyParser"): ("request", 0) for fiber in _FIBER},
     **{(fiber, "Ctx", "JSON"): ("response", 0) for fiber in _FIBER},
+    # Fiber v3 binds the body through c.Bind(): Body by the content type,
+    # or one format.
+    **{
+        ("github.com/gofiber/fiber/v3", "Bind", method): ("request", 0)
+        for method in (
+            "Body",
+            "JSON",
+            "XML",
+            "Form",
+            "MultipartForm",
+            "MsgPack",
+            "CBOR",
+        )
+    },
 }
 # encoding/json's Decoder.Decode and Encoder.Encode: what they read and
 # write is checked on the handler's parameters.
