@@ -5,8 +5,10 @@ declarations are in ``node_modules``. When the workspace declares packages
 and has no ``node_modules``, the workspace's sources are copied to a scratch
 directory and its package manager installs there, with install scripts off,
 so no package's code runs and the workspace is left as it was. The manager
-follows the lockfile: ``pnpm-lock.yaml`` pnpm, ``yarn.lock`` yarn,
-``package-lock.json`` ``npm ci``, otherwise ``npm install``. They read their
+follows the lockfile: ``pnpm-lock.yaml`` pnpm, ``bun.lock`` or ``bun.lockb``
+bun, ``yarn.lock`` Yarn (Yarn 2 and later as the project's own release, with
+the node-modules linker), ``npm-shrinkwrap.json`` or ``package-lock.json``
+``npm ci``, otherwise ``npm install``. They read their
 usual configuration (``.npmrc``, ``npm_config_registry``), so a mirror works.
 A workspace that already has ``node_modules`` is indexed as it is.
 """
@@ -18,15 +20,36 @@ import shutil
 import subprocess
 from pathlib import Path
 
+# A directory's lockfile, in the order one is chosen, and the command that
+# installs exactly what it pins without running any package's scripts.
 LOCKFILES = (
     ("pnpm-lock.yaml", "pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"]),
+    ("bun.lock", "bun", ["install", "--frozen-lockfile", "--ignore-scripts"]),
+    ("bun.lockb", "bun", ["install", "--frozen-lockfile", "--ignore-scripts"]),
     ("yarn.lock", "yarn", ["install", "--frozen-lockfile", "--ignore-scripts"]),
+    (
+        "npm-shrinkwrap.json",
+        "npm",
+        ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+    ),
     (
         "package-lock.json",
         "npm",
         ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
     ),
 )
+# Yarn 2 and later (a yarn.lock with __metadata): --immutable keeps the
+# lockfile, skip-build and enableScripts run no package's scripts, and the
+# node-modules linker writes node_modules instead of Plug'n'Play, which the
+# TypeScript compiler cannot read.
+YARN_BERRY = ["install", "--immutable", "--mode=skip-build"]
+YARN_BERRY_ENVIRONMENT = {
+    "YARN_NODE_LINKER": "node-modules",
+    "YARN_ENABLE_SCRIPTS": "false",
+    "YARN_ENABLE_TELEMETRY": "0",
+    "YARN_ENABLE_GLOBAL_CACHE": "false",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+}
 NO_LOCKFILE = (
     "npm",
     ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"],
@@ -59,8 +82,37 @@ def declares_packages(root):
 def _manager(directory):
     for lockfile, manager, arguments in LOCKFILES:
         if (Path(directory) / lockfile).is_file():
+            if lockfile == "yarn.lock" and _yarn_berry(directory):
+                return "yarn", YARN_BERRY, lockfile
             return manager, arguments, lockfile
     return (*NO_LOCKFILE, None)
+
+
+def _yarn_berry(directory):
+    try:
+        with open(Path(directory) / "yarn.lock", encoding="utf-8") as lockfile:
+            head = lockfile.read(4096)
+    except (OSError, UnicodeDecodeError):
+        return False
+    return "\n__metadata:" in "\n" + head
+
+
+def _yarn_berry_command(directory, environ):
+    """The project's own Yarn: the release ``.yarnrc.yml`` names, else the
+    version ``packageManager`` names, through corepack."""
+    try:
+        rc = (Path(directory) / ".yarnrc.yml").read_text()
+    except (OSError, UnicodeDecodeError):
+        rc = ""
+    for line in rc.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "yarnPath" and value.strip():
+            release = Path(directory) / value.strip().strip("\"'")
+            node = shutil.which("node", path=environ.get("PATH"))
+            if release.is_file() and node:
+                return [node, str(release)]
+    corepack = shutil.which("corepack", path=environ.get("PATH"))
+    return [corepack, "yarn"] if corepack else None
 
 
 def install_directories(root):
@@ -130,19 +182,28 @@ def prepare(root, scratch, *, environ=None, timeout=600):
             "status": "failed",
         }
         outcome["installs"].append(install)
-        executable = shutil.which(manager, path=env.get("PATH"))
-        if executable is None:
-            install["detail"] = f"{manager} is not installed"
-            continue
+        extra = {}
+        if arguments is YARN_BERRY:
+            command = _yarn_berry_command(copy / relative, env)
+            extra = YARN_BERRY_ENVIRONMENT
+            if command is None:
+                install["detail"] = "corepack is not installed"
+                continue
+        else:
+            executable = shutil.which(manager, path=env.get("PATH"))
+            if executable is None:
+                install["detail"] = f"{manager} is not installed"
+                continue
+            command = [executable]
         try:
             result = subprocess.run(
-                [executable, *arguments],
+                [*command, *arguments],
                 cwd=copy / relative,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
                 check=False,
-                env={**env, "CI": "1", "npm_config_ignore_scripts": "true"},
+                env={**env, "CI": "1", "npm_config_ignore_scripts": "true", **extra},
             )
         except subprocess.TimeoutExpired:
             install["detail"] = f"{manager} timed out"
