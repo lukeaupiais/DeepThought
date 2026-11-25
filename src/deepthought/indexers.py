@@ -372,6 +372,32 @@ def go_modules(workspace):
     return sorted(found)
 
 
+def typescript_projects(workspace):
+    """Workspace-relative directories below the root holding a tsconfig.json,
+    outside node_modules and hidden directories: each is indexed from its own
+    directory, so its compiler options (baseUrl, paths) apply. Empty when the
+    root indexes pnpm or yarn workspaces itself."""
+    root = Path(workspace).resolve(strict=True)
+    package = root / "package.json"
+    if (root / "pnpm-workspace.yaml").is_file() or (
+        package.is_file() and "workspaces" in _json(package)
+    ):
+        return []
+    found = []
+    for directory, names, filenames in os.walk(root, followlinks=False):
+        names[:] = sorted(
+            name
+            for name in names
+            if name not in _SKIP_DIRECTORIES
+            and name != "node_modules"
+            and not name.startswith(".")
+            and not (Path(directory) / name).is_symlink()
+        )
+        if "tsconfig.json" in filenames and Path(directory) != root:
+            found.append(Path(directory).relative_to(root).as_posix())
+    return sorted(found)
+
+
 def go_module_of(path, modules):
     """The innermost module directory that holds ``path``, or None."""
     owners = [m for m in modules if m == "." or path == m or path.startswith(m + "/")]
@@ -432,11 +458,15 @@ def run_indexer(
     module=None,
     platform=None,
     dependencies_dir=None,
+    exclude_dirs=(),
 ):
     """Run one pinned indexer; return an IndexRun, never raise for tool failures.
 
     ``dependencies_dir`` keeps the project's installed packages for the other
     runs of one ``index_workspace``, so they are installed once.
+    ``module`` indexes one directory (a Go module, a TypeScript project) from
+    there, with document paths made workspace-relative; ``exclude_dirs``
+    drops the documents of directories other runs index.
 
     ``files`` (scip-typescript only) indexes just those workspace files, as one
     project that extends the workspace's root tsconfig.json: the pass for
@@ -446,8 +476,10 @@ def run_indexer(
         raise ValueError("Only scip-typescript and scip-go index chosen files")
     if platform is not None and spec.name != "scip-go":
         raise ValueError("Only scip-go indexes for another platform")
-    if module is not None and spec.name != "scip-go":
-        raise ValueError("Only scip-go indexes one module of a workspace")
+    if module is not None and spec.name not in {"scip-go", "scip-typescript"}:
+        raise ValueError(
+            "Only scip-go and scip-typescript index one directory of a workspace"
+        )
     from ._scip import scip_pb2
 
     started = time.monotonic()
@@ -490,9 +522,12 @@ def run_indexer(
             run.dependencies = {k: v for k, v in prepared.items() if k != "root"}
             # The packages were installed into a copy of the workspace.
             indexed_root = Path(prepared["root"])
-            base = indexed_root
+            base = indexed_root if module in (None, ".") else indexed_root / module
         argv, cwd = _arguments(
-            spec, indexed_root, temporary, project_name or "workspace"
+            spec,
+            base if spec.name == "scip-typescript" else indexed_root,
+            temporary,
+            project_name or "workspace",
         )
         cwd = base
         project = None
@@ -568,9 +603,11 @@ def run_indexer(
         other = [
             d
             for d in parsed.documents
-            if files is not None
-            and is_relative_file(d.relative_path)
-            and d.relative_path not in files
+            if is_relative_file(d.relative_path)
+            and (
+                (files is not None and d.relative_path not in files)
+                or any(d.relative_path.startswith(x + "/") for x in exclude_dirs)
+            )
         ]
         for document in outside + other:
             parsed.documents.remove(document)
@@ -612,7 +649,7 @@ def run_indexer(
                 # Paths are left out so the receipt does not depend on where
                 # the workspace or the scratch directory lives.
                 "arguments": [
-                    "." if a in {str(root), str(indexed_root)} else a
+                    "." if a in {str(root), str(indexed_root), str(base)} else a
                     for a in argv
                     if not a.startswith(str(Path(scratch)))
                 ],
@@ -814,14 +851,26 @@ def _index_workspace(
 ):
     runs = []
     modules = go_modules(root) if "go" in present else []
+    projects = (
+        typescript_projects(root) if present & {"typescript", "javascript"} else []
+    )
     for spec in INDEXERS.values():
         if not present & set(spec.languages):
             continue
-        # scip-go indexes one module per run, so each go.mod gets its own.
-        for module in (modules or ["."]) if spec.name == "scip-go" else [None]:
+        # scip-go indexes one module per run, so each go.mod gets its own;
+        # scip-typescript one run for the root and one per nested tsconfig.
+        units = [None]
+        if spec.name == "scip-go":
+            units = modules or ["."]
+        elif spec.name == "scip-typescript":
+            units = [None, *projects]
+        for module in units:
             name = spec.name
             if module not in (None, "."):
                 name += "-" + module.replace("/", "__")
+            inner = [
+                p for p in projects if module is None or p.startswith(module + "/")
+            ]
             runs.append(
                 run_indexer(
                     spec,
@@ -832,6 +881,7 @@ def _index_workspace(
                     environ=environ,
                     module=module,
                     dependencies_dir=packages,
+                    exclude_dirs=inner if spec.name == "scip-typescript" else (),
                 )
             )
     by_language = {
@@ -841,17 +891,36 @@ def _index_workspace(
         for language in run.languages
     }
     go_runs = {run.module: run for run in runs if run.indexer == "scip-go"}
+    typescript_runs = {
+        run.module: run
+        for run in runs
+        if run.indexer == "scip-typescript" and run.module is not None
+    }
     # Second passes, for files the first leaves out: path -> (run, fields).
     passes = {}
     # Files outside every tsconfig of the workspace get a scip-typescript
     # pass of their own, so they are compiled too.
-    typescript = next((r for r in runs if r.indexer == "scip-typescript"), None)
+    typescript = next(
+        (r for r in runs if r.indexer == "scip-typescript" and r.module is None), None
+    )
     second = None
     if typescript is not None and typescript.status == "indexed":
+        indexed = {
+            path
+            for run in [typescript, *typescript_runs.values()]
+            for path in run.documents
+        }
+        # A file a failed project run left out is that run's failure, not a
+        # file outside every tsconfig.
+        failed_projects = [
+            m for m, r in typescript_runs.items() if r.status != "indexed"
+        ]
         missing = sorted(
             path
             for path, language in sources.items()
-            if language in typescript.languages and path not in typescript.documents
+            if language in typescript.languages
+            and path not in indexed
+            and go_module_of(path, failed_projects) is None
         )
         if missing:
             second = run_indexer(
@@ -917,6 +986,9 @@ def _index_workspace(
         run = by_language.get(language)
         if language == "go":
             run = go_runs.get(go_module_of(path, list(go_runs)), run)
+        elif language in {"typescript", "javascript"}:
+            # The innermost nested tsconfig project above the file.
+            run = typescript_runs.get(go_module_of(path, list(typescript_runs)), run)
         if run is None:
             # A Go file under no go.mod, in a workspace with nested modules.
             coverage[path] = {
