@@ -69,10 +69,12 @@ scored against a yardstick its own rules cannot move.
     the module lists the name in `__all__` and defines it. Aliases written
     with `import ... as` keep their symbol. Any other mismatch, such as a
     re-export through two star imports, is left unjudged.
-  - **Attributes named like builtins.** `self.set(...)` or `self.type(...)` in
-    a class that defines that attribute is recorded as the builtin `set` or
-    `type`. An attribute of `self` or `cls` is never a top-level builtin, so
-    these calls are left unjudged.
+  - **Attributes named like builtins.** `self.set(...)` in a class that
+    defines `set`, or `cookies.set(...)` on an `httpx.Cookies`, is recorded as
+    the builtin `set` (and `typing.TypeVar` as a builtin `TypeVar`). An
+    attribute is never a top-level builtin, except on the `builtins` module,
+    so these calls are left unjudged. mypy confirms the `Cookies.set` case
+    (`tools/py_check_truth.py`).
 - `baseline.json` is the current score of each corpus.
 
 When `GITHUB_STEP_SUMMARY` is set, as it is in the CI job, `check` also
@@ -729,6 +731,24 @@ extra. A write labels its target as WRITES and every other table it names as
 READS. The engine was developed against both apps, so they are regression
 gates, not held-out checks.
 
+### Python ORM tables
+
+Manifest `tables` entries with `"language": "python-orm"` score every
+`data-contracts.*` READS/WRITES edge that the engine makes in Python, per
+line, against labels read by hand. full-stack-fastapi-template is labelled in
+full, so engine lines outside the labels count as extra. The labels cover:
+
+- every line under `backend/` that names a `table=True` SQLModel class in
+  `select()`, `select_from()`, `delete()` or `Session.get()`;
+- every line that passes an instance of one to `Session.add()`, `delete()` or
+  `refresh()`;
+- the SQL strings that the Alembic migrations pass to `op.execute`, leaving
+  out CREATE statements.
+
+SQLModel names the tables `user` and `item` after the classes. A statement is
+labelled on the line that names the model. The CI job has no scip-python, so
+the gate scores the engine's name-based path.
+
 ### Knex query-builder tables
 
 Knex names a table as a string argument of its query builder.
@@ -1056,6 +1076,8 @@ are `blocked`. A package whose own build fails never has its test variant
 compiled under `./...`, so its tests are compiled one package at a time.
 `go_compile_truth.py compare compile.tsv calls.tsv` then checks that every
 SCIP call row whose target was sampled is one of the compiler's references.
+A method of an interface type can be renamed too: calls through the
+interface then fail, and each type that satisfied it is an `implements` row.
 On chi, 40 sampled declarations give 245 such call rows, all confirmed; 6
 fall in blocked packages, and 2 references are not calls (a middleware
 passed to `r.Use`). On cobra, 40 give 356, all confirmed, and each of the 66

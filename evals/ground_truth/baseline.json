@@ -224,8 +224,7 @@
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 14,
       "ambiguous:multiple_declarations": 5,
-      "no_call_site": 19,
-      "unresolved:attribute_call": 145,
+      "unresolved:attribute_call": 164,
       "unresolved:base_not_resolved": 22,
       "unresolved:diamond": 2,
       "unresolved:local_binding": 76
@@ -233,8 +232,8 @@
     "precision": 1.0,
     "recall": 0.9146,
     "unjudged": 7,
-    "unresolved_expected": 245,
-    "unresolved_unjudged": 3589
+    "unresolved_expected": 264,
+    "unresolved_unjudged": 3724
   },
   "cobra": {
     "by_rule": {
@@ -1157,8 +1156,7 @@
     "missed": 1359,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 1,
-      "no_call_site": 5,
-      "unresolved:attribute_call": 10,
+      "unresolved:attribute_call": 15,
       "unresolved:attribute_not_typed": 10,
       "unresolved:attribute_type_not_declared": 6,
       "unresolved:base_not_resolved": 11,
@@ -1169,8 +1167,8 @@
     "precision": 1.0,
     "recall": 0.3063,
     "unjudged": 2,
-    "unresolved_expected": 1360,
-    "unresolved_unjudged": 2002
+    "unresolved_expected": 1365,
+    "unresolved_unjudged": 2086
   },
   "ky": {
     "by_rule": {
@@ -1255,7 +1253,7 @@
     "ambiguous_no_candidates": 38,
     "by_rule": {
       "tree-sitter.call-imported-name": {
-        "confirmed": 1992,
+        "confirmed": 1993,
         "not_indexed": 13
       },
       "tree-sitter.call-lexical-name": {
@@ -1268,11 +1266,11 @@
         "not_indexed": 8
       },
       "tree-sitter.js-call-reexport": {
-        "confirmed": 2125,
+        "confirmed": 2131,
         "not_indexed": 5
       }
     },
-    "confirmed": 4897,
+    "confirmed": 4904,
     "contradicted": 0,
     "expected": 3884,
     "impact": {
@@ -1298,7 +1296,7 @@
       "recall": 0.9726,
       "seeds": 28,
       "seeds_undeclared": 0,
-      "unjudged": 489
+      "unjudged": 475
     },
     "imports": {
       "ambiguous_unjudged": 5,
@@ -1311,18 +1309,17 @@
       "recall": 0.9842,
       "unresolved_unjudged": 101
     },
-    "missed": 49,
+    "missed": 42,
     "missed_by_engine_outcome": {
       "ambiguous:multiple_bindings": 38,
-      "no_call_site": 7,
       "unresolved:unbound_name": 4
     },
     "not_indexed": 72,
     "precision": 1.0,
-    "recall": 0.9874,
+    "recall": 0.9892,
     "unjudged": 1,
     "unresolved_expected": 4,
-    "unresolved_unjudged": 10941
+    "unresolved_unjudged": 15322
   },
   "ripgrep": {
     "ambiguous_includes": 18,
@@ -1457,6 +1454,13 @@
       "missed": 4,
       "wrong": 0
     },
+    "tables-fastapi-template-sqlmodel": {
+      "expected": 66,
+      "extra": 0,
+      "found": 23,
+      "missed": 43,
+      "wrong": 0
+    },
     "tables-forem": {
       "expected": 134,
       "extra": 0,
@@ -1502,8 +1506,8 @@
     "tables-miniflux-storage": {
       "expected": 29,
       "extra": 0,
-      "found": 25,
-      "missed": 4,
+      "found": 29,
+      "missed": 0,
       "wrong": 0
     },
     "tables-node-express-boilerplate": {

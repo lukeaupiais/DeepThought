@@ -364,12 +364,15 @@ class ScipPythonRepairTest(unittest.TestCase):
         member = self.PKG + "Request#send()."
         self.assertEqual(self.repair(member, "other"), member)
 
-    def test_an_attribute_of_self_is_not_a_builtin(self):
+    def test_an_attribute_is_not_a_builtin(self):
         builtin = "scip-python python python-stdlib 3.11 builtins/set#"
-        self.assertTrue(ground_truth._SELF_BUILTIN.search("        self.\0" + builtin))
-        self.assertFalse(ground_truth._SELF_BUILTIN.search("    x = \0" + builtin))
+        match = ground_truth._ATTRIBUTE_BUILTIN.search
+        for written in ("        self.", "    more_cookies.", "f().", "x[0].", "a.b."):
+            self.assertTrue(match(written + "\0" + builtin), written)
+        for written in ("    x = ", "    builtins.", "y = builtins ."):
+            self.assertFalse(match(written + "\0" + builtin), written)
         self.assertFalse(
-            ground_truth._SELF_BUILTIN.search(
+            match(
                 "        self.\0scip-python python python-stdlib 3.11 builtins/str#join()."
             )
         )

@@ -726,6 +726,10 @@ def prepare_source(language: str, content: bytes) -> bytes:
     return _CPP_CLASS_MACRO.sub(blank, content)
 
 
+# `class` written as an attribute name: after a blank, before `=`.
+_JSX_CLASS = re.compile(rb"(?<=\s)class(?=\s*=[^=>])")
+
+
 def parse_source(parser, language: str, suffix: str, content: bytes):
     """The tree of ``content``, parsed from ``prepare_source``. In a
     TypeScript file (not TSX) the grammar reads a type member that starts
@@ -733,10 +737,23 @@ def parse_source(parser, language: str, suffix: str, content: bytes):
     member without a separator as part of that member's type, and fails.
     So the blank before each such ``<`` on a line an innermost error spans
     (or ends the line before) is read as ``;``, which keeps every offset,
-    and that tree is used when it has fewer errors."""
+    and that tree is used when it has fewer errors. JavaScript JSX
+    attributes named ``class`` are read the same way (below)."""
     source = prepare_source(language, content)
     tree = parser.parse(source)
-    if language != "typescript" or not tree.root_node.has_error:
+    if not tree.root_node.has_error:
+        return tree
+    if language == "javascript":
+        # The JavaScript grammar rejects the JSX attribute name `class`
+        # (`<div class="a">`, as Preact and Solid write it), and the error
+        # can swallow the whole file. The name is read as `klass`, which
+        # keeps every offset; that tree is used when it has fewer errors.
+        repaired = _JSX_CLASS.sub(b"klass", source)
+        if repaired == source:
+            return tree
+        candidate = parser.parse(repaired)
+        return candidate if _error_rows(candidate)[0] < _error_rows(tree)[0] else tree
+    if language != "typescript":
         return tree
     tree, source = _tagged_template_types(parser, tree, source)
     if suffix == ".tsx" or not tree.root_node.has_error:
