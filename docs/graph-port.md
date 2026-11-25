@@ -2100,6 +2100,14 @@ with a reason:
 | `build_constraints` | The go command builds the file on none of its platforms (`//go:build ignore`, a custom tag) |
 | `not_in_index` | The indexer ran but has no document for the file |
 
+A known scip-python 0.6.8 fault makes one repository time out: its bundled
+pyright builds unions in quadratic time, so a module holding a very large
+tuple literal never finishes (netbox's `extras/data/un_locode.py`, about
+111,000 entries; current pyright reads it in about two seconds). 0.6.8 is the
+latest release, and the engine does not work around it: the run stops at
+`--timeout` and every Python file of that run is `indexer_timeout`, named per
+file.
+
 scip-go indexes one module per run, so each `go.mod` in the workspace
 (outside `vendor`, `testdata` and hidden directories; a `go.mod` below a
 directory whose name starts with `_`, such as chi's `_examples/rest`, counts)
