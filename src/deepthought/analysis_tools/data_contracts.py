@@ -27,6 +27,9 @@ from ..typeorm_naming import table_names as typeorm_table_names
 from ..components import PACKAGE_KINDS, SKIPPED_DIRECTORIES, scan_components
 from ..service_contracts.http import PLACEHOLDER
 from ..data_contracts import (
+    _owner_at,
+    drizzle_helper_name,
+    drizzle_spread_columns,
     statement_columns,
     app_config_label,
     extract_ddl,
@@ -312,6 +315,29 @@ DRIZZLE_QUERY_RULE = register_rule(
         "query key resolves to the one table variable of that name in the "
         "caller's namespace, else in the repository. The receiver is not checked to be a "
         "Drizzle database.",
+    )
+)
+DRIZZLE_COLUMN_READ_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-scip-column-read",
+        "resolved",
+        "A scip-typescript index resolves a property access (users.email, "
+        "or a selected row's email) to the property of a Drizzle table's "
+        "columns object, and that property's column (its builder's name "
+        "argument, else its key) is a column of the table "
+        "(data-contracts.sql-column).",
+    )
+)
+DRIZZLE_COLUMN_KEY_RULE = register_rule(
+    EvidenceRule(
+        "data-contracts.drizzle-column-key",
+        "pattern_matched",
+        "A key of the object a Drizzle insert's values, an update's set or "
+        "onConflictDoUpdate's set writes, or of a relational query's "
+        "columns reads, on a call data-contracts.drizzle-scip resolves to "
+        "the table, names one of the table's column properties; Drizzle "
+        "types those objects by the column keys, which the index does not "
+        "record as references.",
     )
 )
 DRIZZLE_SCIP_RULE = register_rule(
@@ -3091,6 +3117,97 @@ class DataContractTool(AnalysisTool):
             for item in items
             if item.table != PLACEHOLDER
         }
+        # The column each property of a table's columns object maps to, by
+        # where its key is written, and each table's columns by key.
+        keys_at = {}
+        drizzle_columns = Counter()
+        parsed_scripts = {file: (content, tree) for file, content, tree in script_trees}
+
+        def helper_name(file, callee):
+            """The name a helper builder function gives its column, where
+            the index resolves the call to its declaration."""
+            names = set()
+            for site_file, line, column in (
+                references.definition_sites(file, *callee) or ()
+            ):
+                if site_file in parsed_scripts:
+                    content, tree = parsed_scripts[site_file]
+                    names.add(drizzle_helper_name(tree, content, line, column))
+            return next(iter(names)) if len(names) == 1 else None
+
+        # (file, line, column) of a column key -> {table: column}: a key
+        # of a shared object spread into several tables maps one column of
+        # each.
+        shared = defaultdict(dict)
+
+        def spread_columns(file, spreads):
+            """(columns as (file, key, written, line, column, callee),
+            complete) of the objects ``spreads`` name, through the index."""
+            found, complete, pending, seen = (
+                [],
+                True,
+                [(file, s) for s in spreads],
+                set(),
+            )
+            while pending:
+                at_file, (line, column) = pending.pop()
+                sites = references.definition_sites(at_file, line, column) or ()
+                read = False
+                for site in sites:
+                    if site in seen or site[0] not in parsed_scripts:
+                        continue
+                    seen.add(site)
+                    content, tree = parsed_scripts[site[0]]
+                    columns, whole, more = drizzle_spread_columns(
+                        tree, content, site[1], site[2]
+                    )
+                    if not columns and not more:
+                        continue
+                    read = True
+                    complete = complete and whole
+                    found.extend((site[0], *c) for c in columns)
+                    pending.extend((site[0], m) for m in more)
+                complete = complete and read
+            return found, complete
+
+        for file, variables in drizzle_tables.items():
+            for items in variables.values():
+                for item in items:
+                    if item.table == PLACEHOLDER:
+                        continue
+                    owner = table(file, item.table)
+                    known = table_columns.get(owner)
+                    spread, spread_whole = spread_columns(file, item.spreads)
+                    entries = [(file, *c) for c in item.columns] + spread
+                    if item.spreads:
+                        drizzle_columns["spread_columns"] += len(spread)
+                    by_key = {}
+                    for at, key, written, line, column, callee in entries:
+                        if written is None and callee is not None:
+                            written = helper_name(at, callee)
+                            if written is not None:
+                                drizzle_columns["helper_names"] += 1
+                        name = written if written is not None else key
+                        if known is None:
+                            drizzle_columns["table_columns_unknown"] += 1
+                            continue
+                        if name not in known:
+                            # Named another way (a casing option, a
+                            # column the migrations do not create).
+                            drizzle_columns["not_a_table_column"] += 1
+                            continue
+                        drizzle_columns["columns"] += 1
+                        target = f"{owner}::column::{name}"
+                        shared[(at, line, column)][owner] = target
+                        by_key[key] = target
+                    keys_at[(item.file, item.line, item.column)] = (
+                        by_key,
+                        item.columns_complete
+                        and spread_whole
+                        and known is not None
+                        and len(by_key) == len(entries),
+                    )
+        column_at = dict(shared)
         drizzle_scip = {
             "linked": 0,
             "no_scip_index": 0,
@@ -3119,6 +3236,25 @@ class DataContractTool(AnalysisTool):
                 continue
             drizzle_scip["linked"] += 1
             tool, receipt = references.tool(use.file)
+            site = next((s for s in sites if s in table_at), None)
+            by_key, whole = keys_at.get(site, ({}, False))
+            place = {"line": use.line, "column": use.column}
+            resolved = whole and use.keys_complete
+            for key, line, column in use.keys:
+                target = by_key.get(key)
+                if target is None:
+                    resolved = False
+                    drizzle_columns["key_not_a_column"] += 1
+                    continue
+                drizzle_columns["keys"] += 1
+                link(
+                    "WRITES_COLUMN" if use.writes else "READS_COLUMN",
+                    code(use.file, use.caller_id),
+                    target,
+                    DRIZZLE_COLUMN_KEY_RULE,
+                    {"key": key, "line": line, "column": column},
+                    labels=("DbColumn", "Contract"),
+                )
             for kind, used in (("READS", use.reads), ("WRITES", use.writes)):
                 if used:
                     link(
@@ -3128,12 +3264,79 @@ class DataContractTool(AnalysisTool):
                         DRIZZLE_SCIP_RULE,
                         {
                             "variable": use.ref.name,
-                            "line": use.line,
-                            "column": use.column,
+                            **place,
                             "indexer": tool,
                             "receipt": receipt,
+                            **({"columns_resolved": True} if resolved else {}),
                         },
                     )
+        # Reads of a column property, wherever the index resolves one: the
+        # table's own property (users.email) or a selected row's.
+        unattributed = set()
+
+        def receiver_table(file, line, column):
+            """The table whose variable the object of the property access at
+            (line, column) of ``file`` resolves to, or None."""
+            if file not in parsed_scripts:
+                return None
+            _, tree = parsed_scripts[file]
+            node = tree.root_node.descendant_for_point_range(
+                (line - 1, column), (line - 1, column)
+            )
+            access = node.parent if node is not None else None
+            if access is None or access.type != "member_expression":
+                return None
+            target = access.child_by_field_name("object")
+            if target is None or target.type not in ("identifier", "member_expression"):
+                return None
+            if target.type == "member_expression":
+                target = target.child_by_field_name("property")
+            sites = (
+                references.definition_sites(
+                    file, target.start_point.row + 1, target.start_point.column
+                )
+                or ()
+            )
+            owners_found = {table_at[s] for s in sites if s in table_at}
+            return next(iter(owners_found)) if len(owners_found) == 1 else None
+
+        if column_at:
+            owners = defaultdict(list)
+            for d in result.definitions:
+                owners[d.file].append(d)
+            for file, line, column, site in references.references_to(column_at):
+                holders = column_at[site]
+                if len(holders) == 1:
+                    target = next(iter(holders.values()))
+                else:
+                    # A key shared by several tables' columns: the table is
+                    # the receiver's (``agentCronJobs.updatedAt``).
+                    target = holders.get(receiver_table(file, line, column))
+                if target is None:
+                    # A row's shared property: its table is not known, so
+                    # the column's readers are not all known either.
+                    drizzle_columns["reads_unattributed"] += 1
+                    for unknown in holders.values():
+                        unattributed.add(unknown)
+                    continue
+                drizzle_columns["reads"] += 1
+                tool, receipt = references.tool(file)
+                link(
+                    "READS_COLUMN",
+                    code(file, _owner_at(owners[file], file, line, column)),
+                    target,
+                    DRIZZLE_COLUMN_READ_RULE,
+                    {
+                        "line": line,
+                        "column": column,
+                        "indexer": tool,
+                        "receipt": receipt,
+                    },
+                    labels=("DbColumn", "Contract"),
+                )
+        for name in unattributed:
+            if name in column_nodes:
+                column_nodes[name].properties["reads_unattributed"] = True
         drizzle_access = {"linked": 0, "not_a_table": 0}
         for use in by_name_rule:
             ref = use.ref
@@ -3425,6 +3628,7 @@ class DataContractTool(AnalysisTool):
                     "drizzle_tables": drizzle_counts,
                     "drizzle_access_resolution": drizzle_access,
                     "drizzle_scip": drizzle_scip,
+                    "drizzle_columns": dict(drizzle_columns),
                     "active_record_models": len(rails_tables),
                     "active_record_unresolved": len(rails_unresolved),
                     "active_record_access_resolution": rails_counts,

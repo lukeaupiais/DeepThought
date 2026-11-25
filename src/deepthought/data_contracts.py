@@ -5492,6 +5492,14 @@ class DrizzleTable:
     exported: bool
     line: int
     column: int
+    # Each column property: (key, column name as written or None, line,
+    # column of the key, (line, column) of the builder function's name when
+    # the name is not written at the property); complete when every property
+    # is one.
+    columns: tuple = ()
+    columns_complete: bool = False
+    # (line, column) of each spread object's (or function's) name.
+    spreads: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -5519,6 +5527,12 @@ class DrizzleUse:
     # ``schema.users`` or the query key of ``db.query.users``.
     ref_line: int = 0
     ref_column: int = 0
+    # The column keys the call's objects name: (key, line, column) of each
+    # key of ``values``/``set`` objects (writes) or of a relational query's
+    # ``columns`` (reads); keys_complete when every column it names is one
+    # (no spread, no object built elsewhere).
+    keys: tuple[tuple[str, int, int], ...] = ()
+    keys_complete: bool = False
 
 
 @dataclass(frozen=True)
@@ -5701,6 +5715,9 @@ def extract_drizzle(tree, content, file, definitions):
             and statement.parent is not None
             and (statement.parent.type == "export_statement")
         )
+        columns, complete, spreads = _drizzle_columns(
+            args[1] if len(args) > 1 else None, content
+        )
         tables.append(
             DrizzleTable(
                 file,
@@ -5709,6 +5726,9 @@ def extract_drizzle(tree, content, file, definitions):
                 exported,
                 name_node.start_point.row + 1,
                 name_node.start_point.column,
+                columns,
+                complete,
+                spreads,
             )
         )
     local = {t.variable for t in tables}
@@ -5765,6 +5785,14 @@ def extract_drizzle(tree, content, file, definitions):
         else:
             continue
         where = _call_function(call).child_by_field_name("property")
+        if writes:
+            keys, keys_complete = _drizzle_written_keys(call, method, content)
+        elif method in DRIZZLE_QUERY_READS:
+            keys, keys_complete = _drizzle_query_keys(args, content)
+        else:
+            # Columns a select names are read through the table's
+            # properties (``users.email``), which the index resolves.
+            keys, keys_complete = (), True
         uses.append(
             DrizzleUse(
                 file,
@@ -5777,9 +5805,266 @@ def extract_drizzle(tree, content, file, definitions):
                 where.start_point.column,
                 written.start_point.row + 1,
                 written.start_point.column,
+                keys,
+                keys_complete,
             )
         )
     return tables, uses, module
+
+
+def _object_keys(node, content):
+    """(keys, complete) of an object literal: (key, line, column) of each
+    property named by an identifier or string; complete False for a spread,
+    a computed key or a node that is not an object literal."""
+    if node is None or node.type != "object":
+        return (), False
+    keys, complete = [], True
+    for item in node.named_children:
+        if item.type == "comment":
+            continue
+        key = None
+        if item.type == "shorthand_property_identifier":
+            key = item
+        elif item.type in ("pair", "method_definition"):
+            key = item.child_by_field_name("key")
+        if key is None or key.type not in (
+            "property_identifier",
+            "shorthand_property_identifier",
+            "string",
+        ):
+            complete = False
+            continue
+        name = (
+            _script_string(key, content)
+            if key.type == "string"
+            else _text(key, content)
+        )
+        if name is None:
+            complete = False
+            continue
+        keys.append((name, key.start_point.row + 1, key.start_point.column))
+    return tuple(keys), complete
+
+
+def _drizzle_columns(node, content):
+    """(columns, complete) of a Drizzle table's columns argument: an
+    object literal, or an arrow function returning one (``(t) => ({...})``).
+    Each column is (key, the name its builder is given or None, line,
+    column of the key): the first argument of the call the property's
+    value chain starts with (``text("email").notNull()``) when it is a
+    string."""
+    if node is not None and node.type == "arrow_function":
+        body = node.child_by_field_name("body")
+        while body is not None and body.type == "parenthesized_expression":
+            body = body.named_children[0] if body.named_children else None
+        node = body
+    if node is None or node.type != "object":
+        return (), False, ()
+    columns, complete, spreads = [], True, []
+    for item in node.named_children:
+        if item.type == "comment":
+            continue
+        if item.type == "spread_element":
+            # ``...timestamps`` or ``...softDeleteColumns()``: the columns
+            # of an object declared elsewhere, found through the index.
+            spread = item.named_children[0] if item.named_children else None
+            if spread is not None and spread.type == "call_expression":
+                spread = _call_function(spread)
+            if spread is not None and spread.type == "identifier":
+                spreads.append((spread.start_point.row + 1, spread.start_point.column))
+            else:
+                complete = False
+            continue
+        if item.type != "pair":
+            complete = False
+            continue
+        key = item.child_by_field_name("key")
+        if key is None or key.type not in ("property_identifier", "string"):
+            complete = False
+            continue
+        name = (
+            _script_string(key, content)
+            if key.type == "string"
+            else _text(key, content)
+        )
+        value = item.child_by_field_name("value")
+        # The builder call a chain starts with.
+        builder = value
+        while builder is not None and builder.type == "call_expression":
+            function = _call_function(builder)
+            if function is None or function.type != "member_expression":
+                break
+            inner = function.child_by_field_name("object")
+            if inner is None or inner.type != "call_expression":
+                break
+            builder = inner
+        if name is None or builder is None or builder.type != "call_expression":
+            complete = False
+            continue
+        written = _builder_name(builder, content)
+        function = _call_function(builder)
+        callee = (
+            (function.start_point.row + 1, function.start_point.column)
+            if written is None
+            and function is not None
+            and function.type == "identifier"
+            else None
+        )
+        columns.append(
+            (name, written, key.start_point.row + 1, key.start_point.column, callee)
+        )
+    return tuple(columns), complete, tuple(spreads)
+
+
+def _declared_value(tree, line, column):
+    """The value a variable or function declared with its name at (line,
+    column) gives: the variable's initializer, or what the function (or
+    an arrow function initializer) returns; None when there is not one."""
+    for kind in ("variable_declarator", "function_declaration"):
+        for node in _descendants(tree.root_node, kind):
+            name = node.child_by_field_name("name")
+            if name is None or (
+                name.start_point.row + 1,
+                name.start_point.column,
+            ) != (line, column):
+                continue
+            value = (
+                node.child_by_field_name("value")
+                if node.type == "variable_declarator"
+                else node
+            )
+            if value is not None and value.type in (
+                "arrow_function",
+                "function_declaration",
+                "function_expression",
+            ):
+                body = value.child_by_field_name("body")
+                if body is not None and body.type == "statement_block":
+                    returns = [
+                        c for c in body.named_children if c.type == "return_statement"
+                    ]
+                    body = (
+                        returns[0].named_children[0]
+                        if len(returns) == 1 and returns[0].named_children
+                        else None
+                    )
+                while body is not None and body.type == "parenthesized_expression":
+                    body = body.named_children[0] if body.named_children else None
+                return body
+            return value
+    return None
+
+
+def drizzle_spread_columns(tree, content, line, column):
+    """(columns, complete, spreads) of the object of Drizzle columns a
+    variable or function declared at (line, column) holds or returns, as
+    _drizzle_columns gives them."""
+    return _drizzle_columns(_declared_value(tree, line, column), content)
+
+
+def _builder_name(builder, content):
+    """The string a column builder call is given first, or None."""
+    _, _, args = _call_parts(builder, content)
+    if args and args[0].type in ("string", "template_string"):
+        return _script_string(args[0], content)
+    return None
+
+
+def drizzle_helper_name(tree, content, line, column):
+    """The column name a helper function declared at (line, column) gives
+    its column: the function (``const createdAt = () =>
+    timestamptz("created_at").notNull()``) returns a builder chain whose
+    first call is given the name as a string; None otherwise."""
+    body = _declared_value(tree, line, column)
+    while body is not None and body.type == "call_expression":
+        inner = _call_function(body)
+        if inner is None or inner.type != "member_expression":
+            break
+        receiver = inner.child_by_field_name("object")
+        if receiver is None or receiver.type != "call_expression":
+            break
+        body = receiver
+    if body is None or body.type != "call_expression":
+        return None
+    return _builder_name(body, content)
+
+
+def _chain_after(call, content):
+    """(method, arguments) of each call chained after ``call``
+    (``db.insert(t).values(...).onConflictDoUpdate(...)``)."""
+    node = call
+    while (
+        node.parent is not None
+        and node.parent.type == "member_expression"
+        and node.parent.parent is not None
+        and node.parent.parent.type == "call_expression"
+    ):
+        node = node.parent.parent
+        method, _, args = _call_parts(node, content)
+        yield method, args
+
+
+def _drizzle_written_keys(call, method, content):
+    """(keys, complete) of the columns an insert or update writes: the keys
+    of its ``values`` objects (one, or an array of them), ``set`` object
+    and ``onConflictDoUpdate``'s ``set``. A delete writes no column."""
+    if method == "delete":
+        return (), True
+    keys, complete, seen = [], True, False
+    for chained, args in _chain_after(call, content):
+        objects = []
+        if chained in ("values", "set"):
+            argument = args[0] if args else None
+            if argument is not None and argument.type == "array":
+                objects = list(argument.named_children)
+            else:
+                objects = [argument]
+            seen = True
+        elif chained in ("onConflictDoUpdate", "onDuplicateKeyUpdate"):
+            options = args[0] if args else None
+            setting = [
+                item.child_by_field_name("value")
+                for item in (options.named_children if options else ())
+                if item.type == "pair"
+                and _text(item.child_by_field_name("key"), content) == "set"
+            ]
+            objects = setting
+        for node in objects:
+            found, whole = _object_keys(node, content)
+            keys.extend(found)
+            complete = complete and whole
+    return tuple(keys), complete and seen
+
+
+def _drizzle_query_keys(args, content):
+    """(keys, complete) of the columns a relational query names by key:
+    its ``columns`` object. A query that names columns another way (an
+    object ``where`` or ``orderBy``, ``extras``, or options built
+    elsewhere) is not complete; ``with`` relations are read by their own
+    queries' tables."""
+    if not args:
+        return (), True
+    found, complete = _object_keys(args[0], content)
+    if not complete:
+        return (), False
+    keys = []
+    for item in args[0].named_children:
+        if item.type != "pair":
+            continue
+        name = _text(item.child_by_field_name("key"), content)
+        value = item.child_by_field_name("value")
+        if name == "columns":
+            columns, whole = _object_keys(value, content)
+            keys.extend(columns)
+            complete = complete and whole
+        elif name in ("where", "orderBy") and value.type not in (
+            "arrow_function",
+            "function_expression",
+        ):
+            complete = False
+        elif name == "extras":
+            complete = False
+    return tuple(keys), complete
 
 
 _SCRIPT_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")

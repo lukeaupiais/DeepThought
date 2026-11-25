@@ -1086,7 +1086,9 @@ class GraphQueryService:
             "MATCH (table:DbTable)-[:HAS_COLUMN]->(root) "
             "MATCH (user)-[r:READS|WRITES|MAPS_TO]->(table) "
             "WHERE user.repo_url=$repo_url AND user.snapshot_id=$snapshot_id "
-            "AND r.columns_resolved IS NULL "
+            # Some reads of the column could not be told from reads of
+            # another table's column of the same shared ORM property.
+            "AND (r.columns_resolved IS NULL OR root.reads_unattributed) "
             "WITH user, collect(DISTINCT type(r)) AS relations "
             "RETURN user.qualified_name AS qualified_name, "
             "coalesce(user.name, user.path) AS name, "
