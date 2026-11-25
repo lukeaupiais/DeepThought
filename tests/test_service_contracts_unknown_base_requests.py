@@ -61,6 +61,8 @@ class UnknownBaseRequestTests(unittest.TestCase):
             # Only routes with a literal segment take part: /{id} would fit.
             _request("nothing", "/api/v1/unknown"),
             _request("builder", "/api/orders"),
+            # A literal host names another server.
+            _request("host", "https://api.github.com/x/items/3"),
             # The method still has to fit.
             _request("method", "/api/v1/items/7", "DELETE"),
         ]
@@ -80,6 +82,7 @@ class UnknownBaseRequestTests(unittest.TestCase):
         self.assertEqual(found["nothing"].status, "unresolved")
         self.assertEqual(found["method"].status, "unresolved")
         self.assertEqual(found["builder"].status, "unresolved")
+        self.assertEqual(found["host"].status, "unresolved")
 
 
 if __name__ == "__main__":

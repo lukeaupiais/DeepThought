@@ -67,7 +67,9 @@ def resolve_requests(
     which stand for the unknown base (rule ``http-path-unknown-base``). Only
     a route with a literal segment of its own takes part (``/{id}`` would fit
     any path). The fewest skipped segments that fit any route win, and the
-    request links only when exactly one route fits with that many.
+    request links only when exactly one route fits with that many. A
+    request with a literal host names its server, so it does not take part:
+    only a relative path, or one under an unknown base of its own, does.
     """
     templates = [
         (
@@ -142,7 +144,7 @@ def resolve_requests(
         if forwarded:
             rule = HTTP_GATEWAY
         best = best_routes(request.method, segments, candidates)
-        if not best and not forwarded:
+        if not best and not forwarded and target.host is None:
             best = _under_unknown_base(
                 request.method,
                 segments,
