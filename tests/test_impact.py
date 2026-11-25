@@ -15,6 +15,7 @@ from deepthought.analysis_tools.contracts import (
     StandardizedOutput,
     ToolExecutionMetadata,
 )
+from deepthought.go_callgraph import GoCallgraphUnavailable, locate_go_callgraph
 from deepthought.graph_queries import GraphQueryService
 from deepthought.storage.graph import (
     Neo4jConnectionManager,
@@ -32,6 +33,17 @@ GO_READY = importlib.util.find_spec("tree_sitter_go")
 SCIP_READY = importlib.util.find_spec("google") and importlib.util.find_spec(
     "google.protobuf"
 )
+
+
+def _callgraph_ready():
+    try:
+        locate_go_callgraph()
+    except (GoCallgraphUnavailable, OSError):
+        return False
+    return True
+
+
+CALLGRAPH_READY = _callgraph_ready()
 SOURCES = {
     "base.py": "class Base:\n"
     "    def run(self):\n"
@@ -401,8 +413,12 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
 
     @unittest.skipUnless(SCIP_READY, "Provision the scip extra")
     @unittest.skipUnless(GO_READY, "Provision the go grammar")
-    async def test_go_implementations_reach_interface_callers(self):
+    @unittest.skipUnless(CALLGRAPH_READY, "Provision the pinned Go call graph")
+    async def test_go_implementations_reach_the_calls_that_run_them(self):
         files = {
+            "go.mod": "module example.com/app\n\ngo 1.21\n",
+            "store_test.go": 'package app\n\nimport "testing"\n\n'
+            "func TestLoad(t *testing.T) { Load(Mem{}) }\n",
             "store.go": "package app\n\n"
             "type Store interface{ Get(k string) string }\n\n"
             "type Mem struct{}\n\n"
@@ -420,15 +436,16 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
         impact = await self.service.get_impact(
             names["Mem.Get"], repo, snapshot_id=snapshot
         )
-        # The interface method dispatches to Mem.Get, so the interface's
-        # callers are reached; the other implementation is not.
+        # Load's s.Get can run Mem.Get, the Go call graph says, since the
+        # test passes a Mem; no value reaches Load as a Disk.
         self.assertEqual(
             [(row[0], row[1], row[3]) for row in self.rows(impact)],
-            [
-                ("Store.Get", 1, ["DISPATCHES_TO"]),
-                ("Load", 2, ["CALLS", "DISPATCHES_TO"]),
-            ],
+            [("Load", 1, ["CALLS"]), ("TestLoad", 2, ["CALLS", "CALLS"])],
         )
+        disk = await self.service.get_impact(
+            names["Disk.Get"], repo, snapshot_id=snapshot
+        )
+        self.assertEqual(self.rows(disk), [])
         interface = await self.service.get_impact(
             names["Store"], repo, snapshot_id=snapshot
         )
@@ -438,6 +455,7 @@ class ImpactTests(unittest.IsolatedAsyncioTestCase):
                 ("Disk", ["IMPLEMENTS"]),
                 ("Load", ["CALLS"]),
                 ("Mem", ["IMPLEMENTS"]),
+                ("TestLoad", ["CALLS", "CALLS"]),
             ],
         )
 

@@ -3,7 +3,7 @@
 For each of a repository's recent commits that edits two or more source
 files, the parent revision is analyzed and, for every edited file F, the
 declarations the commit's diff touches in F seed an impact query (dependents
-reached backwards over CALLS, INHERITS_FROM, IMPLEMENTS and DISPATCHES_TO, as get_impact
+reached backwards over CALLS, INHERITS_FROM and IMPLEMENTS, as get_impact
 computes them; see tools/check_impact.py). The files of those dependents are
 the prediction; the other files the commit edited are the outcome. A plain
 text search is scored the same way as the baseline: every file that contains

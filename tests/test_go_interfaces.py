@@ -205,19 +205,17 @@ class GoInterfaceTests(unittest.TestCase):
                 names[r.target_match["qualified_name"]]["name"],
             )
             for r in output.relationships
-            if r.type in {"IMPLEMENTS", "DISPATCHES_TO"}
+            if r.type == "IMPLEMENTS"
             and "Store" in names[r.target_match["qualified_name"]]["name"]
-            or r.type == "DISPATCHES_TO"
-            and names[r.source_match["qualified_name"]]["name"] == "Store.Get"
         )
         self.assertIn(("IMPLEMENTS", "Mem", "Store"), edges)
-        self.assertIn(("DISPATCHES_TO", "Store.Get", "Cache.Get"), edges)
-        self.assertNotIn(("DISPATCHES_TO", "Store.Get", "Wrong.Get"), edges)
-        self.assertNotIn(("DISPATCHES_TO", "Store.Get", "Remote.Get"), edges)
+        # Which implementation a call through an interface runs comes from
+        # the Go call graph, per call (go.call-vta), not from method sets.
+        self.assertNotIn("DISPATCHES_TO", {r.type for r in output.relationships})
         rules = {
             r.properties["rule_id"]
             for r in output.relationships
-            if r.type in {"IMPLEMENTS", "DISPATCHES_TO"}
+            if r.type == "IMPLEMENTS"
         }
         self.assertEqual(rules, {GO_INTERFACE_METHOD_SET})
         self.assertEqual(output.metadata.custom_metrics["go_implementations"], 7)

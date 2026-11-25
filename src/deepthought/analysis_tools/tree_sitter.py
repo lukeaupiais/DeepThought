@@ -585,7 +585,7 @@ GO_INTERFACE_RULE = register_rule(
         "method of that name whose parameter and result types are written "
         "alike once each named type is tied to its package; an unexported "
         "method only in the interface's package. The type IMPLEMENTS the "
-        "interface, and each interface method DISPATCHES_TO the type's method.",
+        "interface.",
     )
 )
 GO_CALL_VTA_RULE = register_rule(
@@ -1127,23 +1127,8 @@ class TreeSitterTool(AnalysisTool):
                     _evidence(GO_INTERFACE_RULE),
                 )
             )
-        # A call of an interface method can run the method each implementing
-        # type declares: the interface method dispatches to it.
-        dispatches = sorted({pair for item in implementations for pair in item.methods})
-        for interface_method, method in dispatches:
-            relationships.append(
-                RelationshipData(
-                    "DISPATCHES_TO",
-                    [kinds[interface_method], "Symbol"],
-                    {
-                        "qualified_name": qualified[interface_method],
-                        "repo_url": repo_url,
-                    },
-                    [kinds[method], "Symbol"],
-                    {"qualified_name": qualified[method], "repo_url": repo_url},
-                    _evidence(GO_INTERFACE_RULE),
-                )
-            )
+        # What a call through an interface method runs comes from the Go
+        # call graph below, per call site, not from the method sets.
         go_dynamic = _go_dynamic_calls(result, self.repo_path)
         for site_id, targets in go_dynamic["targets"].items():
             site = sites[site_id]

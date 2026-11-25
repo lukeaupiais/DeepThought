@@ -351,10 +351,10 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
-  interface method DISPATCHES_TO each implementation (see "Interface
-  implementations"), so a changed implementation reaches the interface
-  method and its callers, but not the other implementations. A route a changed
+  IMPLEMENTS and REQUESTS, and forwards over HANDLES. A Go call through an
+  interface method CALLS each implementation the Go call graph finds for that
+  call (see "Interface implementations"), so a changed implementation reaches
+  the calls that can run it, but not the calls no value of its type reaches. A route a changed
   handler HANDLES is affected, and so is every declaration (or file) that
   REQUESTS that route, so impact crosses service boundaries along the HTTP
   contracts the `service-contracts` tool records (see "Service contracts").
@@ -833,9 +833,10 @@ what it embeds: an interface of the same module, `error`, or an exported
 standard library interface listed in `src/deepthought/go_std_interfaces.json`
 (`go list std | grep -v -e internal -e vendor | go run
 tools/go_std_interfaces.go`, written from go/types). The type IMPLEMENTS the
-interface, and each interface method DISPATCHES_TO the type's method, so
-impact reaches the callers of an interface method from a changed
-implementation (see "Impact").
+interface. Earlier, each interface method also DISPATCHES_TO the method of
+every implementing type, and impact followed those edges; they are gone,
+because the per-call edges below say which implementations a given call can
+run.
 
 Each call through an interface method or a function value also gets the
 targets the Go toolchain itself computes: the pinned `golang.org/x/tools`
@@ -865,9 +866,10 @@ one by one, so directories `./...` skips (`_examples/`) are included;
 `testdata` is not. A package the tool cannot load (a dependency missing from
 the module cache, a type error) yields no edges and is reported in the
 warnings and in the `go_dynamic_calls` metric (`sites`, `edges`,
-`failed_packages`). The
-method-set DISPATCHES_TO edges above stay until impact is switched to these
-per-site edges.
+`failed_packages`). Impact follows these CALLS edges: a changed
+implementation reaches the calls that can run it. Go code without a `go.mod`
+gets no such edges, so impact does not reach the callers of an interface
+method from an implementation there.
 
 Nothing is guessed. An interface is left out when an embedded element is a
 type constraint, another module's or a third-party interface, or names no one

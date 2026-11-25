@@ -28,7 +28,7 @@ from deepthought.storage.graph import (
 
 WEAKNESS = {"resolved": 0, "pattern_matched": 1, "name_matched": 2}
 EVIDENCE = ["resolved", "pattern_matched", "name_matched"]
-RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS", "DISPATCHES_TO"}
+RELATIONS = {"CALLS", "INHERITS_FROM", "IMPLEMENTS"}
 
 
 def expected(output, root, max_depth):

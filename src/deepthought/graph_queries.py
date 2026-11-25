@@ -21,9 +21,7 @@ _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
 
 # Relations ``get_impact`` and ``get_contract_impact`` follow backwards (from
 # the dependent's side) and forwards (from the changed side).
-_IMPACT_BACKWARD = (
-    "CALLS|INHERITS_FROM|IMPLEMENTS|DISPATCHES_TO|REQUESTS|CONSUMES|READS"
-)
+_IMPACT_BACKWARD = "CALLS|INHERITS_FROM|IMPLEMENTS|REQUESTS|CONSUMES|READS"
 _IMPACT_FORWARD = "HANDLES|PUBLISHES|WRITES"
 # The labels a Contract node carries beside ``Contract``.
 CONTRACT_KINDS = (
@@ -872,10 +870,11 @@ class GraphQueryService:
         """Declarations and files that depend on a declaration, transitively.
 
         The change set is the declaration and every declaration it CONTAINS.
-        Dependents are reached backwards over CALLS, INHERITS_FROM,
-        IMPLEMENTS, DISPATCHES_TO (a Go interface method to each method that
-        a call through it can run, so a changed implementation reaches the
-        interface's callers), REQUESTS, CONSUMES and READS edges, and forwards over
+        Dependents are reached backwards over CALLS (a Go call through an
+        interface method or a function value calls each method the Go call
+        graph says it can run, so a changed implementation reaches those
+        callers), INHERITS_FROM, IMPLEMENTS, REQUESTS, CONSUMES and READS
+        edges, and forwards over
         HANDLES, PUBLISHES and WRITES: a handler's route (a publisher's
         destination, a writer's table) depends on it, and the callers
         requesting that route (the consumers of that destination, the
