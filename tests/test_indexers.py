@@ -209,6 +209,12 @@ class IndexersTest(unittest.TestCase):
         self.assertEqual(report["runs"][0]["status"], "indexed")
         self.assertEqual(report["coverage"]["web.ts"]["status"], "covered")
         self.assertFalse((self.root / "tsconfig.json").exists())
+        # The project is written outside the workspace, which may be
+        # read-only, rather than inferred into it.
+        argv = self.args_log.read_text().split("\n")[0].split(" ")
+        self.assertNotIn("--infer-tsconfig", argv)
+        self.assertTrue(argv[-1].endswith("tsconfig.json"), argv)
+        self.assertFalse(Path(argv[-1]).is_relative_to(self.root.resolve()))
 
     def test_files_outside_every_tsconfig_get_a_second_pass(self):
         (self.root / "tsconfig.json").write_text("{}")
