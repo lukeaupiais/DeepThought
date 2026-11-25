@@ -359,7 +359,9 @@ the chat model. The port answers from stored edges only:
 - `get_impact(qualified_name)` (`deepthought-graph impact --symbol`, MCP
   getImpact): the change set is the declaration and every declaration it
   CONTAINS; dependents are found backwards over CALLS, INHERITS_FROM,
-  IMPLEMENTS, DISPATCHES_TO and REQUESTS, and forwards over HANDLES. A Go
+  IMPLEMENTS, DISPATCHES_TO, USES_FIXTURE and REQUESTS, and forwards over
+  HANDLES. A test reaches the code its pytest fixtures call (see "pytest
+  fixtures"). A Go
   interface method DISPATCHES_TO each implementation (see "Interface
   implementations"), so a changed implementation reaches the interface
   method and its callers, but not the other implementations. A route a changed
@@ -837,6 +839,32 @@ The 25 chi pairs scip-go lacks are all in `_examples/`, which the go tool, and
 so scip-go, skips; they are ordinary imports of the chi packages. Every other
 import in these corpora names the standard library or a third-party module
 (`outside_module`).
+
+### pytest fixtures
+
+pytest hands a test the fixtures its parameters name, so the test depends on
+them without calling them (`deepthought.pytest_fixtures`). Each test function
+(`test*`), test method (`test*` in a class named `Test*`) and fixture in a
+test module (`test_*.py`, `*_test.py`) or `conftest.py` has a USES_FIXTURE
+edge to each fixture it requests, with the `line` and `name` written:
+
+| Rule | Links |
+|---|---|
+| `pytest.fixture-parameter` | a parameter without a default value (after a method's `self`) to the fixture of that name |
+| `pytest.fixture-usefixtures` | a string in `@pytest.mark.usefixtures(...)` on a test or test class to the fixture of that name |
+
+A fixture is a function decorated `@pytest.fixture` or
+`@pytest_asyncio.fixture` (or `fixture` imported from either), named by its
+`name=` argument when that is a string. A name is looked up as pytest looks
+it up: the test's class, its module, then `conftest.py` in the module's
+directory and each directory above it, nearest first; a fixture requesting
+its own name gets the one it overrides. Both rules are `pattern_matched`.
+This is a rule over the source read with Python's `ast`, because pytest's
+own listing (`--fixtures-per-test`) imports the project and runs its
+plugins. Fixtures from plugins and `pytest_plugins`, `pytestmark`,
+`getfixturevalue`, and `python_files` or `python_functions` settings in
+configuration are not read. `get_impact` follows USES_FIXTURE backwards, so
+a change to code a fixture calls reaches every test that requests it.
 
 ### Interface implementations
 
