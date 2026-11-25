@@ -4228,7 +4228,9 @@ def _prisma_pairs(node, content, found):
             if name is None:
                 found.complete = False
                 continue
-            value = item.child_by_field_name("value") if item.type == "pair" else None
+            # A shorthand property's value is the variable it names, which
+            # is not an object literal read here.
+            value = item.child_by_field_name("value") if item.type == "pair" else item
             pairs.append((name, key.start_point.row + 1, key.start_point.column, value))
     return pairs
 

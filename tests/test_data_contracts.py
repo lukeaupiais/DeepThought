@@ -2675,25 +2675,35 @@ export async function seed(names: string[]) {
   const groups = await prisma.user.groupBy({ by: ["tenant"], _count: true });
   return groups.map((g) => g.tenant);
 }
+
+export async function short(where: Prisma.UserWhereInput) {
+  return prisma.user.count({ where });
+}
 """,
 }
 
 
 @unittest.skipUnless(TYPESCRIPT, "Install the typescript grammar")
 class ScriptOrmTests(unittest.TestCase):
-    def prisma_index(self, directory):
+    def prisma_index(self, directory, per_model=False):
+        """A scip-typescript index of src/repo.ts, with the client symbols
+        of the prisma-client-js generator (namespace Prisma in index.d.ts),
+        or of the prisma-client generator (a file per model)."""
         import deepthought
         from deepthought._scip import scip_pb2 as wire
 
+        client = (
+            "scip-typescript npm app 1.0.0 src/generated/prisma/models/`User.ts`/"
+            if per_model
+            else "scip-typescript npm prisma-client-0 6.19.0 `index.d.ts`/Prisma/"
+        )
         payload = (
-            "scip-typescript npm prisma-client-0 6.19.0 `index.d.ts`/Prisma/"
-            "$UserPayload#typeLiteral10:scalars.`$Extensions.GetPayloadResult`:"
-            "typeLiteral11:name."
+            client + "$UserPayload#typeLiteral10:scalars."
+            "`$Extensions.GetPayloadResult`:typeLiteral11:name."
         )
         index = wire.Index()
         index.metadata.tool_info.name = "scip-typescript"
         index.metadata.tool_info.version = "0.6.2"
-        client = "scip-typescript npm prisma-client-0 6.19.0 `index.d.ts`/Prisma/"
         document = index.documents.add(relative_path="src/repo.ts")
         lines = PRISMA_COLUMNS["src/repo.ts"].split("\n")
         for line, text, symbol in (
@@ -2714,13 +2724,23 @@ class ScriptOrmTests(unittest.TestCase):
         NODE, "Prisma schemas are read with node, npm and npm's registry"
     )
     def test_prisma_columns(self):
+        self.prisma_columns(per_model=False)
+
+    @unittest.skipUnless(
+        NODE, "Prisma schemas are read with node, npm and npm's registry"
+    )
+    def test_prisma_columns_of_the_prisma_client_generator(self):
+        # Prisma 7's prisma-client generator declares its types per model.
+        self.prisma_columns(per_model=True)
+
+    def prisma_columns(self, per_model):
         with tempfile.TemporaryDirectory() as directory:
             write(directory, PRISMA_COLUMNS)
             output = asyncio.run(
                 DataContractTool(directory).analyze(
                     "r",
                     languages=["typescript"],
-                    scip_indexes=(self.prisma_index(directory),),
+                    scip_indexes=(self.prisma_index(directory, per_model),),
                 )
             )
         edges = sorted(
@@ -2785,6 +2805,8 @@ class ScriptOrmTests(unittest.TestCase):
                 ("seed", "WRITES_COLUMN", "users::column::name", 26, key, False),
                 ("seed", "WRITES_COLUMN", "users::column::name", 29, key, False),
                 ("seed", "WRITES_COLUMN", "users::column::tenant", 26, key, False),
+                # The where is a variable: its columns are not known here.
+                ("short", "READS", "users", 36, "prisma-client", False),
             ],
         )
         # users has no migration: its columns are the DMMF's; Post's are its

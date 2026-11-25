@@ -770,9 +770,13 @@ PRISMA_CLIENT_RULE = register_rule(
 # generate writes (``Prisma/$UserPayload#typeLiteral10:scalars.`...`:
 # typeLiteral11:email.``), or of a groupBy row
 # (``Prisma/UserGroupByOutputType#typeLiteral10:email.``).
+# The prisma-client-js generator declares these in its namespace Prisma
+# (``index.d.ts`/Prisma/``); the prisma-client generator (Prisma 7's
+# default) in a file per model (``models/`User.ts`/``).
+_PRISMA_CLIENT_SCOPE = r"(?:/Prisma/|/models/`\w+\.ts`/)"
 _PRISMA_PAYLOAD = re.compile(
-    r"^scip-typescript .*/Prisma/(?:\$(\w+)Payload#[^ ]*:scalars\.[^ ]*"
-    r"|(\w+)GroupByOutputType#[^ ]*):(\w+)\.$"
+    r"^scip-typescript .*" + _PRISMA_CLIENT_SCOPE + r"(?:\$(\w+)Payload#[^ ]*"
+    r":scalars\.[^ ]*|(\w+)GroupByOutputType#[^ ]*):(\w+)\.$"
 )
 PRISMA_COLUMN_RULE = register_rule(
     EvidenceRule(
@@ -2453,7 +2457,8 @@ class DataContractTool(AnalysisTool):
                 for line, column, name, value, key in inputs:
                     natives = references.symbols(file, line, column) or ()
                     if not any(
-                        native.endswith(f"/Prisma/{name}#") for native in natives
+                        re.search(_PRISMA_CLIENT_SCOPE + re.escape(name) + "#$", native)
+                        for native in natives
                     ):
                         continue
                     kind = model = None
